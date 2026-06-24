@@ -52,3 +52,16 @@ compile_commands.json
 *creator.user*
 
 *_qmlcache.qrc
+
+# Pinloom local build outputs
+build/
+out/
+.vs/
+.vscode/
+*.user
+*.obj
+*.exe
+*.lib
+*.pdb
+*.ilk
+*.log
