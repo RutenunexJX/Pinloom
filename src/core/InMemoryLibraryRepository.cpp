@@ -76,4 +76,64 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
     return results;
 }
 
+bool InMemoryLibraryRepository::clearResources()
+{
+    resources_.clear();
+    return true;
+}
+
+bool InMemoryLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)
+{
+    if (root.id.trimmed().isEmpty() || root.path.trimmed().isEmpty()) {
+        return false;
+    }
+
+    libraryRoots_.insert(root.id, root);
+    return true;
+}
+
+QList<LibraryRoot> InMemoryLibraryRepository::libraryRoots() const
+{
+    QList<LibraryRoot> roots = libraryRoots_.values();
+    std::sort(roots.begin(), roots.end(), [](const LibraryRoot &left, const LibraryRoot &right) {
+        return left.path < right.path;
+    });
+    return roots;
+}
+
+std::optional<LibraryRoot> InMemoryLibraryRepository::findLibraryRoot(const QString &id) const
+{
+    const auto it = libraryRoots_.constFind(id);
+    if (it == libraryRoots_.constEnd()) {
+        return std::nullopt;
+    }
+
+    return it.value();
+}
+
+bool InMemoryLibraryRepository::removeLibraryRoot(const QString &id)
+{
+    return libraryRoots_.remove(id) > 0;
+}
+
+bool InMemoryLibraryRepository::setLibraryRootEnabled(const QString &id, bool enabled)
+{
+    auto it = libraryRoots_.find(id);
+    if (it == libraryRoots_.end()) {
+        return false;
+    }
+    it->enabled = enabled;
+    return true;
+}
+
+bool InMemoryLibraryRepository::updateLibraryRootLastIndexedAt(const QString &id, const QDateTime &indexedAt)
+{
+    auto it = libraryRoots_.find(id);
+    if (it == libraryRoots_.end()) {
+        return false;
+    }
+    it->lastIndexedAt = indexedAt.toUTC();
+    return true;
+}
+
 } // namespace Pinloom

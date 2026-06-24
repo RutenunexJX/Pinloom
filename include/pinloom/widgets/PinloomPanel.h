@@ -2,7 +2,6 @@
 
 #include "pinloom/core/LibraryRepository.h"
 
-#include <QStringList>
 #include <QWidget>
 
 class QLabel;
@@ -21,21 +20,30 @@ public:
 
 private slots:
     void addLibraryRoot();
-    void refreshIndex();
+    void removeSelectedLibraryRoot();
+    void refreshSelectedRoot();
+    void refreshAllRoots();
+    void rebuildAllRoots();
     void refreshResults();
     void openSelectedResource();
     void openResultItem(QListWidgetItem *item);
 
 private:
+    void loadLibraryRoots();
+    void selectLibraryRoot(const QString &id);
     void updateStatus(const QString &message);
+    QString selectedRootId() const;
     QString selectedLocation() const;
 
     ILibraryRepository &repository_;
-    QStringList libraryRoots_;
+    QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
-    QPushButton *refreshButton_ = nullptr;
+    QPushButton *removeRootButton_ = nullptr;
+    QPushButton *refreshSelectedButton_ = nullptr;
+    QPushButton *refreshAllButton_ = nullptr;
+    QPushButton *rebuildAllButton_ = nullptr;
     QPushButton *openButton_ = nullptr;
 };
 

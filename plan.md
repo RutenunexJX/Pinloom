@@ -89,7 +89,29 @@ Status:
 - Build/test verification: done
 - Commit/push: release target is `origin/main`
 
-## MVP 5: Precise Jump Targets
+## MVP 5: Library Root Management
+
+Goal: make saved library folders persistent and manageable through the reusable UI.
+
+Scope:
+
+- Add `LibraryRoot` to the core model.
+- Persist roots in SQLite schema version 2.
+- Add root CRUD to repository interfaces and implementations.
+- Add indexing service support for saved enabled roots and rebuilds.
+- Add UI controls for add, remove, refresh selected, refresh all, and rebuild all.
+
+Status:
+
+- Core `LibraryRoot` model: done
+- SQLite schema v2 and root CRUD: done
+- Saved-root indexing and rebuild support: done
+- Root management UI: done
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
+
+## MVP 6: Precise Jump Targets
 
 Goal: make anchors useful for real navigation.
 
@@ -100,7 +122,7 @@ Planned scope:
 - PDF page/region anchors.
 - Manual anchors and aliases.
 
-## MVP 6: ZeroSlack Embedding
+## MVP 7: ZeroSlack Embedding
 
 Goal: embed Pinloom UI into ZeroSlack without merging ownership boundaries.
 

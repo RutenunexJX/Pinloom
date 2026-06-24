@@ -12,6 +12,7 @@ class WidgetSmokeTest : public QObject {
 
 private slots:
     void panelUsesInjectedRepository();
+    void panelLoadsSavedLibraryRoots();
 };
 
 void WidgetSmokeTest::panelUsesInjectedRepository()
@@ -26,13 +27,26 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
-    auto *searchEdit = panel.findChild<QLineEdit *>();
-    auto *results = panel.findChild<QListWidget *>();
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
     searchEdit->setText(QStringLiteral("README"));
     QCOMPARE(results->count(), 1);
+}
+
+void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
+{
+    InMemoryLibraryRepository repository;
+    LibraryRoot root = makeLibraryRootForPath(QStringLiteral("E:/Pinloom/Pinloom"));
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    PinloomPanel panel(repository);
+    auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    QVERIFY(rootList);
+    QCOMPARE(rootList->count(), 1);
+    QCOMPARE(rootList->item(0)->data(Qt::UserRole).toString(), root.id);
 }
 
 QTEST_MAIN(WidgetSmokeTest)

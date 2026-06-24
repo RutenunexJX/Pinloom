@@ -1,5 +1,9 @@
 #include "pinloom/core/IndexingService.h"
 
+#include "pinloom/core/DirectoryLibrarySource.h"
+
+#include <QDateTime>
+
 namespace Pinloom {
 
 IndexingService::IndexingService(ILibraryRepository &repository)
@@ -30,6 +34,57 @@ bool IndexingService::index(const ILibrarySource &source)
     lastError_.clear();
     lastIndexedCount_ = indexedCount;
     return true;
+}
+
+bool IndexingService::indexRoot(const LibraryRoot &root)
+{
+    if (!root.enabled) {
+        lastError_.clear();
+        lastIndexedCount_ = 0;
+        return true;
+    }
+
+    DirectoryLibrarySource source(root.path);
+    if (!index(source)) {
+        return false;
+    }
+
+    if (!repository_.updateLibraryRootLastIndexedAt(root.id, QDateTime::currentDateTimeUtc())) {
+        lastError_ = QStringLiteral("Unable to update library root index timestamp: %1").arg(root.path);
+        return false;
+    }
+
+    return true;
+}
+
+bool IndexingService::indexEnabledRoots()
+{
+    int totalIndexed = 0;
+    for (const LibraryRoot &root : repository_.libraryRoots()) {
+        if (!root.enabled) {
+            continue;
+        }
+        if (!indexRoot(root)) {
+            lastIndexedCount_ = totalIndexed;
+            return false;
+        }
+        totalIndexed += lastIndexedCount_;
+    }
+
+    lastError_.clear();
+    lastIndexedCount_ = totalIndexed;
+    return true;
+}
+
+bool IndexingService::rebuildEnabledRoots()
+{
+    if (!repository_.clearResources()) {
+        lastError_ = QStringLiteral("Unable to clear indexed resources");
+        lastIndexedCount_ = 0;
+        return false;
+    }
+
+    return indexEnabledRoots();
 }
 
 QString IndexingService::lastError() const

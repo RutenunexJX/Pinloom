@@ -4,7 +4,7 @@ Pinloom is a standalone Qt application for locating personal and engineering mat
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
 
-## Current MVP: Usable Locator UI
+## Current MVP: Library Root Management
 
 Implemented:
 
@@ -14,9 +14,12 @@ Implemented:
 - Persistent resources, tags, aliases, anchors, and FTS5 metadata search.
 - `LibrarySource` and `IndexingService` abstractions.
 - `DirectoryLibrarySource` for explicit normal-directory indexing.
+- Persistent library root management in SQLite with schema version 2.
+- Saved root CRUD in `ILibraryRepository`, `InMemoryLibraryRepository`, and `SqliteLibraryRepository`.
+- `IndexingService` refresh/rebuild support for saved enabled roots.
 - `pinloom_widgets` static library with repository-injected reusable `PinloomPanel`.
 - `pinloom_app` standalone Qt application entry point using a default SQLite database under `QStandardPaths::AppDataLocation`.
-- Minimal locator UI for adding a folder, refreshing the index, searching, and opening selected resources.
+- Locator UI for adding/removing folders, refreshing selected/all folders, rebuilding the index, searching, and opening selected resources.
 - `pinloom_core_smoke_test` validating basic alias/tag search and FTS5 schema exposure.
 - `pinloom_sqlite_repository_test` validating SQLite initialization, persistence, search, and idempotent upsert behavior.
 - `pinloom_directory_source_test` validating explicit-root directory indexing and idempotent repository upserts.
@@ -24,9 +27,9 @@ Implemented:
 
 Not implemented yet:
 
-- Persistent library root management.
 - Obsidian-specific markdown parsing for aliases, tags, wikilinks, and block ids.
 - PDF content/region extraction, source-code symbol parsing, and web page indexing.
+- Precise file-line, markdown-heading/block, and PDF-page/region jumps.
 - Production search ranking.
 - ZeroSlack dock/global-control integration.
 
@@ -69,6 +72,12 @@ Directory Source Indexing MVP validation:
 - Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`)
 
 Usable Locator UI MVP validation:
+
+- Configure: passed
+- Build: passed
+- Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+
+Library Root Management MVP validation:
 
 - Configure: passed
 - Build: passed

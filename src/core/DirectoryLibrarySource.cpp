@@ -1,5 +1,7 @@
 #include "pinloom/core/DirectoryLibrarySource.h"
 
+#include "pinloom/core/LibraryRoot.h"
+
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -33,7 +35,7 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 } // namespace
 
 DirectoryLibrarySource::DirectoryLibrarySource(QString rootPath)
-    : rootPath_(QDir::cleanPath(QFileInfo(rootPath).absoluteFilePath()))
+    : rootPath_(normalizedLibraryRootPath(rootPath))
 {
 }
 

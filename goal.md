@@ -56,3 +56,13 @@ Completed:
 - Reusable widget accepts repository injection instead of owning fixed in-memory data.
 - UI can add explicit folder roots, refresh directory indexing, search repository results, and open selected paths.
 - Widget smoke test validates repository injection and search display wiring.
+
+### Library Root Management MVP
+
+Completed:
+
+- Persistent library root model and SQLite schema v2.
+- Repository root CRUD across SQLite and in-memory implementations.
+- Saved-root indexing, refresh-all, and rebuild-all service flows.
+- Reusable UI for managing saved folders and rebuilding the resource index.
+- Tests for root persistence, v1-to-v2 upgrade, saved-root indexing, rebuilds, and widget root loading.

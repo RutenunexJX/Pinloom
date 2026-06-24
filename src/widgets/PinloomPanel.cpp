@@ -1,8 +1,8 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
-#include "pinloom/core/DirectoryLibrarySource.h"
 #include "pinloom/core/IndexingService.h"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QFileDialog>
 #include <QHBoxLayout>
@@ -17,76 +17,174 @@
 
 namespace Pinloom {
 
+namespace {
+
+QString rootItemText(const LibraryRoot &root)
+{
+    const QString indexedAt = root.lastIndexedAt.isValid()
+        ? root.lastIndexedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"))
+        : QStringLiteral("never");
+    return QStringLiteral("%1  |  %2  |  %3")
+        .arg(root.displayName.isEmpty() ? root.path : root.displayName,
+             root.path,
+             indexedAt);
+}
+
+} // namespace
+
 PinloomPanel::PinloomPanel(ILibraryRepository &repository, QWidget *parent)
     : QWidget(parent)
     , repository_(repository)
 {
     auto *layout = new QVBoxLayout(this);
 
-    auto *toolbar = new QHBoxLayout();
+    auto *rootToolbar = new QHBoxLayout();
     auto *addRootButton = new QPushButton(tr("Add Folder"), this);
-    refreshButton_ = new QPushButton(tr("Refresh Index"), this);
-    openButton_ = new QPushButton(tr("Open"), this);
+    removeRootButton_ = new QPushButton(tr("Remove Folder"), this);
+    refreshSelectedButton_ = new QPushButton(tr("Refresh Selected"), this);
+    refreshAllButton_ = new QPushButton(tr("Refresh All"), this);
+    rebuildAllButton_ = new QPushButton(tr("Rebuild All"), this);
 
+    rootToolbar->addWidget(addRootButton);
+    rootToolbar->addWidget(removeRootButton_);
+    rootToolbar->addWidget(refreshSelectedButton_);
+    rootToolbar->addWidget(refreshAllButton_);
+    rootToolbar->addWidget(rebuildAllButton_);
+    rootToolbar->addStretch(1);
+
+    rootList_ = new QListWidget(this);
+    rootList_->setObjectName(QStringLiteral("libraryRootList"));
+    rootList_->setMaximumHeight(130);
+
+    auto *resultToolbar = new QHBoxLayout();
     searchEdit_ = new QLineEdit(this);
+    searchEdit_->setObjectName(QStringLiteral("searchEdit"));
     searchEdit_->setPlaceholderText(tr("Search resources, tags, aliases, anchors"));
+    openButton_ = new QPushButton(tr("Open"), this);
+    resultToolbar->addWidget(searchEdit_, 1);
+    resultToolbar->addWidget(openButton_);
 
     resultList_ = new QListWidget(this);
+    resultList_->setObjectName(QStringLiteral("resultList"));
     statusLabel_ = new QLabel(this);
+    statusLabel_->setObjectName(QStringLiteral("statusLabel"));
 
-    toolbar->addWidget(addRootButton);
-    toolbar->addWidget(refreshButton_);
-    toolbar->addWidget(openButton_);
-    toolbar->addStretch(1);
-
-    layout->addLayout(toolbar);
-    layout->addWidget(searchEdit_);
+    layout->addLayout(rootToolbar);
+    layout->addWidget(rootList_);
+    layout->addLayout(resultToolbar);
     layout->addWidget(resultList_, 1);
     layout->addWidget(statusLabel_);
 
     connect(addRootButton, &QPushButton::clicked, this, &PinloomPanel::addLibraryRoot);
-    connect(refreshButton_, &QPushButton::clicked, this, &PinloomPanel::refreshIndex);
+    connect(removeRootButton_, &QPushButton::clicked, this, &PinloomPanel::removeSelectedLibraryRoot);
+    connect(refreshSelectedButton_, &QPushButton::clicked, this, &PinloomPanel::refreshSelectedRoot);
+    connect(refreshAllButton_, &QPushButton::clicked, this, &PinloomPanel::refreshAllRoots);
+    connect(rebuildAllButton_, &QPushButton::clicked, this, &PinloomPanel::rebuildAllRoots);
     connect(openButton_, &QPushButton::clicked, this, &PinloomPanel::openSelectedResource);
     connect(searchEdit_, &QLineEdit::textChanged, this, &PinloomPanel::refreshResults);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
 
+    loadLibraryRoots();
     refreshResults();
 }
 
 void PinloomPanel::addLibraryRoot()
 {
-    const QString root = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
-    if (root.isEmpty()) {
+    const QString path = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
+    if (path.isEmpty()) {
         return;
     }
-    if (!libraryRoots_.contains(root, Qt::CaseInsensitive)) {
-        libraryRoots_.append(root);
+
+    const LibraryRoot root = makeLibraryRootForPath(path);
+    if (!repository_.upsertLibraryRoot(root)) {
+        QMessageBox::warning(this, tr("Add folder failed"), tr("Unable to save library folder."));
+        return;
     }
-    refreshIndex();
+
+    loadLibraryRoots();
+    selectLibraryRoot(root.id);
+    refreshSelectedRoot();
 }
 
-void PinloomPanel::refreshIndex()
+void PinloomPanel::removeSelectedLibraryRoot()
 {
-    if (libraryRoots_.isEmpty()) {
+    const QString id = selectedRootId();
+    if (id.isEmpty()) {
         updateStatus(tr("No library folder selected"));
         return;
     }
 
-    int totalIndexed = 0;
-    for (const QString &root : libraryRoots_) {
-        DirectoryLibrarySource source(root);
-        IndexingService indexer(repository_);
-        if (!indexer.index(source)) {
-            QMessageBox::warning(this, tr("Indexing failed"), indexer.lastError());
-            updateStatus(indexer.lastError());
-            return;
-        }
-        totalIndexed += indexer.lastIndexedCount();
+    if (!repository_.removeLibraryRoot(id)) {
+        updateStatus(tr("Unable to remove library folder"));
+        return;
     }
 
+    loadLibraryRoots();
+    updateStatus(tr("Removed library folder; indexed resources were kept"));
+}
+
+void PinloomPanel::refreshSelectedRoot()
+{
+    const QString id = selectedRootId();
+    if (id.isEmpty()) {
+        updateStatus(tr("No library folder selected"));
+        return;
+    }
+
+    const std::optional<LibraryRoot> root = repository_.findLibraryRoot(id);
+    if (!root.has_value()) {
+        loadLibraryRoots();
+        updateStatus(tr("Library folder no longer exists"));
+        return;
+    }
+
+    IndexingService indexer(repository_);
+    if (!indexer.indexRoot(root.value())) {
+        QMessageBox::warning(this, tr("Indexing failed"), indexer.lastError());
+        updateStatus(indexer.lastError());
+        return;
+    }
+
+    loadLibraryRoots();
+    selectLibraryRoot(id);
     refreshResults();
-    updateStatus(tr("Indexed %n resource(s) from %1 folder(s)", nullptr, totalIndexed)
-                     .arg(libraryRoots_.size()));
+    updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
+}
+
+void PinloomPanel::refreshAllRoots()
+{
+    IndexingService indexer(repository_);
+    if (!indexer.indexEnabledRoots()) {
+        QMessageBox::warning(this, tr("Indexing failed"), indexer.lastError());
+        updateStatus(indexer.lastError());
+        return;
+    }
+
+    loadLibraryRoots();
+    refreshResults();
+    updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
+}
+
+void PinloomPanel::rebuildAllRoots()
+{
+    const QMessageBox::StandardButton answer = QMessageBox::question(
+        this,
+        tr("Rebuild Index"),
+        tr("Clear indexed resources and rebuild from enabled library folders?"));
+    if (answer != QMessageBox::Yes) {
+        return;
+    }
+
+    IndexingService indexer(repository_);
+    if (!indexer.rebuildEnabledRoots()) {
+        QMessageBox::warning(this, tr("Rebuild failed"), indexer.lastError());
+        updateStatus(indexer.lastError());
+        return;
+    }
+
+    loadLibraryRoots();
+    refreshResults();
+    updateStatus(tr("Rebuilt %n resource(s)", nullptr, indexer.lastIndexedCount()));
 }
 
 void PinloomPanel::refreshResults()
@@ -136,9 +234,49 @@ void PinloomPanel::openResultItem(QListWidgetItem *item)
     }
 }
 
+void PinloomPanel::loadLibraryRoots()
+{
+    const QString currentId = selectedRootId();
+    rootList_->clear();
+
+    for (const LibraryRoot &root : repository_.libraryRoots()) {
+        auto *item = new QListWidgetItem(rootItemText(root), rootList_);
+        item->setData(Qt::UserRole, root.id);
+        item->setData(Qt::UserRole + 1, root.path);
+        item->setToolTip(root.path);
+    }
+
+    if (!currentId.isEmpty()) {
+        selectLibraryRoot(currentId);
+    }
+    if (!rootList_->currentItem() && rootList_->count() > 0) {
+        rootList_->setCurrentRow(0);
+    }
+}
+
+void PinloomPanel::selectLibraryRoot(const QString &id)
+{
+    for (int row = 0; row < rootList_->count(); ++row) {
+        QListWidgetItem *item = rootList_->item(row);
+        if (item->data(Qt::UserRole).toString() == id) {
+            rootList_->setCurrentItem(item);
+            return;
+        }
+    }
+}
+
 void PinloomPanel::updateStatus(const QString &message)
 {
     statusLabel_->setText(message);
+}
+
+QString PinloomPanel::selectedRootId() const
+{
+    const QListWidgetItem *item = rootList_->currentItem();
+    if (!item) {
+        return {};
+    }
+    return item->data(Qt::UserRole).toString();
 }
 
 QString PinloomPanel::selectedLocation() const

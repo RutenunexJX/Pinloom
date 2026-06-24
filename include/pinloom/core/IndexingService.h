@@ -10,6 +10,9 @@ public:
     explicit IndexingService(ILibraryRepository &repository);
 
     bool index(const ILibrarySource &source);
+    bool indexRoot(const LibraryRoot &root);
+    bool indexEnabledRoots();
+    bool rebuildEnabledRoots();
     QString lastError() const;
     int lastIndexedCount() const;
 

@@ -193,14 +193,8 @@ bool SqliteLibraryRepository::initialize()
         }
     }
 
-    QSqlQuery query(database_);
-    query.prepare(QStringLiteral("INSERT OR IGNORE INTO schema_migrations(version, name, applied_at) "
-                                 "VALUES (?, ?, ?)"));
-    query.addBindValue(Schema::currentVersion());
-    query.addBindValue(QStringLiteral("initial_sqlite_fts5_schema"));
-    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    if (!query.exec()) {
-        setLastError(query.lastError().text());
+    if (!recordMigration(1, QStringLiteral("initial_sqlite_fts5_schema"))
+        || !recordMigration(2, QStringLiteral("library_roots"))) {
         rollbackTransaction();
         return false;
     }
@@ -410,10 +404,175 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     return results;
 }
 
+bool SqliteLibraryRepository::clearResources()
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    if (!beginTransaction()) {
+        return false;
+    }
+
+    if (!execute(QStringLiteral("DELETE FROM resource_fts;"))
+        || !execute(QStringLiteral("DELETE FROM resources;"))) {
+        rollbackTransaction();
+        return false;
+    }
+
+    return commitTransaction();
+}
+
+bool SqliteLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+    if (root.id.trimmed().isEmpty() || root.path.trimmed().isEmpty()) {
+        setLastError(QStringLiteral("Library root id and path are required"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("INSERT INTO library_roots(id, path, display_name, enabled, last_indexed_at) "
+                                 "VALUES (?, ?, ?, ?, ?) "
+                                 "ON CONFLICT(id) DO UPDATE SET "
+                                 "path = excluded.path,"
+                                 "display_name = excluded.display_name,"
+                                 "enabled = excluded.enabled,"
+                                 "last_indexed_at = excluded.last_indexed_at"));
+    query.addBindValue(root.id);
+    query.addBindValue(root.path);
+    query.addBindValue(root.displayName.isEmpty() ? root.path : root.displayName);
+    query.addBindValue(root.enabled ? 1 : 0);
+    query.addBindValue(root.lastIndexedAt.isValid()
+                           ? root.lastIndexedAt.toUTC().toString(Qt::ISODate)
+                           : QVariant());
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+QList<LibraryRoot> SqliteLibraryRepository::libraryRoots() const
+{
+    QList<LibraryRoot> roots;
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return roots;
+    }
+
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("SELECT id, path, display_name, enabled, last_indexed_at "
+                                   "FROM library_roots ORDER BY lower(display_name), lower(path)"))) {
+        setLastError(query.lastError().text());
+        return roots;
+    }
+
+    while (query.next()) {
+        roots.append(hydrateLibraryRoot(query));
+    }
+
+    return roots;
+}
+
+std::optional<LibraryRoot> SqliteLibraryRepository::findLibraryRoot(const QString &id) const
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return std::nullopt;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("SELECT id, path, display_name, enabled, last_indexed_at "
+                                 "FROM library_roots WHERE id = ?"));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) {
+        return std::nullopt;
+    }
+
+    return hydrateLibraryRoot(query);
+}
+
+bool SqliteLibraryRepository::removeLibraryRoot(const QString &id)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("DELETE FROM library_roots WHERE id = ?"));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() > 0;
+}
+
+bool SqliteLibraryRepository::setLibraryRootEnabled(const QString &id, bool enabled)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE library_roots SET enabled = ? WHERE id = ?"));
+    query.addBindValue(enabled ? 1 : 0);
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() > 0;
+}
+
+bool SqliteLibraryRepository::updateLibraryRootLastIndexedAt(const QString &id, const QDateTime &indexedAt)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE library_roots SET last_indexed_at = ? WHERE id = ?"));
+    query.addBindValue(indexedAt.isValid() ? indexedAt.toUTC().toString(Qt::ISODate) : QVariant());
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return query.numRowsAffected() > 0;
+}
+
 bool SqliteLibraryRepository::execute(const QString &sql)
 {
     QSqlQuery query(database_);
     if (!query.exec(sql)) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool SqliteLibraryRepository::recordMigration(int version, const QString &name)
+{
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("INSERT OR IGNORE INTO schema_migrations(version, name, applied_at) "
+                                 "VALUES (?, ?, ?)"));
+    query.addBindValue(version);
+    query.addBindValue(name);
+    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    if (!query.exec()) {
         setLastError(query.lastError().text());
         return false;
     }
@@ -465,6 +624,17 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     resource.anchors = readAnchors(id);
 
     return resource;
+}
+
+LibraryRoot SqliteLibraryRepository::hydrateLibraryRoot(QSqlQuery &query) const
+{
+    LibraryRoot root;
+    root.id = query.value(0).toString();
+    root.path = query.value(1).toString();
+    root.displayName = query.value(2).toString();
+    root.enabled = query.value(3).toInt() != 0;
+    root.lastIndexedAt = QDateTime::fromString(query.value(4).toString(), Qt::ISODate);
+    return root;
 }
 
 QStringList SqliteLibraryRepository::readStrings(const QString &table, const QString &column, const QString &resourceId) const

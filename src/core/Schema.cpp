@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 1;
+    return 2;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -49,7 +49,14 @@ QStringList Schema::sqliteFts5Draft()
                        "FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE"
                        ");"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS resource_fts "
-                       "USING fts5(resource_id UNINDEXED, title, aliases, tags, location, content);")
+                       "USING fts5(resource_id UNINDEXED, title, aliases, tags, location, content);"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS library_roots ("
+                       "id TEXT PRIMARY KEY,"
+                       "path TEXT NOT NULL UNIQUE,"
+                       "display_name TEXT NOT NULL,"
+                       "enabled INTEGER NOT NULL DEFAULT 1,"
+                       "last_indexed_at TEXT"
+                       ");")
     };
 }
 

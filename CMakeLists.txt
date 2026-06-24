@@ -22,6 +22,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/DirectoryLibrarySource.h
     include/pinloom/core/IndexingService.h
     include/pinloom/core/LibraryRepository.h
+    include/pinloom/core/LibraryRoot.h
     include/pinloom/core/LibrarySource.h
     include/pinloom/core/Resource.h
     include/pinloom/core/Schema.h
@@ -30,6 +31,7 @@ add_library(pinloom_core STATIC
     src/core/DirectoryLibrarySource.cpp
     src/core/IndexingService.cpp
     src/core/InMemoryLibraryRepository.cpp
+    src/core/LibraryRoot.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
 )

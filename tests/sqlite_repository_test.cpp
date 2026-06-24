@@ -1,7 +1,12 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 
+#include <QDir>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUuid>
 
 using namespace Pinloom;
 
@@ -11,7 +16,39 @@ class SqliteRepositoryTest : public QObject {
 private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
+    void managesLibraryRoots();
+    void upgradesVersionOneDatabase();
 };
+
+static void createVersionOneDatabase(const QString &path)
+{
+    const QString connectionName = QStringLiteral("v1_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    database.setDatabaseName(path);
+    QVERIFY(database.open());
+
+    QSqlQuery query(database);
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE schema_migrations ("
+                                      "version INTEGER PRIMARY KEY,"
+                                      "name TEXT NOT NULL,"
+                                      "applied_at TEXT NOT NULL"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO schema_migrations(version, name, applied_at) "
+                                      "VALUES (1, 'initial_sqlite_fts5_schema', '2026-01-01T00:00:00Z');")));
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE resources ("
+                                      "id TEXT PRIMARY KEY,"
+                                      "kind TEXT NOT NULL,"
+                                      "title TEXT NOT NULL,"
+                                      "location TEXT NOT NULL,"
+                                      "updated_at TEXT"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO resources(id, kind, title, location, updated_at) "
+                                      "VALUES ('legacy', 'markdown', 'Legacy Note', 'legacy.md', '2026-01-01T00:00:00Z');")));
+
+    database.close();
+    database = QSqlDatabase();
+    QSqlDatabase::removeDatabase(connectionName);
+}
 
 void SqliteRepositoryTest::initializesIdempotently()
 {
@@ -77,6 +114,58 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     const std::optional<Resource> updatedStored = repository.findResource(resource.id);
     QVERIFY(updatedStored.has_value());
     QCOMPARE(updatedStored->aliases.size(), 1);
+}
+
+void SqliteRepositoryTest::managesLibraryRoots()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    LibraryRoot root = makeLibraryRootForPath(dir.filePath(QStringLiteral("library")));
+    QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
+    QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
+    QCOMPARE(repository.libraryRoots().size(), 1);
+
+    QVERIFY2(repository.setLibraryRootEnabled(root.id, false), qPrintable(repository.lastError()));
+    std::optional<LibraryRoot> stored = repository.findLibraryRoot(root.id);
+    QVERIFY(stored.has_value());
+    QVERIFY(!stored->enabled);
+
+    const QDateTime indexedAt = QDateTime::currentDateTimeUtc();
+    QVERIFY2(repository.updateLibraryRootLastIndexedAt(root.id, indexedAt), qPrintable(repository.lastError()));
+    stored = repository.findLibraryRoot(root.id);
+    QVERIFY(stored.has_value());
+    QVERIFY(stored->lastIndexedAt.isValid());
+
+    QVERIFY2(repository.removeLibraryRoot(root.id), qPrintable(repository.lastError()));
+    QVERIFY(repository.libraryRoots().isEmpty());
+}
+
+void SqliteRepositoryTest::upgradesVersionOneDatabase()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    createVersionOneDatabase(databasePath);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    QVERIFY(repository.libraryRoots().isEmpty());
+    const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
+    QVERIFY(legacy.has_value());
+    QCOMPARE(legacy->title, QStringLiteral("Legacy Note"));
+
+    LibraryRoot root = makeLibraryRootForPath(dir.path());
+    QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
+    QCOMPARE(repository.libraryRoots().size(), 1);
 }
 
 QTEST_MAIN(SqliteRepositoryTest)
