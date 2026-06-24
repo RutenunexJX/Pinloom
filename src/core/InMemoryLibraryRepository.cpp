@@ -14,6 +14,16 @@ bool InMemoryLibraryRepository::upsertResource(const Resource &resource)
     return true;
 }
 
+std::optional<Resource> InMemoryLibraryRepository::findResource(const QString &id) const
+{
+    const auto it = resources_.constFind(id);
+    if (it == resources_.constEnd()) {
+        return std::nullopt;
+    }
+
+    return it.value();
+}
+
 QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) const
 {
     QList<SearchResult> results;

@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -23,8 +23,10 @@ add_library(pinloom_core STATIC
     include/pinloom/core/Resource.h
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
+    include/pinloom/core/SqliteLibraryRepository.h
     src/core/InMemoryLibraryRepository.cpp
     src/core/Schema.cpp
+    src/core/SqliteLibraryRepository.cpp
 )
 
 target_include_directories(pinloom_core
@@ -35,6 +37,7 @@ target_include_directories(pinloom_core
 target_link_libraries(pinloom_core
     PUBLIC
         Qt6::Core
+        Qt6::Sql
 )
 
 add_library(pinloom_widgets STATIC
@@ -76,3 +79,15 @@ target_link_libraries(pinloom_core_smoke_test
 )
 
 add_test(NAME pinloom_core_smoke_test COMMAND pinloom_core_smoke_test)
+
+add_executable(pinloom_sqlite_repository_test
+    tests/sqlite_repository_test.cpp
+)
+
+target_link_libraries(pinloom_sqlite_repository_test
+    PRIVATE
+        pinloom_core
+        Qt6::Test
+)
+
+add_test(NAME pinloom_sqlite_repository_test COMMAND pinloom_sqlite_repository_test)

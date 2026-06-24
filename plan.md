@@ -30,12 +30,22 @@ Status:
 
 Goal: introduce a SQLite-backed repository while keeping the in-memory repository useful for tests.
 
-Planned scope:
+Scope:
 
 - Add a SQLite repository implementation behind `ILibraryRepository`.
 - Apply versioned schema migrations.
 - Persist resources, tags, aliases, and anchors.
 - Add tests for CRUD and simple search.
+
+Status:
+
+- SQLite repository: done
+- Versioned schema initialization: done
+- Resource/tag/alias/anchor persistence: done
+- FTS5 metadata search: done
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
 
 ## MVP 3: Source Indexers
 

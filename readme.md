@@ -4,19 +4,21 @@ Pinloom is a standalone Qt application for locating personal and engineering mat
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
 
-## Current MVP: Project Bootstrap
+## Current MVP: Local Library Persistence
 
 Implemented:
 
 - Qt/CMake project skeleton.
 - `pinloom_core` static library with resource, anchor, search, repository interfaces, an in-memory repository, and a SQLite/FTS5 schema draft.
+- SQLite-backed `SqliteLibraryRepository` with versioned schema initialization.
+- Persistent resources, tags, aliases, anchors, and FTS5 metadata search.
 - `pinloom_widgets` static library with a reusable `PinloomPanel` widget.
 - `pinloom_app` standalone Qt application entry point.
 - `pinloom_core_smoke_test` validating basic alias/tag search and FTS5 schema exposure.
+- `pinloom_sqlite_repository_test` validating SQLite initialization, persistence, search, and idempotent upsert behavior.
 
 Not implemented yet:
 
-- Persistent SQLite storage.
 - Real indexers for Obsidian vaults, normal folders, PDFs, source code, or web pages.
 - Production search ranking.
 - ZeroSlack dock/global-control integration.
@@ -46,3 +48,9 @@ Project Bootstrap MVP validation:
 - Configure: passed with Qt 6.10.2 / MinGW / Ninja
 - Build: passed
 - Smoke test: passed (`pinloom_core_smoke_test`)
+
+Local Library Persistence MVP validation:
+
+- Configure: passed
+- Build: passed
+- Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`)

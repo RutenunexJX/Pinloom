@@ -6,6 +6,7 @@ namespace Pinloom {
 
 class Schema {
 public:
+    static int currentVersion();
     static QStringList sqliteFts5Draft();
 };
 

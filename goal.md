@@ -27,3 +27,13 @@ Completed:
 - SQLite/FTS5 schema draft.
 - Reusable Qt widget and standalone app entry point.
 - Core smoke test.
+
+### Local Library Persistence MVP
+
+Completed:
+
+- SQLite repository implementation behind `ILibraryRepository`.
+- Versioned schema initialization with `schema_migrations`.
+- Persistent resources, tags, aliases, anchors, and FTS5 metadata rows.
+- Repository lifecycle methods for open, initialize, and error reporting.
+- SQLite persistence tests for initialization, metadata search, and multi-value readback.
