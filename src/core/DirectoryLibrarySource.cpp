@@ -5,6 +5,8 @@
 #include <QDir>
 #include <QDirIterator>
 #include <QFileInfo>
+#include <QFile>
+#include <QRegularExpression>
 #include <algorithm>
 
 namespace Pinloom {
@@ -98,7 +100,48 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         resource.title = resource.location;
     }
     resource.updatedAt = fileInfo.lastModified().toUTC();
+    if (resource.kind == ResourceKind::Markdown) {
+        resource.anchors = markdownAnchorsForFile(fileInfo);
+    }
     return resource;
+}
+
+QList<Anchor> DirectoryLibrarySource::markdownAnchorsForFile(const QFileInfo &fileInfo) const
+{
+    QList<Anchor> anchors;
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return anchors;
+    }
+
+    const QRegularExpression headingPattern(QStringLiteral("^(#{1,6})\\s+(.+?)\\s*#*\\s*$"));
+    const QRegularExpression blockPattern(QStringLiteral("(?:^|\\s)\\^([A-Za-z0-9_-]+)\\s*$"));
+
+    int lineNumber = 0;
+    while (!file.atEnd()) {
+        ++lineNumber;
+        const QString line = QString::fromUtf8(file.readLine()).trimmed();
+        const QRegularExpressionMatch headingMatch = headingPattern.match(line);
+        if (headingMatch.hasMatch()) {
+            Anchor anchor;
+            anchor.type = AnchorType::MarkdownHeading;
+            anchor.target = headingMatch.captured(2).trimmed();
+            anchor.line = lineNumber;
+            anchors.append(anchor);
+        }
+
+        const QRegularExpressionMatch blockMatch = blockPattern.match(line);
+        if (blockMatch.hasMatch()) {
+            Anchor anchor;
+            anchor.type = AnchorType::MarkdownBlock;
+            anchor.target = blockMatch.captured(1).trimmed();
+            anchor.line = lineNumber;
+            anchors.append(anchor);
+        }
+    }
+
+    return anchors;
 }
 
 } // namespace Pinloom

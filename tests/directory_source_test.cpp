@@ -15,6 +15,7 @@ class DirectorySourceTest : public QObject {
 
 private slots:
     void scansOnlyExplicitRoot();
+    void extractsMarkdownHeadingAndBlockAnchors();
     void indexesDirectoryResourcesIdempotently();
     void indexesSavedEnabledRoots();
     void rebuildClearsExistingResources();
@@ -34,7 +35,7 @@ void DirectorySourceTest::scansOnlyExplicitRoot()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library/docs")));
-    writeFile(dir.filePath(QStringLiteral("library/notes.md")));
+    writeFile(dir.filePath(QStringLiteral("library/notes.md")), QByteArray("# Top\n"));
     writeFile(dir.filePath(QStringLiteral("library/docs/design.pdf")));
     writeFile(dir.filePath(QStringLiteral("outside.pdf")));
 
@@ -55,6 +56,38 @@ void DirectorySourceTest::scansOnlyExplicitRoot()
     QVERIFY(std::any_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("design.pdf");
     }));
+}
+
+void DirectorySourceTest::extractsMarkdownHeadingAndBlockAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/notes.md")),
+              QByteArray("# Top\n\n## Power sequencing\nDetails ^power-block\n^standalone\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown;
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QCOMPARE(markdownIt->anchors.size(), 4);
+    QCOMPARE(markdownIt->anchors.at(0).type, AnchorType::MarkdownHeading);
+    QCOMPARE(markdownIt->anchors.at(0).target, QStringLiteral("Top"));
+    QCOMPARE(markdownIt->anchors.at(0).line, 1);
+    QCOMPARE(markdownIt->anchors.at(1).target, QStringLiteral("Power sequencing"));
+    QCOMPARE(markdownIt->anchors.at(1).line, 3);
+    QCOMPARE(markdownIt->anchors.at(2).type, AnchorType::MarkdownBlock);
+    QCOMPARE(markdownIt->anchors.at(2).target, QStringLiteral("power-block"));
+    QCOMPARE(markdownIt->anchors.at(2).line, 4);
+    QCOMPARE(markdownIt->anchors.at(3).target, QStringLiteral("standalone"));
+    QCOMPARE(markdownIt->anchors.at(3).line, 5);
 }
 
 void DirectorySourceTest::indexesDirectoryResourcesIdempotently()

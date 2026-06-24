@@ -18,6 +18,7 @@ private slots:
     void persistsAndSearchesResourceMetadata();
     void managesLibraryRoots();
     void upgradesVersionOneDatabase();
+    void upgradesVersionTwoDatabaseWithRoots();
 };
 
 static void createVersionOneDatabase(const QString &path)
@@ -44,6 +45,47 @@ static void createVersionOneDatabase(const QString &path)
                                       ");")));
     QVERIFY(query.exec(QStringLiteral("INSERT INTO resources(id, kind, title, location, updated_at) "
                                       "VALUES ('legacy', 'markdown', 'Legacy Note', 'legacy.md', '2026-01-01T00:00:00Z');")));
+
+    database.close();
+    database = QSqlDatabase();
+    QSqlDatabase::removeDatabase(connectionName);
+}
+
+static void createVersionTwoDatabase(const QString &path)
+{
+    const QString connectionName = QStringLiteral("v2_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    database.setDatabaseName(path);
+    QVERIFY(database.open());
+
+    QSqlQuery query(database);
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE schema_migrations ("
+                                      "version INTEGER PRIMARY KEY,"
+                                      "name TEXT NOT NULL,"
+                                      "applied_at TEXT NOT NULL"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO schema_migrations(version, name, applied_at) "
+                                      "VALUES (1, 'initial_sqlite_fts5_schema', '2026-01-01T00:00:00Z');")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO schema_migrations(version, name, applied_at) "
+                                      "VALUES (2, 'library_roots', '2026-01-01T00:00:00Z');")));
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE resources ("
+                                      "id TEXT PRIMARY KEY,"
+                                      "kind TEXT NOT NULL,"
+                                      "title TEXT NOT NULL,"
+                                      "location TEXT NOT NULL,"
+                                      "updated_at TEXT"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE library_roots ("
+                                      "id TEXT PRIMARY KEY,"
+                                      "path TEXT NOT NULL UNIQUE,"
+                                      "display_name TEXT NOT NULL,"
+                                      "enabled INTEGER NOT NULL DEFAULT 1,"
+                                      "last_indexed_at TEXT"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO resources(id, kind, title, location, updated_at) "
+                                      "VALUES ('legacy', 'markdown', 'Legacy Note', 'legacy.md', '2026-01-01T00:00:00Z');")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO library_roots(id, path, display_name, enabled, last_indexed_at) "
+                                      "VALUES ('dir:test', 'E:/test', 'test', 1, NULL);")));
 
     database.close();
     database = QSqlDatabase();
@@ -100,6 +142,11 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("serial")});
     QCOMPARE(aliasResults.size(), 1);
     QCOMPARE(aliasResults.first().resource.id, resource.id);
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("power")});
+    QCOMPARE(anchorResults.size(), 1);
+    QVERIFY(anchorResults.first().matchedAnchor.has_value());
+    QCOMPARE(anchorResults.first().matchedAnchor->target, QStringLiteral("Power sequencing"));
 
     SearchQuery taggedQuery;
     taggedQuery.text = QStringLiteral("plan");
@@ -166,6 +213,36 @@ void SqliteRepositoryTest::upgradesVersionOneDatabase()
     LibraryRoot root = makeLibraryRootForPath(dir.path());
     QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
     QCOMPARE(repository.libraryRoots().size(), 1);
+}
+
+void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    createVersionTwoDatabase(databasePath);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    QCOMPARE(repository.libraryRoots().size(), 1);
+    const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
+    QVERIFY(legacy.has_value());
+
+    Resource resource;
+    resource.id = QStringLiteral("anchored");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Anchored Note");
+    resource.location = QStringLiteral("anchored.md");
+    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Deep Link"), 7}};
+    QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("deep")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->line, 7);
 }
 
 QTEST_MAIN(SqliteRepositoryTest)

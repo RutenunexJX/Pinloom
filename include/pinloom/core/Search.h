@@ -4,6 +4,7 @@
 
 #include <QString>
 #include <QStringList>
+#include <optional>
 
 namespace Pinloom {
 
@@ -17,6 +18,7 @@ struct SearchResult {
     Resource resource;
     double score = 0.0;
     QString matchedField;
+    std::optional<Anchor> matchedAnchor;
 };
 
 } // namespace Pinloom

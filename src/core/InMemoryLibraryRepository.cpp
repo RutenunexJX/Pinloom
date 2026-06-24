@@ -61,7 +61,15 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
         }
 
         if (!matchedField.isEmpty()) {
-            results.append(SearchResult{resource, score, matchedField});
+            results.append(SearchResult{resource, score, matchedField, std::nullopt});
+        }
+
+        if (!needle.isEmpty()) {
+            for (const Anchor &anchor : resource.anchors) {
+                if (anchor.target.contains(needle, caseMode)) {
+                    results.append(SearchResult{resource, 0.9, QStringLiteral("anchor"), anchor});
+                }
+            }
         }
     }
 

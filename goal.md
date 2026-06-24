@@ -66,3 +66,13 @@ Completed:
 - Saved-root indexing, refresh-all, and rebuild-all service flows.
 - Reusable UI for managing saved folders and rebuilding the resource index.
 - Tests for root persistence, v1-to-v2 upgrade, saved-root indexing, rebuilds, and widget root loading.
+
+### Precise Text and Markdown Jumps MVP
+
+Completed:
+
+- Search results can carry a matched anchor.
+- SQLite schema v3 indexes anchors for heading and block searches.
+- Directory indexing extracts Markdown headings and block ids with line numbers.
+- UI shows anchor-aware results and opens line anchors in a built-in read-only text preview.
+- Tests cover Markdown anchor extraction, anchor search, v2-to-v3 upgrade, anchor-aware UI display, and text preview loading.

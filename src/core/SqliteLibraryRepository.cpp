@@ -194,7 +194,8 @@ bool SqliteLibraryRepository::initialize()
     }
 
     if (!recordMigration(1, QStringLiteral("initial_sqlite_fts5_schema"))
-        || !recordMigration(2, QStringLiteral("library_roots"))) {
+        || !recordMigration(2, QStringLiteral("library_roots"))
+        || !recordMigration(3, QStringLiteral("anchor_fts"))) {
         rollbackTransaction();
         return false;
     }
@@ -246,7 +247,8 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     for (const QString &table : {QStringLiteral("resource_tags"),
                                 QStringLiteral("resource_aliases"),
                                 QStringLiteral("anchors"),
-                                QStringLiteral("resource_fts")}) {
+                                QStringLiteral("resource_fts"),
+                                QStringLiteral("anchor_fts")}) {
         QSqlQuery deleteQuery(database_);
         deleteQuery.prepare(QStringLiteral("DELETE FROM %1 WHERE resource_id = ?").arg(table));
         deleteQuery.addBindValue(resource.id);
@@ -300,6 +302,21 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
             setLastError(anchorQuery.lastError().text());
             rollbackTransaction();
             return false;
+        }
+
+        if (anchor.type == AnchorType::MarkdownHeading || anchor.type == AnchorType::MarkdownBlock) {
+            QSqlQuery anchorFtsQuery(database_);
+            anchorFtsQuery.prepare(QStringLiteral("INSERT INTO anchor_fts(resource_id, anchor_order, type, target) "
+                                                  "VALUES (?, ?, ?, ?)"));
+            anchorFtsQuery.addBindValue(resource.id);
+            anchorFtsQuery.addBindValue(i);
+            anchorFtsQuery.addBindValue(anchorTypeToString(anchor.type));
+            anchorFtsQuery.addBindValue(anchor.target);
+            if (!anchorFtsQuery.exec()) {
+                setLastError(anchorFtsQuery.lastError().text());
+                rollbackTransaction();
+                return false;
+            }
         }
     }
 
@@ -371,9 +388,6 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     sql += ftsQuery.isEmpty()
         ? QStringLiteral("ORDER BY lower(r.title), r.id ")
         : QStringLiteral("ORDER BY score, lower(r.title), r.id ");
-    if (query.limit > 0) {
-        sql += QStringLiteral("LIMIT ? ");
-    }
 
     QSqlQuery sqlQuery(database_);
     sqlQuery.prepare(sql);
@@ -382,9 +396,6 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     }
     for (const QString &tag : query.requiredTags) {
         sqlQuery.addBindValue(tag);
-    }
-    if (query.limit > 0) {
-        sqlQuery.addBindValue(query.limit);
     }
 
     if (!sqlQuery.exec()) {
@@ -398,7 +409,54 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
         if (!resource.has_value()) {
             continue;
         }
-        results.append(SearchResult{resource.value(), sqlQuery.value(1).toDouble(), sqlQuery.value(2).toString()});
+        results.append(SearchResult{resource.value(), sqlQuery.value(1).toDouble(), sqlQuery.value(2).toString(), std::nullopt});
+    }
+
+    if (!ftsQuery.isEmpty()) {
+        QString anchorSql = QStringLiteral("SELECT r.id, anchor_fts.anchor_order, bm25(anchor_fts) AS score "
+                                           "FROM anchor_fts JOIN resources r ON r.id = anchor_fts.resource_id "
+                                           "WHERE anchor_fts MATCH ? ");
+        for (int i = 0; i < query.requiredTags.size(); ++i) {
+            anchorSql += QStringLiteral("AND EXISTS (SELECT 1 FROM resource_tags art%1 "
+                                        "WHERE art%1.resource_id = r.id AND lower(art%1.tag) = lower(?)) ")
+                             .arg(i);
+        }
+        anchorSql += QStringLiteral("ORDER BY score, lower(r.title), r.id ");
+
+        QSqlQuery anchorQuery(database_);
+        anchorQuery.prepare(anchorSql);
+        anchorQuery.addBindValue(ftsQuery);
+        for (const QString &tag : query.requiredTags) {
+            anchorQuery.addBindValue(tag);
+        }
+        if (!anchorQuery.exec()) {
+            setLastError(anchorQuery.lastError().text());
+            return results;
+        }
+
+        while (anchorQuery.next()) {
+            const QString id = anchorQuery.value(0).toString();
+            const int anchorOrder = anchorQuery.value(1).toInt();
+            const std::optional<Resource> resource = findResource(id);
+            if (!resource.has_value() || anchorOrder < 0 || anchorOrder >= resource->anchors.size()) {
+                continue;
+            }
+            results.append(SearchResult{resource.value(),
+                                        anchorQuery.value(2).toDouble(),
+                                        QStringLiteral("anchor"),
+                                        resource->anchors.at(anchorOrder)});
+        }
+    }
+
+    std::sort(results.begin(), results.end(), [](const SearchResult &left, const SearchResult &right) {
+        if (left.score == right.score) {
+            return left.resource.title < right.resource.title;
+        }
+        return left.score < right.score;
+    });
+
+    if (query.limit > 0 && results.size() > query.limit) {
+        results.erase(results.begin() + query.limit, results.end());
     }
 
     return results;
@@ -415,7 +473,8 @@ bool SqliteLibraryRepository::clearResources()
         return false;
     }
 
-    if (!execute(QStringLiteral("DELETE FROM resource_fts;"))
+    if (!execute(QStringLiteral("DELETE FROM anchor_fts;"))
+        || !execute(QStringLiteral("DELETE FROM resource_fts;"))
         || !execute(QStringLiteral("DELETE FROM resources;"))) {
         rollbackTransaction();
         return false;

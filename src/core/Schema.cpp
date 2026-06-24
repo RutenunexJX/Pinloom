@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 2;
+    return 3;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -56,7 +56,9 @@ QStringList Schema::sqliteFts5Draft()
                        "display_name TEXT NOT NULL,"
                        "enabled INTEGER NOT NULL DEFAULT 1,"
                        "last_indexed_at TEXT"
-                       ");")
+                       ");"),
+        QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS anchor_fts "
+                       "USING fts5(resource_id UNINDEXED, anchor_order UNINDEXED, type, target);")
     };
 }
 

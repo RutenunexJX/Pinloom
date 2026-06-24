@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include "pinloom/core/IndexingService.h"
+#include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QDateTime>
 #include <QDesktopServices>
@@ -28,6 +29,36 @@ QString rootItemText(const LibraryRoot &root)
         .arg(root.displayName.isEmpty() ? root.path : root.displayName,
              root.path,
              indexedAt);
+}
+
+QString anchorLabel(const Anchor &anchor)
+{
+    switch (anchor.type) {
+    case AnchorType::FileLine:
+        return QStringLiteral("Line");
+    case AnchorType::MarkdownHeading:
+        return QStringLiteral("Heading");
+    case AnchorType::MarkdownBlock:
+        return QStringLiteral("Block");
+    default:
+        return QStringLiteral("Anchor");
+    }
+}
+
+QString resultText(const SearchResult &result)
+{
+    if (!result.matchedAnchor.has_value()) {
+        return QStringLiteral("%1  |  %2  |  %3")
+            .arg(result.resource.title, result.resource.location, result.matchedField);
+    }
+
+    const Anchor &anchor = result.matchedAnchor.value();
+    return QStringLiteral("%1  |  %2  |  %3: %4  |  line %5")
+        .arg(result.resource.title,
+             result.resource.location,
+             anchorLabel(anchor),
+             anchor.target,
+             QString::number(anchor.line));
 }
 
 } // namespace
@@ -197,13 +228,16 @@ void PinloomPanel::refreshResults()
 
     const QList<SearchResult> results = repository_.search(query);
     for (const SearchResult &result : results) {
-        auto *item = new QListWidgetItem(QStringLiteral("%1  |  %2  |  %3")
-                                             .arg(result.resource.title,
-                                                  result.resource.location,
-                                                  result.matchedField),
-                                         resultList_);
+        auto *item = new QListWidgetItem(resultText(result), resultList_);
         item->setData(Qt::UserRole, result.resource.id);
         item->setData(Qt::UserRole + 1, result.resource.location);
+        if (result.matchedAnchor.has_value()) {
+            const Anchor &anchor = result.matchedAnchor.value();
+            item->setData(Qt::UserRole + 2, true);
+            item->setData(Qt::UserRole + 3, anchor.line);
+            item->setData(Qt::UserRole + 4, anchor.target);
+            item->setData(Qt::UserRole + 5, static_cast<int>(anchor.type));
+        }
     }
 
     updateStatus(tr("%n result(s)", nullptr, results.size()));
@@ -211,9 +245,25 @@ void PinloomPanel::refreshResults()
 
 void PinloomPanel::openSelectedResource()
 {
-    const QString location = selectedLocation();
+    QListWidgetItem *item = resultList_->currentItem();
+    if (!item) {
+        updateStatus(tr("No resource selected"));
+        return;
+    }
+
+    const QString location = item->data(Qt::UserRole + 1).toString();
     if (location.isEmpty()) {
         updateStatus(tr("No resource selected"));
+        return;
+    }
+
+    if (item->data(Qt::UserRole + 2).toBool() && item->data(Qt::UserRole + 3).toInt() > 0) {
+        TextPreviewDialog preview(location, item->data(Qt::UserRole + 3).toInt(), this);
+        if (!preview.load()) {
+            updateStatus(tr("Unable to preview %1").arg(location));
+            return;
+        }
+        preview.exec();
         return;
     }
 
@@ -228,10 +278,8 @@ void PinloomPanel::openResultItem(QListWidgetItem *item)
         return;
     }
 
-    const QString location = item->data(Qt::UserRole + 1).toString();
-    if (!location.isEmpty()) {
-        QDesktopServices::openUrl(QUrl::fromLocalFile(location));
-    }
+    resultList_->setCurrentItem(item);
+    openSelectedResource();
 }
 
 void PinloomPanel::loadLibraryRoots()

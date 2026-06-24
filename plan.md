@@ -115,12 +115,24 @@ Status:
 
 Goal: make anchors useful for real navigation.
 
-Planned scope:
+Scope:
 
 - File line anchors.
 - Markdown heading/block anchors.
 - PDF page/region anchors.
 - Manual anchors and aliases.
+
+Status:
+
+- Anchor-aware `SearchResult`: done
+- SQLite schema v3 anchor search index: done
+- Markdown heading/block extraction: done
+- Built-in text preview for line anchors: done
+- PDF page/region anchors: deferred
+- Manual anchor UI: deferred
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
 
 ## MVP 7: ZeroSlack Embedding
 

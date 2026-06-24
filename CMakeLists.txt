@@ -49,7 +49,9 @@ target_link_libraries(pinloom_core
 
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomPanel.h
+    include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/PinloomPanel.cpp
+    src/widgets/TextPreviewDialog.cpp
 )
 
 target_include_directories(pinloom_widgets

@@ -16,6 +16,7 @@ public:
 
 private:
     Resource resourceFromFileInfo(const QFileInfo &fileInfo) const;
+    QList<Anchor> markdownAnchorsForFile(const QFileInfo &fileInfo) const;
 
     QString rootPath_;
 };
