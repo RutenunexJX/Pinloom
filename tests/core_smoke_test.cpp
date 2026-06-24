@@ -10,6 +10,7 @@ class CoreSmokeTest : public QObject {
 
 private slots:
     void searchesAliasesAndTags();
+    void ranksAnchorBeforePathMatches();
     void exposesSqliteFts5SchemaDraft();
 };
 
@@ -36,6 +37,31 @@ void CoreSmokeTest::searchesAliasesAndTags()
     taggedQuery.requiredTags = {QStringLiteral("fpga")};
     const QList<SearchResult> tagResults = repository.search(taggedQuery);
     QCOMPARE(tagResults.size(), 1);
+}
+
+void CoreSmokeTest::ranksAnchorBeforePathMatches()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource anchored;
+    anchored.id = QStringLiteral("anchored");
+    anchored.kind = ResourceKind::Markdown;
+    anchored.title = QStringLiteral("note.md");
+    anchored.location = QStringLiteral("E:/test_dir/note.md");
+    anchored.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("test"), 12}};
+    QVERIFY(repository.upsertResource(anchored));
+
+    Resource pathOnly;
+    pathOnly.id = QStringLiteral("path-only");
+    pathOnly.kind = ResourceKind::Pdf;
+    pathOnly.title = QStringLiteral("ISO.pdf");
+    pathOnly.location = QStringLiteral("E:/test_dir/ISO.pdf");
+    QVERIFY(repository.upsertResource(pathOnly));
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("test")});
+    QVERIFY(results.size() >= 2);
+    QCOMPARE(results.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(results.first().matchedAnchor.has_value());
 }
 
 void CoreSmokeTest::exposesSqliteFts5SchemaDraft()

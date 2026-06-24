@@ -119,7 +119,7 @@ AnchorType anchorTypeFromString(const QString &type)
     return AnchorType::None;
 }
 
-QString ftsQueryFromText(const QString &text)
+QStringList searchTokensFromText(const QString &text)
 {
     const QRegularExpression tokenExpression(QStringLiteral("[\\p{L}\\p{N}_]+"));
     QRegularExpressionMatchIterator it = tokenExpression.globalMatch(text);
@@ -130,7 +130,91 @@ QString ftsQueryFromText(const QString &text)
             tokens.append(token + QLatin1Char('*'));
         }
     }
-    return tokens.join(QLatin1Char(' '));
+    return tokens;
+}
+
+QString ftsQueryFromText(const QString &text)
+{
+    return searchTokensFromText(text).join(QLatin1Char(' '));
+}
+
+QStringList plainSearchTokensFromText(const QString &text)
+{
+    const QRegularExpression tokenExpression(QStringLiteral("[\\p{L}\\p{N}_]+"));
+    QRegularExpressionMatchIterator it = tokenExpression.globalMatch(text);
+    QStringList tokens;
+    while (it.hasNext()) {
+        const QString token = it.next().captured(0).trimmed();
+        if (!token.isEmpty()) {
+            tokens.append(token);
+        }
+    }
+    return tokens;
+}
+
+bool containsAnyToken(const QString &text, const QStringList &tokens)
+{
+    for (const QString &token : tokens) {
+        if (text.contains(token, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+double classifyResourceMatch(const Resource &resource, const QStringList &tokens, QString *matchedField)
+{
+    if (tokens.isEmpty()) {
+        *matchedField = QStringLiteral("all");
+        return 100.0;
+    }
+
+    if (containsAnyToken(resource.title, tokens)) {
+        *matchedField = QStringLiteral("title");
+        return 10.0;
+    }
+    if (containsAnyToken(QFileInfo(resource.location).fileName(), tokens)) {
+        *matchedField = QStringLiteral("filename");
+        return 15.0;
+    }
+    if (containsAnyToken(resource.aliases.join(QLatin1Char('\n')), tokens)) {
+        *matchedField = QStringLiteral("alias");
+        return 20.0;
+    }
+    if (containsAnyToken(resource.tags.join(QLatin1Char('\n')), tokens)) {
+        *matchedField = QStringLiteral("tag");
+        return 30.0;
+    }
+    if (containsAnyToken(resource.location, tokens)) {
+        *matchedField = QStringLiteral("path");
+        return 90.0;
+    }
+
+    *matchedField = QStringLiteral("all");
+    return 100.0;
+}
+
+bool searchResultLessThan(const SearchResult &left, const SearchResult &right)
+{
+    if (left.score == right.score) {
+        if (left.resource.title == right.resource.title) {
+            return left.resource.location < right.resource.location;
+        }
+        return left.resource.title < right.resource.title;
+    }
+    return left.score < right.score;
+}
+
+SearchResult resourceSearchResult(const Resource &resource, const QStringList &tokens)
+{
+    QString matchedField;
+    const double score = classifyResourceMatch(resource, tokens, &matchedField);
+    return SearchResult{resource, score, matchedField, std::nullopt};
+}
+
+SearchResult anchorSearchResult(const Resource &resource, const Anchor &anchor)
+{
+    return SearchResult{resource, 0.0, QStringLiteral("anchor"), anchor};
 }
 
 } // namespace
@@ -368,6 +452,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     }
 
     const QString ftsQuery = ftsQueryFromText(query.text);
+    const QStringList plainTokens = plainSearchTokensFromText(query.text);
     QString sql;
     if (ftsQuery.isEmpty()) {
         sql = QStringLiteral("SELECT r.id, 0.0 AS score, 'all' AS matched_field "
@@ -409,7 +494,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
         if (!resource.has_value()) {
             continue;
         }
-        results.append(SearchResult{resource.value(), sqlQuery.value(1).toDouble(), sqlQuery.value(2).toString(), std::nullopt});
+        results.append(resourceSearchResult(resource.value(), plainTokens));
     }
 
     if (!ftsQuery.isEmpty()) {
@@ -441,19 +526,11 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             if (!resource.has_value() || anchorOrder < 0 || anchorOrder >= resource->anchors.size()) {
                 continue;
             }
-            results.append(SearchResult{resource.value(),
-                                        anchorQuery.value(2).toDouble(),
-                                        QStringLiteral("anchor"),
-                                        resource->anchors.at(anchorOrder)});
+            results.append(anchorSearchResult(resource.value(), resource->anchors.at(anchorOrder)));
         }
     }
 
-    std::sort(results.begin(), results.end(), [](const SearchResult &left, const SearchResult &right) {
-        if (left.score == right.score) {
-            return left.resource.title < right.resource.title;
-        }
-        return left.score < right.score;
-    });
+    std::sort(results.begin(), results.end(), searchResultLessThan);
 
     if (query.limit > 0 && results.size() > query.limit) {
         results.erase(results.begin() + query.limit, results.end());

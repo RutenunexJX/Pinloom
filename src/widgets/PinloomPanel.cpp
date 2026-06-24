@@ -6,6 +6,7 @@
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QFileDialog>
+#include <QFontMetrics>
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
@@ -13,6 +14,7 @@
 #include <QListWidgetItem>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSize>
 #include <QUrl>
 #include <QVBoxLayout>
 
@@ -45,20 +47,46 @@ QString anchorLabel(const Anchor &anchor)
     }
 }
 
+QString resourceKindLabel(ResourceKind kind)
+{
+    switch (kind) {
+    case ResourceKind::Folder:
+        return QStringLiteral("Folder");
+    case ResourceKind::Pdf:
+        return QStringLiteral("PDF");
+    case ResourceKind::Markdown:
+        return QStringLiteral("Markdown");
+    case ResourceKind::CodeSnippet:
+        return QStringLiteral("Code");
+    case ResourceKind::Url:
+        return QStringLiteral("URL");
+    case ResourceKind::Note:
+        return QStringLiteral("Note");
+    case ResourceKind::ManualAnchor:
+        return QStringLiteral("Anchor");
+    case ResourceKind::File:
+        return QStringLiteral("File");
+    case ResourceKind::Unknown:
+        break;
+    }
+    return QStringLiteral("Resource");
+}
+
 QString resultText(const SearchResult &result)
 {
     if (!result.matchedAnchor.has_value()) {
-        return QStringLiteral("%1  |  %2  |  %3")
-            .arg(result.resource.title, result.resource.location, result.matchedField);
+        return QStringLiteral("[%1] %2\n%3")
+            .arg(resourceKindLabel(result.resource.kind),
+                 result.resource.title,
+                 result.resource.location);
     }
 
     const Anchor &anchor = result.matchedAnchor.value();
-    return QStringLiteral("%1  |  %2  |  %3: %4  |  line %5")
-        .arg(result.resource.title,
-             result.resource.location,
-             anchorLabel(anchor),
+    return QStringLiteral("[%1] %2 - line %3\n%4")
+        .arg(anchorLabel(anchor),
              anchor.target,
-             QString::number(anchor.line));
+             QString::number(anchor.line),
+             result.resource.location);
 }
 
 } // namespace
@@ -229,6 +257,8 @@ void PinloomPanel::refreshResults()
     const QList<SearchResult> results = repository_.search(query);
     for (const SearchResult &result : results) {
         auto *item = new QListWidgetItem(resultText(result), resultList_);
+        item->setToolTip(result.resource.location);
+        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setData(Qt::UserRole, result.resource.id);
         item->setData(Qt::UserRole + 1, result.resource.location);
         if (result.matchedAnchor.has_value()) {

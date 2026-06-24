@@ -39,6 +39,8 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
 
     searchEdit->setText(QStringLiteral("README"));
     QCOMPARE(results->count(), 1);
+    QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
+    QCOMPARE(results->item(0)->toolTip(), resource.location);
 }
 
 void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
@@ -74,7 +76,9 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 
     searchEdit->setText(QStringLiteral("Power"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("Heading: Power sequencing")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Heading] Power sequencing - line 3")));
+    QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
+    QCOMPARE(results->item(0)->toolTip(), resource.location);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
 }
 

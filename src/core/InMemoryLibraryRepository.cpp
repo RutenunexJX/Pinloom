@@ -1,8 +1,28 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 
+#include <QFileInfo>
 #include <algorithm>
 
 namespace Pinloom {
+
+namespace {
+
+bool containsNeedle(const QString &text, const QString &needle)
+{
+    return text.contains(needle, Qt::CaseInsensitive);
+}
+
+SearchResult resourceResult(const Resource &resource, double score, const QString &field)
+{
+    return SearchResult{resource, score, field, std::nullopt};
+}
+
+SearchResult anchorResult(const Resource &resource, const Anchor &anchor)
+{
+    return SearchResult{resource, 0.0, QStringLiteral("anchor"), anchor};
+}
+
+} // namespace
 
 bool InMemoryLibraryRepository::upsertResource(const Resource &resource)
 {
@@ -42,39 +62,34 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
             continue;
         }
 
-        QString matchedField;
-        double score = 0.1;
         if (needle.isEmpty()) {
-            matchedField = QStringLiteral("all");
+            results.append(resourceResult(resource, 100.0, QStringLiteral("all")));
         } else if (resource.title.contains(needle, caseMode)) {
-            matchedField = QStringLiteral("title");
-            score = 1.0;
+            results.append(resourceResult(resource, 10.0, QStringLiteral("title")));
+        } else if (QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
+            results.append(resourceResult(resource, 15.0, QStringLiteral("filename")));
         } else if (resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
-            matchedField = QStringLiteral("alias");
-            score = 0.8;
+            results.append(resourceResult(resource, 20.0, QStringLiteral("alias")));
         } else if (resource.tags.join(QLatin1Char('\n')).contains(needle, caseMode)) {
-            matchedField = QStringLiteral("tag");
-            score = 0.6;
+            results.append(resourceResult(resource, 30.0, QStringLiteral("tag")));
         } else if (resource.location.contains(needle, caseMode)) {
-            matchedField = QStringLiteral("location");
-            score = 0.4;
-        }
-
-        if (!matchedField.isEmpty()) {
-            results.append(SearchResult{resource, score, matchedField, std::nullopt});
+            results.append(resourceResult(resource, 90.0, QStringLiteral("path")));
         }
 
         if (!needle.isEmpty()) {
             for (const Anchor &anchor : resource.anchors) {
-                if (anchor.target.contains(needle, caseMode)) {
-                    results.append(SearchResult{resource, 0.9, QStringLiteral("anchor"), anchor});
+                if (containsNeedle(anchor.target, needle)) {
+                    results.append(anchorResult(resource, anchor));
                 }
             }
         }
     }
 
     std::sort(results.begin(), results.end(), [](const SearchResult &left, const SearchResult &right) {
-        return left.score > right.score;
+        if (left.score == right.score) {
+            return left.resource.title < right.resource.title;
+        }
+        return left.score < right.score;
     });
 
     if (query.limit > 0 && results.size() > query.limit) {

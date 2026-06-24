@@ -4,7 +4,7 @@ Pinloom is a standalone Qt application for locating personal and engineering mat
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
 
-## Current MVP: Precise Text and Markdown Jumps
+## Current MVP: Search Results Cleanup
 
 Implemented:
 
@@ -21,6 +21,8 @@ Implemented:
 - SQLite schema version 3 with anchor FTS search.
 - Markdown heading and block-id anchor extraction for `.md` and `.markdown` files.
 - Built-in read-only text preview for line-based anchors.
+- Cleaned-up search result display with readable type labels and tooltips.
+- Search ordering that prioritizes anchors, titles, filenames, aliases, and tags before full-path matches.
 - `pinloom_widgets` static library with repository-injected reusable `PinloomPanel`.
 - `pinloom_app` standalone Qt application entry point using a default SQLite database under `QStandardPaths::AppDataLocation`.
 - Locator UI for adding/removing folders, refreshing selected/all folders, rebuilding the index, searching, and opening selected resources.
@@ -88,6 +90,12 @@ Library Root Management MVP validation:
 - Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Precise Text and Markdown Jumps MVP validation:
+
+- Configure: passed
+- Build: passed
+- Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+
+Search Results Cleanup MVP validation:
 
 - Configure: passed
 - Build: passed

@@ -134,7 +134,27 @@ Status:
 - Build/test verification: done
 - Commit/push: release target is `origin/main`
 
-## MVP 7: ZeroSlack Embedding
+## MVP 7: Search Results Cleanup
+
+Goal: make search results easier to scan and reduce root-path noise.
+
+Scope:
+
+- Replace internal `fts` display text with readable result labels.
+- Prioritize anchor/title/filename/alias/tag matches ahead of full-path matches.
+- Keep full paths available through result text and tooltips.
+- Keep the existing `QListWidget`-based result list.
+
+Status:
+
+- Match semantics cleanup: done
+- Search result formatting cleanup: done
+- Root-path noise demotion: done
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
+
+## MVP 8: ZeroSlack Embedding
 
 Goal: embed Pinloom UI into ZeroSlack without merging ownership boundaries.
 

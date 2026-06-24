@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+#include <algorithm>
 
 using namespace Pinloom;
 
@@ -16,6 +17,7 @@ class SqliteRepositoryTest : public QObject {
 private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
+    void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void managesLibraryRoots();
     void upgradesVersionOneDatabase();
     void upgradesVersionTwoDatabaseWithRoots();
@@ -161,6 +163,61 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     const std::optional<Resource> updatedStored = repository.findResource(resource.id);
     QVERIFY(updatedStored.has_value());
     QCOMPARE(updatedStored->aliases.size(), 1);
+}
+
+void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource folder;
+    folder.id = QStringLiteral("folder");
+    folder.kind = ResourceKind::Folder;
+    folder.title = QStringLiteral("test_dir");
+    folder.location = QStringLiteral("E:/test_dir");
+    QVERIFY2(repository.upsertResource(folder), qPrintable(repository.lastError()));
+
+    Resource markdown;
+    markdown.id = QStringLiteral("note");
+    markdown.kind = ResourceKind::Markdown;
+    markdown.title = QStringLiteral("1.md");
+    markdown.location = QStringLiteral("E:/test_dir/1.md");
+    markdown.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("test"), 143}};
+    QVERIFY2(repository.upsertResource(markdown), qPrintable(repository.lastError()));
+
+    Resource pdf;
+    pdf.id = QStringLiteral("pdf");
+    pdf.kind = ResourceKind::Pdf;
+    pdf.title = QStringLiteral("ISO 11898-1.pdf");
+    pdf.location = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
+    QVERIFY2(repository.upsertResource(pdf), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> testResults = repository.search(SearchQuery{QStringLiteral("test")});
+    QVERIFY(testResults.size() >= 3);
+    QCOMPARE(testResults.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(testResults.first().matchedAnchor.has_value());
+
+    const auto pathOnly = std::find_if(testResults.cbegin(), testResults.cend(), [](const SearchResult &result) {
+        return result.matchedField == QLatin1String("path");
+    });
+    QVERIFY(pathOnly != testResults.cend());
+    QVERIFY(std::distance(testResults.cbegin(), pathOnly) > 0);
+
+    Resource namedByPath;
+    namedByPath.id = QStringLiteral("schematic");
+    namedByPath.kind = ResourceKind::Markdown;
+    namedByPath.title = QStringLiteral("Document");
+    namedByPath.location = QStringLiteral("E:/test_dir/schematic.md");
+    QVERIFY2(repository.upsertResource(namedByPath), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> filenameResults = repository.search(SearchQuery{QStringLiteral("schematic")});
+    QCOMPARE(filenameResults.size(), 1);
+    QCOMPARE(filenameResults.first().matchedField, QStringLiteral("filename"));
 }
 
 void SqliteRepositoryTest::managesLibraryRoots()

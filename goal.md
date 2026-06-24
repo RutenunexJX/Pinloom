@@ -76,3 +76,12 @@ Completed:
 - Directory indexing extracts Markdown headings and block ids with line numbers.
 - UI shows anchor-aware results and opens line anchors in a built-in read-only text preview.
 - Tests cover Markdown anchor extraction, anchor search, v2-to-v3 upgrade, anchor-aware UI display, and text preview loading.
+
+### Search Results Cleanup MVP
+
+Completed:
+
+- Search result labels no longer expose internal `fts` fields.
+- Anchor, title, filename, alias, and tag matches rank ahead of full-path matches.
+- Result items show readable two-line text and retain full-path tooltips.
+- Tests cover result ordering, filename matching, anchor display, and tooltip behavior.
