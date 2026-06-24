@@ -4,7 +4,7 @@ Pinloom is a standalone Qt application for locating personal and engineering mat
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
 
-## Current MVP: Directory Source Indexing
+## Current MVP: Usable Locator UI
 
 Implemented:
 
@@ -14,11 +14,13 @@ Implemented:
 - Persistent resources, tags, aliases, anchors, and FTS5 metadata search.
 - `LibrarySource` and `IndexingService` abstractions.
 - `DirectoryLibrarySource` for explicit normal-directory indexing.
-- `pinloom_widgets` static library with a reusable `PinloomPanel` widget.
-- `pinloom_app` standalone Qt application entry point.
+- `pinloom_widgets` static library with repository-injected reusable `PinloomPanel`.
+- `pinloom_app` standalone Qt application entry point using a default SQLite database under `QStandardPaths::AppDataLocation`.
+- Minimal locator UI for adding a folder, refreshing the index, searching, and opening selected resources.
 - `pinloom_core_smoke_test` validating basic alias/tag search and FTS5 schema exposure.
 - `pinloom_sqlite_repository_test` validating SQLite initialization, persistence, search, and idempotent upsert behavior.
 - `pinloom_directory_source_test` validating explicit-root directory indexing and idempotent repository upserts.
+- `pinloom_widget_smoke_test` validating repository injection into the reusable widget.
 
 Not implemented yet:
 
@@ -65,3 +67,9 @@ Directory Source Indexing MVP validation:
 - Configure: passed
 - Build: passed
 - Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`)
+
+Usable Locator UI MVP validation:
+
+- Configure: passed
+- Build: passed
+- Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)

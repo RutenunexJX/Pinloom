@@ -68,7 +68,28 @@ Status:
 - Build/test verification: done
 - Commit/push: release target is `origin/main`
 
-## MVP 4: Precise Jump Targets
+## MVP 4: Usable Locator UI
+
+Goal: make the standalone app use the real repository and directory source through a reusable widget.
+
+Scope:
+
+- Inject repository into `PinloomPanel`.
+- Use SQLite repository from the standalone app.
+- Add folder selection, refresh index, search results, and basic open behavior.
+- Keep widget reusable for future ZeroSlack embedding.
+
+Status:
+
+- Repository-injected widget: done
+- Default standalone app SQLite database: done
+- Add folder and refresh index controls: done
+- Search and open selected resource: done
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
+
+## MVP 5: Precise Jump Targets
 
 Goal: make anchors useful for real navigation.
 
@@ -79,7 +100,7 @@ Planned scope:
 - PDF page/region anchors.
 - Manual anchors and aliases.
 
-## MVP 5: ZeroSlack Embedding
+## MVP 6: ZeroSlack Embedding
 
 Goal: embed Pinloom UI into ZeroSlack without merging ownership boundaries.
 

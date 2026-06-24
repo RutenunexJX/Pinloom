@@ -108,3 +108,15 @@ target_link_libraries(pinloom_directory_source_test
 )
 
 add_test(NAME pinloom_directory_source_test COMMAND pinloom_directory_source_test)
+
+add_executable(pinloom_widget_smoke_test
+    tests/widget_smoke_test.cpp
+)
+
+target_link_libraries(pinloom_widget_smoke_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Test
+)
+
+add_test(NAME pinloom_widget_smoke_test COMMAND pinloom_widget_smoke_test)

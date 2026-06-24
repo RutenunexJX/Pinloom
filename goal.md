@@ -47,3 +47,12 @@ Completed:
 - Directory indexing for folders, markdown files, PDFs, and generic files.
 - Idempotent indexing through stable file-location resource ids.
 - Directory source tests proving root-scoped scanning and repeated indexing behavior.
+
+### Usable Locator UI MVP
+
+Completed:
+
+- Standalone app opens and initializes the default SQLite database.
+- Reusable widget accepts repository injection instead of owning fixed in-memory data.
+- UI can add explicit folder roots, refresh directory indexing, search repository results, and open selected paths.
+- Widget smoke test validates repository injection and search display wiring.
