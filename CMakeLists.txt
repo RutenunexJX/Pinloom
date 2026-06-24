@@ -19,11 +19,16 @@ find_package(Qt6 REQUIRED COMPONENTS Core Sql Widgets Test)
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
     include/pinloom/core/InMemoryLibraryRepository.h
+    include/pinloom/core/DirectoryLibrarySource.h
+    include/pinloom/core/IndexingService.h
     include/pinloom/core/LibraryRepository.h
+    include/pinloom/core/LibrarySource.h
     include/pinloom/core/Resource.h
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
     include/pinloom/core/SqliteLibraryRepository.h
+    src/core/DirectoryLibrarySource.cpp
+    src/core/IndexingService.cpp
     src/core/InMemoryLibraryRepository.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
@@ -91,3 +96,15 @@ target_link_libraries(pinloom_sqlite_repository_test
 )
 
 add_test(NAME pinloom_sqlite_repository_test COMMAND pinloom_sqlite_repository_test)
+
+add_executable(pinloom_directory_source_test
+    tests/directory_source_test.cpp
+)
+
+target_link_libraries(pinloom_directory_source_test
+    PRIVATE
+        pinloom_core
+        Qt6::Test
+)
+
+add_test(NAME pinloom_directory_source_test COMMAND pinloom_directory_source_test)

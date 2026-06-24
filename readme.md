@@ -4,7 +4,7 @@ Pinloom is a standalone Qt application for locating personal and engineering mat
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
 
-## Current MVP: Local Library Persistence
+## Current MVP: Directory Source Indexing
 
 Implemented:
 
@@ -12,14 +12,19 @@ Implemented:
 - `pinloom_core` static library with resource, anchor, search, repository interfaces, an in-memory repository, and a SQLite/FTS5 schema draft.
 - SQLite-backed `SqliteLibraryRepository` with versioned schema initialization.
 - Persistent resources, tags, aliases, anchors, and FTS5 metadata search.
+- `LibrarySource` and `IndexingService` abstractions.
+- `DirectoryLibrarySource` for explicit normal-directory indexing.
 - `pinloom_widgets` static library with a reusable `PinloomPanel` widget.
 - `pinloom_app` standalone Qt application entry point.
 - `pinloom_core_smoke_test` validating basic alias/tag search and FTS5 schema exposure.
 - `pinloom_sqlite_repository_test` validating SQLite initialization, persistence, search, and idempotent upsert behavior.
+- `pinloom_directory_source_test` validating explicit-root directory indexing and idempotent repository upserts.
 
 Not implemented yet:
 
-- Real indexers for Obsidian vaults, normal folders, PDFs, source code, or web pages.
+- Persistent library root management.
+- Obsidian-specific markdown parsing for aliases, tags, wikilinks, and block ids.
+- PDF content/region extraction, source-code symbol parsing, and web page indexing.
 - Production search ranking.
 - ZeroSlack dock/global-control integration.
 
@@ -54,3 +59,9 @@ Local Library Persistence MVP validation:
 - Configure: passed
 - Build: passed
 - Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`)
+
+Directory Source Indexing MVP validation:
+
+- Configure: passed
+- Build: passed
+- Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`)

@@ -51,12 +51,22 @@ Status:
 
 Goal: support library sources without making any one source special.
 
-Planned scope:
+Scope:
 
 - Define `LibrarySource` interfaces.
 - Add normal folder/file indexing.
 - Add Obsidian-friendly markdown indexing for tags, aliases, headings, wikilinks, and block ids.
 - Keep Obsidian as one source adapter, not a core assumption.
+
+Status:
+
+- `LibrarySource` interface: done
+- `IndexingService`: done
+- Explicit normal directory source: done
+- Markdown/Obsidian-specific parsing: deferred
+- Tests: done
+- Build/test verification: done
+- Commit/push: release target is `origin/main`
 
 ## MVP 4: Precise Jump Targets
 

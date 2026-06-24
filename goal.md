@@ -37,3 +37,13 @@ Completed:
 - Persistent resources, tags, aliases, anchors, and FTS5 metadata rows.
 - Repository lifecycle methods for open, initialize, and error reporting.
 - SQLite persistence tests for initialization, metadata search, and multi-value readback.
+
+### Directory Source Indexing MVP
+
+Completed:
+
+- Source/indexing abstractions that produce resources without depending on UI.
+- Explicit normal-directory source for user-selected roots.
+- Directory indexing for folders, markdown files, PDFs, and generic files.
+- Idempotent indexing through stable file-location resource ids.
+- Directory source tests proving root-scoped scanning and repeated indexing behavior.
