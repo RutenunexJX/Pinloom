@@ -62,8 +62,8 @@ Implemented:
 - Search ordering applies root-level boosts for resources inside pinned library folders.
 - Search filtering accepts host-required resource kinds, tags, and location prefixes, while ordering accepts host-provided context tags, location prefixes, related resource ids, and relation-label constraints for embedded project/document context.
 - `pinloom_widgets` static library with repository-injected reusable `PinloomPanel`.
-- Host-facing `PinloomPanelOptions`, `PinloomOpenTarget`, and `PinloomRelatedTarget` API so embedding hosts can choose embedded chrome, observe result-count/current-target changes, navigate results, inspect current related targets, trigger current-result activation, and intercept selected result activation with resource metadata, matched field, context matches, relation label/note, score, and anchor details.
-- Public `PinloomPanel` search text, focus, current-target, related-target, indexing, remote-web-fetching, required kind/tag/location filtering, relation-label-scoped context-ranking, and atomic host-context snapshot methods for dock/global-control hosts.
+- Host-facing `PinloomPanelOptions`, `PinloomOpenTarget`, and `PinloomRelatedTarget` API so embedding hosts can choose embedded chrome, observe result-count/current-target/indexing-result changes, navigate results, inspect current related targets, trigger current-result activation, and intercept selected result activation with resource metadata, matched field, context matches, relation label/note, score, and anchor details.
+- Public `PinloomPanel` search text, focus, current-target, related-target, indexing, latest-indexing-result, remote-web-fetching, required kind/tag/location filtering, relation-label-scoped context-ranking, and atomic host-context snapshot methods for dock/global-control hosts.
 - CTest registration that supplies Qt, Qt plugins, and MinGW runtime paths for Windows test runs.
 - `pinloom_app` standalone Qt application entry point using a default SQLite database under `QStandardPaths::AppDataLocation`.
 - Locator UI for adding/removing folders, refreshing selected/all folders, rebuilding the index, searching, and opening selected resources.
@@ -163,7 +163,7 @@ ZeroSlack Embedding Boundary MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for host search control, embedded chrome options, result count/navigation/change notifications, current-target observation, current-related-target inspection, host-triggered current activation, indexing controls, required filters, tag/location/relation context ranking, relation-label-scoped context ranking, atomic host-context snapshots, host activation interception, and standalone fallback behavior (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for host search control, embedded chrome options, result count/navigation/change notifications, current-target observation, current-related-target inspection, host-triggered current activation, indexing controls with completion notifications/latest-result queries, required filters, tag/location/relation context ranking, relation-label-scoped context ranking, atomic host-context snapshots, host activation interception, and standalone fallback behavior (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Obsidian-Friendly Indexing MVP validation:
 

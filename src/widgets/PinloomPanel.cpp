@@ -574,13 +574,18 @@ bool PinloomPanel::remoteWebFetchingEnabled() const
     return fetchRemoteWebPagesCheck_ && fetchRemoteWebPagesCheck_->isChecked();
 }
 
+PinloomIndexingResult PinloomPanel::lastIndexingResult() const
+{
+    return lastIndexingResult_;
+}
+
 PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
 {
     const QString id = selectedRootId();
     if (id.isEmpty()) {
         const QString error = tr("No library folder selected");
         updateStatus(error);
-        return {false, 0, error};
+        return finishIndexingResult({false, 0, error});
     }
 
     const std::optional<LibraryRoot> root = repository_.findLibraryRoot(id);
@@ -588,7 +593,7 @@ PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
         const QString error = tr("Library folder no longer exists");
         loadLibraryRoots();
         updateStatus(error);
-        return {false, 0, error};
+        return finishIndexingResult({false, 0, error});
     }
 
     IndexingService indexer(repository_);
@@ -596,14 +601,14 @@ PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
     if (!indexer.indexRoot(root.value())) {
         const QString error = indexer.lastError();
         updateStatus(error);
-        return {false, indexer.lastIndexedCount(), error};
+        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
     }
 
     loadLibraryRoots();
     selectLibraryRoot(id);
     refreshResults();
     updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return {true, indexer.lastIndexedCount(), {}};
+    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
 }
 
 PinloomIndexingResult PinloomPanel::indexAllEnabledLibraryRoots()
@@ -613,13 +618,13 @@ PinloomIndexingResult PinloomPanel::indexAllEnabledLibraryRoots()
     if (!indexer.indexEnabledRoots()) {
         const QString error = indexer.lastError();
         updateStatus(error);
-        return {false, indexer.lastIndexedCount(), error};
+        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
     }
 
     loadLibraryRoots();
     refreshResults();
     updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return {true, indexer.lastIndexedCount(), {}};
+    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
 }
 
 PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
@@ -629,13 +634,13 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
     if (!indexer.rebuildEnabledRoots()) {
         const QString error = indexer.lastError();
         updateStatus(error);
-        return {false, indexer.lastIndexedCount(), error};
+        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
     }
 
     loadLibraryRoots();
     refreshResults();
     updateStatus(tr("Rebuilt %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return {true, indexer.lastIndexedCount(), {}};
+    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
 }
 
 bool PinloomPanel::addAliasToSelectedResource(const QString &alias)
@@ -1146,6 +1151,15 @@ void PinloomPanel::selectResultResource(const QString &resourceId)
             return;
         }
     }
+}
+
+PinloomIndexingResult PinloomPanel::finishIndexingResult(const PinloomIndexingResult &result)
+{
+    lastIndexingResult_ = result;
+    if (options_.indexingCompletedHandler) {
+        options_.indexingCompletedHandler(lastIndexingResult_);
+    }
+    return lastIndexingResult_;
 }
 
 bool PinloomPanel::tryHostOpenTarget(const PinloomOpenTarget &target)

@@ -132,16 +132,29 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     LibraryRoot root = makeLibraryRootForPath(dir.path());
     QVERIFY(repository.upsertLibraryRoot(root));
 
-    PinloomPanel panel(repository);
+    QList<PinloomIndexingResult> indexingNotifications;
+    PinloomPanelOptions options;
+    options.indexingCompletedHandler = [&](const PinloomIndexingResult &result) {
+        indexingNotifications.append(result);
+    };
+
+    PinloomPanel panel(repository, options);
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     auto *status = panel.findChild<QLabel *>(QStringLiteral("statusLabel"));
     QVERIFY(results);
     QVERIFY(status);
+    QVERIFY(!panel.lastIndexingResult().success);
+    QCOMPARE(panel.lastIndexingResult().indexedCount, 0);
+    QVERIFY(indexingNotifications.isEmpty());
 
     const PinloomIndexingResult selectedResult = panel.indexSelectedLibraryRoot();
     QVERIFY(selectedResult.success);
     QVERIFY(selectedResult.indexedCount >= 2);
     QVERIFY(selectedResult.error.isEmpty());
+    QCOMPARE(indexingNotifications.size(), 1);
+    QCOMPARE(indexingNotifications.last().success, selectedResult.success);
+    QCOMPARE(indexingNotifications.last().indexedCount, selectedResult.indexedCount);
+    QCOMPARE(panel.lastIndexingResult().indexedCount, selectedResult.indexedCount);
     QVERIFY(status->text().contains(QStringLiteral("Indexed")));
 
     panel.setSearchText(QStringLiteral("selected root refresh"));
@@ -152,6 +165,10 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     const PinloomIndexingResult allResult = panel.indexAllEnabledLibraryRoots();
     QVERIFY(allResult.success);
     QVERIFY(allResult.indexedCount >= 3);
+    QCOMPARE(indexingNotifications.size(), 2);
+    QCOMPARE(indexingNotifications.last().success, allResult.success);
+    QCOMPARE(indexingNotifications.last().indexedCount, allResult.indexedCount);
+    QCOMPARE(panel.lastIndexingResult().indexedCount, allResult.indexedCount);
 
     panel.setSearchText(QStringLiteral("all roots refresh"));
     QCOMPARE(results->count(), 1);
@@ -168,7 +185,27 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     const PinloomIndexingResult rebuildResult = panel.rebuildAllEnabledLibraryRoots();
     QVERIFY(rebuildResult.success);
     QVERIFY(rebuildResult.indexedCount >= 3);
+    QCOMPARE(indexingNotifications.size(), 3);
+    QCOMPARE(indexingNotifications.last().success, rebuildResult.success);
+    QCOMPARE(indexingNotifications.last().indexedCount, rebuildResult.indexedCount);
+    QCOMPARE(panel.lastIndexingResult().indexedCount, rebuildResult.indexedCount);
     QVERIFY(repository.search(SearchQuery{QStringLiteral("stale resource")}).isEmpty());
+
+    InMemoryLibraryRepository emptyRepository;
+    QList<PinloomIndexingResult> failedNotifications;
+    PinloomPanelOptions failedOptions;
+    failedOptions.indexingCompletedHandler = [&](const PinloomIndexingResult &result) {
+        failedNotifications.append(result);
+    };
+    PinloomPanel emptyPanel(emptyRepository, failedOptions);
+    const PinloomIndexingResult missingRootResult = emptyPanel.indexSelectedLibraryRoot();
+    QVERIFY(!missingRootResult.success);
+    QCOMPARE(missingRootResult.indexedCount, 0);
+    QVERIFY(!missingRootResult.error.isEmpty());
+    QCOMPARE(failedNotifications.size(), 1);
+    QCOMPARE(failedNotifications.last().success, missingRootResult.success);
+    QCOMPARE(failedNotifications.last().error, missingRootResult.error);
+    QCOMPARE(emptyPanel.lastIndexingResult().error, missingRootResult.error);
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()

@@ -112,6 +112,7 @@ Completed:
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
+- Let embedding hosts observe completed indexing results and query the latest structured indexing result without reading UI text.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.

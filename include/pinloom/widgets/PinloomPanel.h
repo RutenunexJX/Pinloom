@@ -42,19 +42,20 @@ struct PinloomRelatedTarget {
     PinloomOpenTarget target;
 };
 
-struct PinloomPanelOptions {
-    std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
-    std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
-    std::function<void(int resultCount)> resultCountChangedHandler;
-    bool showLibraryRootControls = true;
-    bool showManualEditControls = true;
-    bool showPinControls = true;
-};
-
 struct PinloomIndexingResult {
     bool success = false;
     int indexedCount = 0;
     QString error;
+};
+
+struct PinloomPanelOptions {
+    std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
+    std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
+    std::function<void(int resultCount)> resultCountChangedHandler;
+    std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
+    bool showLibraryRootControls = true;
+    bool showManualEditControls = true;
+    bool showPinControls = true;
 };
 
 struct PinloomHostContext {
@@ -103,6 +104,7 @@ public:
     bool activateCurrentOpenTarget();
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
+    PinloomIndexingResult lastIndexingResult() const;
     PinloomIndexingResult indexSelectedLibraryRoot();
     PinloomIndexingResult indexAllEnabledLibraryRoots();
     PinloomIndexingResult rebuildAllEnabledLibraryRoots();
@@ -137,6 +139,7 @@ private:
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
     void selectResultResource(const QString &resourceId);
+    PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;
 
@@ -149,6 +152,7 @@ private:
     QStringList contextLocationPrefixes_;
     QStringList contextResourceIds_;
     QStringList contextRelationLabels_;
+    PinloomIndexingResult lastIndexingResult_;
     QWidget *rootControlsWidget_ = nullptr;
     QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
