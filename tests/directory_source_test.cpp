@@ -1454,6 +1454,7 @@ void DirectorySourceTest::extractsPdfContentText()
                          "72 720 Td\n"
                          "(Pinloom launch matrix) Tj\n"
                          "[(ZeroSlack ) 120 (dock handoff)] TJ\n"
+                         "[(Pin) -80 (loom ) 60 (array kerning)] TJ\n"
                          "<5043496520636f6e74656e74> Tj\n"
                          "ET\n"
                          "endstream\n"
@@ -1471,6 +1472,7 @@ void DirectorySourceTest::extractsPdfContentText()
     QVERIFY(pdfIt != resources.cend());
     QVERIFY(pdfIt->content.contains(QStringLiteral("Pinloom launch matrix")));
     QVERIFY(pdfIt->content.contains(QStringLiteral("ZeroSlack dock handoff")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Pinloom array kerning")));
     QVERIFY(pdfIt->content.contains(QStringLiteral("PCIe content")));
 
     SqliteLibraryRepository repository;
@@ -1485,6 +1487,11 @@ void DirectorySourceTest::extractsPdfContentText()
     QCOMPARE(contentResults.size(), 1);
     QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> kerningResults = repository.search(SearchQuery{QStringLiteral("Pinloom array kerning")});
+    QCOMPARE(kerningResults.size(), 1);
+    QCOMPARE(kerningResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(kerningResults.first().matchedField, QStringLiteral("content"));
 }
 
 void DirectorySourceTest::extractsUtf16PdfContentText()

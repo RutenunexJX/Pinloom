@@ -351,7 +351,7 @@ Status:
 - URL open behavior through host interception or standalone fallback: done.
 - URL fragment anchor fallback opening for web/local HTML targets: done.
 - PDF annotation region anchors: done.
-- Lightweight PDF text extraction/search for uncompressed text streams: done.
+- Lightweight PDF text extraction/search for uncompressed text streams, including `TJ` text arrays with split glyph runs: done.
 - Lightweight PDF text extraction/search for FlateDecode text streams: done.
 - Lightweight PDF text extraction/search for ASCIIHexDecode streams and literal octal escapes: done.
 - Lightweight PDF text extraction/search for ASCII85Decode streams: done.

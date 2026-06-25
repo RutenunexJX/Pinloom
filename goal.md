@@ -222,7 +222,7 @@ Completed:
 - Open URL resources through host interception or the standalone fallback URL opener.
 - Preserve matched URL fragment anchors when standalone fallback opens web pages or local HTML pages.
 - Extract PDF annotation rectangles as searchable region anchors.
-- Extract searchable PDF text from uncompressed text content streams.
+- Extract searchable PDF text from uncompressed text content streams, including `TJ` text arrays with split glyph runs.
 - Extract searchable PDF text from FlateDecode text content streams.
 - Extract searchable PDF text from ASCIIHexDecode text content streams and literal octal escapes.
 - Extract searchable PDF text from ASCII85Decode text content streams.

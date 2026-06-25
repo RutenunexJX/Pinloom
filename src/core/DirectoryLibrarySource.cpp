@@ -184,7 +184,7 @@ QString normalizedMarkdownReferenceId(QString id)
     return id;
 }
 
-QString decodePdfUtf16Bytes(const QByteArray &bytes, bool bigEndian, int offset)
+QString decodePdfUtf16Bytes(const QByteArray &bytes, bool bigEndian, int offset, bool trimText = true)
 {
     QString decoded;
     for (int i = offset; i + 1 < bytes.size(); i += 2) {
@@ -195,10 +195,10 @@ QString decodePdfUtf16Bytes(const QByteArray &bytes, bool bigEndian, int offset)
             : static_cast<ushort>((low << 8) | high);
         decoded.append(QChar(codeUnit));
     }
-    return decoded.trimmed();
+    return trimText ? decoded.trimmed() : decoded;
 }
 
-QString decodePdfTextBytes(const QByteArray &bytes)
+QString decodePdfTextBytes(const QByteArray &bytes, bool trimText = true)
 {
     if (bytes.isEmpty()) {
         return {};
@@ -206,18 +206,19 @@ QString decodePdfTextBytes(const QByteArray &bytes)
     if (bytes.size() >= 2
         && static_cast<unsigned char>(bytes.at(0)) == 0xfe
         && static_cast<unsigned char>(bytes.at(1)) == 0xff) {
-        return decodePdfUtf16Bytes(bytes, true, 2);
+        return decodePdfUtf16Bytes(bytes, true, 2, trimText);
     }
     if (bytes.size() >= 2
         && static_cast<unsigned char>(bytes.at(0)) == 0xff
         && static_cast<unsigned char>(bytes.at(1)) == 0xfe) {
-        return decodePdfUtf16Bytes(bytes, false, 2);
+        return decodePdfUtf16Bytes(bytes, false, 2, trimText);
     }
 
     const QString utf8 = QString::fromUtf8(bytes);
-    return utf8.contains(QChar::ReplacementCharacter)
-        ? QString::fromLatin1(bytes).trimmed()
-        : utf8.trimmed();
+    const QString decoded = utf8.contains(QChar::ReplacementCharacter)
+        ? QString::fromLatin1(bytes)
+        : utf8;
+    return trimText ? decoded.trimmed() : decoded;
 }
 
 QByteArray pdfBytesFromHex(QString hex)
@@ -787,7 +788,7 @@ QString markdownPlainTextFromLine(QString line)
     return line.replace(whitespacePattern, QStringLiteral(" ")).trimmed();
 }
 
-QString decodePdfLiteralString(const QString &value)
+QString decodePdfLiteralString(const QString &value, bool trimText = true)
 {
     QByteArray bytes;
     bytes.reserve(value.size());
@@ -848,7 +849,7 @@ QString decodePdfLiteralString(const QString &value)
         bytes.append(static_cast<char>(ch.unicode() & 0xff));
     }
 
-    return decodePdfTextBytes(bytes);
+    return decodePdfTextBytes(bytes, trimText);
 }
 
 QString pdfTitleFromText(const QString &text)
@@ -1290,7 +1291,7 @@ QString collapsedWhitespace(QString text)
     return text.replace(whitespacePattern, QStringLiteral(" ")).trimmed();
 }
 
-bool readPdfLiteralStringAt(const QString &text, int start, QString *value, int *end)
+bool readPdfLiteralStringAt(const QString &text, int start, QString *value, int *end, bool trimText = true)
 {
     if (start < 0 || start >= text.size() || text.at(start) != QLatin1Char('(')) {
         return false;
@@ -1327,7 +1328,7 @@ bool readPdfLiteralStringAt(const QString &text, int start, QString *value, int 
         return false;
     }
     if (value) {
-        *value = decodePdfLiteralString(literal);
+        *value = decodePdfLiteralString(literal, trimText);
     }
     if (end) {
         *end = cursor;
@@ -1335,7 +1336,7 @@ bool readPdfLiteralStringAt(const QString &text, int start, QString *value, int 
     return true;
 }
 
-QString decodePdfHexString(QString hex, const PdfTextDecodeContext *context = nullptr)
+QString decodePdfHexString(QString hex, const PdfTextDecodeContext *context = nullptr, bool trimText = true)
 {
     const QByteArray bytes = pdfBytesFromHex(hex);
     if (bytes.isEmpty()) {
@@ -1367,18 +1368,19 @@ QString decodePdfHexString(QString hex, const PdfTextDecodeContext *context = nu
             }
         }
         if (matchedAny) {
-            return decoded.trimmed();
+            return trimText ? decoded.trimmed() : decoded;
         }
     }
 
-    return decodePdfTextBytes(bytes);
+    return decodePdfTextBytes(bytes, trimText);
 }
 
 bool readPdfHexStringAt(const QString &text,
                         int start,
                         const PdfTextDecodeContext *context,
                         QString *value,
-                        int *end)
+                        int *end,
+                        bool trimText = true)
 {
     if (start < 0
         || start >= text.size()
@@ -1392,12 +1394,90 @@ bool readPdfHexStringAt(const QString &text,
         return false;
     }
     if (value) {
-        *value = decodePdfHexString(text.mid(start + 1, close - start - 1), context);
+        *value = decodePdfHexString(text.mid(start + 1, close - start - 1), context, trimText);
     }
     if (end) {
         *end = close + 1;
     }
     return true;
+}
+
+bool readPdfTextArrayAt(const QString &text,
+                        int start,
+                        const PdfTextDecodeContext *context,
+                        QString *value,
+                        int *end)
+{
+    if (start < 0 || start >= text.size() || text.at(start) != QLatin1Char('[')) {
+        return false;
+    }
+
+    QString arrayText;
+    int cursor = start + 1;
+    bool pendingSpacing = false;
+    while (cursor < text.size()) {
+        if (text.at(cursor) == QLatin1Char(']')) {
+            if (value) {
+                *value = arrayText;
+            }
+            if (end) {
+                *end = cursor + 1;
+            }
+            return true;
+        }
+
+        QString chunk;
+        int next = cursor + 1;
+        if (readPdfLiteralStringAt(text, cursor, &chunk, &next, false)
+            || readPdfHexStringAt(text, cursor, context, &chunk, &next, false)) {
+            if (pendingSpacing
+                && !arrayText.isEmpty()
+                && !arrayText.back().isSpace()
+                && !chunk.isEmpty()
+                && !chunk.front().isSpace()) {
+                arrayText.append(QLatin1Char(' '));
+            }
+            arrayText.append(chunk);
+            pendingSpacing = false;
+            cursor = next;
+            continue;
+        }
+
+        if (!text.at(cursor).isSpace()) {
+            int tokenEnd = cursor;
+            while (tokenEnd < text.size()
+                   && !text.at(tokenEnd).isSpace()
+                   && text.at(tokenEnd) != QLatin1Char(']')
+                   && text.at(tokenEnd) != QLatin1Char('[')
+                   && text.at(tokenEnd) != QLatin1Char('(')
+                   && text.at(tokenEnd) != QLatin1Char('<')) {
+                ++tokenEnd;
+            }
+            bool ok = false;
+            const double spacing = text.mid(cursor, tokenEnd - cursor).toDouble(&ok);
+            if (ok && spacing > 0.0) {
+                pendingSpacing = true;
+            }
+            cursor = std::max(tokenEnd, cursor + 1);
+            continue;
+        }
+
+        ++cursor;
+    }
+
+    return false;
+}
+
+bool hasPdfTextOperatorAfter(const QString &text, int cursor, const QString &operatorName)
+{
+    while (cursor < text.size() && text.at(cursor).isSpace()) {
+        ++cursor;
+    }
+    if (text.mid(cursor, operatorName.size()).compare(operatorName, Qt::CaseSensitive) != 0) {
+        return false;
+    }
+    const int end = cursor + operatorName.size();
+    return end >= text.size() || text.at(end).isSpace();
 }
 
 QString pdfTextFromTextSection(const QString &section, const PdfTextDecodeContext *context)
@@ -1407,6 +1487,14 @@ QString pdfTextFromTextSection(const QString &section, const PdfTextDecodeContex
     while (cursor < section.size()) {
         QString value;
         int next = cursor + 1;
+        if (readPdfTextArrayAt(section, cursor, context, &value, &next)
+            && hasPdfTextOperatorAfter(section, next, QStringLiteral("TJ"))) {
+            if (!value.trimmed().isEmpty()) {
+                chunks.append(value);
+            }
+            cursor = next;
+            continue;
+        }
         if (readPdfLiteralStringAt(section, cursor, &value, &next)
             || readPdfHexStringAt(section, cursor, context, &value, &next)) {
             if (!value.trimmed().isEmpty()) {
