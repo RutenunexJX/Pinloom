@@ -33,6 +33,7 @@ private slots:
     void panelPinsSelectedResource();
     void panelPinsSelectedLibraryRoot();
     void panelAppliesRequiredTagLocationAndKindFiltering();
+    void panelAppliesHostContextSnapshot();
     void panelAppliesHostContextRanking();
     void panelExposesCurrentOpenTargetForHostPreview();
     void panelNotifiesHostWhenCurrentOpenTargetChanges();
@@ -565,6 +566,67 @@ void WidgetSmokeTest::panelAppliesRequiredTagLocationAndKindFiltering()
 
     panel.setRequiredResourceKinds({});
     QCOMPARE(results->count(), 2);
+}
+
+void WidgetSmokeTest::panelAppliesHostContextSnapshot()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource project;
+    project.id = QStringLiteral("project");
+    project.kind = ResourceKind::Markdown;
+    project.title = QStringLiteral("UART Project Note");
+    project.location = QStringLiteral("E:/workspace/project/project.md");
+    project.tags = {QStringLiteral("zeroslack"), QStringLiteral("pcie")};
+    QVERIFY(repository.upsertResource(project));
+
+    Resource other;
+    other.id = QStringLiteral("other");
+    other.kind = ResourceKind::Markdown;
+    other.title = QStringLiteral("UART Other Note");
+    other.location = QStringLiteral("E:/workspace/other/other.md");
+    other.tags = {QStringLiteral("zeroslack")};
+    QVERIFY(repository.upsertResource(other));
+
+    Resource web;
+    web.id = QStringLiteral("web");
+    web.kind = ResourceKind::Url;
+    web.title = QStringLiteral("UART Web Reference");
+    web.location = QStringLiteral("https://docs.example.com/uart");
+    web.tags = {QStringLiteral("zeroslack"), QStringLiteral("pcie")};
+    QVERIFY(repository.upsertResource(web));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+
+    PinloomHostContext context;
+    context.searchText = QStringLiteral("UART");
+    context.requiredTags = {QStringLiteral("zeroslack")};
+    context.requiredLocationPrefixes = {QStringLiteral("E:/workspace")};
+    context.requiredResourceKinds = {ResourceKind::Markdown};
+    context.contextTags = {QStringLiteral("pcie")};
+    context.contextLocationPrefixes = {QStringLiteral("E:/workspace/project")};
+    panel.applyHostContext(context);
+
+    const PinloomHostContext snapshot = panel.hostContext();
+    QCOMPARE(snapshot.searchText, context.searchText);
+    QCOMPARE(snapshot.requiredTags, context.requiredTags);
+    QCOMPARE(snapshot.requiredLocationPrefixes, context.requiredLocationPrefixes);
+    QCOMPARE(snapshot.requiredResourceKinds, context.requiredResourceKinds);
+    QCOMPARE(snapshot.contextTags, context.contextTags);
+    QCOMPARE(snapshot.contextLocationPrefixes, context.contextLocationPrefixes);
+
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), project.id);
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context tag: pcie")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context location: E:/workspace/project")));
+
+    results->setCurrentRow(0);
+    const PinloomOpenTarget target = panel.currentOpenTarget();
+    QCOMPARE(target.resourceId, project.id);
+    QCOMPARE(target.matchedContextTag, QStringLiteral("pcie"));
+    QCOMPARE(target.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
 }
 
 void WidgetSmokeTest::panelAppliesHostContextRanking()

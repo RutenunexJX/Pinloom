@@ -3,6 +3,8 @@
 #include "pinloom/core/Anchor.h"
 #include "pinloom/core/LibraryRepository.h"
 
+#include <QList>
+#include <QStringList>
 #include <QWidget>
 #include <functional>
 #include <optional>
@@ -41,6 +43,15 @@ struct PinloomIndexingResult {
     QString error;
 };
 
+struct PinloomHostContext {
+    QString searchText;
+    QStringList requiredTags;
+    QStringList requiredLocationPrefixes;
+    QList<ResourceKind> requiredResourceKinds;
+    QStringList contextTags;
+    QStringList contextLocationPrefixes;
+};
+
 class PinloomPanel : public QWidget {
     Q_OBJECT
 
@@ -61,6 +72,8 @@ public:
     QStringList contextTags() const;
     void setContextLocationPrefixes(const QStringList &prefixes);
     QStringList contextLocationPrefixes() const;
+    void applyHostContext(const PinloomHostContext &context);
+    PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;

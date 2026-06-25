@@ -371,6 +371,32 @@ QStringList PinloomPanel::contextLocationPrefixes() const
     return contextLocationPrefixes_;
 }
 
+void PinloomPanel::applyHostContext(const PinloomHostContext &context)
+{
+    {
+        const QSignalBlocker blocker(searchEdit_);
+        searchEdit_->setText(context.searchText);
+    }
+    requiredTags_ = context.requiredTags;
+    requiredLocationPrefixes_ = context.requiredLocationPrefixes;
+    requiredResourceKinds_ = context.requiredResourceKinds;
+    contextTags_ = context.contextTags;
+    contextLocationPrefixes_ = context.contextLocationPrefixes;
+    refreshResults();
+}
+
+PinloomHostContext PinloomPanel::hostContext() const
+{
+    PinloomHostContext context;
+    context.searchText = searchText();
+    context.requiredTags = requiredTags_;
+    context.requiredLocationPrefixes = requiredLocationPrefixes_;
+    context.requiredResourceKinds = requiredResourceKinds_;
+    context.contextTags = contextTags_;
+    context.contextLocationPrefixes = contextLocationPrefixes_;
+    return context;
+}
+
 PinloomOpenTarget PinloomPanel::currentOpenTarget() const
 {
     PinloomOpenTarget target;

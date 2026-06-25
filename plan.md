@@ -164,6 +164,7 @@ Scope:
 - Keep `pinloom_core` independent.
 - Reuse `pinloom_widgets` from both hosts.
 - Let hosts seed search text and focus the locator.
+- Let hosts apply active search/filter/ranking context as one snapshot when project or document context changes.
 - Let hosts intercept selected result activation while preserving standalone fallback open behavior.
 - Document ownership boundaries between Pinloom and an embedding host.
 
@@ -175,6 +176,7 @@ Status:
 - Host-controllable optional remote HTML fetching toggle: done.
 - Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.
 - Host-required resource-kind, tag, and location-prefix filtering APIs: done.
+- Atomic host search/filter/ranking context snapshot API: done.
 - Rich host activation payload with resource metadata, match/context details, score, and anchors: done.
 - Standalone fallback behavior: done.
 - Embedding ownership boundary documentation: done.

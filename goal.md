@@ -108,6 +108,7 @@ Completed:
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags and prefixes for ranking.
+- Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, matched field, matched context signals, score, and anchor details in host activation payloads.
 - Keep standalone behavior as the default fallback.
 - Document which responsibilities belong to Pinloom and which belong to the embedding host.
