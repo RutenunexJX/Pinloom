@@ -1391,11 +1391,13 @@ void DirectorySourceTest::extractsPdfTitleAndPageAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library")));
     writeFile(dir.filePath(QStringLiteral("library/spec.pdf")),
               QByteArray("%PDF-1.4\n"
-                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R /Outlines 6 0 R >> endobj\n"
                          "2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >> endobj\n"
                          "3 0 obj << /Type /Page /Parent 2 0 R >> endobj\n"
                          "4 0 obj << /Type /Page /Parent 2 0 R >> endobj\n"
                          "5 0 obj << /Title (PCIe Debug Spec) >> endobj\n"
+                         "6 0 obj << /Type /Outlines /First 7 0 R /Last 7 0 R /Count 1 >> endobj\n"
+                         "7 0 obj << /Title (Timing Closure Bookmark) /Dest [4 0 R /XYZ null null null] >> endobj\n"
                          "trailer << /Root 1 0 R /Info 5 0 R >>\n"
                          "%%EOF\n"));
 
@@ -1409,12 +1411,15 @@ void DirectorySourceTest::extractsPdfTitleAndPageAnchors()
     });
     QVERIFY(pdfIt != resources.cend());
     QVERIFY(pdfIt->aliases.contains(QStringLiteral("PCIe Debug Spec")));
-    QCOMPARE(pdfIt->anchors.size(), 2);
+    QCOMPARE(pdfIt->anchors.size(), 3);
     QCOMPARE(pdfIt->anchors.at(0).type, AnchorType::PdfPage);
     QCOMPARE(pdfIt->anchors.at(0).target, QStringLiteral("Page 1"));
     QCOMPARE(pdfIt->anchors.at(0).page, 1);
     QCOMPARE(pdfIt->anchors.at(1).target, QStringLiteral("Page 2"));
     QCOMPARE(pdfIt->anchors.at(1).page, 2);
+    QCOMPARE(pdfIt->anchors.at(2).type, AnchorType::PdfPage);
+    QCOMPARE(pdfIt->anchors.at(2).target, QStringLiteral("Timing Closure Bookmark"));
+    QCOMPARE(pdfIt->anchors.at(2).page, 2);
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -1433,6 +1438,13 @@ void DirectorySourceTest::extractsPdfTitleAndPageAnchors()
     QVERIFY(pageResults.first().matchedAnchor.has_value());
     QCOMPARE(pageResults.first().matchedAnchor->type, AnchorType::PdfPage);
     QCOMPARE(pageResults.first().matchedAnchor->page, 2);
+
+    const QList<SearchResult> outlineResults = repository.search(SearchQuery{QStringLiteral("Timing Closure")});
+    QCOMPARE(outlineResults.size(), 1);
+    QVERIFY(outlineResults.first().matchedAnchor.has_value());
+    QCOMPARE(outlineResults.first().matchedAnchor->type, AnchorType::PdfPage);
+    QCOMPARE(outlineResults.first().matchedAnchor->target, QStringLiteral("Timing Closure Bookmark"));
+    QCOMPARE(outlineResults.first().matchedAnchor->page, 2);
 }
 
 void DirectorySourceTest::extractsPdfContentText()

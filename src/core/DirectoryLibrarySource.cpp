@@ -976,7 +976,7 @@ QString pdfLiteralValueAfterKey(const QString &text, const QString &key)
         const int end = text.indexOf(QLatin1Char('>'), cursor + 1);
         if (end > cursor) {
             const QByteArray bytes = QByteArray::fromHex(text.mid(cursor + 1, end - cursor - 1).toLatin1());
-            return QString::fromUtf8(bytes).trimmed();
+            return decodePdfTextBytes(bytes);
         }
     }
 
@@ -1114,6 +1114,72 @@ void appendPdfRegionAnchor(Resource &resource, const QString &annotationBody, in
     anchor.page = page;
     anchor.region = region.value();
     resource.anchors.append(anchor);
+}
+
+int pdfDestinationPageObjectNumber(const QString &objectBody)
+{
+    static const QRegularExpression destinationPattern(
+        QStringLiteral("/(?:Dest|D)\\b\\s*\\[\\s*(\\d+)\\s+\\d+\\s+R\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const QRegularExpressionMatch match = destinationPattern.match(objectBody);
+    return match.hasMatch() ? match.captured(1).toInt() : -1;
+}
+
+QHash<int, int> pdfPageNumbersByObjectNumber(const QList<PdfObject> &objects)
+{
+    QHash<int, int> pageNumbers;
+    int page = 0;
+    static const QRegularExpression pageObjectPattern(QStringLiteral("/Type\\s*/Page\\b"));
+    for (const PdfObject &object : objects) {
+        if (!pageObjectPattern.match(object.body).hasMatch()) {
+            continue;
+        }
+        ++page;
+        pageNumbers.insert(object.number, page);
+    }
+    return pageNumbers;
+}
+
+void appendPdfPageAnchor(Resource &resource, const QString &target, int page)
+{
+    const QString normalizedTarget = target.trimmed();
+    if (normalizedTarget.isEmpty() || page <= 0) {
+        return;
+    }
+
+    const auto duplicate = std::find_if(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+        return anchor.type == AnchorType::PdfPage
+            && anchor.page == page
+            && anchor.target.compare(normalizedTarget, Qt::CaseInsensitive) == 0;
+    });
+    if (duplicate != resource.anchors.cend()) {
+        return;
+    }
+
+    Anchor anchor;
+    anchor.type = AnchorType::PdfPage;
+    anchor.target = normalizedTarget;
+    anchor.page = page;
+    resource.anchors.append(anchor);
+}
+
+void appendPdfOutlineAnchors(Resource &resource,
+                             const QList<PdfObject> &objects,
+                             const QHash<int, int> &pageNumbers)
+{
+    for (const PdfObject &object : objects) {
+        if (!object.body.contains(QStringLiteral("/Title"))) {
+            continue;
+        }
+
+        const QString title = pdfLiteralValueAfterKey(object.body, QStringLiteral("Title"));
+        const int pageObjectNumber = pdfDestinationPageObjectNumber(object.body);
+        if (title.isEmpty() || !pageNumbers.contains(pageObjectNumber)) {
+            continue;
+        }
+
+        appendPdfPageAnchor(resource, title, pageNumbers.value(pageObjectNumber));
+    }
 }
 
 QString shortcutUrlFromText(const QString &text)
@@ -6102,29 +6168,25 @@ void DirectoryLibrarySource::applyPdfMetadata(Resource &resource, const QFileInf
 
     const int pageCount = pdfPageCountFromText(pdfText);
     for (int page = 1; page <= pageCount; ++page) {
-        Anchor anchor;
-        anchor.type = AnchorType::PdfPage;
-        anchor.target = QStringLiteral("Page %1").arg(page);
-        anchor.page = page;
-        resource.anchors.append(anchor);
+        appendPdfPageAnchor(resource, QStringLiteral("Page %1").arg(page), page);
     }
 
     const QList<PdfObject> objects = pdfObjectsFromText(pdfText);
     resource.content = pdfContentTextFromObjects(objects);
+    const QHash<int, int> pageNumbers = pdfPageNumbersByObjectNumber(objects);
+    appendPdfOutlineAnchors(resource, objects, pageNumbers);
 
     QHash<int, QString> objectsByNumber;
     for (const PdfObject &object : objects) {
         objectsByNumber.insert(object.number, object.body);
     }
 
-    int page = 0;
-    static const QRegularExpression pageObjectPattern(QStringLiteral("/Type\\s*/Page\\b"));
     for (const PdfObject &object : objects) {
-        if (!pageObjectPattern.match(object.body).hasMatch()) {
+        const int page = pageNumbers.value(object.number, -1);
+        if (page <= 0) {
             continue;
         }
 
-        ++page;
         const QList<int> annotationRefs = pdfAnnotationRefsFromPage(object.body);
         for (const int ref : annotationRefs) {
             const auto annotationIt = objectsByNumber.constFind(ref);
