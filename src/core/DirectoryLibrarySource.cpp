@@ -95,6 +95,13 @@ struct HarEntryLink {
     QDateTime startedAt;
 };
 
+struct CompileCommandEntry {
+    QString sourcePath;
+    QString displayPath;
+    QString output;
+    int lineNumber = -1;
+};
+
 struct BrowserBookmarkLink {
     QUrl url;
     QString title;
@@ -3412,6 +3419,13 @@ bool isHarFileCandidate(const QFileInfo &fileInfo)
         && fileInfo.suffix().compare(QStringLiteral("har"), Qt::CaseInsensitive) == 0;
 }
 
+bool isCompileCommandsFile(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 16 * 1024 * 1024
+        && fileInfo.fileName().compare(QStringLiteral("compile_commands.json"), Qt::CaseInsensitive) == 0;
+}
+
 QString jsonPathLabel(QStringList path)
 {
     path.removeAll(QString());
@@ -3453,6 +3467,151 @@ int lineNumberForJsonUrl(const QString &text, const QString &rawUrl)
         return -1;
     }
     return text.left(index).count(QLatin1Char('\n')) + 1;
+}
+
+int lineNumberForTextValue(const QString &text, const QString &value)
+{
+    int index = text.indexOf(value);
+    if (index < 0) {
+        QString escaped = value;
+        escaped.replace(QLatin1Char('\\'), QStringLiteral("\\\\"));
+        escaped.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+        index = text.indexOf(escaped);
+    }
+    if (index < 0) {
+        return -1;
+    }
+    return text.left(index).count(QLatin1Char('\n')) + 1;
+}
+
+int lineNumberForJsonPropertyValue(const QString &text, const QString &propertyName, const QString &value)
+{
+    const QRegularExpression pattern(
+        QStringLiteral("\"%1\"\\s*:\\s*\"([^\"]*)\"").arg(QRegularExpression::escape(propertyName)));
+    QRegularExpressionMatchIterator matches = pattern.globalMatch(text);
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
+        QString decoded = match.captured(1);
+        decoded.replace(QStringLiteral("\\/"), QStringLiteral("/"));
+        decoded.replace(QStringLiteral("\\\\"), QStringLiteral("\\"));
+        decoded.replace(QStringLiteral("\\\""), QStringLiteral("\""));
+        if (decoded == value) {
+            return text.left(match.capturedStart(1)).count(QLatin1Char('\n')) + 1;
+        }
+    }
+    return lineNumberForTextValue(text, value);
+}
+
+QString absoluteCompileCommandPath(const QFileInfo &compileCommandsFile,
+                                   const QString &directory,
+                                   const QString &path)
+{
+    const QString trimmedPath = path.trimmed();
+    if (trimmedPath.isEmpty()) {
+        return {};
+    }
+
+    const QFileInfo pathInfo(trimmedPath);
+    if (pathInfo.isAbsolute()) {
+        return QDir::cleanPath(pathInfo.absoluteFilePath());
+    }
+
+    const QString basePath = directory.trimmed().isEmpty()
+        ? compileCommandsFile.absolutePath()
+        : directory.trimmed();
+    return QDir::cleanPath(QFileInfo(QDir(basePath).filePath(trimmedPath)).absoluteFilePath());
+}
+
+QString displayCompileCommandPath(const QFileInfo &compileCommandsFile, const QString &sourcePath)
+{
+    const QString relativePath = QDir(compileCommandsFile.absolutePath()).relativeFilePath(sourcePath);
+    if (!relativePath.isEmpty()) {
+        return QDir::cleanPath(relativePath);
+    }
+    return QFileInfo(sourcePath).fileName();
+}
+
+QList<CompileCommandEntry> compileCommandEntriesFromFile(const QFileInfo &fileInfo)
+{
+    if (!isCompileCommandsFile(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    const QJsonDocument document = QJsonDocument::fromJson(bytes);
+    if (!document.isArray()) {
+        return {};
+    }
+
+    const QString text = QString::fromUtf8(bytes);
+    QList<CompileCommandEntry> entries;
+    QStringList seenKeys;
+    for (const QJsonValue &value : document.array()) {
+        const QJsonObject object = value.toObject();
+        const QString rawSourcePath = object.value(QStringLiteral("file")).toString().trimmed();
+        if (rawSourcePath.isEmpty()) {
+            continue;
+        }
+
+        CompileCommandEntry entry;
+        entry.sourcePath = absoluteCompileCommandPath(fileInfo,
+                                                      object.value(QStringLiteral("directory")).toString(),
+                                                      rawSourcePath);
+        if (entry.sourcePath.isEmpty()) {
+            continue;
+        }
+
+        entry.output = object.value(QStringLiteral("output")).toString().trimmed();
+        entry.displayPath = displayCompileCommandPath(fileInfo, entry.sourcePath);
+        entry.lineNumber = lineNumberForJsonPropertyValue(text, QStringLiteral("file"), rawSourcePath);
+
+        const QString key = QStringLiteral("%1|%2").arg(entry.sourcePath, entry.output);
+        if (seenKeys.contains(key, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenKeys.append(key);
+        entries.append(entry);
+    }
+
+    return entries;
+}
+
+QString compileCommandAnchorTarget(const CompileCommandEntry &entry)
+{
+    const QString display = entry.displayPath.trimmed().isEmpty()
+        ? QFileInfo(entry.sourcePath).fileName()
+        : entry.displayPath.trimmed();
+    return entry.output.trimmed().isEmpty()
+        ? QStringLiteral("compile: %1").arg(display)
+        : QStringLiteral("compile: %1 -> %2").arg(display, entry.output.trimmed());
+}
+
+void appendCompileCommandMetadata(Resource &sourceResource, const QList<CompileCommandEntry> &entries)
+{
+    for (const CompileCommandEntry &entry : entries) {
+        const QString anchorTarget = compileCommandAnchorTarget(entry);
+        if (entry.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, entry.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = QStringLiteral("file:%1").arg(entry.sourcePath);
+        relation.label = QStringLiteral("compiles");
+        relation.note = entry.lineNumber > 0
+            ? QStringLiteral("compile_commands line %1: %2").arg(entry.lineNumber).arg(anchorTarget)
+            : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
 }
 
 void appendJsonUrlLinkFromString(const QString &text,
@@ -4294,6 +4453,9 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> tabularResources = tabularUrlResourcesFromLinks(fileInfo, tabularLinks);
         appendTabularUrlSourceMetadata(primary, tabularLinks, tabularResources);
         derivedResources.append(tabularResources);
+    }
+    if (primary.kind == ResourceKind::File && isCompileCommandsFile(fileInfo)) {
+        appendCompileCommandMetadata(primary, compileCommandEntriesFromFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File
         && isJsonUrlCandidate(fileInfo)

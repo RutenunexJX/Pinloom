@@ -45,6 +45,7 @@ private slots:
     void extractsCodeTestCaseAnchors();
     void extractsCodeDependencyLineAnchors();
     void extractsCMakeBuildAnchors();
+    void extractsCompileCommandsRelations();
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
@@ -2181,6 +2182,95 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("dependency: Qt6");
     }));
+}
+
+void DirectorySourceTest::extractsCompileCommandsRelations()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/build")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
+              QByteArray("class JumpController {};\n"
+                         "int main() { return 0; }\n"));
+
+    QString libraryPath = QDir::cleanPath(dir.filePath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/build/compile_commands.json")),
+              QStringLiteral("[\n"
+                             "  {\n"
+                             "    \"directory\": \"%1\",\n"
+                             "    \"command\": \"g++ -c src/pinloom.cpp -o CMakeFiles/pinloom.dir/src/pinloom.cpp.obj\",\n"
+                             "    \"file\": \"src/pinloom.cpp\",\n"
+                             "    \"output\": \"CMakeFiles/pinloom.dir/src/pinloom.cpp.obj\"\n"
+                             "  }\n"
+                             "]\n")
+                  .arg(libraryPath.replace(QLatin1Char('\\'), QLatin1Char('/')))
+                  .toUtf8());
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto compileDbIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("compile_commands.json");
+    });
+    QVERIFY(compileDbIt != resources.cend());
+
+    auto sourceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::CodeSnippet
+            && resource.title == QLatin1String("pinloom.cpp");
+    });
+    QVERIFY(sourceIt != resources.cend());
+
+    const QString anchorTarget =
+        QStringLiteral("compile: ../src/pinloom.cpp -> CMakeFiles/pinloom.dir/src/pinloom.cpp.obj");
+    QVERIFY(std::any_of(compileDbIt->anchors.cbegin(), compileDbIt->anchors.cend(), [&](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == anchorTarget
+            && anchor.line == 5;
+    }));
+
+    QCOMPARE(compileDbIt->relations.size(), 1);
+    QCOMPARE(compileDbIt->relations.first().sourceResourceId, compileDbIt->id);
+    QCOMPARE(compileDbIt->relations.first().targetResourceId, sourceIt->id);
+    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("compiles"));
+    QCOMPARE(compileDbIt->relations.first().note,
+             QStringLiteral("compile_commands line 5: %1").arg(anchorTarget));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> outputResults = repository.search(SearchQuery{QStringLiteral("pinloom.cpp.obj")});
+    QVERIFY(std::any_of(outputResults.cbegin(), outputResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("compile_commands.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 5;
+    }));
+
+    SearchQuery query{QStringLiteral("JumpController")};
+    query.contextResourceIds = {compileDbIt->id};
+    const QList<SearchResult> contextResults = repository.search(query);
+    QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::CodeSnippet
+            && result.resource.title == QLatin1String("pinloom.cpp")
+            && result.matchedContextRelationLabel == QLatin1String("compiles");
+    }));
+
+    const QList<ResourceRelation> sourceRelations = repository.resourceRelations(sourceIt->id);
+    QCOMPARE(sourceRelations.size(), 1);
+    QCOMPARE(sourceRelations.first().sourceResourceId, compileDbIt->id);
+    QCOMPARE(sourceRelations.first().targetResourceId, sourceIt->id);
 }
 
 void DirectorySourceTest::extractsCodeCommentLineAnchors()
