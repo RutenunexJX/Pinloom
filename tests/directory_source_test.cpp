@@ -45,6 +45,7 @@ private slots:
     void extractsBrowserBookmarkJsonLinks();
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
+    void extractsSitemapXmlLinks();
     void fetchesRemoteWebShortcutContent();
     void indexRootFetchesRemoteWebShortcutContent();
     void indexesDirectoryResourcesIdempotently();
@@ -2102,6 +2103,89 @@ void DirectorySourceTest::extractsFeedXmlLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("bridge");
+    }));
+}
+
+void DirectorySourceTest::extractsSitemapXmlLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/site")));
+    writeFile(dir.filePath(QStringLiteral("library/site/sitemap.xml")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<urlset xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+                         "  <url><loc>https://docs.example.com/pinloom/guide#install</loc></url>\n"
+                         "  <url><loc>https://docs.example.com/pinloom/guide#install</loc></url>\n"
+                         "  <url><loc>https://docs.example.com/pinloom/reference</loc></url>\n"
+                         "</urlset>\n"));
+    writeFile(dir.filePath(QStringLiteral("library/site/sitemap-index.xml")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<sitemapindex xmlns=\"http://www.sitemaps.org/schemas/sitemap/0.9\">\n"
+                         "  <sitemap><loc>https://docs.example.com/sitemaps/pinloom.xml</loc></sitemap>\n"
+                         "</sitemapindex>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto guideIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/guide#install");
+    });
+    QVERIFY(guideIt != resources.cend());
+    QCOMPARE(guideIt->title, QStringLiteral("guide"));
+    QVERIFY(guideIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(guideIt->tags.contains(QStringLiteral("sitemap")));
+    QVERIFY(guideIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(guideIt->aliases.contains(QStringLiteral("sitemap")));
+    QVERIFY(std::any_of(guideIt->anchors.cbegin(), guideIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("install");
+    }));
+
+    const int guideResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/guide#install");
+    });
+    QCOMPARE(guideResourceCount, 1);
+
+    auto indexIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/sitemaps/pinloom.xml");
+    });
+    QVERIFY(indexIt != resources.cend());
+    QVERIFY(indexIt->tags.contains(QStringLiteral("sitemap")));
+    QVERIFY(indexIt->tags.contains(QStringLiteral("sitemap-index")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> hostResults = repository.search(SearchQuery{QStringLiteral("docs.example.com")});
+    QVERIFY(std::any_of(hostResults.cbegin(), hostResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.location == QLatin1String("https://docs.example.com/pinloom/guide#install");
+    }));
+
+    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("sitemap-index")});
+    QVERIFY(std::any_of(tagResults.cbegin(), tagResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.location == QLatin1String("https://docs.example.com/sitemaps/pinloom.xml")
+            && result.resource.tags.contains(QStringLiteral("sitemap-index"));
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("install")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.location == QLatin1String("https://docs.example.com/pinloom/guide#install")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("install");
     }));
 }
 

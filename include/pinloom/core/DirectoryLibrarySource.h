@@ -38,6 +38,7 @@ private:
     QList<Resource> browserBookmarkResourcesFromJsonFile(const QFileInfo &fileInfo) const;
     QList<Resource> opmlResourcesFromFile(const QFileInfo &fileInfo) const;
     QList<Resource> feedResourcesFromXmlFile(const QFileInfo &fileInfo) const;
+    QList<Resource> sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const;
     void applyMarkdownMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyPdfMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyCodeMetadata(Resource &resource, const QFileInfo &fileInfo) const;

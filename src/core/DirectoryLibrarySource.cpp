@@ -65,6 +65,11 @@ struct FeedEntryLink {
     QStringList categories;
 };
 
+struct SitemapLink {
+    QUrl url;
+    bool sitemapIndexEntry = false;
+};
+
 QString markdownPlainTextFromLine(QString line);
 void appendFileLineAnchor(Resource &resource, const QString &target, int line);
 
@@ -1770,6 +1775,58 @@ QList<FeedEntryLink> feedLinksFromXmlDocument(const QByteArray &content)
     return links;
 }
 
+QList<SitemapLink> sitemapLinksFromXmlDocument(const QByteArray &content)
+{
+    QXmlStreamReader reader(content);
+    QList<SitemapLink> links;
+    bool rootSeen = false;
+    bool urlset = false;
+    bool sitemapIndex = false;
+    bool inUrl = false;
+    bool inSitemap = false;
+
+    while (!reader.atEnd()) {
+        reader.readNext();
+        const QString name = reader.name().toString().toLower();
+
+        if (reader.isStartElement()) {
+            if (!rootSeen) {
+                rootSeen = true;
+                urlset = name == QLatin1String("urlset");
+                sitemapIndex = name == QLatin1String("sitemapindex");
+                if (!urlset && !sitemapIndex) {
+                    return {};
+                }
+            }
+
+            if (urlset && name == QLatin1String("url")) {
+                inUrl = true;
+            } else if (sitemapIndex && name == QLatin1String("sitemap")) {
+                inSitemap = true;
+            } else if ((inUrl || inSitemap) && name == QLatin1String("loc")) {
+                const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+                if (isIndexableWebUrl(url)) {
+                    SitemapLink link;
+                    link.url = url;
+                    link.sitemapIndexEntry = inSitemap;
+                    links.append(link);
+                }
+            }
+        } else if (reader.isEndElement()) {
+            if (urlset && name == QLatin1String("url")) {
+                inUrl = false;
+            } else if (sitemapIndex && name == QLatin1String("sitemap")) {
+                inSitemap = false;
+            }
+        }
+    }
+
+    if (reader.hasError()) {
+        return {};
+    }
+    return links;
+}
+
 int pdfPageCountFromText(const QString &text)
 {
     static const QRegularExpression pagePattern(QStringLiteral("/Type\\s*/Page\\b"));
@@ -2401,6 +2458,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         resources.append(opmlResourcesFromFile(fileInfo));
     } else if (isFeedXmlCandidate(fileInfo)) {
         resources.append(feedResourcesFromXmlFile(fileInfo));
+        resources.append(sitemapResourcesFromXmlFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
         resources.append(plainTextUrlResourcesFromFile(fileInfo));
@@ -2701,6 +2759,45 @@ QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo
         for (const QString &category : link.categories) {
             appendUnique(resource.tags, category);
         }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QList<Resource> DirectoryLibrarySource::sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    QList<Resource> resources;
+    QStringList seenUrls;
+    for (const SitemapLink &link : sitemapLinksFromXmlDocument(file.readAll())) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+
+        Resource resource;
+        resource.id = QStringLiteral("sitemap:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.url.path().isEmpty() || link.url.path() == QLatin1String("/")
+            ? link.url.host()
+            : link.url.path().section(QLatin1Char('/'), -1);
+        if (resource.title.isEmpty()) {
+            resource.title = link.url.toDisplayString();
+        }
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("sitemap"));
+        if (link.sitemapIndexEntry) {
+            appendUnique(resource.tags, QStringLiteral("sitemap-index"));
+        }
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
         resources.append(resource);
     }
     return resources;
