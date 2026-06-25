@@ -83,6 +83,18 @@ struct JsonUrlLink {
     int lineNumber = -1;
 };
 
+struct HarEntryLink {
+    QUrl url;
+    QString title;
+    QString pageRef;
+    QString pageTitle;
+    QString method;
+    QString mimeType;
+    int status = -1;
+    int lineNumber = -1;
+    QDateTime startedAt;
+};
+
 struct BrowserBookmarkLink {
     QUrl url;
     QString title;
@@ -3315,6 +3327,13 @@ bool isJsonUrlCandidate(const QFileInfo &fileInfo)
     return suffix == QLatin1String("json") || suffix == QLatin1String("jsonl");
 }
 
+bool isHarFileCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 4 * 1024 * 1024
+        && fileInfo.suffix().compare(QStringLiteral("har"), Qt::CaseInsensitive) == 0;
+}
+
 QString jsonPathLabel(QStringList path)
 {
     path.removeAll(QString());
@@ -3571,6 +3590,202 @@ void appendJsonUrlSourceMetadata(Resource &sourceResource,
             relation.note = QStringLiteral("json path %1: %2").arg(link.path, anchorTarget);
         } else {
             relation.note = anchorTarget;
+        }
+        sourceResource.relations.append(relation);
+    }
+}
+
+QDateTime dateTimeFromHarString(const QString &value)
+{
+    const QString text = value.trimmed();
+    if (text.isEmpty()) {
+        return {};
+    }
+
+    QDateTime dateTime = QDateTime::fromString(text, Qt::ISODateWithMs);
+    if (!dateTime.isValid()) {
+        dateTime = QDateTime::fromString(text, Qt::ISODate);
+    }
+    return dateTime.isValid() ? dateTime.toUTC() : QDateTime();
+}
+
+QString titleForHarEntry(const QUrl &url, const QString &method, const QString &pageTitle)
+{
+    if (!pageTitle.trimmed().isEmpty()) {
+        return collapsedWhitespace(pageTitle);
+    }
+
+    QString target = url.path().trimmed();
+    if (target.isEmpty() || target == QLatin1String("/")) {
+        target = url.host();
+    }
+    if (target.isEmpty()) {
+        target = url.toDisplayString();
+    }
+
+    const QString normalizedMethod = method.trimmed().toUpper();
+    return normalizedMethod.isEmpty()
+        ? target
+        : QStringLiteral("%1 %2").arg(normalizedMethod, target);
+}
+
+QList<HarEntryLink> harEntryLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (!isHarFileCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    const QJsonDocument document = QJsonDocument::fromJson(bytes);
+    if (!document.isObject()) {
+        return {};
+    }
+
+    const QString text = QString::fromUtf8(bytes);
+    const QJsonObject logObject = document.object().value(QStringLiteral("log")).toObject();
+    if (logObject.isEmpty()) {
+        return {};
+    }
+
+    QHash<QString, QString> pageTitlesById;
+    const QJsonArray pages = logObject.value(QStringLiteral("pages")).toArray();
+    for (const QJsonValue &pageValue : pages) {
+        const QJsonObject page = pageValue.toObject();
+        const QString id = page.value(QStringLiteral("id")).toString().trimmed();
+        const QString title = page.value(QStringLiteral("title")).toString().trimmed();
+        if (!id.isEmpty() && !title.isEmpty()) {
+            pageTitlesById.insert(id, collapsedWhitespace(title));
+        }
+    }
+
+    QList<HarEntryLink> links;
+    QStringList seenUrls;
+    const QJsonArray entries = logObject.value(QStringLiteral("entries")).toArray();
+    for (const QJsonValue &entryValue : entries) {
+        const QJsonObject entry = entryValue.toObject();
+        const QJsonObject request = entry.value(QStringLiteral("request")).toObject();
+        const QString rawUrl = request.value(QStringLiteral("url")).toString().trimmed();
+        const QUrl url = QUrl::fromUserInput(rawUrl);
+        if (!isIndexableWebUrl(url)) {
+            continue;
+        }
+
+        const QString urlKey = url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+
+        const QJsonObject response = entry.value(QStringLiteral("response")).toObject();
+        const QJsonObject content = response.value(QStringLiteral("content")).toObject();
+
+        HarEntryLink link;
+        link.url = url;
+        link.pageRef = entry.value(QStringLiteral("pageref")).toString().trimmed();
+        link.pageTitle = pageTitlesById.value(link.pageRef);
+        link.method = request.value(QStringLiteral("method")).toString().trimmed().toUpper();
+        link.status = response.value(QStringLiteral("status")).toInt(-1);
+        link.mimeType = content.value(QStringLiteral("mimeType")).toString().trimmed();
+        link.startedAt = dateTimeFromHarString(entry.value(QStringLiteral("startedDateTime")).toString());
+        link.lineNumber = lineNumberForJsonUrl(text, rawUrl);
+        link.title = titleForHarEntry(url, link.method, link.pageTitle);
+        links.append(link);
+    }
+
+    return links;
+}
+
+QList<Resource> harUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<HarEntryLink> &links)
+{
+    QList<Resource> resources;
+    for (const HarEntryLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("har-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = link.startedAt.isValid() ? link.startedAt : fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("har"));
+        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        if (!link.method.isEmpty()) {
+            appendUnique(resource.tags, QStringLiteral("http-%1").arg(link.method.toLower()));
+            appendUnique(resource.aliases, link.method);
+        }
+        if (link.status > 0) {
+            appendUnique(resource.tags, QStringLiteral("http-%1").arg(link.status));
+            appendUnique(resource.aliases, QStringLiteral("status %1").arg(link.status));
+        }
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        appendUnique(resource.aliases, link.pageRef);
+        appendUnique(resource.aliases, link.pageTitle);
+        appendUnique(resource.aliases, link.mimeType);
+        resource.content = QStringList{
+            link.method,
+            link.status > 0 ? QStringLiteral("status %1").arg(link.status) : QString(),
+            link.pageRef,
+            link.pageTitle,
+            link.mimeType,
+            link.url.toDisplayString()
+        }.join(QLatin1Char(' ')).trimmed();
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString harUrlLineAnchorTarget(const HarEntryLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendHarSourceMetadata(Resource &sourceResource,
+                             const QList<HarEntryLink> &links,
+                             const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const HarEntryLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = harUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        QStringList details;
+        if (!link.method.isEmpty()) {
+            details.append(link.method);
+        }
+        if (link.status > 0) {
+            details.append(QStringLiteral("status %1").arg(link.status));
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        if (link.lineNumber > 0 && !details.isEmpty()) {
+            relation.note = QStringLiteral("har line %1 %2: %3")
+                                .arg(link.lineNumber)
+                                .arg(details.join(QLatin1Char(' ')), anchorTarget);
+        } else if (link.lineNumber > 0) {
+            relation.note = QStringLiteral("har line %1: %2").arg(link.lineNumber).arg(anchorTarget);
+        } else if (!details.isEmpty()) {
+            relation.note = QStringLiteral("har %1: %2").arg(details.join(QLatin1Char(' ')), anchorTarget);
+        } else {
+            relation.note = QStringLiteral("har: %1").arg(anchorTarget);
         }
         sourceResource.relations.append(relation);
     }
@@ -4009,6 +4224,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> jsonResources = jsonUrlResourcesFromLinks(fileInfo, jsonLinks);
         appendJsonUrlSourceMetadata(primary, jsonLinks, jsonResources);
         derivedResources.append(jsonResources);
+    }
+    if (primary.kind == ResourceKind::File && isHarFileCandidate(fileInfo)) {
+        const QList<HarEntryLink> harLinks = harEntryLinksFromFile(fileInfo);
+        const QList<Resource> harResources = harUrlResourcesFromLinks(fileInfo, harLinks);
+        appendHarSourceMetadata(primary, harLinks, harResources);
+        derivedResources.append(harResources);
     }
     if (primary.kind == ResourceKind::File && isBrowserHistorySqliteCandidate(fileInfo)) {
         const QList<BrowserHistoryLink> historyLinks = browserHistoryLinksFromSqliteFile(fileInfo);

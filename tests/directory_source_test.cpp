@@ -48,6 +48,7 @@ private slots:
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
     void extractsJsonUrlResources();
+    void extractsHarEntryLinks();
     void extractsStructuredTextUrlResources();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
@@ -2466,6 +2467,142 @@ void DirectorySourceTest::extractsJsonUrlResources()
     QCOMPARE(hostRelations.size(), 1);
     QCOMPARE(hostRelations.first().sourceResourceId, referencesIt->id);
     QCOMPARE(hostRelations.first().targetResourceId, hostIt->id);
+}
+
+void DirectorySourceTest::extractsHarEntryLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/captures")));
+    writeFile(dir.filePath(QStringLiteral("library/captures/session.har")),
+              QByteArray("{\n"
+                         "  \"log\": {\n"
+                         "    \"pages\": [\n"
+                         "      {\n"
+                         "        \"startedDateTime\": \"2026-06-25T10:15:00.000Z\",\n"
+                         "        \"id\": \"page_1\",\n"
+                         "        \"title\": \"Pinloom HAR Capture\"\n"
+                         "      }\n"
+                         "    ],\n"
+                         "    \"entries\": [\n"
+                         "      {\n"
+                         "        \"pageref\": \"page_1\",\n"
+                         "        \"startedDateTime\": \"2026-06-25T10:15:01.000Z\",\n"
+                         "        \"request\": {\n"
+                         "          \"method\": \"GET\",\n"
+                         "          \"url\": \"https://docs.example.com/pinloom/har#entry\"\n"
+                         "        },\n"
+                         "        \"response\": {\n"
+                         "          \"status\": 200,\n"
+                         "          \"content\": {\n"
+                         "            \"mimeType\": \"text/html\"\n"
+                         "          }\n"
+                         "        }\n"
+                         "      },\n"
+                         "      {\n"
+                         "        \"startedDateTime\": \"2026-06-25T10:15:02.000Z\",\n"
+                         "        \"request\": {\n"
+                         "          \"method\": \"POST\",\n"
+                         "          \"url\": \"https://api.example.com/pinloom/events\"\n"
+                         "        },\n"
+                         "        \"response\": {\n"
+                         "          \"status\": 202\n"
+                         "        }\n"
+                         "      },\n"
+                         "      {\n"
+                         "        \"request\": {\n"
+                         "          \"method\": \"GET\",\n"
+                         "          \"url\": \"chrome://settings\"\n"
+                         "        }\n"
+                         "      }\n"
+                         "    ]\n"
+                         "  }\n"
+                         "}\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto harIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("session.har");
+    });
+    QVERIFY(harIt != resources.cend());
+
+    auto pageIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom HAR Capture")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/har#entry");
+    });
+    QVERIFY(pageIt != resources.cend());
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("har")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("http-get")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("http-200")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("session")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("page_1")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("status 200")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("text/html")));
+    QVERIFY(std::any_of(pageIt->anchors.cbegin(), pageIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("entry");
+    }));
+
+    auto apiIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("POST /pinloom/events")
+            && resource.location == QLatin1String("https://api.example.com/pinloom/events");
+    });
+    QVERIFY(apiIt != resources.cend());
+    QVERIFY(apiIt->tags.contains(QStringLiteral("http-post")));
+    QVERIFY(apiIt->tags.contains(QStringLiteral("http-202")));
+    QVERIFY(apiIt->aliases.contains(QStringLiteral("status 202")));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("chrome://settings"));
+    }));
+
+    QVERIFY(std::any_of(harIt->anchors.cbegin(), harIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.line == 16
+            && anchor.target == QLatin1String("url: Pinloom HAR Capture -> https://docs.example.com/pinloom/har#entry");
+    }));
+
+    QCOMPARE(harIt->relations.size(), 2);
+    QVERIFY(std::any_of(harIt->relations.cbegin(), harIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == harIt->id
+            && relation.targetResourceId == pageIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("har line 16 GET status 200: url: Pinloom HAR Capture -> https://docs.example.com/pinloom/har#entry");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Pinloom HAR Capture")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom HAR Capture");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom HAR Capture")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("session.har")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 16;
+    }));
 }
 
 void DirectorySourceTest::extractsStructuredTextUrlResources()
