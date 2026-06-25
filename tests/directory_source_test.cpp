@@ -4035,6 +4035,17 @@ void DirectorySourceTest::extractsBookmarkExportLinks()
             && resource.location.endsWith(QStringLiteral("bookmarks.html"));
     });
     QVERIFY(htmlIt != resources.cend());
+    QVERIFY(htmlIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(std::any_of(htmlIt->anchors.cbegin(), htmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: FPGA Handbook -> https://fpga.example.com/handbook#timing")
+            && anchor.line == 6;
+    }));
+    QVERIFY(std::any_of(htmlIt->anchors.cbegin(), htmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Setup -> https://docs.example.com/pinloom/setup#install")
+            && anchor.line == 7;
+    }));
 
     auto fpgaIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -4047,6 +4058,27 @@ void DirectorySourceTest::extractsBookmarkExportLinks()
     QVERIFY(fpgaIt->aliases.contains(QStringLiteral("fpga.example.com")));
     QVERIFY(std::any_of(fpgaIt->anchors.cbegin(), fpgaIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("timing");
+    }));
+
+    auto setupIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom Setup")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/setup#install");
+    });
+    QVERIFY(setupIt != resources.cend());
+
+    QCOMPARE(htmlIt->relations.size(), 2);
+    QVERIFY(std::any_of(htmlIt->relations.cbegin(), htmlIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == fpgaIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("bookmark line 6: url: FPGA Handbook -> https://fpga.example.com/handbook#timing");
+    }));
+    QVERIFY(std::any_of(htmlIt->relations.cbegin(), htmlIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == setupIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("bookmark line 7: url: Pinloom Setup -> https://docs.example.com/pinloom/setup#install");
     }));
 
     SqliteLibraryRepository repository;
@@ -4069,6 +4101,29 @@ void DirectorySourceTest::extractsBookmarkExportLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("timing");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Setup")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Bookmarks")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 7
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Setup -> https://docs.example.com/pinloom/setup#install");
+    }));
+
+    const QList<ResourceRelation> bookmarkRelations = repository.resourceRelations(htmlIt->id);
+    QCOMPARE(bookmarkRelations.size(), 2);
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == fpgaIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == setupIt->id
+            && relation.label == QLatin1String("links-to");
     }));
 }
 

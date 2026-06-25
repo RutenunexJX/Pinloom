@@ -243,7 +243,8 @@ Completed:
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
 - Index MHTML/MHT web archives with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index local HTML and MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source page/archive.
-- Index browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
+- Index browser bookmark export HTML as individual URL resources with searchable host aliases, fragment anchors, source line anchors, and `links-to` relations back to the export file.
+- Index Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
 - Index Chromium/Edge-style browser History SQLite files as individual URL resources with visit-count aliases, fragment anchors, and `links-to` relations back to the history database.
 - Index Firefox `places.sqlite` files as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, fragment anchors, and `links-to` relations back to the places database.
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the OPML file.

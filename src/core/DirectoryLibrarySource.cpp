@@ -2601,6 +2601,7 @@ QList<HtmlLink> htmlLinksFromDocument(const QString &html)
         if (link.title.isEmpty()) {
             link.title = url.toDisplayString();
         }
+        link.lineNumber = html.left(match.capturedStart()).count(QLatin1Char('\n')) + 1;
         links.append(link);
     }
     return links;
@@ -5345,12 +5346,71 @@ void appendHtmlUrlSourceMetadata(Resource &sourceResource,
         const HtmlLink &link = links.at(i);
         const Resource &urlResource = urlResources.at(i);
         const QString anchorTarget = urlLinkAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
         relation.targetResourceId = urlResource.id;
         relation.label = QStringLiteral("links-to");
         relation.note = QStringLiteral("html link: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
+QList<HtmlLink> bookmarkLinksFromHtmlFile(const QFileInfo &fileInfo)
+{
+    const std::optional<QString> html = htmlDocumentFromFile(fileInfo);
+    if (!html.has_value() || !looksLikeBookmarkExport(html.value())) {
+        return {};
+    }
+    return htmlLinksFromDocument(html.value());
+}
+
+QList<Resource> bookmarkResourcesFromLinks(const QFileInfo &fileInfo, const QList<HtmlLink> &links)
+{
+    QList<Resource> resources;
+    for (const HtmlLink &link : links) {
+        Resource resource;
+        resource.id = QStringLiteral("bookmark:%1:%2")
+                          .arg(normalizedPath(fileInfo),
+                               link.url.toString(QUrl::FullyEncoded));
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = link.url.toString(QUrl::FullyEncoded);
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("bookmark"));
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendBookmarkExportSourceMetadata(Resource &sourceResource,
+                                        const QList<HtmlLink> &links,
+                                        const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("bookmark"));
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const HtmlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = urlLinkAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("bookmark line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("bookmark: %1").arg(anchorTarget);
         sourceResource.relations.append(relation);
     }
 }
@@ -6403,13 +6463,15 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(markdownResources);
     } else if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo))) {
-        const QList<Resource> bookmarkResources = bookmarkResourcesFromHtmlFile(fileInfo);
+        const QList<HtmlLink> bookmarkLinks = bookmarkLinksFromHtmlFile(fileInfo);
+        const QList<Resource> bookmarkResources = bookmarkResourcesFromLinks(fileInfo, bookmarkLinks);
         if (bookmarkResources.isEmpty()) {
             const QList<HtmlLink> htmlLinks = htmlLinksFromFile(fileInfo);
             const QList<Resource> htmlResources = htmlLinkResourcesFromLinks(fileInfo, htmlLinks);
             appendHtmlUrlSourceMetadata(primary, htmlLinks, htmlResources);
             derivedResources.append(htmlResources);
         } else {
+            appendBookmarkExportSourceMetadata(primary, bookmarkLinks, bookmarkResources);
             derivedResources.append(bookmarkResources);
         }
     } else if (isBrowserBookmarkJsonCandidate(fileInfo)) {
@@ -6534,30 +6596,7 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
 
 QList<Resource> DirectoryLibrarySource::bookmarkResourcesFromHtmlFile(const QFileInfo &fileInfo) const
 {
-    const std::optional<QString> html = htmlDocumentFromFile(fileInfo);
-    if (!html.has_value()) {
-        return {};
-    }
-
-    if (!looksLikeBookmarkExport(html.value())) {
-        return {};
-    }
-
-    QList<Resource> resources;
-    for (const HtmlLink &link : htmlLinksFromDocument(html.value())) {
-        Resource resource;
-        resource.id = QStringLiteral("bookmark:%1:%2")
-                          .arg(normalizedPath(fileInfo),
-                               link.url.toString(QUrl::FullyEncoded));
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = link.url.toString(QUrl::FullyEncoded);
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("bookmark"));
-        resources.append(resource);
-    }
-    return resources;
+    return bookmarkResourcesFromLinks(fileInfo, bookmarkLinksFromHtmlFile(fileInfo));
 }
 
 QList<Resource> DirectoryLibrarySource::browserBookmarkResourcesFromJsonFile(const QFileInfo &fileInfo) const

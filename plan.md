@@ -372,7 +372,8 @@ Status:
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - MHTML/MHT web archive content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Local HTML and MHTML/MHT outbound link URL resources with `links-to` relations: done.
-- Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
+- Browser bookmark export HTML indexing as individual URL resources with source line anchors and `links-to` relations: done.
+- Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources: done.
 - Firefox places.sqlite indexing as individual URL resources with bookmark metadata: done.
 - OPML subscription/link list indexing as individual URL resources with source line anchors and `links-to` relations: done.
