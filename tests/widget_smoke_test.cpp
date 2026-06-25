@@ -38,6 +38,7 @@ private slots:
     void panelAppliesHostContextRanking();
     void panelExposesCurrentOpenTargetForHostPreview();
     void panelNotifiesHostWhenCurrentOpenTargetChanges();
+    void panelAllowsHostResultNavigation();
     void panelAllowsHostToActivateCurrentOpenTarget();
     void panelAllowsHostToHandleOpenTarget();
     void panelAllowsHostToHandleUrlTarget();
@@ -801,6 +802,47 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
     QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
     QCOMPARE(notified.anchor->target, QStringLiteral("Preview target"));
     QCOMPARE(notified.anchor->line, 4);
+}
+
+void WidgetSmokeTest::panelAllowsHostResultNavigation()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource alpha;
+    alpha.id = QStringLiteral("alpha");
+    alpha.kind = ResourceKind::Markdown;
+    alpha.title = QStringLiteral("UART Alpha");
+    alpha.location = QStringLiteral("alpha.md");
+    QVERIFY(repository.upsertResource(alpha));
+
+    Resource zulu;
+    zulu.id = QStringLiteral("zulu");
+    zulu.kind = ResourceKind::Markdown;
+    zulu.title = QStringLiteral("UART Zulu");
+    zulu.location = QStringLiteral("zulu.md");
+    QVERIFY(repository.upsertResource(zulu));
+
+    PinloomPanel panel(repository);
+
+    panel.setSearchText(QStringLiteral("missing"));
+    QCOMPARE(panel.resultCount(), 0);
+    QVERIFY(!panel.selectNextResult());
+    QVERIFY(!panel.selectPreviousResult());
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(panel.resultCount(), 2);
+    QVERIFY(panel.selectFirstResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
+
+    QVERIFY(panel.selectNextResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
+    QVERIFY(panel.selectNextResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
+
+    QVERIFY(panel.selectPreviousResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
+    QVERIFY(panel.selectPreviousResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
 }
 
 void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()

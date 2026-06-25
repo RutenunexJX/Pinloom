@@ -441,12 +441,41 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     return target;
 }
 
+int PinloomPanel::resultCount() const
+{
+    return resultList_->count();
+}
+
 bool PinloomPanel::selectFirstResult()
 {
     if (resultList_->count() <= 0) {
         return false;
     }
     resultList_->setCurrentRow(0);
+    return resultList_->currentItem() != nullptr;
+}
+
+bool PinloomPanel::selectNextResult()
+{
+    const int count = resultList_->count();
+    if (count <= 0) {
+        return false;
+    }
+    const int currentRow = resultList_->currentRow();
+    const int nextRow = currentRow < 0 ? 0 : std::min(currentRow + 1, count - 1);
+    resultList_->setCurrentRow(nextRow);
+    return resultList_->currentItem() != nullptr;
+}
+
+bool PinloomPanel::selectPreviousResult()
+{
+    const int count = resultList_->count();
+    if (count <= 0) {
+        return false;
+    }
+    const int currentRow = resultList_->currentRow();
+    const int previousRow = currentRow < 0 ? 0 : std::max(currentRow - 1, 0);
+    resultList_->setCurrentRow(previousRow);
     return resultList_->currentItem() != nullptr;
 }
 

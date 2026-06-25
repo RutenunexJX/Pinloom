@@ -78,7 +78,10 @@ public:
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
+    int resultCount() const;
     bool selectFirstResult();
+    bool selectNextResult();
+    bool selectPreviousResult();
     bool activateCurrentOpenTarget();
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
