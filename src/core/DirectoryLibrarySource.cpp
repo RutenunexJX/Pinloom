@@ -113,6 +113,12 @@ struct HarEntryLink {
     QDateTime startedAt;
 };
 
+struct WarcResponseLink {
+    QUrl url;
+    QString html;
+    int recordIndex = -1;
+};
+
 struct CompileCommandEntry {
     QString sourcePath;
     QString displayPath;
@@ -4889,6 +4895,150 @@ void appendHtmlUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
+bool isWarcFileCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 16 * 1024 * 1024
+        && fileInfo.suffix().compare(QStringLiteral("warc"), Qt::CaseInsensitive) == 0;
+}
+
+QString htmlFromWarcResponsePayload(const QString &payload)
+{
+    const QString trimmed = payload.trimmed();
+    if (!trimmed.startsWith(QLatin1String("HTTP/"), Qt::CaseInsensitive)) {
+        return trimmed.contains(QStringLiteral("<html"), Qt::CaseInsensitive) ? payload : QString();
+    }
+
+    int separatorLength = 0;
+    const int headerEnd = mimeHeaderSeparatorIndex(payload, &separatorLength);
+    if (headerEnd < 0) {
+        return {};
+    }
+
+    const QString httpHeaders = payload.left(headerEnd);
+    const QString contentType = mimeHeaderValue(httpHeaders, QStringLiteral("Content-Type"));
+    const QString body = payload.mid(headerEnd + separatorLength);
+    if (!contentType.startsWith(QLatin1String("text/html"), Qt::CaseInsensitive)
+        && !body.contains(QStringLiteral("<html"), Qt::CaseInsensitive)) {
+        return {};
+    }
+    return body;
+}
+
+QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (!isWarcFileCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    const QString text = QString::fromLatin1(bytes);
+    QList<WarcResponseLink> links;
+    QStringList seenUrls;
+    int cursor = 0;
+    int recordIndex = 0;
+    while (cursor < text.size()) {
+        const int recordStart = text.indexOf(QStringLiteral("WARC/1."), cursor);
+        if (recordStart < 0) {
+            break;
+        }
+
+        int separatorLength = 0;
+        const int relativeHeaderEnd = mimeHeaderSeparatorIndex(text.mid(recordStart), &separatorLength);
+        if (relativeHeaderEnd < 0) {
+            break;
+        }
+
+        ++recordIndex;
+        const int headerEnd = recordStart + relativeHeaderEnd;
+        const QString headers = text.mid(recordStart, relativeHeaderEnd);
+        const int bodyStart = headerEnd + separatorLength;
+        int nextRecordStart = text.indexOf(QStringLiteral("\nWARC/1."), bodyStart);
+        if (nextRecordStart < 0) {
+            nextRecordStart = text.size();
+        }
+        const QString payload = text.mid(bodyStart, nextRecordStart - bodyStart);
+        cursor = nextRecordStart + 1;
+
+        if (mimeHeaderValue(headers, QStringLiteral("WARC-Type")).compare(QStringLiteral("response"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+
+        const QUrl url = QUrl::fromUserInput(mimeHeaderValue(headers, QStringLiteral("WARC-Target-URI")));
+        if (!isIndexableWebUrl(url)) {
+            continue;
+        }
+
+        const QString urlKey = url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        const QString html = htmlFromWarcResponsePayload(payload);
+        if (html.isEmpty()) {
+            continue;
+        }
+
+        seenUrls.append(urlKey);
+        links.append(WarcResponseLink{url, html, recordIndex});
+    }
+    return links;
+}
+
+QList<Resource> warcUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<WarcResponseLink> &links)
+{
+    QList<Resource> resources;
+    for (const WarcResponseLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("warc-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host();
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        applyHtmlDocumentMetadata(resource, link.html, resource.title, link.url);
+        appendUnique(resource.tags, QStringLiteral("warc"));
+        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendWarcSourceMetadata(Resource &sourceResource,
+                              const QList<WarcResponseLink> &links,
+                              const QList<Resource> &urlResources)
+{
+    appendUnique(sourceResource.tags, QStringLiteral("warc"));
+    appendUnique(sourceResource.tags, QStringLiteral("web-archive"));
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const WarcResponseLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        HtmlLink htmlLink;
+        htmlLink.url = link.url;
+        htmlLink.title = urlResource.title;
+        const QString anchorTarget = urlLinkAnchorTarget(htmlLink);
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = QStringLiteral("warc record %1: %2").arg(link.recordIndex).arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 QList<Resource> textUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<TextUrlLink> &links)
 {
     QList<Resource> resources;
@@ -5499,6 +5649,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> harResources = harUrlResourcesFromLinks(fileInfo, harLinks);
         appendHarSourceMetadata(primary, harLinks, harResources);
         derivedResources.append(harResources);
+    }
+    if (primary.kind == ResourceKind::File && isWarcFileCandidate(fileInfo)) {
+        const QList<WarcResponseLink> warcLinks = warcResponseLinksFromFile(fileInfo);
+        const QList<Resource> warcResources = warcUrlResourcesFromLinks(fileInfo, warcLinks);
+        appendWarcSourceMetadata(primary, warcLinks, warcResources);
+        derivedResources.append(warcResources);
     }
     if (primary.kind == ResourceKind::File && isBrowserHistorySqliteCandidate(fileInfo)) {
         const QList<BrowserHistoryLink> historyLinks = browserHistoryLinksFromSqliteFile(fileInfo);

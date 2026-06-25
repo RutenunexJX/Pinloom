@@ -55,6 +55,7 @@ private slots:
     void extractsIcalendarEventUrlResources();
     void extractsJsonUrlResources();
     void extractsHarEntryLinks();
+    void extractsWarcResponseLinks();
     void extractsStructuredTextUrlResources();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
@@ -3407,6 +3408,110 @@ void DirectorySourceTest::extractsHarEntryLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 16;
+    }));
+}
+
+void DirectorySourceTest::extractsWarcResponseLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/captures")));
+    writeFile(dir.filePath(QStringLiteral("library/captures/session.warc")),
+              QByteArray("WARC/1.0\r\n"
+                         "WARC-Type: response\r\n"
+                         "WARC-Target-URI: https://docs.example.com/pinloom/warc#snapshot\r\n"
+                         "Content-Type: application/http; msgtype=response\r\n"
+                         "\r\n"
+                         "HTTP/1.1 200 OK\r\n"
+                         "Content-Type: text/html; charset=UTF-8\r\n"
+                         "\r\n"
+                         "<!doctype html>\r\n"
+                         "<html><head>\r\n"
+                         "<title>Pinloom WARC Capture</title>\r\n"
+                         "<link rel=\"canonical\" href=\"https://docs.example.com/pinloom/warc\">\r\n"
+                         "</head><body>\r\n"
+                         "<h1 id=\"snapshot\">Captured Snapshot</h1>\r\n"
+                         "<p>Archived WARC response for source refinement.</p>\r\n"
+                         "</body></html>\r\n"
+                         "\r\n"
+                         "WARC/1.0\r\n"
+                         "WARC-Type: metadata\r\n"
+                         "WARC-Target-URI: https://ignored.example.com/meta\r\n"
+                         "Content-Type: text/plain\r\n"
+                         "\r\n"
+                         "metadata only\r\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto warcIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("session.warc");
+    });
+    QVERIFY(warcIt != resources.cend());
+    QVERIFY(warcIt->tags.contains(QStringLiteral("warc")));
+    QVERIFY(warcIt->tags.contains(QStringLiteral("web-archive")));
+
+    auto pageIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom WARC Capture")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/warc#snapshot");
+    });
+    QVERIFY(pageIt != resources.cend());
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("warc")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("session")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/warc")));
+    QVERIFY(pageIt->aliases.contains(QStringLiteral("Captured Snapshot")));
+    QVERIFY(pageIt->content.contains(QStringLiteral("Archived WARC response")));
+    QVERIFY(std::any_of(pageIt->anchors.cbegin(), pageIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
+    }));
+
+    QCOMPARE(warcIt->relations.size(), 1);
+    QCOMPARE(warcIt->relations.first().sourceResourceId, warcIt->id);
+    QCOMPARE(warcIt->relations.first().targetResourceId, pageIt->id);
+    QCOMPARE(warcIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(warcIt->relations.first().note,
+             QStringLiteral("warc record 1: url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot"));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("ignored.example.com"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<ResourceRelation> relations = repository.resourceRelations(warcIt->id);
+    QCOMPARE(relations.size(), 1);
+    QCOMPARE(relations.first().targetResourceId, pageIt->id);
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archived WARC response")});
+    QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom WARC Capture")
+            && result.matchedField == QLatin1String("content");
+    }));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("snapshot")});
+    QVERIFY(std::any_of(anchorResults.cbegin(), anchorResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom WARC Capture")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("snapshot");
     }));
 }
 
