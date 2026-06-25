@@ -354,6 +354,12 @@ bool hasCodeShebang(const QFileInfo &fileInfo)
     return codeInterpreterPattern.match(firstLine).hasMatch();
 }
 
+bool isMhtmlFile(const QFileInfo &fileInfo)
+{
+    const QString suffix = fileInfo.suffix().toLower();
+    return suffix == QLatin1String("mhtml") || suffix == QLatin1String("mht");
+}
+
 ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
@@ -376,7 +382,9 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
         || suffix == QLatin1String("website")
         || suffix == QLatin1String("desktop")
         || suffix == QLatin1String("html")
-        || suffix == QLatin1String("htm")) {
+        || suffix == QLatin1String("htm")
+        || suffix == QLatin1String("mhtml")
+        || suffix == QLatin1String("mht")) {
         return ResourceKind::Url;
     }
     if (QStringList{
@@ -2004,6 +2012,163 @@ void applyHtmlDocumentMetadata(Resource &resource,
     const QUrl canonicalUrl = QUrl::fromUserInput(canonicalUrlFromHtml(html));
     appendWebUrlMetadata(resource, canonicalUrl);
     appendHtmlHeadingAnchors(resource, html);
+}
+
+int mimeHeaderSeparatorIndex(const QString &part, int *separatorLength)
+{
+    const int crlfIndex = part.indexOf(QStringLiteral("\r\n\r\n"));
+    const int lfIndex = part.indexOf(QStringLiteral("\n\n"));
+    if (crlfIndex < 0 || (lfIndex >= 0 && lfIndex < crlfIndex)) {
+        if (lfIndex >= 0 && separatorLength) {
+            *separatorLength = 2;
+        }
+        return lfIndex;
+    }
+    if (crlfIndex >= 0 && separatorLength) {
+        *separatorLength = 4;
+    }
+    return crlfIndex;
+}
+
+QString unfoldedMimeHeaders(QString headers)
+{
+    headers.replace(QStringLiteral("\r\n"), QStringLiteral("\n"));
+    static const QRegularExpression foldedLinePattern(QStringLiteral("\n[ \t]+"));
+    headers.replace(foldedLinePattern, QStringLiteral(" "));
+    return headers;
+}
+
+QString mimeHeaderValue(const QString &headers, const QString &name)
+{
+    const QRegularExpression pattern(
+        QStringLiteral("(?:^|\\n)%1\\s*:\\s*([^\\n]*)").arg(QRegularExpression::escape(name)),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = pattern.match(unfoldedMimeHeaders(headers));
+    return match.hasMatch() ? match.captured(1).trimmed() : QString();
+}
+
+QString mimeParameterValue(const QString &headerValue, const QString &name)
+{
+    const QRegularExpression pattern(
+        QStringLiteral("\\b%1\\s*=\\s*(?:\"([^\"]*)\"|([^;\\s]+))").arg(QRegularExpression::escape(name)),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch match = pattern.match(headerValue);
+    if (!match.hasMatch()) {
+        return {};
+    }
+    return match.captured(1).isEmpty() ? match.captured(2).trimmed() : match.captured(1).trimmed();
+}
+
+int hexByteValue(char digit)
+{
+    const unsigned char value = static_cast<unsigned char>(digit);
+    if (value >= '0' && value <= '9') {
+        return value - '0';
+    }
+    if (value >= 'a' && value <= 'f') {
+        return value - 'a' + 10;
+    }
+    if (value >= 'A' && value <= 'F') {
+        return value - 'A' + 10;
+    }
+    return -1;
+}
+
+QByteArray decodedQuotedPrintable(QByteArray input)
+{
+    input.replace("\r\n", "\n");
+
+    QByteArray output;
+    output.reserve(input.size());
+    for (int i = 0; i < input.size(); ++i) {
+        const char value = input.at(i);
+        if (value != '=') {
+            output.append(value);
+            continue;
+        }
+
+        if (i + 1 < input.size() && input.at(i + 1) == '\n') {
+            ++i;
+            continue;
+        }
+        if (i + 2 < input.size()) {
+            const int high = hexByteValue(input.at(i + 1));
+            const int low = hexByteValue(input.at(i + 2));
+            if (high >= 0 && low >= 0) {
+                output.append(static_cast<char>((high << 4) | low));
+                i += 2;
+                continue;
+            }
+        }
+        output.append(value);
+    }
+    return output;
+}
+
+QString decodedMimeBody(const QString &headers, const QString &body)
+{
+    QByteArray bodyBytes = body.toLatin1();
+    const QString encoding = mimeHeaderValue(headers, QStringLiteral("Content-Transfer-Encoding")).toLower();
+    if (encoding == QLatin1String("base64")) {
+        QByteArray compact;
+        compact.reserve(bodyBytes.size());
+        for (const char value : bodyBytes) {
+            if (!std::isspace(static_cast<unsigned char>(value))) {
+                compact.append(value);
+            }
+        }
+        bodyBytes = QByteArray::fromBase64(compact);
+    } else if (encoding == QLatin1String("quoted-printable")) {
+        bodyBytes = decodedQuotedPrintable(bodyBytes);
+    }
+
+    const QString contentType = mimeHeaderValue(headers, QStringLiteral("Content-Type"));
+    const QString charset = mimeParameterValue(contentType, QStringLiteral("charset")).toLower();
+    if (charset == QLatin1String("iso-8859-1") || charset == QLatin1String("latin1")) {
+        return QString::fromLatin1(bodyBytes);
+    }
+    return QString::fromUtf8(bodyBytes);
+}
+
+QString htmlFromMhtmlArchive(const QByteArray &bytes)
+{
+    const QString document = QString::fromLatin1(bytes);
+    int rootSeparatorLength = 0;
+    const int rootHeaderEnd = mimeHeaderSeparatorIndex(document, &rootSeparatorLength);
+    if (rootHeaderEnd < 0) {
+        return document.contains(QStringLiteral("<html"), Qt::CaseInsensitive) ? QString::fromUtf8(bytes) : QString();
+    }
+
+    const QString rootHeaders = document.left(rootHeaderEnd);
+    const QString boundary = mimeParameterValue(mimeHeaderValue(rootHeaders, QStringLiteral("Content-Type")),
+                                                QStringLiteral("boundary"));
+    if (boundary.isEmpty()) {
+        const QString body = document.mid(rootHeaderEnd + rootSeparatorLength);
+        return body.contains(QStringLiteral("<html"), Qt::CaseInsensitive) ? QString::fromUtf8(bytes) : QString();
+    }
+
+    const QString delimiter = QStringLiteral("--%1").arg(boundary);
+    for (QString part : document.split(delimiter)) {
+        part = part.trimmed();
+        if (part.isEmpty() || part.startsWith(QLatin1String("--"))) {
+            continue;
+        }
+
+        int partSeparatorLength = 0;
+        const int partHeaderEnd = mimeHeaderSeparatorIndex(part, &partSeparatorLength);
+        if (partHeaderEnd < 0) {
+            continue;
+        }
+
+        const QString partHeaders = part.left(partHeaderEnd);
+        const QString contentType = mimeHeaderValue(partHeaders, QStringLiteral("Content-Type"));
+        if (!contentType.startsWith(QLatin1String("text/html"), Qt::CaseInsensitive)) {
+            continue;
+        }
+
+        return decodedMimeBody(partHeaders, part.mid(partHeaderEnd + partSeparatorLength));
+    }
+    return {};
 }
 
 QList<HtmlLink> htmlLinksFromDocument(const QString &html)
@@ -5300,7 +5465,7 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         applyCodeMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Url) {
         const QString suffix = fileInfo.suffix().toLower();
-        if (suffix == QLatin1String("html") || suffix == QLatin1String("htm")) {
+        if (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo)) {
             applyHtmlMetadata(resource, fileInfo);
         } else {
             applyUrlMetadata(resource, fileInfo);
@@ -5732,8 +5897,19 @@ void DirectoryLibrarySource::applyHtmlMetadata(Resource &resource, const QFileIn
         return;
     }
 
-    const QString html = QString::fromUtf8(file.readAll());
+    const QByteArray bytes = file.readAll();
+    const QString html = isMhtmlFile(fileInfo)
+        ? htmlFromMhtmlArchive(bytes)
+        : QString::fromUtf8(bytes);
+    if (html.isEmpty()) {
+        resource.kind = ResourceKind::File;
+        return;
+    }
     applyHtmlDocumentMetadata(resource, html, fileInfo.fileName(), std::nullopt);
+    if (isMhtmlFile(fileInfo)) {
+        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+    }
 }
 
 void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QFileInfo &fileInfo) const

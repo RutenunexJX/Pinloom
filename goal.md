@@ -237,6 +237,7 @@ Completed:
 - Index Markdown external links as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source note.
 - Index Markdown reference-style external links as derived URL resources with source line anchors and `links-to` relations back to the source note.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
+- Index MHTML/MHT web archives with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
 - Index Chromium/Edge-style browser History SQLite files as individual URL resources with visit-count aliases, fragment anchors, and `links-to` relations back to the history database.
 - Index Firefox `places.sqlite` files as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, fragment anchors, and `links-to` relations back to the places database.
@@ -255,5 +256,5 @@ Completed:
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML, shortcuts, bookmarks/history/places with bookmark metadata, OPML, feeds, sitemaps, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML, shortcuts, bookmarks/history/places with bookmark metadata, OPML, feeds, sitemaps, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Add richer source-code parsing if lightweight symbol extraction becomes too noisy.

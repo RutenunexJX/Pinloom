@@ -58,6 +58,7 @@ private slots:
     void extractsStructuredTextUrlResources();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
+    void extractsMhtmlPageContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
     void extractsBrowserHistorySqliteLinks();
@@ -3710,6 +3711,69 @@ void DirectorySourceTest::extractsHtmlPageContent()
         return result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("install");
+    }));
+}
+
+void DirectorySourceTest::extractsMhtmlPageContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/pages")));
+    writeFile(dir.filePath(QStringLiteral("library/pages/archive.mhtml")),
+              QByteArray("MIME-Version: 1.0\r\n"
+                         "Content-Type: multipart/related; boundary=\"----=_PinloomBoundary\"\r\n"
+                         "\r\n"
+                         "------=_PinloomBoundary\r\n"
+                         "Content-Type: text/html; charset=\"utf-8\"\r\n"
+                         "Content-Transfer-Encoding: quoted-printable\r\n"
+                         "Content-Location: https://docs.example.com/archive\r\n"
+                         "\r\n"
+                         "<!doctype html>\r\n"
+                         "<html><head>\r\n"
+                         "<title>Pinloom Web Archive</title>\r\n"
+                         "<link rel=3D\"canonical\" href=3D\"https://docs.example.com/pinloom/archive\">\r\n"
+                         "</head><body>\r\n"
+                         "<h2 id=3D\"snapshot\">Saved Snapshot</h2>\r\n"
+                         "<p>Archived launch reference for ZeroSlack embedding.</p>\r\n"
+                         "</body></html>\r\n"
+                         "------=_PinloomBoundary--\r\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto archiveIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url && resource.title == QLatin1String("Pinloom Web Archive");
+    });
+    QVERIFY(archiveIt != resources.cend());
+    QVERIFY(archiveIt->location.endsWith(QStringLiteral("archive.mhtml")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("archive")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/archive")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("Saved Snapshot")));
+    QVERIFY(archiveIt->content.contains(QStringLiteral("Archived launch reference")));
+    QVERIFY(std::any_of(archiveIt->anchors.cbegin(), archiveIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archived launch reference")});
+    QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Web Archive")
+            && result.matchedField == QLatin1String("content");
     }));
 }
 
