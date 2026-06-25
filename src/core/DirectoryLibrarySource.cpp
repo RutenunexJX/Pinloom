@@ -277,6 +277,7 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
     if (suffix == QLatin1String("url")
         || suffix == QLatin1String("webloc")
         || suffix == QLatin1String("website")
+        || suffix == QLatin1String("desktop")
         || suffix == QLatin1String("html")
         || suffix == QLatin1String("htm")) {
         return ResourceKind::Url;

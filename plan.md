@@ -322,7 +322,7 @@ Scope:
 
 Status:
 
-- Local web shortcut indexing as URL resources: done.
+- Local web shortcut indexing as URL resources, including desktop link shortcuts: done.
 - URL fragment anchors: done.
 - URL open behavior through host interception or standalone fallback: done.
 - URL fragment anchor fallback opening for web/local HTML targets: done.

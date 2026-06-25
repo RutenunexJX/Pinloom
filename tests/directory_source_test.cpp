@@ -2351,6 +2351,16 @@ void DirectorySourceTest::extractsWebShortcutResources()
               QByteArray("[InternetShortcut]\n"
                          "URL=https://docs.example.com/pinloom/setup#install\n"
                          "Name=Pinloom Setup Guide\n"));
+    writeFile(dir.filePath(QStringLiteral("library/links/ZeroSlack Dock.desktop")),
+              QByteArray("[Desktop Entry]\n"
+                         "Type=Link\n"
+                         "Name=ZeroSlack Dock Dashboard\n"
+                         "URL=https://dash.example.org/zeroslack#dock\n"));
+    writeFile(dir.filePath(QStringLiteral("library/links/Pinloom App.desktop")),
+              QByteArray("[Desktop Entry]\n"
+                         "Type=Application\n"
+                         "Name=Pinloom App\n"
+                         "Exec=pinloom\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -2358,7 +2368,8 @@ void DirectorySourceTest::extractsWebShortcutResources()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Url;
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom Setup Guide");
     });
     QVERIFY(urlIt != resources.cend());
     QCOMPARE(urlIt->title, QStringLiteral("Pinloom Setup Guide"));
@@ -2369,6 +2380,23 @@ void DirectorySourceTest::extractsWebShortcutResources()
     QCOMPARE(urlIt->anchors.size(), 1);
     QCOMPARE(urlIt->anchors.first().type, AnchorType::UrlFragment);
     QCOMPARE(urlIt->anchors.first().target, QStringLiteral("install"));
+
+    auto desktopIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("ZeroSlack Dock Dashboard");
+    });
+    QVERIFY(desktopIt != resources.cend());
+    QCOMPARE(desktopIt->location, QStringLiteral("https://dash.example.org/zeroslack#dock"));
+    QVERIFY(desktopIt->aliases.contains(QStringLiteral("dash.example.org")));
+    QCOMPARE(desktopIt->anchors.size(), 1);
+    QCOMPARE(desktopIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(desktopIt->anchors.first().target, QStringLiteral("dock"));
+
+    auto launcherIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.title == QLatin1String("Pinloom App.desktop");
+    });
+    QVERIFY(launcherIt != resources.cend());
+    QCOMPARE(launcherIt->kind, ResourceKind::File);
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2382,12 +2410,24 @@ void DirectorySourceTest::extractsWebShortcutResources()
     QCOMPARE(hostResults.size(), 1);
     QCOMPARE(hostResults.first().resource.kind, ResourceKind::Url);
 
+    const QList<SearchResult> desktopHostResults = repository.search(SearchQuery{QStringLiteral("dash.example.org")});
+    QCOMPARE(desktopHostResults.size(), 1);
+    QCOMPARE(desktopHostResults.first().resource.title, QStringLiteral("ZeroSlack Dock Dashboard"));
+
     const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("install")});
     QVERIFY(!fragmentResults.isEmpty());
     QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
         return result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("install");
+    }));
+
+    const QList<SearchResult> desktopFragmentResults = repository.search(SearchQuery{QStringLiteral("dock")});
+    QVERIFY(std::any_of(desktopFragmentResults.cbegin(), desktopFragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("ZeroSlack Dock Dashboard")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("dock");
     }));
 }
 
