@@ -36,6 +36,11 @@ struct PdfObject {
     QString body;
 };
 
+struct PdfTextDecodeContext {
+    QHash<QByteArray, QString> toUnicode;
+    int maxCodeLength = 0;
+};
+
 struct HtmlLink {
     QUrl url;
     QString title;
@@ -136,6 +141,56 @@ QString decodePdfTextBytes(const QByteArray &bytes)
     return utf8.contains(QChar::ReplacementCharacter)
         ? QString::fromLatin1(bytes).trimmed()
         : utf8.trimmed();
+}
+
+QByteArray pdfBytesFromHex(QString hex)
+{
+    hex.remove(QRegularExpression(QStringLiteral("\\s+")));
+    if (hex.isEmpty()) {
+        return {};
+    }
+    if (hex.size() % 2 != 0) {
+        hex.append(QLatin1Char('0'));
+    }
+    return QByteArray::fromHex(hex.toLatin1());
+}
+
+QString decodePdfUnicodeHexString(const QString &hex)
+{
+    const QByteArray bytes = pdfBytesFromHex(hex);
+    if (bytes.isEmpty()) {
+        return {};
+    }
+    if (bytes.size() >= 2
+        && ((static_cast<unsigned char>(bytes.at(0)) == 0xfe
+             && static_cast<unsigned char>(bytes.at(1)) == 0xff)
+            || (static_cast<unsigned char>(bytes.at(0)) == 0xff
+                && static_cast<unsigned char>(bytes.at(1)) == 0xfe))) {
+        return decodePdfTextBytes(bytes);
+    }
+    if (bytes.size() % 2 == 0) {
+        return decodePdfUtf16Bytes(bytes, true, 0);
+    }
+    return decodePdfTextBytes(bytes);
+}
+
+quint32 integerFromBigEndianBytes(const QByteArray &bytes)
+{
+    quint32 value = 0;
+    for (const char raw : bytes) {
+        value = (value << 8) | static_cast<unsigned char>(raw);
+    }
+    return value;
+}
+
+QByteArray bigEndianBytesFromInteger(quint32 value, int length)
+{
+    QByteArray bytes(length, '\0');
+    for (int i = length - 1; i >= 0; --i) {
+        bytes[i] = static_cast<char>(value & 0xff);
+        value >>= 8;
+    }
+    return bytes;
 }
 
 QString normalizedPath(const QFileInfo &fileInfo)
@@ -1087,20 +1142,50 @@ bool readPdfLiteralStringAt(const QString &text, int start, QString *value, int 
     return true;
 }
 
-QString decodePdfHexString(QString hex)
+QString decodePdfHexString(QString hex, const PdfTextDecodeContext *context = nullptr)
 {
-    hex.remove(QRegularExpression(QStringLiteral("\\s+")));
-    if (hex.isEmpty()) {
+    const QByteArray bytes = pdfBytesFromHex(hex);
+    if (bytes.isEmpty()) {
         return {};
     }
-    if (hex.size() % 2 != 0) {
-        hex.append(QLatin1Char('0'));
+
+    if (context && !context->toUnicode.isEmpty() && context->maxCodeLength > 0) {
+        QString decoded;
+        bool matchedAny = false;
+        int cursor = 0;
+        while (cursor < bytes.size()) {
+            bool matched = false;
+            const int maxLength = std::min(context->maxCodeLength,
+                                           static_cast<int>(bytes.size() - cursor));
+            for (int length = maxLength; length > 0; --length) {
+                const QByteArray key = bytes.mid(cursor, length);
+                const auto it = context->toUnicode.constFind(key);
+                if (it != context->toUnicode.cend()) {
+                    decoded.append(it.value());
+                    cursor += length;
+                    matched = true;
+                    matchedAny = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                decoded.append(decodePdfTextBytes(bytes.mid(cursor, 1)));
+                ++cursor;
+            }
+        }
+        if (matchedAny) {
+            return decoded.trimmed();
+        }
     }
 
-    return decodePdfTextBytes(QByteArray::fromHex(hex.toLatin1()));
+    return decodePdfTextBytes(bytes);
 }
 
-bool readPdfHexStringAt(const QString &text, int start, QString *value, int *end)
+bool readPdfHexStringAt(const QString &text,
+                        int start,
+                        const PdfTextDecodeContext *context,
+                        QString *value,
+                        int *end)
 {
     if (start < 0
         || start >= text.size()
@@ -1114,7 +1199,7 @@ bool readPdfHexStringAt(const QString &text, int start, QString *value, int *end
         return false;
     }
     if (value) {
-        *value = decodePdfHexString(text.mid(start + 1, close - start - 1));
+        *value = decodePdfHexString(text.mid(start + 1, close - start - 1), context);
     }
     if (end) {
         *end = close + 1;
@@ -1122,7 +1207,7 @@ bool readPdfHexStringAt(const QString &text, int start, QString *value, int *end
     return true;
 }
 
-QString pdfTextFromTextSection(const QString &section)
+QString pdfTextFromTextSection(const QString &section, const PdfTextDecodeContext *context)
 {
     QStringList chunks;
     int cursor = 0;
@@ -1130,7 +1215,7 @@ QString pdfTextFromTextSection(const QString &section)
         QString value;
         int next = cursor + 1;
         if (readPdfLiteralStringAt(section, cursor, &value, &next)
-            || readPdfHexStringAt(section, cursor, &value, &next)) {
+            || readPdfHexStringAt(section, cursor, context, &value, &next)) {
             if (!value.trimmed().isEmpty()) {
                 chunks.append(value);
             }
@@ -1142,7 +1227,7 @@ QString pdfTextFromTextSection(const QString &section)
     return chunks.join(QLatin1Char(' '));
 }
 
-QString pdfTextFromContentStream(QString stream)
+QString pdfTextFromContentStream(QString stream, const PdfTextDecodeContext *context)
 {
     QStringList chunks;
     static const QRegularExpression textSectionPattern(
@@ -1150,7 +1235,7 @@ QString pdfTextFromContentStream(QString stream)
         QRegularExpression::DotMatchesEverythingOption);
     QRegularExpressionMatchIterator matches = textSectionPattern.globalMatch(stream);
     while (matches.hasNext()) {
-        const QString text = pdfTextFromTextSection(matches.next().captured(1));
+        const QString text = pdfTextFromTextSection(matches.next().captured(1), context);
         if (!text.isEmpty()) {
             chunks.append(text);
         }
@@ -1530,15 +1615,123 @@ QString pdfDecodedStreamBody(const QString &objectBody)
     return QString::fromLatin1(decoded);
 }
 
+void appendPdfToUnicodeMapping(PdfTextDecodeContext &context, const QByteArray &sourceCode, const QString &unicode)
+{
+    if (sourceCode.isEmpty() || unicode.isEmpty()) {
+        return;
+    }
+    context.toUnicode.insert(sourceCode, unicode);
+    context.maxCodeLength = std::max(context.maxCodeLength, static_cast<int>(sourceCode.size()));
+}
+
+void appendPdfBfcharMappings(PdfTextDecodeContext &context, const QString &cmap)
+{
+    static const QRegularExpression blockPattern(
+        QStringLiteral("\\bbeginbfchar\\b(.*?)\\bendbfchar\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression pairPattern(
+        QStringLiteral("<([0-9A-Fa-f\\s]+)>\\s*<([0-9A-Fa-f\\s]+)>"));
+
+    QRegularExpressionMatchIterator blocks = blockPattern.globalMatch(cmap);
+    while (blocks.hasNext()) {
+        QRegularExpressionMatchIterator pairs = pairPattern.globalMatch(blocks.next().captured(1));
+        while (pairs.hasNext()) {
+            const QRegularExpressionMatch pair = pairs.next();
+            appendPdfToUnicodeMapping(context,
+                                      pdfBytesFromHex(pair.captured(1)),
+                                      decodePdfUnicodeHexString(pair.captured(2)));
+        }
+    }
+}
+
+void appendPdfBfrangeMappings(PdfTextDecodeContext &context, const QString &cmap)
+{
+    static const QRegularExpression blockPattern(
+        QStringLiteral("\\bbeginbfrange\\b(.*?)\\bendbfrange\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression arrayRangePattern(
+        QStringLiteral("<([0-9A-Fa-f\\s]+)>\\s*<([0-9A-Fa-f\\s]+)>\\s*\\[(.*?)\\]"),
+        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression simpleRangePattern(
+        QStringLiteral("<([0-9A-Fa-f\\s]+)>\\s*<([0-9A-Fa-f\\s]+)>\\s*<([0-9A-Fa-f\\s]+)>"));
+    static const QRegularExpression destinationPattern(QStringLiteral("<([0-9A-Fa-f\\s]+)>"));
+
+    QRegularExpressionMatchIterator blocks = blockPattern.globalMatch(cmap);
+    while (blocks.hasNext()) {
+        const QString block = blocks.next().captured(1);
+
+        QRegularExpressionMatchIterator arrayRanges = arrayRangePattern.globalMatch(block);
+        while (arrayRanges.hasNext()) {
+            const QRegularExpressionMatch range = arrayRanges.next();
+            const QByteArray startBytes = pdfBytesFromHex(range.captured(1));
+            const QByteArray endBytes = pdfBytesFromHex(range.captured(2));
+            if (startBytes.isEmpty() || endBytes.isEmpty() || startBytes.size() != endBytes.size()) {
+                continue;
+            }
+
+            quint32 sourceCode = integerFromBigEndianBytes(startBytes);
+            const quint32 endCode = integerFromBigEndianBytes(endBytes);
+            QRegularExpressionMatchIterator destinations = destinationPattern.globalMatch(range.captured(3));
+            while (sourceCode <= endCode && destinations.hasNext()) {
+                appendPdfToUnicodeMapping(context,
+                                          bigEndianBytesFromInteger(sourceCode, startBytes.size()),
+                                          decodePdfUnicodeHexString(destinations.next().captured(1)));
+                ++sourceCode;
+            }
+        }
+
+        QRegularExpressionMatchIterator simpleRanges = simpleRangePattern.globalMatch(block);
+        while (simpleRanges.hasNext()) {
+            const QRegularExpressionMatch range = simpleRanges.next();
+            const QByteArray startBytes = pdfBytesFromHex(range.captured(1));
+            const QByteArray endBytes = pdfBytesFromHex(range.captured(2));
+            const QByteArray destinationBytes = pdfBytesFromHex(range.captured(3));
+            if (startBytes.isEmpty()
+                || endBytes.isEmpty()
+                || destinationBytes.isEmpty()
+                || startBytes.size() != endBytes.size()) {
+                continue;
+            }
+
+            const quint32 startCode = integerFromBigEndianBytes(startBytes);
+            const quint32 endCode = integerFromBigEndianBytes(endBytes);
+            const quint32 destinationStart = integerFromBigEndianBytes(destinationBytes);
+            for (quint32 sourceCode = startCode; sourceCode <= endCode; ++sourceCode) {
+                const quint32 offset = sourceCode - startCode;
+                const QByteArray sourceBytes = bigEndianBytesFromInteger(sourceCode, startBytes.size());
+                const QByteArray unicodeBytes =
+                    bigEndianBytesFromInteger(destinationStart + offset, destinationBytes.size());
+                appendPdfToUnicodeMapping(context, sourceBytes, decodePdfUtf16Bytes(unicodeBytes, true, 0));
+            }
+        }
+    }
+}
+
+PdfTextDecodeContext pdfTextDecodeContextFromObjects(const QList<PdfObject> &objects)
+{
+    PdfTextDecodeContext context;
+    for (const PdfObject &object : objects) {
+        const QString stream = pdfDecodedStreamBody(object.body);
+        if (!stream.contains(QStringLiteral("beginbfchar"))
+            && !stream.contains(QStringLiteral("beginbfrange"))) {
+            continue;
+        }
+        appendPdfBfcharMappings(context, stream);
+        appendPdfBfrangeMappings(context, stream);
+    }
+    return context;
+}
+
 QString pdfContentTextFromObjects(const QList<PdfObject> &objects)
 {
+    const PdfTextDecodeContext decodeContext = pdfTextDecodeContextFromObjects(objects);
     QStringList chunks;
     for (const PdfObject &object : objects) {
         const QString stream = pdfDecodedStreamBody(object.body);
         if (stream.isEmpty()) {
             continue;
         }
-        const QString text = pdfTextFromContentStream(stream);
+        const QString text = pdfTextFromContentStream(stream, &decodeContext);
         if (!text.isEmpty()) {
             chunks.append(text);
         }

@@ -29,6 +29,7 @@ private slots:
     void extractsPdfTitleAndPageAnchors();
     void extractsPdfContentText();
     void extractsUtf16PdfContentText();
+    void extractsToUnicodePdfContentText();
     void extractsFlateEncodedPdfContentText();
     void extractsAsciiHexEncodedPdfContentText();
     void extractsAscii85EncodedPdfContentText();
@@ -1159,6 +1160,87 @@ void DirectorySourceTest::extractsUtf16PdfContentText()
     const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("PDF Unicode")});
     QCOMPARE(aliasResults.size(), 1);
     QCOMPARE(aliasResults.first().matchedField, QStringLiteral("alias"));
+}
+
+void DirectorySourceTest::extractsToUnicodePdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/cmap.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R /Resources << /Font << /F1 6 0 R >> >> /Contents 4 0 R >> endobj\n"
+                         "4 0 obj << /Length 82 >>\n"
+                         "stream\n"
+                         "BT\n"
+                         "/F1 12 Tf\n"
+                         "72 720 Td\n"
+                         "<01020304050506> Tj\n"
+                         "[<10111213> 120 <202122>] TJ\n"
+                         "ET\n"
+                         "endstream\n"
+                         "endobj\n"
+                         "5 0 obj << /Length 260 >>\n"
+                         "stream\n"
+                         "/CIDInit /ProcSet findresource begin\n"
+                         "begincmap\n"
+                         "7 beginbfchar\n"
+                         "<01> <0050>\n"
+                         "<02> <0069>\n"
+                         "<03> <006E>\n"
+                         "<04> <006C>\n"
+                         "<05> <006F>\n"
+                         "<06> <006D>\n"
+                         "<13> <006F>\n"
+                         "endbfchar\n"
+                         "1 beginbfrange\n"
+                         "<10> <12> [<005A> <0065> <0072>]\n"
+                         "endbfrange\n"
+                         "1 beginbfrange\n"
+                         "<20> <22> <0061>\n"
+                         "endbfrange\n"
+                         "endcmap\n"
+                         "end\n"
+                         "endstream\n"
+                         "endobj\n"
+                         "6 0 obj << /Type /Font /Subtype /Type0 /BaseFont /F1 /ToUnicode 5 0 R >> endobj\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("cmap.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Pinloom")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Zero abc")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> pinloomResults = repository.search(SearchQuery{QStringLiteral("Pinloom")});
+    QVERIFY(std::any_of(pinloomResults.cbegin(), pinloomResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Pdf
+            && result.matchedField == QLatin1String("content");
+    }));
+
+    const QList<SearchResult> rangeResults = repository.search(SearchQuery{QStringLiteral("Zero abc")});
+    QVERIFY(std::any_of(rangeResults.cbegin(), rangeResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Pdf
+            && result.matchedField == QLatin1String("content");
+    }));
 }
 
 void DirectorySourceTest::extractsFlateEncodedPdfContentText()

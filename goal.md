@@ -205,6 +205,7 @@ Completed:
 - Extract searchable PDF text from LZWDecode text content streams.
 - Apply ordered PDF stream filter chains for supported filters.
 - Decode UTF-16 BOM PDF strings in titles and content streams.
+- Decode basic PDF ToUnicode CMaps for font-encoded content streams.
 - Extract searchable Markdown body content.
 - Extract Markdown task checkbox lines as searchable file-line anchors.
 - Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.

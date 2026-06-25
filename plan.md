@@ -330,6 +330,7 @@ Status:
 - Lightweight PDF text extraction/search for LZWDecode streams: done.
 - Ordered PDF stream filter chains for supported filters: done.
 - UTF-16 BOM PDF title/content string decoding: done.
+- Basic PDF ToUnicode CMap decoding for font-encoded content streams: done.
 - Markdown body content extraction/search: done.
 - Markdown task checkbox line anchors/search: done.
 - Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.
