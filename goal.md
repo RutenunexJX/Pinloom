@@ -219,7 +219,7 @@ In progress:
 
 Completed:
 
-- Index local web shortcut files, including desktop link shortcuts, as URL resources without requiring network access.
+- Index local web shortcut files, including desktop link shortcuts, as URL resources without requiring network access, including shortcut URL/title line anchors.
 - Preserve URL fragments as searchable URL anchors.
 - Open URL resources through host interception or the standalone fallback URL opener.
 - Preserve matched URL fragment anchors when standalone fallback opens web pages or local HTML pages.

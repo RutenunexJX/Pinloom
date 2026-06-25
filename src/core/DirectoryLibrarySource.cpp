@@ -1302,6 +1302,32 @@ QString shortcutUrlFromText(const QString &text)
     return {};
 }
 
+int shortcutUrlLineNumberFromText(const QString &text)
+{
+    static const QRegularExpression internetShortcutPattern(
+        QStringLiteral("(?im)^\\s*URL\\s*=\\s*(\\S.*)$"));
+    const QRegularExpressionMatch internetShortcutMatch = internetShortcutPattern.match(text);
+    if (internetShortcutMatch.hasMatch()) {
+        return text.left(internetShortcutMatch.capturedStart(1)).count(QLatin1Char('\n')) + 1;
+    }
+
+    static const QRegularExpression xmlUrlPattern(
+        QStringLiteral("<key>\\s*URL\\s*</key>\\s*<string>\\s*([^<]+?)\\s*</string>"),
+        QRegularExpression::CaseInsensitiveOption | QRegularExpression::DotMatchesEverythingOption);
+    const QRegularExpressionMatch xmlUrlMatch = xmlUrlPattern.match(text);
+    if (xmlUrlMatch.hasMatch()) {
+        return text.left(xmlUrlMatch.capturedStart(1)).count(QLatin1Char('\n')) + 1;
+    }
+
+    static const QRegularExpression firstWebUrlPattern(QStringLiteral("(https?://[^\\s<>\"]+)"));
+    const QRegularExpressionMatch firstWebUrlMatch = firstWebUrlPattern.match(text);
+    if (firstWebUrlMatch.hasMatch()) {
+        return text.left(firstWebUrlMatch.capturedStart(1)).count(QLatin1Char('\n')) + 1;
+    }
+
+    return -1;
+}
+
 QString shortcutTitleFromText(const QString &text)
 {
     static const QRegularExpression titlePattern(
@@ -1311,6 +1337,17 @@ QString shortcutTitleFromText(const QString &text)
         return titleMatch.captured(1).trimmed();
     }
     return {};
+}
+
+int shortcutTitleLineNumberFromText(const QString &text)
+{
+    static const QRegularExpression titlePattern(
+        QStringLiteral("(?im)^\\s*(?:Name|Title)\\s*=\\s*(.+)$"));
+    const QRegularExpressionMatch titleMatch = titlePattern.match(text);
+    if (titleMatch.hasMatch()) {
+        return text.left(titleMatch.capturedStart(1)).count(QLatin1Char('\n')) + 1;
+    }
+    return -1;
 }
 
 bool isIndexableWebUrl(const QUrl &url)
@@ -6944,6 +6981,15 @@ void DirectoryLibrarySource::applyUrlMetadata(Resource &resource, const QFileInf
     resource.location = url.toString(QUrl::FullyEncoded);
 
     appendWebUrlMetadata(resource, url);
+    appendFileLineAnchor(resource,
+                         QStringLiteral("url: %1 -> %2").arg(resource.title, resource.location),
+                         shortcutUrlLineNumberFromText(text));
+    const int titleLineNumber = shortcutTitleLineNumberFromText(text);
+    if (titleLineNumber > 0) {
+        appendFileLineAnchor(resource,
+                             QStringLiteral("shortcut title: %1").arg(resource.title),
+                             titleLineNumber);
+    }
 
     if (remoteWebFetchingEnabled_) {
         QString fetchError;
