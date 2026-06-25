@@ -310,6 +310,7 @@ Status:
 - Lightweight PDF text extraction/search for FlateDecode text streams: done.
 - Lightweight PDF text extraction/search for ASCIIHexDecode streams and literal octal escapes: done.
 - Lightweight PDF text extraction/search for ASCII85Decode streams: done.
+- Lightweight PDF text extraction/search for RunLengthDecode streams: done.
 - Ordered PDF stream filter chains for supported filters: done.
 - Markdown body content extraction/search: done.
 - Markdown task checkbox line anchors/search: done.

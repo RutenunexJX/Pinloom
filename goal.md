@@ -191,6 +191,7 @@ Completed:
 - Extract searchable PDF text from FlateDecode text content streams.
 - Extract searchable PDF text from ASCIIHexDecode text content streams and literal octal escapes.
 - Extract searchable PDF text from ASCII85Decode text content streams.
+- Extract searchable PDF text from RunLengthDecode text content streams.
 - Apply ordered PDF stream filter chains for supported filters.
 - Extract searchable Markdown body content.
 - Extract Markdown task checkbox lines as searchable file-line anchors.

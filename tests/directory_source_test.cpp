@@ -30,6 +30,7 @@ private slots:
     void extractsFlateEncodedPdfContentText();
     void extractsAsciiHexEncodedPdfContentText();
     void extractsAscii85EncodedPdfContentText();
+    void extractsRunLengthEncodedPdfContentText();
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsCodeSymbolAnchors();
@@ -82,6 +83,48 @@ static QByteArray ascii85Encode(const QByteArray &content)
         encoded.append(tuple, chunkSize + 1);
     }
     encoded.append("~>");
+    return encoded;
+}
+
+static QByteArray runLengthEncode(const QByteArray &content)
+{
+    QByteArray encoded;
+    int cursor = 0;
+    while (cursor < content.size()) {
+        int repeatCount = 1;
+        while (cursor + repeatCount < content.size()
+               && repeatCount < 128
+               && content.at(cursor + repeatCount) == content.at(cursor)) {
+            ++repeatCount;
+        }
+
+        if (repeatCount >= 3) {
+            encoded.append(static_cast<char>(257 - repeatCount));
+            encoded.append(content.at(cursor));
+            cursor += repeatCount;
+            continue;
+        }
+
+        const int literalStart = cursor;
+        cursor += repeatCount;
+        while (cursor < content.size() && cursor - literalStart < 128) {
+            int nextRepeatCount = 1;
+            while (cursor + nextRepeatCount < content.size()
+                   && nextRepeatCount < 128
+                   && content.at(cursor + nextRepeatCount) == content.at(cursor)) {
+                ++nextRepeatCount;
+            }
+            if (nextRepeatCount >= 3) {
+                break;
+            }
+            cursor += nextRepeatCount;
+        }
+
+        const int literalCount = cursor - literalStart;
+        encoded.append(static_cast<char>(literalCount - 1));
+        encoded.append(content.constData() + literalStart, literalCount);
+    }
+    encoded.append(static_cast<char>(128));
     return encoded;
 }
 
@@ -1004,6 +1047,59 @@ void DirectorySourceTest::extractsAscii85EncodedPdfContentText()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("ASCII85 Pinloom")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsRunLengthEncodedPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray contentStream("BT\n"
+                                   "/F1 12 Tf\n"
+                                   "72 720 Td\n"
+                                   "(RunLength Pinloom matrix) Tj\n"
+                                   "[(Repeated ) 80 (ZeroSlack handoff)] TJ\n"
+                                   "ET\n");
+    const QByteArray encodedStream = runLengthEncode(contentStream);
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(encodedStream.size()));
+    pdf.append(" /Filter /RunLengthDecode >>\nstream\n");
+    pdf.append(encodedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/runlength.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("runlength.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("RunLength Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Repeated ZeroSlack handoff")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("RunLength Pinloom")});
     QCOMPARE(contentResults.size(), 1);
     QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));

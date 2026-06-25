@@ -27,7 +27,7 @@ Implemented:
 - Markdown external links as derived URL resources with host aliases and fragment anchors.
 - Lightweight PDF metadata extraction and page-level anchors.
 - Lightweight PDF annotation region extraction for searchable `PdfRegion` anchors.
-- Lightweight PDF text extraction from uncompressed, FlateDecode, ASCIIHexDecode, and ASCII85Decode text content streams, including literal octal escapes and ordered filter chains, for searchable PDF content.
+- Lightweight PDF text extraction from uncompressed, FlateDecode, ASCIIHexDecode, ASCII85Decode, and RunLengthDecode text content streams, including literal octal escapes and ordered filter chains, for searchable PDF content.
 - Local web shortcut indexing for `.url`, `.webloc`, and `.website` files as URL resources.
 - URL fragment anchors for indexed web shortcuts.
 - Standalone fallback opening preserves matched URL fragment anchors for web pages and local HTML pages.
@@ -187,4 +187,4 @@ Integration And Source Refinement MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for Markdown body content extraction/search, Markdown task line anchors, local relative Markdown link aliases/anchors/relations, Markdown external link URL resources, plain-text file content indexing, action line anchors, config key/section/path anchors, package manifest dependency anchors, CSV/TSV column anchors, local web shortcut indexing, browser bookmark export/native JSON indexing, OPML link/feed indexing, URL fragment anchors, URL fragment fallback opening, local HTML page content extraction/search, optional remote HTML fetch for web shortcuts, lightweight PDF text extraction/search for uncompressed, FlateDecode, ASCIIHexDecode, ASCII85Decode, literal octal escapes, and ordered filter chains, URL activation through host interception, PDF annotation region anchors, and PDF region open-target preservation (`pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for Markdown body content extraction/search, Markdown task line anchors, local relative Markdown link aliases/anchors/relations, Markdown external link URL resources, plain-text file content indexing, action line anchors, config key/section/path anchors, package manifest dependency anchors, CSV/TSV column anchors, local web shortcut indexing, browser bookmark export/native JSON indexing, OPML link/feed indexing, URL fragment anchors, URL fragment fallback opening, local HTML page content extraction/search, optional remote HTML fetch for web shortcuts, lightweight PDF text extraction/search for uncompressed, FlateDecode, ASCIIHexDecode, ASCII85Decode, RunLengthDecode, literal octal escapes, and ordered filter chains, URL activation through host interception, PDF annotation region anchors, and PDF region open-target preservation (`pinloom_directory_source_test`, `pinloom_widget_smoke_test`)

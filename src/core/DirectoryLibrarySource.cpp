@@ -1136,6 +1136,34 @@ QByteArray decodePdfAscii85Data(const QByteArray &encoded)
     return decoded;
 }
 
+QByteArray decodePdfRunLengthData(const QByteArray &encoded)
+{
+    QByteArray decoded;
+    int cursor = 0;
+    while (cursor < encoded.size()) {
+        const int lengthByte = static_cast<unsigned char>(encoded.at(cursor++));
+        if (lengthByte == 128) {
+            break;
+        }
+
+        if (lengthByte <= 127) {
+            const int count = lengthByte + 1;
+            if (cursor + count > encoded.size()) {
+                return {};
+            }
+            decoded.append(encoded.constData() + cursor, count);
+            cursor += count;
+            continue;
+        }
+
+        if (cursor >= encoded.size()) {
+            return {};
+        }
+        decoded.append(QByteArray(257 - lengthByte, encoded.at(cursor++)));
+    }
+    return decoded;
+}
+
 QStringList pdfFilterNames(const QString &dictionary)
 {
     const int filterIndex = dictionary.indexOf(QStringLiteral("/Filter"));
@@ -1212,6 +1240,9 @@ QByteArray decodePdfStreamFilter(const QByteArray &input, const QString &filterN
     }
     if (filterName == QLatin1String("FlateDecode") || filterName == QLatin1String("Fl")) {
         return qUncompressPdfFlateData(input, decodedLengthHint);
+    }
+    if (filterName == QLatin1String("RunLengthDecode") || filterName == QLatin1String("RL")) {
+        return decodePdfRunLengthData(input);
     }
     return {};
 }
