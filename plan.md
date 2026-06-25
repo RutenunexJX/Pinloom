@@ -259,7 +259,7 @@ Status:
 - compile_commands.json line anchors and `compiles` relations: done.
 - Dependency/import line anchors for common engineering languages: done.
 - Go import block and JS/TS dynamic import anchors: done.
-- Shell, PowerShell, and batch script symbol/dependency anchors: done.
+- Shell, PowerShell, batch, and shebang script symbol/dependency anchors: done.
 - TODO/FIXME/NOTE comment line anchors for source files: done.
 - Exact symbol and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 - Rich language-specific parsers: deferred.

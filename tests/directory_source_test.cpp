@@ -1871,6 +1871,19 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     writeFile(dir.filePath(QStringLiteral("library/src/setup.cmd")),
               QByteArray(":prepare_dock\n"
                          "echo ready\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/runner")),
+              QByteArray("#!/usr/bin/env bash\n"
+                         "run_handoff() {\n"
+                         "  echo handoff\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/pytool")),
+              QByteArray("#!/usr/bin/env python3\n"
+                         "def sync_index():\n"
+                         "    pass\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/plain-script")),
+              QByteArray("plain_helper() {\n"
+                         "  echo no shebang\n"
+                         "}\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -1923,6 +1936,20 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     QVERIFY(batchIt != resources.cend());
     QVERIFY(hasSymbol(*batchIt, QStringLiteral("prepare_dock"), 1));
 
+    const auto runnerIt = findCode(QStringLiteral("runner"));
+    QVERIFY(runnerIt != resources.cend());
+    QVERIFY(hasSymbol(*runnerIt, QStringLiteral("run_handoff"), 2));
+
+    const auto pytoolIt = findCode(QStringLiteral("pytool"));
+    QVERIFY(pytoolIt != resources.cend());
+    QVERIFY(hasSymbol(*pytoolIt, QStringLiteral("sync_index"), 2));
+
+    const auto plainScriptIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.title == QLatin1String("plain-script");
+    });
+    QVERIFY(plainScriptIt != resources.cend());
+    QCOMPARE(plainScriptIt->kind, ResourceKind::File);
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -1954,6 +1981,13 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     QCOMPARE(batchResults.first().resource.kind, ResourceKind::CodeSnippet);
     QVERIFY(batchResults.first().matchedAnchor.has_value());
     QCOMPARE(batchResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+
+    const QList<SearchResult> shebangResults = repository.search(SearchQuery{QStringLiteral("run_handoff")});
+    QCOMPARE(shebangResults.size(), 1);
+    QCOMPARE(shebangResults.first().resource.title, QStringLiteral("runner"));
+    QCOMPARE(shebangResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(shebangResults.first().matchedAnchor.has_value());
+    QCOMPARE(shebangResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
 }
 
 void DirectorySourceTest::extractsCodeTestCaseAnchors()
@@ -2068,6 +2102,9 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
                          ". .\\common.ps1\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/setup.bat")),
               QByteArray("call scripts\\prepare.cmd\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/bootstrap")),
+              QByteArray("#!/usr/bin/env -S bash -e\n"
+                         "source scripts/extensionless-env.sh\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -2133,6 +2170,10 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     QVERIFY(batchIt != resources.cend());
     QVERIFY(hasLineAnchor(*batchIt, QStringLiteral("call: scripts\\prepare.cmd"), 1));
 
+    const auto extensionlessIt = findCode(QStringLiteral("bootstrap"));
+    QVERIFY(extensionlessIt != resources.cend());
+    QVERIFY(hasLineAnchor(*extensionlessIt, QStringLiteral("source: scripts/extensionless-env.sh"), 2));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -2171,6 +2212,14 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     QVERIFY(batchCallResults.first().matchedAnchor.has_value());
     QCOMPARE(batchCallResults.first().matchedAnchor->type, AnchorType::FileLine);
     QCOMPARE(batchCallResults.first().matchedAnchor->target, QStringLiteral("call: scripts\\prepare.cmd"));
+
+    const QList<SearchResult> shebangDependencyResults = repository.search(SearchQuery{QStringLiteral("extensionless-env")});
+    QCOMPARE(shebangDependencyResults.size(), 1);
+    QCOMPARE(shebangDependencyResults.first().resource.title, QStringLiteral("bootstrap"));
+    QVERIFY(shebangDependencyResults.first().matchedAnchor.has_value());
+    QCOMPARE(shebangDependencyResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(shebangDependencyResults.first().matchedAnchor->target,
+             QStringLiteral("source: scripts/extensionless-env.sh"));
 }
 
 void DirectorySourceTest::extractsCMakeBuildAnchors()

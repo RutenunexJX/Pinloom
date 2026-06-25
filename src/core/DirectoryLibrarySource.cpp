@@ -257,6 +257,28 @@ bool isCMakeFile(const QFileInfo &fileInfo)
             || fileInfo.suffix().compare(QStringLiteral("cmake"), Qt::CaseInsensitive) == 0);
 }
 
+bool hasCodeShebang(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    const QString firstLine = QString::fromUtf8(file.readLine(512)).trimmed();
+    if (!firstLine.startsWith(QLatin1String("#!"))) {
+        return false;
+    }
+
+    static const QRegularExpression codeInterpreterPattern(
+        QStringLiteral("\\b(?:bash|sh|zsh|fish|python(?:\\d+(?:\\.\\d+)*)?|node|deno|pwsh|powershell|perl|ruby)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    return codeInterpreterPattern.match(firstLine).hasMatch();
+}
+
 ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
@@ -315,6 +337,9 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
             QStringLiteral("bat"),
             QStringLiteral("cmd")
         }.contains(suffix)) {
+        return ResourceKind::CodeSnippet;
+    }
+    if (hasCodeShebang(fileInfo)) {
         return ResourceKind::CodeSnippet;
     }
     return ResourceKind::File;
