@@ -375,7 +375,7 @@ Status:
 - RSS and Atom feed XML entry indexing as individual URL resources: done.
 - Sitemap XML URL indexing as individual URL resources: done.
 - HAR/http archive entry indexing as individual URL resources: done.
-- WARC response record indexing as individual URL resources with extracted HTML content and `links-to` relations: done.
+- WARC response record indexing as individual URL resources with extracted HTML content, source line anchors, and `links-to` relations: done.
 - iCalendar event URL indexing with event/time/location anchors and `links-to` relations: done.
 - Plain-text URL list indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - JSON/JSONL URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.

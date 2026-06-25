@@ -3473,13 +3473,18 @@ void DirectorySourceTest::extractsWarcResponseLinks()
     QVERIFY(std::any_of(pageIt->anchors.cbegin(), pageIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
     }));
+    QVERIFY(std::any_of(warcIt->anchors.cbegin(), warcIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.line == 1
+            && anchor.target == QLatin1String("url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot");
+    }));
 
     QCOMPARE(warcIt->relations.size(), 1);
     QCOMPARE(warcIt->relations.first().sourceResourceId, warcIt->id);
     QCOMPARE(warcIt->relations.first().targetResourceId, pageIt->id);
     QCOMPARE(warcIt->relations.first().label, QStringLiteral("links-to"));
     QCOMPARE(warcIt->relations.first().note,
-             QStringLiteral("warc record 1: url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot"));
+             QStringLiteral("warc line 1 record 1: url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot"));
 
     QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -3497,6 +3502,17 @@ void DirectorySourceTest::extractsWarcResponseLinks()
     const QList<ResourceRelation> relations = repository.resourceRelations(warcIt->id);
     QCOMPARE(relations.size(), 1);
     QCOMPARE(relations.first().targetResourceId, pageIt->id);
+
+    const QList<SearchResult> sourceAnchorResults = repository.search(SearchQuery{QStringLiteral("Pinloom WARC Capture")});
+    QVERIFY(std::any_of(sourceAnchorResults.cbegin(), sourceAnchorResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("session.warc")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 1
+            && result.matchedAnchor->target
+                == QLatin1String("url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot");
+    }));
 
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archived WARC response")});
     QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {

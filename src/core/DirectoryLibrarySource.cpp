@@ -117,6 +117,7 @@ struct WarcResponseLink {
     QUrl url;
     QString html;
     int recordIndex = -1;
+    int lineNumber = -1;
 };
 
 struct CompileCommandEntry {
@@ -4946,10 +4947,18 @@ QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
     QStringList seenUrls;
     int cursor = 0;
     int recordIndex = 0;
+    int lineScanCursor = 0;
+    int currentLineNumber = 1;
     while (cursor < text.size()) {
         const int recordStart = text.indexOf(QStringLiteral("WARC/1."), cursor);
         if (recordStart < 0) {
             break;
+        }
+        while (lineScanCursor < recordStart && lineScanCursor < text.size()) {
+            if (text.at(lineScanCursor) == QLatin1Char('\n')) {
+                ++currentLineNumber;
+            }
+            ++lineScanCursor;
         }
 
         int separatorLength = 0;
@@ -4989,7 +4998,7 @@ QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
         }
 
         seenUrls.append(urlKey);
-        links.append(WarcResponseLink{url, html, recordIndex});
+        links.append(WarcResponseLink{url, html, recordIndex, currentLineNumber});
     }
     return links;
 }
@@ -5029,12 +5038,17 @@ void appendWarcSourceMetadata(Resource &sourceResource,
         htmlLink.url = link.url;
         htmlLink.title = urlResource.title;
         const QString anchorTarget = urlLinkAnchorTarget(htmlLink);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
         relation.targetResourceId = urlResource.id;
         relation.label = QStringLiteral("links-to");
-        relation.note = QStringLiteral("warc record %1: %2").arg(link.recordIndex).arg(anchorTarget);
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("warc line %1 record %2: %3").arg(link.lineNumber).arg(link.recordIndex).arg(anchorTarget)
+            : QStringLiteral("warc record %1: %2").arg(link.recordIndex).arg(anchorTarget);
         sourceResource.relations.append(relation);
     }
 }
