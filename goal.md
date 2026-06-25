@@ -120,6 +120,7 @@ Completed:
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, root-by-id, all-root, and rebuild indexing flows with structured results.
 - Let embedding hosts observe completed indexing results and query the latest structured indexing result without reading UI text.
+- Let embedding hosts add aliases and manual anchors by resource id without driving result-list selection.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, result row, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.
@@ -185,6 +186,7 @@ Completed:
 - Surface relationships in compact result details without turning the main result list into a graph browser.
 - Expose current related targets through the host-facing panel API.
 - Add UI affordances for creating manual aliases and anchors.
+- Expose resource-id-based host APIs for adding manual aliases and anchors.
 
 ### Ranking And Recall MVP
 

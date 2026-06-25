@@ -633,6 +633,13 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
     resource.location = QStringLiteral("note.md");
     QVERIFY(repository.upsertResource(resource));
 
+    Resource hostResource;
+    hostResource.id = QStringLiteral("host-note");
+    hostResource.kind = ResourceKind::Markdown;
+    hostResource.title = QStringLiteral("Host Note");
+    hostResource.location = QStringLiteral("host.md");
+    QVERIFY(repository.upsertResource(hostResource));
+
     PinloomPanel panel(repository);
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
@@ -647,20 +654,42 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
 
     QVERIFY(panel.addAliasToSelectedResource(QStringLiteral("serial debug")));
     QVERIFY(!panel.addAliasToSelectedResource(QStringLiteral("Serial Debug")));
+    QVERIFY(panel.addAliasToResource(hostResource.id, QStringLiteral("host serial")));
+    QVERIFY(!panel.addAliasToResource(hostResource.id, QStringLiteral("Host Serial")));
+    QVERIFY(!panel.addAliasToResource(QStringLiteral("missing"), QStringLiteral("ghost")));
 
     panel.setSearchText(QStringLiteral("serial"));
-    QCOMPARE(results->count(), 1);
-    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
-    results->setCurrentRow(0);
+    QCOMPARE(results->count(), 2);
+    const QList<PinloomOpenTarget> serialResults = panel.currentResults();
+    QVERIFY(std::any_of(serialResults.cbegin(),
+                       serialResults.cend(),
+                       [&](const PinloomOpenTarget &target) {
+                           return target.resourceId == resource.id;
+                       }));
+    QVERIFY(std::any_of(serialResults.cbegin(),
+                       serialResults.cend(),
+                       [&](const PinloomOpenTarget &target) {
+                           return target.resourceId == hostResource.id;
+                       }));
+    QVERIFY(panel.selectResultResource(resource.id));
 
     QVERIFY(panel.addManualAnchorToSelectedResource(QStringLiteral("Power rail check"), 7));
     QVERIFY(!panel.addManualAnchorToSelectedResource(QStringLiteral("power rail check"), 7));
+    QVERIFY(panel.addManualAnchorToResource(hostResource.id, QStringLiteral("Host rail check"), 11));
+    QVERIFY(!panel.addManualAnchorToResource(hostResource.id, QStringLiteral("host rail check"), 11));
+    QVERIFY(!panel.addManualAnchorToResource(QStringLiteral("missing"), QStringLiteral("ghost rail"), 1));
 
     panel.setSearchText(QStringLiteral("Power rail"));
     QCOMPARE(results->count(), 1);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] Power rail check - line 7")));
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 7);
+
+    panel.setSearchText(QStringLiteral("Host rail"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] Host rail check - line 11")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hostResource.id);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 11);
 }
 
 void WidgetSmokeTest::panelPinsSelectedResource()

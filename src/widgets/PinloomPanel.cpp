@@ -751,7 +751,11 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
 
 bool PinloomPanel::addAliasToSelectedResource(const QString &alias)
 {
-    const QString resourceId = selectedResultResourceId();
+    return addAliasToResource(selectedResultResourceId(), alias);
+}
+
+bool PinloomPanel::addAliasToResource(const QString &resourceId, const QString &alias)
+{
     const QString trimmedAlias = alias.trimmed();
     if (resourceId.isEmpty() || trimmedAlias.isEmpty()) {
         updateStatus(tr("Select a resource and enter an alias"));
@@ -785,7 +789,11 @@ bool PinloomPanel::addAliasToSelectedResource(const QString &alias)
 
 bool PinloomPanel::addManualAnchorToSelectedResource(const QString &target, int line)
 {
-    const QString resourceId = selectedResultResourceId();
+    return addManualAnchorToResource(selectedResultResourceId(), target, line);
+}
+
+bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QString &target, int line)
+{
     const QString trimmedTarget = target.trimmed();
     if (resourceId.isEmpty() || trimmedTarget.isEmpty()) {
         updateStatus(tr("Select a resource and enter an anchor"));

@@ -193,6 +193,7 @@ Status:
 - Host-controllable optional remote HTML fetching toggle: done.
 - Host-triggered selected-root, root-by-id, all-root, and rebuild indexing APIs with structured results: done.
 - Host indexing completion callback and latest-result query API: done.
+- Host resource-id-based manual alias and anchor editing API: done.
 - Host-required resource-kind, tag, and location-prefix filtering APIs: done.
 - Host relation-aware context-resource ranking API: done.
 - Host relation-label-scoped context ranking API: done.
@@ -296,6 +297,7 @@ Status:
 - Compact relationship summary in result details: done.
 - Host-facing current related-target API: done.
 - Manual anchor and alias editing UI: done.
+- Resource-id-based host APIs for manual alias and anchor editing: done.
 
 ## MVP 13: Ranking And Recall
 

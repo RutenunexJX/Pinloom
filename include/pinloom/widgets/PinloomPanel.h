@@ -137,7 +137,9 @@ public:
     bool removeSelectedLibraryRoot();
     bool removeLibraryRootById(const QString &id);
     bool addAliasToSelectedResource(const QString &alias);
+    bool addAliasToResource(const QString &resourceId, const QString &alias);
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
+    bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
     bool setSelectedLibraryRootPinned(bool pinned);
     bool setLibraryRootPinnedById(const QString &id, bool pinned);
