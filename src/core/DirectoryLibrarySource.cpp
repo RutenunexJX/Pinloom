@@ -120,6 +120,12 @@ struct WarcResponseLink {
     int lineNumber = -1;
 };
 
+struct PdfUriLink {
+    QUrl url;
+    QString title;
+    int page = -1;
+};
+
 struct CompileCommandEntry {
     QString sourcePath;
     QString displayPath;
@@ -1336,6 +1342,146 @@ void appendWebUrlMetadata(Resource &resource, const QUrl &url)
     }
     appendUnique(resource.aliases, url.toDisplayString());
     appendUrlFragmentAnchor(resource, url.fragment());
+}
+
+QString pdfUriValueFromAnnotation(const QString &annotationBody)
+{
+    const QString rawUri = pdfLiteralValueAfterKey(annotationBody, QStringLiteral("URI"));
+    if (!rawUri.isEmpty()) {
+        return rawUri;
+    }
+
+    static const QRegularExpression uriLiteralPattern(
+        QStringLiteral("/URI\\s*\\(([^()]*)\\)"),
+        QRegularExpression::DotMatchesEverythingOption);
+    QRegularExpressionMatchIterator matches = uriLiteralPattern.globalMatch(annotationBody);
+    while (matches.hasNext()) {
+        const QString uri = decodePdfLiteralString(matches.next().captured(1));
+        if (!uri.isEmpty()) {
+            return uri;
+        }
+    }
+
+    return {};
+}
+
+std::optional<PdfUriLink> pdfUriLinkFromAnnotation(const QString &annotationBody, int page)
+{
+    const QString rawUri = pdfUriValueFromAnnotation(annotationBody);
+    const QUrl url = QUrl::fromUserInput(rawUri);
+    if (!isIndexableWebUrl(url)) {
+        return std::nullopt;
+    }
+
+    QString title = pdfLiteralValueAfterKey(annotationBody, QStringLiteral("Contents"));
+    if (title.isEmpty()) {
+        title = pdfLiteralValueAfterKey(annotationBody, QStringLiteral("T"));
+    }
+    if (title.isEmpty()) {
+        title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+    }
+
+    return PdfUriLink{url, title, page};
+}
+
+QList<Resource> pdfUriResourcesFromLinks(const QFileInfo &fileInfo, const QList<PdfUriLink> &links)
+{
+    QList<Resource> resources;
+    for (const PdfUriLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("pdf-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title.trimmed().isEmpty() ? link.url.toDisplayString() : link.title.trimmed();
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("pdf-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        if (link.page > 0) {
+            appendUnique(resource.aliases, QStringLiteral("page %1").arg(link.page));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString pdfUriAnchorTarget(const PdfUriLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendPdfUriSourceMetadata(Resource &sourceResource,
+                                const QList<PdfUriLink> &links,
+                                const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const PdfUriLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = pdfUriAnchorTarget(link);
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.page > 0
+            ? QStringLiteral("pdf page %1 link: %2").arg(link.page).arg(anchorTarget)
+            : QStringLiteral("pdf link: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
+QList<PdfUriLink> pdfUriLinksFromFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    const QString pdfText = QString::fromLatin1(file.readAll());
+    const QList<PdfObject> objects = pdfObjectsFromText(pdfText);
+    const QHash<int, int> pageNumbers = pdfPageNumbersByObjectNumber(objects);
+
+    QHash<int, QString> objectsByNumber;
+    for (const PdfObject &object : objects) {
+        objectsByNumber.insert(object.number, object.body);
+    }
+
+    QList<PdfUriLink> links;
+    QStringList seenUrls;
+    for (const PdfObject &object : objects) {
+        const int page = pageNumbers.value(object.number, -1);
+        if (page <= 0) {
+            continue;
+        }
+
+        const QList<int> annotationRefs = pdfAnnotationRefsFromPage(object.body);
+        for (const int ref : annotationRefs) {
+            const auto annotationIt = objectsByNumber.constFind(ref);
+            if (annotationIt == objectsByNumber.constEnd()) {
+                continue;
+            }
+
+            const std::optional<PdfUriLink> link = pdfUriLinkFromAnnotation(annotationIt.value(), page);
+            if (!link.has_value()) {
+                continue;
+            }
+
+            const QString urlKey = link->url.toString(QUrl::FullyEncoded);
+            if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+                continue;
+            }
+
+            seenUrls.append(urlKey);
+            links.append(link.value());
+        }
+    }
+
+    return links;
 }
 
 std::optional<DirectoryLibrarySource::WebPageFetchResult> defaultWebPageFetcher(const QUrl &url, QString *errorMessage)
@@ -5899,6 +6045,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> warcResources = warcUrlResourcesFromLinks(fileInfo, warcLinks);
         appendWarcSourceMetadata(primary, warcLinks, warcResources);
         derivedResources.append(warcResources);
+    }
+    if (primary.kind == ResourceKind::Pdf) {
+        const QList<PdfUriLink> pdfLinks = pdfUriLinksFromFile(fileInfo);
+        const QList<Resource> pdfResources = pdfUriResourcesFromLinks(fileInfo, pdfLinks);
+        appendPdfUriSourceMetadata(primary, pdfLinks, pdfResources);
+        derivedResources.append(pdfResources);
     }
     if (primary.kind == ResourceKind::File && isBrowserHistorySqliteCandidate(fileInfo)) {
         const QList<BrowserHistoryLink> historyLinks = browserHistoryLinksFromSqliteFile(fileInfo);

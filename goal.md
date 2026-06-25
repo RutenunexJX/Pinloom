@@ -159,6 +159,7 @@ Completed:
 - Add basic PDF metadata extraction.
 - Open search hits at the intended page when the platform viewer supports it.
 - Extract PDF annotation rectangles as region anchors.
+- Index PDF URI link annotations as URL resources with fragment anchors and `links-to` relations back to the PDF.
 
 ### Code-Aware Locator MVP
 
@@ -223,6 +224,7 @@ Completed:
 - Open URL resources through host interception or the standalone fallback URL opener.
 - Preserve matched URL fragment anchors when standalone fallback opens web pages or local HTML pages.
 - Extract PDF annotation rectangles as searchable region anchors.
+- Index PDF URI link annotations as individual URL resources with `links-to` relations back to the source PDF.
 - Extract PDF outline/bookmark direct, named, and indirect named destinations as searchable page anchors.
 - Extract searchable PDF text from uncompressed text content streams, including `TJ` text arrays with split glyph runs.
 - Extract searchable PDF text from FlateDecode text content streams.

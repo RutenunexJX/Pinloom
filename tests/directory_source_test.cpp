@@ -1999,8 +1999,9 @@ void DirectorySourceTest::extractsPdfRegionAnchors()
               QByteArray("%PDF-1.4\n"
                          "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
                          "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
-                         "3 0 obj << /Type /Page /Parent 2 0 R /Annots [4 0 R] >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R /Annots [4 0 R 5 0 R] >> endobj\n"
                          "4 0 obj << /Type /Annot /Subtype /Highlight /Rect [10 20 110 60] /Contents (Clock domain note) >> endobj\n"
+                         "5 0 obj << /Type /Annot /Subtype /Link /Rect [20 80 160 110] /Contents (PDF Link Guide) /A << /S /URI /URI (https://docs.example.com/pinloom/pdf#guide) >> >> endobj\n"
                          "trailer << /Root 1 0 R >>\n"
                          "%%EOF\n"));
 
@@ -2019,6 +2020,25 @@ void DirectorySourceTest::extractsPdfRegionAnchors()
             && anchor.page == 1
             && anchor.region == QRectF(10.0, 20.0, 100.0, 40.0);
     }));
+    auto linkIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("PDF Link Guide")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/pdf#guide");
+    });
+    QVERIFY(linkIt != resources.cend());
+    QVERIFY(linkIt->tags.contains(QStringLiteral("pdf-link")));
+    QVERIFY(linkIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(linkIt->aliases.contains(QStringLiteral("annotated")));
+    QVERIFY(linkIt->aliases.contains(QStringLiteral("page 1")));
+    QVERIFY(std::any_of(linkIt->anchors.cbegin(), linkIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("guide");
+    }));
+    QVERIFY(std::any_of(pdfIt->relations.cbegin(), pdfIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == pdfIt->id
+            && relation.targetResourceId == linkIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("pdf page 1 link: url: PDF Link Guide -> https://docs.example.com/pinloom/pdf#guide");
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2034,6 +2054,19 @@ void DirectorySourceTest::extractsPdfRegionAnchors()
     QCOMPARE(regionResults.first().matchedAnchor->type, AnchorType::PdfRegion);
     QCOMPARE(regionResults.first().matchedAnchor->page, 1);
     QCOMPARE(regionResults.first().matchedAnchor->region, QRectF(10.0, 20.0, 100.0, 40.0));
+
+    const QList<ResourceRelation> relations = repository.resourceRelations(pdfIt->id);
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.targetResourceId == linkIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+
+    const QList<SearchResult> linkResults = repository.search(SearchQuery{QStringLiteral("PDF Link Guide")});
+    QVERIFY(std::any_of(linkResults.cbegin(), linkResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("PDF Link Guide")
+            && result.matchedField == QLatin1String("title");
+    }));
 }
 
 void DirectorySourceTest::extractsCodeSymbolAnchors()

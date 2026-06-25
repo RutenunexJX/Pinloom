@@ -253,6 +253,7 @@ Status:
 - PDF metadata extraction: done.
 - Page-open behavior: done for viewers that honor `file.pdf#page=N`.
 - PDF annotation region anchors: done.
+- PDF URI link annotation URL resources and `links-to` relations: done.
 
 ## MVP 11: Code-Aware Locator
 
@@ -352,6 +353,7 @@ Status:
 - URL open behavior through host interception or standalone fallback: done.
 - URL fragment anchor fallback opening for web/local HTML targets: done.
 - PDF annotation region anchors: done.
+- PDF URI link annotation URL resources and `links-to` relations: done.
 - PDF outline/bookmark direct, named, and indirect named destination page anchors: done.
 - Lightweight PDF text extraction/search for uncompressed text streams, including `TJ` text arrays with split glyph runs: done.
 - Lightweight PDF text extraction/search for FlateDecode text streams: done.
