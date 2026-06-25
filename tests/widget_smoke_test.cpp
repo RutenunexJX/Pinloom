@@ -12,6 +12,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUrl>
+#include <algorithm>
 #include <optional>
 
 using namespace Pinloom;
@@ -1024,21 +1025,43 @@ void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
     QVERIFY(repository.upsertResource(zulu));
 
     QList<int> counts;
+    QList<QList<PinloomOpenTarget>> resultSnapshots;
     PinloomPanelOptions options;
     options.resultCountChangedHandler = [&](int resultCount) {
         counts.append(resultCount);
+    };
+    options.resultsChangedHandler = [&](const QList<PinloomOpenTarget> &results) {
+        resultSnapshots.append(results);
     };
 
     PinloomPanel panel(repository, options);
     QVERIFY(!counts.isEmpty());
     QCOMPARE(counts.last(), 2);
+    QVERIFY(!resultSnapshots.isEmpty());
+    QCOMPARE(resultSnapshots.last().size(), 2);
+    QCOMPARE(resultSnapshots.last().at(0).resultRow, 0);
+    QCOMPARE(resultSnapshots.last().at(1).resultRow, 1);
 
     panel.setSearchText(QStringLiteral("missing"));
     QCOMPARE(counts.last(), 0);
+    QVERIFY(resultSnapshots.last().isEmpty());
 
     panel.setSearchText(QStringLiteral("UART"));
     QCOMPARE(counts.last(), 2);
     QCOMPARE(panel.resultCount(), 2);
+    QCOMPARE(resultSnapshots.last().size(), 2);
+    QCOMPARE(resultSnapshots.last().at(0).resultRow, 0);
+    QCOMPARE(resultSnapshots.last().at(1).resultRow, 1);
+    QVERIFY(std::any_of(resultSnapshots.last().cbegin(),
+                       resultSnapshots.last().cend(),
+                       [&](const PinloomOpenTarget &target) {
+                           return target.resourceId == alpha.id;
+                       }));
+    QVERIFY(std::any_of(resultSnapshots.last().cbegin(),
+                       resultSnapshots.last().cend(),
+                       [&](const PinloomOpenTarget &target) {
+                           return target.resourceId == zulu.id;
+                       }));
 }
 
 void WidgetSmokeTest::panelAllowsHostResultNavigation()

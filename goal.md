@@ -110,6 +110,7 @@ Completed:
 - Let embedding hosts inspect related targets for the current selection without parsing UI text.
 - Let embedding hosts inspect result count, navigate result selection, and directly select results by row or resource id through API for command palette flows.
 - Let embedding hosts observe result-count changes after search/filter refreshes.
+- Let embedding hosts observe current result target snapshots after search/filter refreshes.
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.

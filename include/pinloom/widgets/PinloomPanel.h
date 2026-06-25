@@ -53,6 +53,7 @@ struct PinloomPanelOptions {
     std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
     std::function<void(int resultCount)> resultCountChangedHandler;
+    std::function<void(const QList<PinloomOpenTarget> &results)> resultsChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     bool showLibraryRootControls = true;
     bool showManualEditControls = true;
@@ -135,6 +136,7 @@ private slots:
     void refreshRootPinButtonState();
     void notifyCurrentOpenTargetChanged();
     void notifyResultCountChanged();
+    void notifyResultsChanged();
 
 private:
     void loadLibraryRoots();
