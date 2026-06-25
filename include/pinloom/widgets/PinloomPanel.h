@@ -137,6 +137,8 @@ public:
     bool setSelectedResourcePinned(bool pinned);
     bool setSelectedLibraryRootPinned(bool pinned);
     bool setLibraryRootPinnedById(const QString &id, bool pinned);
+    bool setSelectedLibraryRootEnabled(bool enabled);
+    bool setLibraryRootEnabledById(const QString &id, bool enabled);
 
 private slots:
     void addLibraryRoot();

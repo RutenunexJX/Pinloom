@@ -113,12 +113,16 @@ void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
 
     QList<PinloomLibraryRootTarget> selectedNotifications;
     QList<QList<PinloomLibraryRootTarget>> rootSnapshots;
+    QStringList statusNotifications;
     PinloomPanelOptions options;
     options.currentLibraryRootChangedHandler = [&](const PinloomLibraryRootTarget &target) {
         selectedNotifications.append(target);
     };
     options.libraryRootsChangedHandler = [&](const QList<PinloomLibraryRootTarget> &roots) {
         rootSnapshots.append(roots);
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
     };
 
     PinloomPanel panel(repository, options);
@@ -152,6 +156,31 @@ void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
     QCOMPARE(selectedNotifications.last().id, root.id);
     QVERIFY(!panel.selectLibraryRootById(QStringLiteral("missing-root")));
     QCOMPARE(panel.selectedLibraryRoot().id, root.id);
+
+    QVERIFY(panel.setLibraryRootEnabledById(root.id, false));
+    std::optional<LibraryRoot> disabledRoot = repository.findLibraryRoot(root.id);
+    QVERIFY(disabledRoot.has_value());
+    QVERIFY(!disabledRoot->enabled);
+    QCOMPARE(panel.selectedLibraryRoot().id, root.id);
+    QVERIFY(!panel.selectedLibraryRoot().enabled);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Disabled folder"));
+    QVERIFY(std::any_of(rootSnapshots.last().cbegin(),
+                       rootSnapshots.last().cend(),
+                       [&](const PinloomLibraryRootTarget &target) {
+                           return target.id == root.id && !target.enabled;
+                       }));
+
+    QVERIFY(panel.setSelectedLibraryRootEnabled(true));
+    std::optional<LibraryRoot> enabledRoot = repository.findLibraryRoot(root.id);
+    QVERIFY(enabledRoot.has_value());
+    QVERIFY(enabledRoot->enabled);
+    QCOMPARE(panel.selectedLibraryRoot().id, root.id);
+    QVERIFY(panel.selectedLibraryRoot().enabled);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Enabled folder"));
+
+    QVERIFY(!panel.setLibraryRootEnabledById(QStringLiteral("missing-root"), false));
+    QCOMPARE(panel.selectedLibraryRoot().id, root.id);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Library folder no longer exists"));
     QVERIFY(!fetchWebCheck->isChecked());
     QVERIFY(!panel.remoteWebFetchingEnabled());
 

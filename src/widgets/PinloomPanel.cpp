@@ -876,6 +876,37 @@ bool PinloomPanel::setLibraryRootPinnedById(const QString &id, bool pinned)
     return true;
 }
 
+bool PinloomPanel::setSelectedLibraryRootEnabled(bool enabled)
+{
+    return setLibraryRootEnabledById(selectedRootId(), enabled);
+}
+
+bool PinloomPanel::setLibraryRootEnabledById(const QString &id, bool enabled)
+{
+    if (id.isEmpty()) {
+        updateStatus(tr("No library folder selected"));
+        refreshRootPinButtonState();
+        return false;
+    }
+
+    if (!repository_.findLibraryRoot(id).has_value()) {
+        loadLibraryRoots();
+        updateStatus(tr("Library folder no longer exists"));
+        return false;
+    }
+
+    if (!repository_.setLibraryRootEnabled(id, enabled)) {
+        updateStatus(tr("Unable to update enabled folder"));
+        refreshRootPinButtonState();
+        return false;
+    }
+
+    loadLibraryRoots();
+    selectLibraryRootById(id);
+    updateStatus(enabled ? tr("Enabled folder") : tr("Disabled folder"));
+    return true;
+}
+
 void PinloomPanel::addLibraryRoot()
 {
     const QString path = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
