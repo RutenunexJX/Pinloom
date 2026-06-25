@@ -2058,6 +2058,13 @@ bool isBrowserHistorySqliteCandidate(const QFileInfo &fileInfo)
         || fileName == QLatin1String("history.sqlite3");
 }
 
+bool isFirefoxPlacesSqliteCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 128 * 1024 * 1024
+        && fileInfo.fileName().compare(QStringLiteral("places.sqlite"), Qt::CaseInsensitive) == 0;
+}
+
 QDateTime dateTimeFromChromiumWebTime(qint64 value)
 {
     if (value <= 0) {
@@ -2069,6 +2076,11 @@ QDateTime dateTimeFromChromiumWebTime(qint64 value)
     return unixMicroseconds <= 0
         ? QDateTime()
         : QDateTime::fromMSecsSinceEpoch(unixMicroseconds / 1000, QTimeZone::UTC);
+}
+
+QDateTime dateTimeFromUnixMicroseconds(qint64 value)
+{
+    return value <= 0 ? QDateTime() : QDateTime::fromMSecsSinceEpoch(value / 1000, QTimeZone::UTC);
 }
 
 QList<BrowserHistoryLink> browserHistoryLinksFromSqliteFile(const QFileInfo &fileInfo)
@@ -2126,6 +2138,61 @@ QList<BrowserHistoryLink> browserHistoryLinksFromSqliteFile(const QFileInfo &fil
     return links;
 }
 
+QList<BrowserHistoryLink> firefoxPlacesLinksFromSqliteFile(const QFileInfo &fileInfo)
+{
+    if (!isFirefoxPlacesSqliteCandidate(fileInfo)) {
+        return {};
+    }
+
+    QList<BrowserHistoryLink> links;
+    QStringList seenUrls;
+    const QString connectionName =
+        QStringLiteral("pinloom_firefox_places_%1").arg(qHash(fileInfo.absoluteFilePath()));
+
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(fileInfo.absoluteFilePath());
+        if (!database.open()) {
+            database.close();
+        } else {
+            QSqlQuery tableQuery(database);
+            if (tableQuery.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name='moz_places'"))
+                && tableQuery.next()) {
+                QSqlQuery query(database);
+                if (query.exec(QStringLiteral(
+                        "SELECT url, title, visit_count, last_visit_date FROM moz_places ORDER BY last_visit_date DESC"))) {
+                    while (query.next()) {
+                        const QUrl url = QUrl::fromUserInput(query.value(0).toString().trimmed());
+                        if (!isIndexableWebUrl(url)) {
+                            continue;
+                        }
+
+                        const QString urlKey = url.toString(QUrl::FullyEncoded);
+                        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+                            continue;
+                        }
+                        seenUrls.append(urlKey);
+
+                        BrowserHistoryLink link;
+                        link.url = url;
+                        link.title = query.value(1).toString().trimmed();
+                        if (link.title.isEmpty()) {
+                            link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+                        }
+                        link.visitCount = query.value(2).toInt();
+                        link.lastVisitedAt = dateTimeFromUnixMicroseconds(query.value(3).toLongLong());
+                        links.append(link);
+                    }
+                }
+            }
+            database.close();
+        }
+    }
+
+    QSqlDatabase::removeDatabase(connectionName);
+    return links;
+}
+
 QList<Resource> browserHistoryResourcesFromLinks(const QFileInfo &fileInfo,
                                                  const QList<BrowserHistoryLink> &links)
 {
@@ -2140,6 +2207,9 @@ QList<Resource> browserHistoryResourcesFromLinks(const QFileInfo &fileInfo,
         resource.updatedAt = link.lastVisitedAt.isValid() ? link.lastVisitedAt : fileInfo.lastModified().toUTC();
         appendWebUrlMetadata(resource, link.url);
         appendUnique(resource.tags, QStringLiteral("browser-history"));
+        if (isFirefoxPlacesSqliteCandidate(fileInfo)) {
+            appendUnique(resource.tags, QStringLiteral("firefox-history"));
+        }
         if (link.visitCount > 0) {
             appendUnique(resource.aliases, QStringLiteral("visited %1 times").arg(link.visitCount));
         }
@@ -3848,6 +3918,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> historyResources = browserHistoryResourcesFromLinks(fileInfo, historyLinks);
         appendBrowserHistorySourceMetadata(primary, historyLinks, historyResources);
         derivedResources.append(historyResources);
+    }
+    if (primary.kind == ResourceKind::File && isFirefoxPlacesSqliteCandidate(fileInfo)) {
+        const QList<BrowserHistoryLink> placesLinks = firefoxPlacesLinksFromSqliteFile(fileInfo);
+        const QList<Resource> placesResources = browserHistoryResourcesFromLinks(fileInfo, placesLinks);
+        appendBrowserHistorySourceMetadata(primary, placesLinks, placesResources);
+        derivedResources.append(placesResources);
     }
 
     resources.append(primary);
