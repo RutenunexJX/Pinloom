@@ -211,11 +211,12 @@ Completed:
 - Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, and fragment anchors.
 - Index sitemap XML URLs as individual URL resources with searchable sitemap tags and fragment anchors.
 - Index plain-text URL list files as individual URL resources with host aliases and fragment anchors.
+- Index CSV/TSV URL columns as individual URL resources with host aliases, table aliases, category/tag aliases, and fragment anchors.
 - Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
 - Index small plain-text, log, config, manifest, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
 
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond shortcuts, browser bookmark files, and OPML.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, and CSV/TSV URL columns.
 - Add richer source-code parsing if lightweight symbol extraction becomes too noisy.

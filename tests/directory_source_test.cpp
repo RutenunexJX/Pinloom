@@ -41,6 +41,7 @@ private slots:
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
+    void extractsTabularUrlResources();
     void extractsHtmlPageContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
@@ -1825,6 +1826,95 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("overview");
+    }));
+}
+
+void DirectorySourceTest::extractsTabularUrlResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/tables")));
+    writeFile(dir.filePath(QStringLiteral("library/tables/research.csv")),
+              QByteArray("Title,URL,Tags\n"
+                         "\"Pinloom Host API\",https://docs.example.com/pinloom/host#dock,\"zeroslack;host\"\n"
+                         "FPGA Notes,https://fpga.example.com/notes,fpga\n"
+                         "Ignored,not-a-link,skip\n"
+                         "Duplicate,https://docs.example.com/pinloom/host#dock,duplicate\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto fileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("research.csv");
+    });
+    QVERIFY(fileIt != resources.cend());
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("column: URL")
+            && anchor.line == 1;
+    }));
+
+    auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#dock");
+    });
+    QVERIFY(hostIt != resources.cend());
+    QCOMPARE(hostIt->title, QStringLiteral("Pinloom Host API"));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("tabular-link")));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("zeroslack")));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("host")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("research")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("zeroslack")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("host")));
+    QCOMPARE(hostIt->anchors.size(), 1);
+    QCOMPARE(hostIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(hostIt->anchors.first().target, QStringLiteral("dock"));
+
+    const int duplicateCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#dock");
+    });
+    QCOMPARE(duplicateCount, 1);
+
+    auto fpgaIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://fpga.example.com/notes");
+    });
+    QVERIFY(fpgaIt != resources.cend());
+    QCOMPARE(fpgaIt->title, QStringLiteral("FPGA Notes"));
+    QVERIFY(fpgaIt->tags.contains(QStringLiteral("fpga")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Pinloom Host API")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Host API");
+    }));
+
+    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("zeroslack")});
+    QVERIFY(std::any_of(tagResults.cbegin(), tagResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Host API");
+    }));
+
+    const QList<SearchResult> hostResults = repository.search(SearchQuery{QStringLiteral("fpga.example.com")});
+    QVERIFY(std::any_of(hostResults.cbegin(), hostResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("FPGA Notes");
     }));
 }
 
