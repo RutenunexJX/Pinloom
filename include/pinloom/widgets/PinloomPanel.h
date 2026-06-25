@@ -96,6 +96,8 @@ public:
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
+    PinloomOpenTarget resultAt(int row) const;
+    QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
     int resultCount() const;
     bool selectResultAt(int row);

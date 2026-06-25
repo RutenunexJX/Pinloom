@@ -178,6 +178,7 @@ Status:
 - Host-facing panel options and search control API: done.
 - Host-selectable embedded chrome options: done.
 - Host current-open-target query and change notification APIs for previews/status surfaces: done.
+- Host current result target list snapshot API: done.
 - Host current-related-target query API for previews/status surfaces: done.
 - Host-triggered result count and selection navigation APIs: done.
 - Host direct result selection by row or resource id: done.

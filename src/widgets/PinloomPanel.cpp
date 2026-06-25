@@ -200,6 +200,41 @@ PinloomOpenTarget openTargetForResource(const Resource &resource)
     return target;
 }
 
+PinloomOpenTarget openTargetForItem(const QListWidgetItem *item)
+{
+    PinloomOpenTarget target;
+    if (!item) {
+        return target;
+    }
+
+    target.resourceId = item->data(Qt::UserRole).toString();
+    target.location = item->data(Qt::UserRole + 1).toString();
+    target.title = item->data(Qt::UserRole + 11).toString();
+    target.resourceKind = static_cast<ResourceKind>(item->data(Qt::UserRole + 12).toInt());
+    target.matchedField = item->data(Qt::UserRole + 13).toString();
+    target.score = item->data(Qt::UserRole + 14).toDouble();
+    target.matchedContextTag = item->data(Qt::UserRole + 15).toString();
+    target.matchedContextLocationPrefix = item->data(Qt::UserRole + 16).toString();
+    target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
+    target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
+    target.matchedContextRelationNote = item->data(Qt::UserRole + 19).toString();
+
+    if (item->data(Qt::UserRole + 2).toBool()) {
+        Anchor anchor;
+        anchor.type = static_cast<AnchorType>(item->data(Qt::UserRole + 5).toInt());
+        anchor.target = item->data(Qt::UserRole + 4).toString();
+        anchor.line = item->data(Qt::UserRole + 3).toInt();
+        anchor.page = item->data(Qt::UserRole + 6).toInt();
+        anchor.region = QRectF(item->data(Qt::UserRole + 7).toDouble(),
+                               item->data(Qt::UserRole + 8).toDouble(),
+                               item->data(Qt::UserRole + 9).toDouble(),
+                               item->data(Qt::UserRole + 10).toDouble());
+        target.anchor = anchor;
+    }
+
+    return target;
+}
+
 QUrl urlForLocation(const QString &location)
 {
     const QUrl parsed(location);
@@ -460,38 +495,25 @@ PinloomHostContext PinloomPanel::hostContext() const
 
 PinloomOpenTarget PinloomPanel::currentOpenTarget() const
 {
-    PinloomOpenTarget target;
-    const QListWidgetItem *item = resultList_->currentItem();
-    if (!item) {
-        return target;
+    return openTargetForItem(resultList_->currentItem());
+}
+
+PinloomOpenTarget PinloomPanel::resultAt(int row) const
+{
+    if (row < 0 || row >= resultList_->count()) {
+        return {};
     }
+    return openTargetForItem(resultList_->item(row));
+}
 
-    target.resourceId = item->data(Qt::UserRole).toString();
-    target.location = item->data(Qt::UserRole + 1).toString();
-    target.title = item->data(Qt::UserRole + 11).toString();
-    target.resourceKind = static_cast<ResourceKind>(item->data(Qt::UserRole + 12).toInt());
-    target.matchedField = item->data(Qt::UserRole + 13).toString();
-    target.score = item->data(Qt::UserRole + 14).toDouble();
-    target.matchedContextTag = item->data(Qt::UserRole + 15).toString();
-    target.matchedContextLocationPrefix = item->data(Qt::UserRole + 16).toString();
-    target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
-    target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
-    target.matchedContextRelationNote = item->data(Qt::UserRole + 19).toString();
-
-    if (item->data(Qt::UserRole + 2).toBool()) {
-        Anchor anchor;
-        anchor.type = static_cast<AnchorType>(item->data(Qt::UserRole + 5).toInt());
-        anchor.target = item->data(Qt::UserRole + 4).toString();
-        anchor.line = item->data(Qt::UserRole + 3).toInt();
-        anchor.page = item->data(Qt::UserRole + 6).toInt();
-        anchor.region = QRectF(item->data(Qt::UserRole + 7).toDouble(),
-                               item->data(Qt::UserRole + 8).toDouble(),
-                               item->data(Qt::UserRole + 9).toDouble(),
-                               item->data(Qt::UserRole + 10).toDouble());
-        target.anchor = anchor;
+QList<PinloomOpenTarget> PinloomPanel::currentResults() const
+{
+    QList<PinloomOpenTarget> targets;
+    targets.reserve(resultList_->count());
+    for (int row = 0; row < resultList_->count(); ++row) {
+        targets.append(openTargetForItem(resultList_->item(row)));
     }
-
-    return target;
+    return targets;
 }
 
 QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const

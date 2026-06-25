@@ -904,6 +904,13 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
 
     PinloomPanel panel(repository);
     QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QCOMPARE(panel.resultAt(0).resourceId, resource.id);
+    QVERIFY(panel.resultAt(-1).resourceId.isEmpty());
+    QCOMPARE(panel.currentResults().size(), 1);
+
+    panel.setSearchText(QStringLiteral("missing"));
+    QVERIFY(panel.resultAt(0).resourceId.isEmpty());
+    QVERIFY(panel.currentResults().isEmpty());
 
     panel.setContextTags({QStringLiteral("zeroslack")});
     panel.setContextLocationPrefixes({QStringLiteral("E:/workspace/project")});
@@ -913,6 +920,25 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QVERIFY(results);
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
+
+    const PinloomOpenTarget rowTarget = panel.resultAt(0);
+    QCOMPARE(rowTarget.resourceId, resource.id);
+    QCOMPARE(rowTarget.resourceKind, resource.kind);
+    QCOMPARE(rowTarget.title, resource.title);
+    QCOMPARE(rowTarget.location, resource.location);
+    QCOMPARE(rowTarget.matchedField, QStringLiteral("anchor"));
+    QCOMPARE(rowTarget.matchedContextTag, QStringLiteral("zeroslack"));
+    QCOMPARE(rowTarget.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
+    QVERIFY(rowTarget.anchor.has_value());
+    QCOMPARE(rowTarget.anchor->target, QStringLiteral("Dock handoff"));
+    QCOMPARE(rowTarget.anchor->line, 8);
+    QVERIFY(panel.resultAt(1).resourceId.isEmpty());
+
+    const QList<PinloomOpenTarget> currentResults = panel.currentResults();
+    QCOMPARE(currentResults.size(), 1);
+    QCOMPARE(currentResults.first().resourceId, resource.id);
+    QVERIFY(currentResults.first().anchor.has_value());
+    QCOMPARE(currentResults.first().anchor->target, QStringLiteral("Dock handoff"));
 
     const PinloomOpenTarget target = panel.currentOpenTarget();
     QCOMPARE(target.resourceId, resource.id);
