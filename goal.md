@@ -113,6 +113,7 @@ Completed:
 - Let embedding hosts observe current result target snapshots after search/filter refreshes.
 - Let embedding hosts inspect and observe status text without reading UI labels.
 - Let embedding hosts inspect, select, and observe library root snapshots and selected-root changes without parsing UI text.
+- Let embedding hosts pin and unpin library roots through API while preserving standalone pin behavior.
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.

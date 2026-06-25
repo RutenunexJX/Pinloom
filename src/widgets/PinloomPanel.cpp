@@ -844,6 +844,38 @@ bool PinloomPanel::setSelectedResourcePinned(bool pinned)
     return true;
 }
 
+bool PinloomPanel::setSelectedLibraryRootPinned(bool pinned)
+{
+    return setLibraryRootPinnedById(selectedRootId(), pinned);
+}
+
+bool PinloomPanel::setLibraryRootPinnedById(const QString &id, bool pinned)
+{
+    if (id.isEmpty()) {
+        updateStatus(tr("No library folder selected"));
+        refreshRootPinButtonState();
+        return false;
+    }
+
+    if (!repository_.findLibraryRoot(id).has_value()) {
+        loadLibraryRoots();
+        updateStatus(tr("Library folder no longer exists"));
+        return false;
+    }
+
+    if (!repository_.setLibraryRootPinned(id, pinned)) {
+        updateStatus(tr("Unable to update pinned folder"));
+        refreshRootPinButtonState();
+        return false;
+    }
+
+    loadLibraryRoots();
+    selectLibraryRootById(id);
+    refreshResults();
+    updateStatus(pinned ? tr("Pinned folder") : tr("Unpinned folder"));
+    return true;
+}
+
 void PinloomPanel::addLibraryRoot()
 {
     const QString path = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
@@ -915,29 +947,17 @@ void PinloomPanel::toggleSelectedLibraryRootPin()
 {
     const QString id = selectedRootId();
     if (id.isEmpty()) {
-        updateStatus(tr("No library folder selected"));
-        refreshRootPinButtonState();
+        setLibraryRootPinnedById(id, true);
         return;
     }
 
     const std::optional<LibraryRoot> root = repository_.findLibraryRoot(id);
     if (!root.has_value()) {
-        loadLibraryRoots();
-        updateStatus(tr("Library folder no longer exists"));
+        setLibraryRootPinnedById(id, true);
         return;
     }
 
-    const bool nextPinned = !root->pinned;
-    if (!repository_.setLibraryRootPinned(id, nextPinned)) {
-        updateStatus(tr("Unable to update pinned folder"));
-        refreshRootPinButtonState();
-        return;
-    }
-
-    loadLibraryRoots();
-    selectLibraryRootById(id);
-    refreshResults();
-    updateStatus(nextPinned ? tr("Pinned folder") : tr("Unpinned folder"));
+    setLibraryRootPinnedById(id, !root->pinned);
 }
 
 void PinloomPanel::refreshResults()

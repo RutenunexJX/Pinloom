@@ -135,6 +135,8 @@ public:
     bool addAliasToSelectedResource(const QString &alias);
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
+    bool setSelectedLibraryRootPinned(bool pinned);
+    bool setLibraryRootPinnedById(const QString &id, bool pinned);
 
 private slots:
     void addLibraryRoot();

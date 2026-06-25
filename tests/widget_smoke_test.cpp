@@ -644,7 +644,17 @@ void WidgetSmokeTest::panelPinsSelectedLibraryRoot()
     hot.location = QStringLiteral("E:/workspace/hot/bringup.md");
     QVERIFY(repository.upsertResource(hot));
 
-    PinloomPanel panel(repository);
+    QStringList statusNotifications;
+    QList<QList<PinloomLibraryRootTarget>> rootSnapshots;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.libraryRootsChangedHandler = [&](const QList<PinloomLibraryRootTarget> &roots) {
+        rootSnapshots.append(roots);
+    };
+
+    PinloomPanel panel(repository, options);
     auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
     auto *pinRootButton = panel.findChild<QPushButton *>(QStringLiteral("pinRootButton"));
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
@@ -656,22 +666,40 @@ void WidgetSmokeTest::panelPinsSelectedLibraryRoot()
     QCOMPARE(results->count(), 2);
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), cold.id);
 
-    for (int row = 0; row < rootList->count(); ++row) {
-        if (rootList->item(row)->data(Qt::UserRole).toString() == hotRoot.id) {
-            rootList->setCurrentRow(row);
-            break;
-        }
-    }
-    QCOMPARE(rootList->currentItem()->data(Qt::UserRole).toString(), hotRoot.id);
-
-    pinRootButton->click();
+    QVERIFY(panel.setLibraryRootPinnedById(hotRoot.id, true));
 
     const std::optional<LibraryRoot> pinnedRoot = repository.findLibraryRoot(hotRoot.id);
     QVERIFY(pinnedRoot.has_value());
     QVERIFY(pinnedRoot->pinned);
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+    QCOMPARE(panel.selectedLibraryRoot().id, hotRoot.id);
     QVERIFY(pinRootButton->isChecked());
     QVERIFY(rootList->currentItem()->text().contains(QStringLiteral("[Pinned]")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Pinned folder"));
+    QVERIFY(!rootSnapshots.isEmpty());
+    QVERIFY(std::any_of(rootSnapshots.last().cbegin(),
+                       rootSnapshots.last().cend(),
+                       [&](const PinloomLibraryRootTarget &target) {
+                           return target.id == hotRoot.id && target.pinned;
+                       }));
+
+    QVERIFY(panel.setSelectedLibraryRootPinned(false));
+    const std::optional<LibraryRoot> unpinnedRoot = repository.findLibraryRoot(hotRoot.id);
+    QVERIFY(unpinnedRoot.has_value());
+    QVERIFY(!unpinnedRoot->pinned);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), cold.id);
+    QVERIFY(!pinRootButton->isChecked());
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Unpinned folder"));
+
+    pinRootButton->click();
+    const std::optional<LibraryRoot> repinnedRoot = repository.findLibraryRoot(hotRoot.id);
+    QVERIFY(repinnedRoot.has_value());
+    QVERIFY(repinnedRoot->pinned);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+
+    QVERIFY(!panel.setLibraryRootPinnedById(QStringLiteral("missing-root"), true));
+    QCOMPARE(panel.selectedLibraryRoot().id, hotRoot.id);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Library folder no longer exists"));
 }
 
 void WidgetSmokeTest::panelSupportsEmbeddedChromeOptions()
