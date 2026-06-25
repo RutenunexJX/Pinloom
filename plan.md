@@ -320,6 +320,7 @@ Status:
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
 - OPML subscription/link list indexing as individual URL resources: done.
+- RSS and Atom feed XML entry indexing as individual URL resources: done.
 - Plain-text URL list indexing as individual URL resources: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.

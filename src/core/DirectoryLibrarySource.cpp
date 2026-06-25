@@ -58,6 +58,13 @@ struct OpmlLink {
     QStringList folderPath;
 };
 
+struct FeedEntryLink {
+    QUrl url;
+    QString title;
+    QString feedTitle;
+    QStringList categories;
+};
+
 QString markdownPlainTextFromLine(QString line);
 void appendFileLineAnchor(Resource &resource, const QString &target, int line);
 
@@ -189,6 +196,18 @@ bool isPlainTextUrlListCandidate(const QFileInfo &fileInfo)
         QStringLiteral("links"),
         QStringLiteral("urls")
     }.contains(suffix);
+}
+
+bool isFeedXmlCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 4 * 1024 * 1024) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return suffix == QLatin1String("rss")
+        || suffix == QLatin1String("atom")
+        || suffix == QLatin1String("xml");
 }
 
 QString stripYamlQuotes(QString value)
@@ -1643,6 +1662,114 @@ QList<OpmlLink> opmlLinksFromDocument(const QByteArray &content)
     return links;
 }
 
+QList<FeedEntryLink> feedLinksFromXmlDocument(const QByteArray &content)
+{
+    QXmlStreamReader reader(content);
+    QList<FeedEntryLink> links;
+    QString feedTitle;
+    bool rootSeen = false;
+    bool rssFeed = false;
+    bool atomFeed = false;
+    bool inChannel = false;
+    bool inItem = false;
+    bool inEntry = false;
+    FeedEntryLink current;
+
+    auto finishCurrent = [&]() {
+        if (isIndexableWebUrl(current.url)) {
+            if (current.title.isEmpty()) {
+                current.title = current.url.host().isEmpty() ? current.url.toDisplayString() : current.url.host();
+            }
+            current.feedTitle = feedTitle;
+            links.append(current);
+        }
+        current = {};
+    };
+
+    while (!reader.atEnd()) {
+        reader.readNext();
+        const QString name = reader.name().toString().toLower();
+
+        if (reader.isStartElement()) {
+            if (!rootSeen) {
+                rootSeen = true;
+                rssFeed = name == QLatin1String("rss") || name == QLatin1String("rdf");
+                atomFeed = name == QLatin1String("feed");
+                if (!rssFeed && !atomFeed) {
+                    return {};
+                }
+            }
+
+            if (rssFeed) {
+                if (name == QLatin1String("channel")) {
+                    inChannel = true;
+                } else if (inChannel && name == QLatin1String("item")) {
+                    inItem = true;
+                    current = {};
+                } else if (inChannel && !inItem && name == QLatin1String("title")) {
+                    feedTitle = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
+                } else if (inItem && name == QLatin1String("title")) {
+                    current.title = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
+                } else if (inItem && name == QLatin1String("link")) {
+                    const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+                    if (isIndexableWebUrl(url)) {
+                        current.url = url;
+                    }
+                } else if (inItem && name == QLatin1String("guid") && !isIndexableWebUrl(current.url)) {
+                    const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+                    if (isIndexableWebUrl(url)) {
+                        current.url = url;
+                    }
+                } else if (inItem && name == QLatin1String("category")) {
+                    appendUnique(current.categories, reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+                }
+            } else if (atomFeed) {
+                if (!inEntry && name == QLatin1String("title")) {
+                    feedTitle = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
+                } else if (name == QLatin1String("entry")) {
+                    inEntry = true;
+                    current = {};
+                } else if (inEntry && name == QLatin1String("title")) {
+                    current.title = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
+                } else if (inEntry && name == QLatin1String("link")) {
+                    const QString rel = xmlAttributeValue(reader.attributes(), QStringLiteral("rel"));
+                    const QUrl url = QUrl::fromUserInput(xmlAttributeValue(reader.attributes(), QStringLiteral("href")));
+                    if ((rel.isEmpty() || rel.compare(QStringLiteral("alternate"), Qt::CaseInsensitive) == 0)
+                        && isIndexableWebUrl(url)) {
+                        current.url = url;
+                    }
+                } else if (inEntry && name == QLatin1String("id") && !isIndexableWebUrl(current.url)) {
+                    const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
+                    if (isIndexableWebUrl(url)) {
+                        current.url = url;
+                    }
+                } else if (inEntry && name == QLatin1String("category")) {
+                    QString category = xmlAttributeValue(reader.attributes(), QStringLiteral("term"));
+                    if (category.isEmpty()) {
+                        category = xmlAttributeValue(reader.attributes(), QStringLiteral("label"));
+                    }
+                    appendUnique(current.categories, category);
+                }
+            }
+        } else if (reader.isEndElement()) {
+            if (rssFeed && name == QLatin1String("item")) {
+                inItem = false;
+                finishCurrent();
+            } else if (rssFeed && name == QLatin1String("channel")) {
+                inChannel = false;
+            } else if (atomFeed && name == QLatin1String("entry")) {
+                inEntry = false;
+                finishCurrent();
+            }
+        }
+    }
+
+    if (reader.hasError()) {
+        return {};
+    }
+    return links;
+}
+
 int pdfPageCountFromText(const QString &text)
 {
     static const QRegularExpression pagePattern(QStringLiteral("/Type\\s*/Page\\b"));
@@ -2272,6 +2399,8 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         resources.append(browserBookmarkResourcesFromJsonFile(fileInfo));
     } else if (suffix == QLatin1String("opml")) {
         resources.append(opmlResourcesFromFile(fileInfo));
+    } else if (isFeedXmlCandidate(fileInfo)) {
+        resources.append(feedResourcesFromXmlFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
         resources.append(plainTextUrlResourcesFromFile(fileInfo));
@@ -2535,6 +2664,42 @@ QList<Resource> DirectoryLibrarySource::opmlResourcesFromFile(const QFileInfo &f
         }
         if (!link.folderPath.isEmpty()) {
             appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo &fileInfo) const
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    QList<Resource> resources;
+    QStringList seenUrls;
+    for (const FeedEntryLink &link : feedLinksFromXmlDocument(file.readAll())) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+
+        Resource resource;
+        resource.id = QStringLiteral("feed-entry:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("feed"));
+        appendUnique(resource.tags, QStringLiteral("feed-entry"));
+        appendUnique(resource.aliases, link.feedTitle);
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        for (const QString &category : link.categories) {
+            appendUnique(resource.tags, category);
         }
         resources.append(resource);
     }

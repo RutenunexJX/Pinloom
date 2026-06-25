@@ -44,6 +44,7 @@ private slots:
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
     void extractsOpmlLinks();
+    void extractsFeedXmlLinks();
     void fetchesRemoteWebShortcutContent();
     void indexRootFetchesRemoteWebShortcutContent();
     void indexesDirectoryResourcesIdempotently();
@@ -1998,6 +1999,109 @@ void DirectorySourceTest::extractsOpmlLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("timing");
+    }));
+}
+
+void DirectorySourceTest::extractsFeedXmlLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/feeds")));
+    writeFile(dir.filePath(QStringLiteral("library/feeds/pinloom.rss")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<rss version=\"2.0\">\n"
+                         "  <channel>\n"
+                         "    <title>Pinloom Release Feed</title>\n"
+                         "    <item>\n"
+                         "      <title>Dock API release</title>\n"
+                         "      <link>https://docs.example.com/pinloom/releases/dock#api</link>\n"
+                         "      <category>release</category>\n"
+                         "    </item>\n"
+                         "    <item>\n"
+                         "      <title>Duplicate Dock API release</title>\n"
+                         "      <link>https://docs.example.com/pinloom/releases/dock#api</link>\n"
+                         "    </item>\n"
+                         "  </channel>\n"
+                         "</rss>\n"));
+    writeFile(dir.filePath(QStringLiteral("library/feeds/updates.atom")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<feed xmlns=\"http://www.w3.org/2005/Atom\">\n"
+                         "  <title>ZeroSlack Updates</title>\n"
+                         "  <entry>\n"
+                         "    <title>Host bridge update</title>\n"
+                         "    <link rel=\"alternate\" href=\"https://zeroslack.example.com/updates/host#bridge\" />\n"
+                         "    <category term=\"integration\" />\n"
+                         "  </entry>\n"
+                         "</feed>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto rssIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Dock API release")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/releases/dock#api");
+    });
+    QVERIFY(rssIt != resources.cend());
+    QVERIFY(rssIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(rssIt->tags.contains(QStringLiteral("feed-entry")));
+    QVERIFY(rssIt->tags.contains(QStringLiteral("release")));
+    QVERIFY(rssIt->aliases.contains(QStringLiteral("Pinloom Release Feed")));
+    QVERIFY(rssIt->aliases.contains(QStringLiteral("pinloom")));
+    QVERIFY(rssIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(std::any_of(rssIt->anchors.cbegin(), rssIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("api");
+    }));
+
+    const int rssResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/releases/dock#api");
+    });
+    QCOMPARE(rssResourceCount, 1);
+
+    auto atomIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Host bridge update")
+            && resource.location == QLatin1String("https://zeroslack.example.com/updates/host#bridge");
+    });
+    QVERIFY(atomIt != resources.cend());
+    QVERIFY(atomIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(atomIt->tags.contains(QStringLiteral("feed-entry")));
+    QVERIFY(atomIt->tags.contains(QStringLiteral("integration")));
+    QVERIFY(atomIt->aliases.contains(QStringLiteral("ZeroSlack Updates")));
+    QVERIFY(atomIt->aliases.contains(QStringLiteral("updates")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> feedTitleResults = repository.search(SearchQuery{QStringLiteral("Pinloom Release Feed")});
+    QVERIFY(std::any_of(feedTitleResults.cbegin(), feedTitleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Dock API release");
+    }));
+
+    const QList<SearchResult> categoryResults = repository.search(SearchQuery{QStringLiteral("integration")});
+    QVERIFY(std::any_of(categoryResults.cbegin(), categoryResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Host bridge update")
+            && result.matchedField == QLatin1String("tag");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("bridge")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Host bridge update")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("bridge");
     }));
 }
 
