@@ -1122,7 +1122,15 @@ int pdfDestinationPageObjectNumber(const QString &objectBody)
         QStringLiteral("/(?:Dest|D)\\b\\s*\\[\\s*(\\d+)\\s+\\d+\\s+R\\b"),
         QRegularExpression::DotMatchesEverythingOption);
     const QRegularExpressionMatch match = destinationPattern.match(objectBody);
-    return match.hasMatch() ? match.captured(1).toInt() : -1;
+    if (match.hasMatch()) {
+        return match.captured(1).toInt();
+    }
+
+    static const QRegularExpression standaloneDestinationPattern(
+        QStringLiteral("^\\s*\\[\\s*(\\d+)\\s+\\d+\\s+R\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+    const QRegularExpressionMatch standaloneMatch = standaloneDestinationPattern.match(objectBody);
+    return standaloneMatch.hasMatch() ? standaloneMatch.captured(1).toInt() : -1;
 }
 
 QString pdfNamedDestinationAfterKey(const QString &objectBody, const QString &key)
@@ -1137,8 +1145,16 @@ QString pdfNamedDestinationAfterKey(const QString &objectBody, const QString &ke
 QHash<QString, int> pdfNamedDestinationPageObjectNumbers(const QList<PdfObject> &objects)
 {
     QHash<QString, int> destinations;
+    QHash<int, QString> objectsByNumber;
+    for (const PdfObject &object : objects) {
+        objectsByNumber.insert(object.number, object.body);
+    }
+
     static const QRegularExpression namedArrayPattern(
         QStringLiteral("(?:/([A-Za-z0-9_.:-]+)|\\(([^()]*)\\))\\s*\\[\\s*(\\d+)\\s+\\d+\\s+R\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+    static const QRegularExpression namedReferencePattern(
+        QStringLiteral("(?:/([A-Za-z0-9_.:-]+)|\\(([^()]*)\\))\\s+(\\d+)\\s+\\d+\\s+R\\b"),
         QRegularExpression::DotMatchesEverythingOption);
 
     for (const PdfObject &object : objects) {
@@ -1154,6 +1170,19 @@ QHash<QString, int> pdfNamedDestinationPageObjectNumbers(const QList<PdfObject> 
                 ? decodePdfLiteralString(match.captured(2))
                 : match.captured(1).trimmed();
             const int pageObjectNumber = match.captured(3).toInt();
+            if (!name.isEmpty() && pageObjectNumber > 0) {
+                destinations.insert(name, pageObjectNumber);
+            }
+        }
+
+        QRegularExpressionMatchIterator referenceMatches = namedReferencePattern.globalMatch(object.body);
+        while (referenceMatches.hasNext()) {
+            const QRegularExpressionMatch match = referenceMatches.next();
+            const QString name = match.captured(1).isEmpty()
+                ? decodePdfLiteralString(match.captured(2))
+                : match.captured(1).trimmed();
+            const int destinationObjectNumber = match.captured(3).toInt();
+            const int pageObjectNumber = pdfDestinationPageObjectNumber(objectsByNumber.value(destinationObjectNumber));
             if (!name.isEmpty() && pageObjectNumber > 0) {
                 destinations.insert(name, pageObjectNumber);
             }

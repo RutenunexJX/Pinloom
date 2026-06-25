@@ -249,7 +249,7 @@ Status:
 
 - PDF files recognized as resources: done in MVP 3.
 - PDF page anchors: done.
-- PDF outline/bookmark direct and named destination anchors: done.
+- PDF outline/bookmark direct, named, and indirect named destination anchors: done.
 - PDF metadata extraction: done.
 - Page-open behavior: done for viewers that honor `file.pdf#page=N`.
 - PDF annotation region anchors: done.
@@ -352,7 +352,7 @@ Status:
 - URL open behavior through host interception or standalone fallback: done.
 - URL fragment anchor fallback opening for web/local HTML targets: done.
 - PDF annotation region anchors: done.
-- PDF outline/bookmark direct and named destination page anchors: done.
+- PDF outline/bookmark direct, named, and indirect named destination page anchors: done.
 - Lightweight PDF text extraction/search for uncompressed text streams, including `TJ` text arrays with split glyph runs: done.
 - Lightweight PDF text extraction/search for FlateDecode text streams: done.
 - Lightweight PDF text extraction/search for ASCIIHexDecode streams and literal octal escapes: done.
