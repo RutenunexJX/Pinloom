@@ -167,6 +167,7 @@ Scope:
 - Let hosts hide standalone management/editing chrome for compact dock/global-control embedding.
 - Let hosts apply active search/filter/ranking context as one snapshot when project or document context changes.
 - Let hosts inspect result count and navigate result selection through API for command palette flows.
+- Let hosts observe result-count changes after search/filter refreshes.
 - Let hosts activate the current result through API for command palette or global-shortcut flows.
 - Let hosts intercept selected result activation while preserving standalone fallback open behavior.
 - Document ownership boundaries between Pinloom and an embedding host.
@@ -178,6 +179,7 @@ Status:
 - Host-selectable embedded chrome options: done.
 - Host current-open-target query and change notification APIs for previews/status surfaces: done.
 - Host-triggered result count and selection navigation APIs: done.
+- Host result-count change notifications: done.
 - Host-triggered current-result activation API: done.
 - Host-controllable optional remote HTML fetching toggle: done.
 - Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.

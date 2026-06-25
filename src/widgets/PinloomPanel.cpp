@@ -793,6 +793,7 @@ void PinloomPanel::refreshResults()
     updateStatus(tr("%n result(s)", nullptr, results.size()));
     refreshRelationSummary();
     refreshPinButtonState();
+    notifyResultCountChanged();
 }
 
 void PinloomPanel::refreshRelationSummary()
@@ -974,6 +975,13 @@ void PinloomPanel::notifyCurrentOpenTargetChanged()
 {
     if (options_.currentOpenTargetChangedHandler) {
         options_.currentOpenTargetChangedHandler(currentOpenTarget());
+    }
+}
+
+void PinloomPanel::notifyResultCountChanged()
+{
+    if (options_.resultCountChangedHandler) {
+        options_.resultCountChangedHandler(resultCount());
     }
 }
 

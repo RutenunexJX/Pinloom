@@ -38,6 +38,7 @@ private slots:
     void panelAppliesHostContextRanking();
     void panelExposesCurrentOpenTargetForHostPreview();
     void panelNotifiesHostWhenCurrentOpenTargetChanges();
+    void panelNotifiesHostWhenResultCountChanges();
     void panelAllowsHostResultNavigation();
     void panelAllowsHostToActivateCurrentOpenTarget();
     void panelAllowsHostToHandleOpenTarget();
@@ -802,6 +803,42 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
     QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
     QCOMPARE(notified.anchor->target, QStringLiteral("Preview target"));
     QCOMPARE(notified.anchor->line, 4);
+}
+
+void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource alpha;
+    alpha.id = QStringLiteral("alpha");
+    alpha.kind = ResourceKind::Markdown;
+    alpha.title = QStringLiteral("UART Alpha");
+    alpha.location = QStringLiteral("alpha.md");
+    QVERIFY(repository.upsertResource(alpha));
+
+    Resource zulu;
+    zulu.id = QStringLiteral("zulu");
+    zulu.kind = ResourceKind::Markdown;
+    zulu.title = QStringLiteral("UART Zulu");
+    zulu.location = QStringLiteral("zulu.md");
+    QVERIFY(repository.upsertResource(zulu));
+
+    QList<int> counts;
+    PinloomPanelOptions options;
+    options.resultCountChangedHandler = [&](int resultCount) {
+        counts.append(resultCount);
+    };
+
+    PinloomPanel panel(repository, options);
+    QVERIFY(!counts.isEmpty());
+    QCOMPARE(counts.last(), 2);
+
+    panel.setSearchText(QStringLiteral("missing"));
+    QCOMPARE(counts.last(), 0);
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(counts.last(), 2);
+    QCOMPARE(panel.resultCount(), 2);
 }
 
 void WidgetSmokeTest::panelAllowsHostResultNavigation()
