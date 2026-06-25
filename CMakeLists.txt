@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Sql Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -25,6 +25,8 @@ add_library(pinloom_core STATIC
     include/pinloom/core/LibraryRoot.h
     include/pinloom/core/LibrarySource.h
     include/pinloom/core/Resource.h
+    include/pinloom/core/ResourceRelation.h
+    include/pinloom/core/ResourceUsage.h
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
     include/pinloom/core/SqliteLibraryRepository.h
@@ -44,6 +46,7 @@ target_include_directories(pinloom_core
 target_link_libraries(pinloom_core
     PUBLIC
         Qt6::Core
+        Qt6::Network
         Qt6::Sql
 )
 
@@ -77,6 +80,27 @@ target_link_libraries(pinloom_app
 
 enable_testing()
 
+cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH PINLOOM_CXX_RUNTIME_DIR)
+
+function(pinloom_add_test target)
+    add_test(NAME ${target} COMMAND ${target})
+
+    if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
+        set(_pinloom_test_runtime_environment
+            "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+            "PATH=path_list_prepend:${PINLOOM_CXX_RUNTIME_DIR}"
+            "Path=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
+            "Path=path_list_prepend:${PINLOOM_CXX_RUNTIME_DIR}"
+            "QT_PLUGIN_PATH=set:$<TARGET_FILE_DIR:Qt6::Core>/../plugins"
+        )
+
+        set_tests_properties(${target}
+            PROPERTIES
+                ENVIRONMENT_MODIFICATION "${_pinloom_test_runtime_environment}"
+        )
+    endif()
+endfunction()
+
 add_executable(pinloom_core_smoke_test
     tests/core_smoke_test.cpp
 )
@@ -87,7 +111,7 @@ target_link_libraries(pinloom_core_smoke_test
         Qt6::Test
 )
 
-add_test(NAME pinloom_core_smoke_test COMMAND pinloom_core_smoke_test)
+pinloom_add_test(pinloom_core_smoke_test)
 
 add_executable(pinloom_sqlite_repository_test
     tests/sqlite_repository_test.cpp
@@ -99,7 +123,7 @@ target_link_libraries(pinloom_sqlite_repository_test
         Qt6::Test
 )
 
-add_test(NAME pinloom_sqlite_repository_test COMMAND pinloom_sqlite_repository_test)
+pinloom_add_test(pinloom_sqlite_repository_test)
 
 add_executable(pinloom_directory_source_test
     tests/directory_source_test.cpp
@@ -111,7 +135,7 @@ target_link_libraries(pinloom_directory_source_test
         Qt6::Test
 )
 
-add_test(NAME pinloom_directory_source_test COMMAND pinloom_directory_source_test)
+pinloom_add_test(pinloom_directory_source_test)
 
 add_executable(pinloom_widget_smoke_test
     tests/widget_smoke_test.cpp
@@ -123,4 +147,4 @@ target_link_libraries(pinloom_widget_smoke_test
         Qt6::Test
 )
 
-add_test(NAME pinloom_widget_smoke_test COMMAND pinloom_widget_smoke_test)
+pinloom_add_test(pinloom_widget_smoke_test)

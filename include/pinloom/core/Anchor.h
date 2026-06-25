@@ -10,6 +10,7 @@ enum class AnchorType {
     FileLine,
     MarkdownHeading,
     MarkdownBlock,
+    CodeSymbol,
     PdfPage,
     PdfRegion,
     UrlFragment,

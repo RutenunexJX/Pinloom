@@ -10,6 +10,7 @@ struct LibraryRoot {
     QString path;
     QString displayName;
     bool enabled = true;
+    bool pinned = false;
     QDateTime lastIndexedAt;
 };
 

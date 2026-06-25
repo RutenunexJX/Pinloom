@@ -158,8 +158,167 @@ Status:
 
 Goal: embed Pinloom UI into ZeroSlack without merging ownership boundaries.
 
-Planned scope:
+Scope:
 
 - Provide widget/dock/global-control friendly API.
 - Keep `pinloom_core` independent.
 - Reuse `pinloom_widgets` from both hosts.
+- Let hosts seed search text and focus the locator.
+- Let hosts intercept selected result activation while preserving standalone fallback open behavior.
+- Document ownership boundaries between Pinloom and an embedding host.
+
+Status:
+
+- Repository-injected widget: done in earlier MVPs.
+- Host-facing panel options and search control API: done.
+- Host current-open-target query and change notification APIs for previews/status surfaces: done.
+- Host-controllable optional remote HTML fetching toggle: done.
+- Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.
+- Host-required resource-kind, tag, and location-prefix filtering APIs: done.
+- Rich host activation payload with resource metadata, match/context details, score, and anchors: done.
+- Standalone fallback behavior: done.
+- Embedding ownership boundary documentation: done.
+- Tests: done.
+- Build/test verification: done.
+
+## MVP 9: Obsidian-Friendly Indexing
+
+Goal: make Obsidian vaults useful as library sources without making Pinloom an Obsidian add-on.
+
+Scope:
+
+- Parse YAML frontmatter aliases and tags.
+- Parse inline Markdown tags.
+- Parse wikilinks and block references.
+- Keep regular Markdown folders working the same way.
+- Add tests for plain Markdown, Obsidian-flavored Markdown, and mixed folders.
+
+Status:
+
+- Markdown heading and block id extraction: done in MVP 6.
+- Frontmatter aliases/tags: done.
+- Inline tags, wikilinks, and block references: done.
+- Markdown body content extraction/search: done.
+- Markdown task checkbox line anchors/search: done.
+- Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.
+- Tests: done.
+- Build/test verification: done.
+
+## MVP 10: PDF Navigation
+
+Goal: make PDF resources landable beyond file-level open behavior.
+
+Scope:
+
+- Index PDF metadata and page anchors.
+- Store page-level anchors in the existing anchor model.
+- Open PDF hits at a page when the platform supports it.
+- Leave region anchors for a later focused pass.
+
+Status:
+
+- PDF files recognized as resources: done in MVP 3.
+- PDF page anchors: done.
+- PDF metadata extraction: done.
+- Page-open behavior: done for viewers that honor `file.pdf#page=N`.
+- PDF annotation region anchors: done.
+
+## MVP 11: Code-Aware Locator
+
+Goal: make engineering source trees searchable by symbols and jump targets, not only file names.
+
+Scope:
+
+- Treat source-code files as first-class resources.
+- Extract lightweight line and symbol anchors for common engineering languages.
+- Rank exact symbol and filename matches ahead of path matches.
+- Keep source parsing modular so language-specific logic does not leak into repository storage.
+
+Status:
+
+- Generic file indexing: done in MVP 3.
+- Code resource classification: done.
+- Lightweight symbol anchors for common engineering languages: done.
+- Rust, Go, Java, and C# lightweight symbol anchors: done.
+- Dependency/import line anchors for common engineering languages: done.
+- TODO/FIXME/NOTE comment line anchors for source files: done.
+- Exact symbol and filename ranking baseline: done through anchor-first and filename-before-path ranking.
+- Rich language-specific parsers: deferred.
+
+## MVP 12: Manual Anchors And Relationships
+
+Goal: let users curate the library map directly when automatic indexing is not enough.
+
+Scope:
+
+- Add UI for manual aliases and anchors.
+- Persist related-resource links.
+- Show relationships in a compact result detail surface.
+- Keep the main locator fast and list-oriented.
+
+Status:
+
+- Manual anchor resource kind exists in the model: done.
+- Related-resource persistence: done.
+- Indexed `links-to` relations from local Markdown links: done.
+- Compact relationship summary in result details: done.
+- Manual anchor and alias editing UI: done.
+
+## MVP 13: Ranking And Recall
+
+Goal: make Pinloom remember which jumps matter in the user's actual workflow.
+
+Scope:
+
+- Track recent opens and frequently used jumps.
+- Support pinned resources or pinned roots.
+- Add project/context weighting for embedded use.
+- Keep ranking explainable through match labels and details.
+
+Status:
+
+- Match-type ranking baseline: done in MVP 7.
+- Resource-level recency/frequency signals: done.
+- Pinned resources: done.
+- Context-aware ranking: done.
+- Host-required resource-kind, tag, and location-prefix filtering: done.
+- Anchor-level usage history and ranking: done.
+- Pinned roots and root-level ranking boosts: done.
+- Result tooltip details for match fields, anchors, and host context matches: done.
+
+## MVP 14: Integration And Source Refinement
+
+Goal: close the gap between the reusable Pinloom layer and the real host/source surface.
+
+Scope:
+
+- Wire Pinloom into the actual ZeroSlack dock/global-control host.
+- Extend source coverage beyond normal files, Markdown, PDFs, and code.
+- Add more precise jumps where the current model already has anchor types.
+- Keep standalone behavior working while embedded behavior gains host context.
+
+Status:
+
+- Local web shortcut indexing as URL resources: done.
+- URL fragment anchors: done.
+- URL open behavior through host interception or standalone fallback: done.
+- URL fragment anchor fallback opening for web/local HTML targets: done.
+- PDF annotation region anchors: done.
+- Lightweight PDF text extraction/search for uncompressed text streams: done.
+- Lightweight PDF text extraction/search for FlateDecode text streams: done.
+- Lightweight PDF text extraction/search for ASCIIHexDecode streams and literal octal escapes: done.
+- Lightweight PDF text extraction/search for ASCII85Decode streams: done.
+- Ordered PDF stream filter chains for supported filters: done.
+- Markdown body content extraction/search: done.
+- Markdown task checkbox line anchors/search: done.
+- Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.
+- Markdown external link URL resources: done.
+- Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
+- Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
+- OPML subscription/link list indexing as individual URL resources: done.
+- Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
+- Small plain-text/log/config/tabular file content indexing with TODO/FIXME/NOTE, config key/section, and CSV/TSV column line anchors: done.
+- Actual ZeroSlack host integration: pending.
+- Fuller PDF content extraction for unsupported filters, complex encodings, and OCR: pending.
+- Broader web source support beyond shortcuts, browser bookmark files, and OPML: deferred.
+- Richer source-code parsing: deferred until lightweight symbols prove insufficient.

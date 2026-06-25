@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
+#include <optional>
 
 using namespace Pinloom;
 
@@ -15,7 +16,32 @@ class DirectorySourceTest : public QObject {
 
 private slots:
     void scansOnlyExplicitRoot();
+    void indexesPlainTextFileContent();
+    void extractsStructuredPlainTextLineAnchors();
     void extractsMarkdownHeadingAndBlockAnchors();
+    void extractsObsidianAliasesTagsAndWikilinks();
+    void extractsMarkdownBodyContent();
+    void extractsLocalMarkdownLinkAnchors();
+    void extractsMarkdownTaskLineAnchors();
+    void extractsMarkdownLinkResources();
+    void extractsPdfTitleAndPageAnchors();
+    void extractsPdfContentText();
+    void extractsFlateEncodedPdfContentText();
+    void extractsAsciiHexEncodedPdfContentText();
+    void extractsAscii85EncodedPdfContentText();
+    void extractsChainedFilterPdfContentText();
+    void extractsPdfRegionAnchors();
+    void extractsCodeSymbolAnchors();
+    void extractsAdditionalLanguageSymbolAnchors();
+    void extractsCodeDependencyLineAnchors();
+    void extractsCodeCommentLineAnchors();
+    void extractsWebShortcutResources();
+    void extractsHtmlPageContent();
+    void extractsBookmarkExportLinks();
+    void extractsBrowserBookmarkJsonLinks();
+    void extractsOpmlLinks();
+    void fetchesRemoteWebShortcutContent();
+    void indexRootFetchesRemoteWebShortcutContent();
     void indexesDirectoryResourcesIdempotently();
     void indexesSavedEnabledRoots();
     void rebuildClearsExistingResources();
@@ -26,6 +52,35 @@ static void writeFile(const QString &path, const QByteArray &content = QByteArra
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.write(content);
+}
+
+static QByteArray ascii85Encode(const QByteArray &content)
+{
+    QByteArray encoded;
+    for (int i = 0; i < content.size(); i += 4) {
+        const int chunkSize = std::min<int>(4, static_cast<int>(content.size() - i));
+        quint32 value = 0;
+        for (int j = 0; j < 4; ++j) {
+            value <<= 8;
+            if (j < chunkSize) {
+                value |= static_cast<unsigned char>(content.at(i + j));
+            }
+        }
+
+        if (chunkSize == 4 && value == 0) {
+            encoded.append('z');
+            continue;
+        }
+
+        char tuple[5];
+        for (int j = 4; j >= 0; --j) {
+            tuple[j] = static_cast<char>(value % 85 + 33);
+            value /= 85;
+        }
+        encoded.append(tuple, chunkSize + 1);
+    }
+    encoded.append("~>");
+    return encoded;
 }
 
 void DirectorySourceTest::scansOnlyExplicitRoot()
@@ -55,6 +110,168 @@ void DirectorySourceTest::scansOnlyExplicitRoot()
     }));
     QVERIFY(std::any_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("design.pdf");
+    }));
+}
+
+void DirectorySourceTest::indexesPlainTextFileContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/ops.log")),
+              QByteArray("ZeroSlack relay reconnect sequence\n"
+                         "NOTE: Pinloom host handoff status\n"));
+
+    QByteArray binaryLike;
+    binaryLike.append("visible ");
+    binaryLike.append('\0');
+    binaryLike.append("unsearchable-nul-token");
+    writeFile(dir.filePath(QStringLiteral("library/binary.txt")), binaryLike);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto logIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("ops.log");
+    });
+    QVERIFY(logIt != resources.cend());
+    QVERIFY(logIt->content.contains(QStringLiteral("relay reconnect sequence")));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("NOTE: Pinloom host handoff status")
+            && anchor.line == 2;
+    }));
+
+    auto binaryIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("binary.txt");
+    });
+    QVERIFY(binaryIt != resources.cend());
+    QVERIFY(binaryIt->content.isEmpty());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("relay reconnect")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.title, QStringLiteral("ops.log"));
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("host handoff status")});
+    QVERIFY(std::any_of(anchorResults.cbegin(), anchorResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("ops.log")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2;
+    }));
+
+    const QList<SearchResult> binaryResults = repository.search(SearchQuery{QStringLiteral("unsearchable-nul-token")});
+    QVERIFY(binaryResults.isEmpty());
+}
+
+void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/settings.toml")),
+              QByteArray("[zeroslack]\n"
+                         "remote_fetch = true\n"
+                         "dock_mode = \"global\"\n"));
+    writeFile(dir.filePath(QStringLiteral("library/routes.json")),
+              QByteArray("{\n"
+                         "  \"pinloomDock\": true,\n"
+                         "  \"jumpTarget\": \"handoff\"\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/metrics.csv")),
+              QByteArray("\"signal name\",baud_rate,handoff_status\n"
+                         "uart0,115200,ready\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto settingsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("settings.toml");
+    });
+    QVERIFY(settingsIt != resources.cend());
+    QVERIFY(std::any_of(settingsIt->anchors.cbegin(), settingsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("section: zeroslack")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(settingsIt->anchors.cbegin(), settingsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("key: remote_fetch")
+            && anchor.line == 2;
+    }));
+
+    auto routesIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("routes.json");
+    });
+    QVERIFY(routesIt != resources.cend());
+    QVERIFY(std::any_of(routesIt->anchors.cbegin(), routesIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("key: pinloomDock")
+            && anchor.line == 2;
+    }));
+
+    auto metricsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("metrics.csv");
+    });
+    QVERIFY(metricsIt != resources.cend());
+    QVERIFY(std::any_of(metricsIt->anchors.cbegin(), metricsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("column: signal name")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(metricsIt->anchors.cbegin(), metricsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("column: baud_rate")
+            && anchor.line == 1;
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> keyResults = repository.search(SearchQuery{QStringLiteral("remote_fetch")});
+    QVERIFY(std::any_of(keyResults.cbegin(), keyResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("settings.toml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2;
+    }));
+
+    const QList<SearchResult> jsonResults = repository.search(SearchQuery{QStringLiteral("pinloomDock")});
+    QVERIFY(std::any_of(jsonResults.cbegin(), jsonResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("routes.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2;
+    }));
+
+    const QList<SearchResult> columnResults = repository.search(SearchQuery{QStringLiteral("baud_rate")});
+    QVERIFY(std::any_of(columnResults.cbegin(), columnResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("metrics.csv")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 1;
     }));
 }
 
@@ -88,6 +305,1441 @@ void DirectorySourceTest::extractsMarkdownHeadingAndBlockAnchors()
     QCOMPARE(markdownIt->anchors.at(2).line, 4);
     QCOMPARE(markdownIt->anchors.at(3).target, QStringLiteral("standalone"));
     QCOMPARE(markdownIt->anchors.at(3).line, 5);
+}
+
+void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/notes.md")),
+              QByteArray("---\n"
+                         "aliases:\n"
+                         "  - serial debug\n"
+                         "  - board diary\n"
+                         "tags: [fpga, uart]\n"
+                         "---\n"
+                         "# Bringup\n"
+                         "Body #bringup and #lab/debug with [[Link Target]] and [[deep/note#^power-block|display]].\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown;
+    });
+    QVERIFY(markdownIt != resources.cend());
+
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("serial debug")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("board diary")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("Link Target")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("deep/note")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("power-block")));
+    QVERIFY(markdownIt->tags.contains(QStringLiteral("fpga")));
+    QVERIFY(markdownIt->tags.contains(QStringLiteral("uart")));
+    QVERIFY(markdownIt->tags.contains(QStringLiteral("bringup")));
+    QVERIFY(markdownIt->tags.contains(QStringLiteral("lab/debug")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("serial")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("lab/debug")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Link")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("power-block")}).size(), 1);
+}
+
+void DirectorySourceTest::extractsMarkdownBodyContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/notes.md")),
+              QByteArray("---\n"
+                         "aliases: [secret calibration]\n"
+                         "tags: [private]\n"
+                         "---\n"
+                         "# Bringup Notes\n"
+                         "The calibration envelope lives in [[Deep Note|display note]].\n"
+                         "Use #lab/debug before release. ^body-block\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown;
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QVERIFY(markdownIt->content.contains(QStringLiteral("calibration envelope")));
+    QVERIFY(markdownIt->content.contains(QStringLiteral("display note")));
+    QVERIFY(markdownIt->content.contains(QStringLiteral("lab/debug")));
+    QVERIFY(!markdownIt->content.contains(QStringLiteral("secret calibration")));
+    QVERIFY(!markdownIt->content.contains(QStringLiteral("body-block")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("calibration envelope")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Markdown);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsLocalMarkdownLinkAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/docs")));
+    writeFile(dir.filePath(QStringLiteral("library/runbook.md")),
+              QByteArray("# Runbook\n"
+                         "Open [Spec PDF](docs/spec.pdf#page=2) before bringup.\n"
+                         "Read [External](https://docs.example.com/spec).\n"
+                         "![Diagram](images/diagram.png)\n"));
+    writeFile(dir.filePath(QStringLiteral("library/docs/spec.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R >> endobj\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("runbook.md");
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("Spec PDF")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("spec.pdf")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("docs/spec.pdf")));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("link: Spec PDF -> docs/spec.pdf")
+            && anchor.line == 2;
+    }));
+    QVERIFY(std::none_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.contains(QStringLiteral("External"));
+    }));
+    QVERIFY(std::none_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.contains(QStringLiteral("Diagram"));
+    }));
+    QCOMPARE(markdownIt->relations.size(), 1);
+    QCOMPARE(markdownIt->relations.first().sourceResourceId, markdownIt->id);
+    QCOMPARE(markdownIt->relations.first().label, QStringLiteral("links-to"));
+    QVERIFY(markdownIt->relations.first().targetResourceId.endsWith(QStringLiteral("docs/spec.pdf")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<ResourceRelation> relations = repository.resourceRelations(markdownIt->id);
+    QCOMPARE(relations.size(), 1);
+    QCOMPARE(relations.first().sourceResourceId, markdownIt->id);
+    QCOMPARE(relations.first().label, QStringLiteral("links-to"));
+    QVERIFY(relations.first().targetResourceId.endsWith(QStringLiteral("docs/spec.pdf")));
+    QCOMPARE(relations.first().note, QStringLiteral("link: Spec PDF -> docs/spec.pdf"));
+
+    const QList<SearchResult> linkResults = repository.search(SearchQuery{QStringLiteral("Spec PDF")});
+    QVERIFY(std::any_of(linkResults.cbegin(), linkResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("runbook.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2;
+    }));
+}
+
+void DirectorySourceTest::extractsMarkdownTaskLineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/tasks.md")),
+              QByteArray("# Bringup Tasks\n"
+                         "- [ ] Verify timing closure #fpga\n"
+                         "- [x] Update [[Runbook|handoff runbook]]\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("tasks.md");
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QVERIFY(markdownIt->content.contains(QStringLiteral("Verify timing closure fpga")));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("Verify timing closure fpga")
+            && anchor.line == 2;
+    }));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("Update handoff runbook")
+            && anchor.line == 3;
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> taskResults = repository.search(SearchQuery{QStringLiteral("timing closure")});
+    QVERIFY(std::any_of(taskResults.cbegin(), taskResults.cend(), [](const SearchResult &result) {
+        return result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2;
+    }));
+}
+
+void DirectorySourceTest::extractsMarkdownLinkResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/runbook.md")),
+              QByteArray("---\n"
+                         "source: https://ignored.example.com/frontmatter\n"
+                         "---\n"
+                         "# Runbook\n"
+                         "Read [ZeroSlack Dock Guide](https://docs.example.com/zeroslack/dock#handoff).\n"
+                         "![Logo](https://cdn.example.com/logo.png)\n"
+                         "<https://status.example.com/system>\n"
+                         "```text\n"
+                         "[Code Link](https://ignored.example.com/code)\n"
+                         "```\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto guideIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("ZeroSlack Dock Guide");
+    });
+    QVERIFY(guideIt != resources.cend());
+    QCOMPARE(guideIt->location, QStringLiteral("https://docs.example.com/zeroslack/dock#handoff"));
+    QVERIFY(guideIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(guideIt->tags.contains(QStringLiteral("markdown-link")));
+    QVERIFY(guideIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(std::any_of(guideIt->anchors.cbegin(), guideIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("handoff");
+    }));
+
+    auto statusIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("status.example.com");
+    });
+    QVERIFY(statusIt != resources.cend());
+    QCOMPARE(statusIt->location, QStringLiteral("https://status.example.com/system"));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("cdn.example.com"));
+    }));
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("ignored.example.com"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("handoff")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("ZeroSlack Dock Guide")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment;
+    }));
+}
+
+void DirectorySourceTest::extractsPdfTitleAndPageAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/spec.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R >> endobj\n"
+                         "4 0 obj << /Type /Page /Parent 2 0 R >> endobj\n"
+                         "5 0 obj << /Title (PCIe Debug Spec) >> endobj\n"
+                         "trailer << /Root 1 0 R /Info 5 0 R >>\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf;
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->aliases.contains(QStringLiteral("PCIe Debug Spec")));
+    QCOMPARE(pdfIt->anchors.size(), 2);
+    QCOMPARE(pdfIt->anchors.at(0).type, AnchorType::PdfPage);
+    QCOMPARE(pdfIt->anchors.at(0).target, QStringLiteral("Page 1"));
+    QCOMPARE(pdfIt->anchors.at(0).page, 1);
+    QCOMPARE(pdfIt->anchors.at(1).target, QStringLiteral("Page 2"));
+    QCOMPARE(pdfIt->anchors.at(1).page, 2);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Debug")});
+    QCOMPARE(titleResults.size(), 1);
+    QCOMPARE(titleResults.first().matchedField, QStringLiteral("alias"));
+
+    const QList<SearchResult> pageResults = repository.search(SearchQuery{QStringLiteral("Page 2")});
+    QCOMPARE(pageResults.size(), 1);
+    QVERIFY(pageResults.first().matchedAnchor.has_value());
+    QCOMPARE(pageResults.first().matchedAnchor->type, AnchorType::PdfPage);
+    QCOMPARE(pageResults.first().matchedAnchor->page, 2);
+}
+
+void DirectorySourceTest::extractsPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/text.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n"
+                         "4 0 obj << /Length 116 >>\n"
+                         "stream\n"
+                         "BT\n"
+                         "/F1 12 Tf\n"
+                         "72 720 Td\n"
+                         "(Pinloom launch matrix) Tj\n"
+                         "[(ZeroSlack ) 120 (dock handoff)] TJ\n"
+                         "<5043496520636f6e74656e74> Tj\n"
+                         "ET\n"
+                         "endstream\n"
+                         "endobj\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("text.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Pinloom launch matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ZeroSlack dock handoff")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("PCIe content")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("dock handoff")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsFlateEncodedPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray contentStream("BT\n"
+                                   "/F1 12 Tf\n"
+                                   "72 720 Td\n"
+                                   "(Compressed Pinloom matrix) Tj\n"
+                                   "[(ZeroSlack ) 120 (dock handoff)] TJ\n"
+                                   "ET\n");
+    const QByteArray compressedStream = qCompress(contentStream, 9).mid(4);
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(compressedStream.size()));
+    pdf.append(" /Filter /FlateDecode /DL ");
+    pdf.append(QByteArray::number(contentStream.size()));
+    pdf.append(" >>\nstream\n");
+    pdf.append(compressedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/compressed.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("compressed.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Compressed Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ZeroSlack dock handoff")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Compressed Pinloom")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsAsciiHexEncodedPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray contentStream("BT\n"
+                                   "/F1 12 Tf\n"
+                                   "72 720 Td\n"
+                                   "(ASCIIHex Pinloom matrix) Tj\n"
+                                   "(Octal \\132eroSlack handoff) Tj\n"
+                                   "ET\n");
+    const QByteArray encodedStream = contentStream.toHex() + QByteArray(">");
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(encodedStream.size()));
+    pdf.append(" /Filter /ASCIIHexDecode >>\nstream\n");
+    pdf.append(encodedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/asciihex.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("asciihex.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ASCIIHex Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Octal ZeroSlack handoff")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Octal ZeroSlack")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsAscii85EncodedPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray contentStream("BT\n"
+                                   "/F1 12 Tf\n"
+                                   "72 720 Td\n"
+                                   "(ASCII85 Pinloom matrix) Tj\n"
+                                   "[(Encoded ) 80 (ZeroSlack handoff)] TJ\n"
+                                   "ET\n");
+    const QByteArray encodedStream = ascii85Encode(contentStream);
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(encodedStream.size()));
+    pdf.append(" /Filter /ASCII85Decode >>\nstream\n");
+    pdf.append(encodedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/ascii85.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("ascii85.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ASCII85 Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Encoded ZeroSlack handoff")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("ASCII85 Pinloom")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsChainedFilterPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray contentStream("BT\n"
+                                   "/F1 12 Tf\n"
+                                   "72 720 Td\n"
+                                   "(Chained filter Pinloom matrix) Tj\n"
+                                   "[(ASCII85 ) 80 (plus Flate handoff)] TJ\n"
+                                   "ET\n");
+    const QByteArray compressedStream = qCompress(contentStream, 9).mid(4);
+    const QByteArray encodedStream = ascii85Encode(compressedStream);
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(encodedStream.size()));
+    pdf.append(" /Filter [/ASCII85Decode /FlateDecode] /DL ");
+    pdf.append(QByteArray::number(contentStream.size()));
+    pdf.append(" >>\nstream\n");
+    pdf.append(encodedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/chained.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("chained.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Chained filter Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ASCII85 plus Flate handoff")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("plus Flate")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsPdfRegionAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/annotated.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R /Annots [4 0 R] >> endobj\n"
+                         "4 0 obj << /Type /Annot /Subtype /Highlight /Rect [10 20 110 60] /Contents (Clock domain note) >> endobj\n"
+                         "trailer << /Root 1 0 R >>\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf;
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(std::any_of(pdfIt->anchors.cbegin(), pdfIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::PdfRegion
+            && anchor.target == QLatin1String("Clock domain note")
+            && anchor.page == 1
+            && anchor.region == QRectF(10.0, 20.0, 100.0, 40.0);
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> regionResults = repository.search(SearchQuery{QStringLiteral("Clock")});
+    QCOMPARE(regionResults.size(), 1);
+    QVERIFY(regionResults.first().matchedAnchor.has_value());
+    QCOMPARE(regionResults.first().matchedAnchor->type, AnchorType::PdfRegion);
+    QCOMPARE(regionResults.first().matchedAnchor->page, 1);
+    QCOMPARE(regionResults.first().matchedAnchor->region, QRectF(10.0, 20.0, 100.0, 40.0));
+}
+
+void DirectorySourceTest::extractsCodeSymbolAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
+              QByteArray("class JumpController {\n"
+                         "};\n"
+                         "\n"
+                         "void openTarget()\n"
+                         "{\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
+              QByteArray("def parse_note():\n"
+                         "    pass\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto cppIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("pinloom.cpp");
+    });
+    QVERIFY(cppIt != resources.cend());
+    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::CodeSymbol
+            && anchor.target == QLatin1String("JumpController")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::CodeSymbol
+            && anchor.target == QLatin1String("openTarget")
+            && anchor.line == 4;
+    }));
+
+    auto pythonIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("tools.py");
+    });
+    QVERIFY(pythonIt != resources.cend());
+    QVERIFY(std::any_of(pythonIt->anchors.cbegin(), pythonIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::CodeSymbol
+            && anchor.target == QLatin1String("parse_note")
+            && anchor.line == 1;
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> symbolResults = repository.search(SearchQuery{QStringLiteral("JumpController")});
+    QCOMPARE(symbolResults.size(), 1);
+    QVERIFY(symbolResults.first().matchedAnchor.has_value());
+    QCOMPARE(symbolResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+    QCOMPARE(symbolResults.first().matchedAnchor->line, 1);
+
+    const QList<SearchResult> pythonResults = repository.search(SearchQuery{QStringLiteral("parse_note")});
+    QCOMPARE(pythonResults.size(), 1);
+    QVERIFY(pythonResults.first().matchedAnchor.has_value());
+    QCOMPARE(pythonResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+}
+
+void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    writeFile(dir.filePath(QStringLiteral("library/src/bridge.rs")),
+              QByteArray("pub struct BridgeController {}\n"
+                         "pub async fn open_target() {}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/server.go")),
+              QByteArray("type DockServer struct {}\n"
+                         "func (s *DockServer) StartRelay() error { return nil }\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/HostBridge.java")),
+              QByteArray("public class HostBridge {\n"
+                         "    public void attachDock() {}\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/DockHost.cs")),
+              QByteArray("public sealed class DockHost {\n"
+                         "    public void AttachDock() {}\n"
+                         "}\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findCode = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+        });
+    };
+    auto hasSymbol = [](const Resource &resource, const QString &symbol, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == symbol
+                && anchor.line == line;
+        });
+    };
+
+    const auto rustIt = findCode(QStringLiteral("bridge.rs"));
+    QVERIFY(rustIt != resources.cend());
+    QVERIFY(hasSymbol(*rustIt, QStringLiteral("BridgeController"), 1));
+    QVERIFY(hasSymbol(*rustIt, QStringLiteral("open_target"), 2));
+
+    const auto goIt = findCode(QStringLiteral("server.go"));
+    QVERIFY(goIt != resources.cend());
+    QVERIFY(hasSymbol(*goIt, QStringLiteral("DockServer"), 1));
+    QVERIFY(hasSymbol(*goIt, QStringLiteral("StartRelay"), 2));
+
+    const auto javaIt = findCode(QStringLiteral("HostBridge.java"));
+    QVERIFY(javaIt != resources.cend());
+    QVERIFY(hasSymbol(*javaIt, QStringLiteral("HostBridge"), 1));
+    QVERIFY(hasSymbol(*javaIt, QStringLiteral("attachDock"), 2));
+
+    const auto csharpIt = findCode(QStringLiteral("DockHost.cs"));
+    QVERIFY(csharpIt != resources.cend());
+    QVERIFY(hasSymbol(*csharpIt, QStringLiteral("DockHost"), 1));
+    QVERIFY(hasSymbol(*csharpIt, QStringLiteral("AttachDock"), 2));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> rustResults = repository.search(SearchQuery{QStringLiteral("BridgeController")});
+    QCOMPARE(rustResults.size(), 1);
+    QCOMPARE(rustResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(rustResults.first().matchedAnchor.has_value());
+    QCOMPARE(rustResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+
+    const QList<SearchResult> goResults = repository.search(SearchQuery{QStringLiteral("StartRelay")});
+    QCOMPARE(goResults.size(), 1);
+    QCOMPARE(goResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(goResults.first().matchedAnchor.has_value());
+    QCOMPARE(goResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+}
+
+void DirectorySourceTest::extractsCodeDependencyLineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
+              QByteArray("#include \"pinloom/core/Resource.h\"\n"
+                         "class JumpController {};\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
+              QByteArray("from pinloom.core import Resource\n"
+                         "import pathlib, json\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/web.ts")),
+              QByteArray("import type { PinloomOpenTarget } from \"./pinloom\";\n"
+                         "const bridge = require(\"@zeroslack/dock\");\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/bridge.rs")),
+              QByteArray("use crate::dock::HostBridge;\n"
+                         "pub fn open_target() {}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/server.go")),
+              QByteArray("import \"context\"\n"
+                         "func StartRelay() {}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/HostBridge.java")),
+              QByteArray("import com.example.pinloom.Dock;\n"
+                         "public class HostBridge {}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/DockHost.cs")),
+              QByteArray("using ZeroSlack.Dock;\n"
+                         "public sealed class DockHost {}\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findCode = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    const auto cppIt = findCode(QStringLiteral("pinloom.cpp"));
+    QVERIFY(cppIt != resources.cend());
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("include: pinloom/core/Resource.h"), 1));
+
+    const auto pythonIt = findCode(QStringLiteral("tools.py"));
+    QVERIFY(pythonIt != resources.cend());
+    QVERIFY(hasLineAnchor(*pythonIt, QStringLiteral("import: pinloom.core"), 1));
+    QVERIFY(hasLineAnchor(*pythonIt, QStringLiteral("import: pathlib, json"), 2));
+
+    const auto tsIt = findCode(QStringLiteral("web.ts"));
+    QVERIFY(tsIt != resources.cend());
+    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("import: ./pinloom"), 1));
+    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("require: @zeroslack/dock"), 2));
+
+    const auto rustIt = findCode(QStringLiteral("bridge.rs"));
+    QVERIFY(rustIt != resources.cend());
+    QVERIFY(hasLineAnchor(*rustIt, QStringLiteral("use: crate::dock::HostBridge"), 1));
+
+    const auto goIt = findCode(QStringLiteral("server.go"));
+    QVERIFY(goIt != resources.cend());
+    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: context"), 1));
+
+    const auto javaIt = findCode(QStringLiteral("HostBridge.java"));
+    QVERIFY(javaIt != resources.cend());
+    QVERIFY(hasLineAnchor(*javaIt, QStringLiteral("import: com.example.pinloom.Dock"), 1));
+
+    const auto csharpIt = findCode(QStringLiteral("DockHost.cs"));
+    QVERIFY(csharpIt != resources.cend());
+    QVERIFY(hasLineAnchor(*csharpIt, QStringLiteral("using: ZeroSlack.Dock"), 1));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> includeResults = repository.search(SearchQuery{QStringLiteral("Resource")});
+    QVERIFY(std::any_of(includeResults.cbegin(), includeResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("pinloom.cpp")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("include: pinloom/core/Resource.h");
+    }));
+
+    const QList<SearchResult> requireResults = repository.search(SearchQuery{QStringLiteral("zeroslack")});
+    QVERIFY(std::any_of(requireResults.cbegin(), requireResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("web.ts")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("require: @zeroslack/dock");
+    }));
+}
+
+void DirectorySourceTest::extractsCodeCommentLineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
+              QByteArray("// TODO: wire ZeroSlack dock\n"
+                         "class JumpController {};\n"
+                         "int main() { return 0; } // FIXME: remove blocking wait\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
+              QByteArray("# NOTE: cache active project\n"
+                         "def parse_note():\n"
+                         "    pass\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto cppIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("pinloom.cpp");
+    });
+    QVERIFY(cppIt != resources.cend());
+    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("TODO: wire ZeroSlack dock")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("FIXME: remove blocking wait")
+            && anchor.line == 3;
+    }));
+
+    auto pythonIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("tools.py");
+    });
+    QVERIFY(pythonIt != resources.cend());
+    QVERIFY(std::any_of(pythonIt->anchors.cbegin(), pythonIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("NOTE: cache active project")
+            && anchor.line == 1;
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> todoResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack dock")});
+    QCOMPARE(todoResults.size(), 1);
+    QVERIFY(todoResults.first().matchedAnchor.has_value());
+    QCOMPARE(todoResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(todoResults.first().matchedAnchor->line, 1);
+
+    const QList<SearchResult> fixmeResults = repository.search(SearchQuery{QStringLiteral("blocking wait")});
+    QCOMPARE(fixmeResults.size(), 1);
+    QVERIFY(fixmeResults.first().matchedAnchor.has_value());
+    QCOMPARE(fixmeResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(fixmeResults.first().matchedAnchor->line, 3);
+}
+
+void DirectorySourceTest::extractsWebShortcutResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/links")));
+    writeFile(dir.filePath(QStringLiteral("library/links/Pinloom Setup.url")),
+              QByteArray("[InternetShortcut]\n"
+                         "URL=https://docs.example.com/pinloom/setup#install\n"
+                         "Name=Pinloom Setup Guide\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url;
+    });
+    QVERIFY(urlIt != resources.cend());
+    QCOMPARE(urlIt->title, QStringLiteral("Pinloom Setup Guide"));
+    QCOMPARE(urlIt->location, QStringLiteral("https://docs.example.com/pinloom/setup#install"));
+    QVERIFY(urlIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(urlIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(urlIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/setup#install")));
+    QCOMPARE(urlIt->anchors.size(), 1);
+    QCOMPARE(urlIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(urlIt->anchors.first().target, QStringLiteral("install"));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> hostResults = repository.search(SearchQuery{QStringLiteral("docs.example.com")});
+    QCOMPARE(hostResults.size(), 1);
+    QCOMPARE(hostResults.first().resource.kind, ResourceKind::Url);
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("install")});
+    QVERIFY(!fragmentResults.isEmpty());
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("install");
+    }));
+}
+
+void DirectorySourceTest::extractsHtmlPageContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/pages")));
+    writeFile(dir.filePath(QStringLiteral("library/pages/guide.html")),
+              QByteArray("<!doctype html>\n"
+                         "<html><head>\n"
+                         "<title>Pinloom Web Guide</title>\n"
+                         "<link rel=\"canonical\" href=\"https://docs.example.com/pinloom/web-guide\">\n"
+                         "<style>.hidden { display: none; }</style>\n"
+                         "<script>const ignored = 'secret';</script>\n"
+                         "</head><body>\n"
+                         "<h1 id=\"install\">Install &amp; Launch</h1>\n"
+                         "<p>This page explains browser launch routing and saved web references.</p>\n"
+                         "</body></html>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto htmlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url && resource.title == QLatin1String("Pinloom Web Guide");
+    });
+    QVERIFY(htmlIt != resources.cend());
+    QVERIFY(htmlIt->location.endsWith(QStringLiteral("guide.html")));
+    QVERIFY(htmlIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(htmlIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(htmlIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/web-guide")));
+    QVERIFY(htmlIt->aliases.contains(QStringLiteral("Install & Launch")));
+    QVERIFY(htmlIt->content.contains(QStringLiteral("browser launch routing")));
+    QVERIFY(!htmlIt->content.contains(QStringLiteral("secret")));
+    QVERIFY(std::any_of(htmlIt->anchors.cbegin(), htmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("install");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("browser launch")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Url);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("install")});
+    QVERIFY(!anchorResults.isEmpty());
+    QVERIFY(std::any_of(anchorResults.cbegin(), anchorResults.cend(), [](const SearchResult &result) {
+        return result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("install");
+    }));
+}
+
+void DirectorySourceTest::extractsBookmarkExportLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/pages")));
+    writeFile(dir.filePath(QStringLiteral("library/pages/bookmarks.html")),
+              QByteArray("<!DOCTYPE NETSCAPE-Bookmark-file-1>\n"
+                         "<META HTTP-EQUIV=\"Content-Type\" CONTENT=\"text/html; charset=UTF-8\">\n"
+                         "<TITLE>Bookmarks</TITLE>\n"
+                         "<H1>Bookmarks</H1>\n"
+                         "<DL><p>\n"
+                         "<DT><A HREF=\"https://fpga.example.com/handbook#timing\">FPGA Handbook</A>\n"
+                         "<DT><A HREF=\"https://docs.example.com/pinloom/setup#install\">Pinloom Setup</A>\n"
+                         "</DL><p>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto htmlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Bookmarks")
+            && resource.location.endsWith(QStringLiteral("bookmarks.html"));
+    });
+    QVERIFY(htmlIt != resources.cend());
+
+    auto fpgaIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("FPGA Handbook")
+            && resource.location == QLatin1String("https://fpga.example.com/handbook#timing");
+    });
+    QVERIFY(fpgaIt != resources.cend());
+    QVERIFY(fpgaIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(fpgaIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(fpgaIt->aliases.contains(QStringLiteral("fpga.example.com")));
+    QVERIFY(std::any_of(fpgaIt->anchors.cbegin(), fpgaIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("timing");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> hostResults = repository.search(SearchQuery{QStringLiteral("fpga.example.com")});
+    QVERIFY(std::any_of(hostResults.cbegin(), hostResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("FPGA Handbook");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("timing")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("FPGA Handbook")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("timing");
+    }));
+}
+
+void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/profile")));
+    writeFile(dir.filePath(QStringLiteral("library/profile/Bookmarks")),
+              QByteArray("{\n"
+                         "  \"version\": 1,\n"
+                         "  \"roots\": {\n"
+                         "    \"bookmark_bar\": {\n"
+                         "      \"type\": \"folder\",\n"
+                         "      \"name\": \"Bookmarks Bar\",\n"
+                         "      \"children\": [\n"
+                         "        {\"type\": \"folder\", \"name\": \"FPGA\", \"children\": [\n"
+                         "          {\"type\": \"url\", \"name\": \"Timing Closure\", \"url\": \"https://fpga.example.com/timing#slack\"}\n"
+                         "        ]}\n"
+                         "      ]\n"
+                         "    },\n"
+                         "    \"other\": {\n"
+                         "      \"type\": \"folder\",\n"
+                         "      \"name\": \"Other Bookmarks\",\n"
+                         "      \"children\": [\n"
+                         "        {\"type\": \"url\", \"name\": \"Pinloom Host API\", \"url\": \"https://docs.example.com/pinloom/host#dock\"}\n"
+                         "      ]\n"
+                         "    }\n"
+                         "  }\n"
+                         "}\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto timingIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Timing Closure")
+            && resource.location == QLatin1String("https://fpga.example.com/timing#slack");
+    });
+    QVERIFY(timingIt != resources.cend());
+    QVERIFY(timingIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(timingIt->tags.contains(QStringLiteral("browser-bookmark")));
+    QVERIFY(timingIt->aliases.contains(QStringLiteral("fpga.example.com")));
+    QVERIFY(timingIt->aliases.contains(QStringLiteral("FPGA")));
+    QVERIFY(timingIt->aliases.contains(QStringLiteral("Bookmarks Bar / FPGA")));
+    QVERIFY(std::any_of(timingIt->anchors.cbegin(), timingIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("slack");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> folderResults = repository.search(SearchQuery{QStringLiteral("FPGA")});
+    QVERIFY(std::any_of(folderResults.cbegin(), folderResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Timing Closure");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("dock")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Pinloom Host API")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("dock");
+    }));
+}
+
+void DirectorySourceTest::extractsOpmlLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/feeds")));
+    writeFile(dir.filePath(QStringLiteral("library/feeds/subscriptions.opml")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<opml version=\"2.0\">\n"
+                         "  <head><title>Pinloom feeds</title></head>\n"
+                         "  <body>\n"
+                         "    <outline text=\"Engineering\">\n"
+                         "      <outline text=\"FPGA Daily\" htmlUrl=\"https://fpga.example.com/daily#timing\" xmlUrl=\"https://feeds.example.com/fpga.xml\" />\n"
+                         "      <outline text=\"Pinloom Release Feed\" xmlUrl=\"https://docs.example.com/pinloom/feed.xml\" />\n"
+                         "    </outline>\n"
+                         "  </body>\n"
+                         "</opml>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto fpgaIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("FPGA Daily")
+            && resource.location == QLatin1String("https://fpga.example.com/daily#timing");
+    });
+    QVERIFY(fpgaIt != resources.cend());
+    QVERIFY(fpgaIt->tags.contains(QStringLiteral("opml")));
+    QVERIFY(fpgaIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(fpgaIt->aliases.contains(QStringLiteral("fpga.example.com")));
+    QVERIFY(fpgaIt->aliases.contains(QStringLiteral("feeds.example.com")));
+    QVERIFY(fpgaIt->aliases.contains(QStringLiteral("Engineering")));
+    QVERIFY(std::any_of(fpgaIt->anchors.cbegin(), fpgaIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("timing");
+    }));
+
+    auto feedOnlyIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom Release Feed")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/feed.xml");
+    });
+    QVERIFY(feedOnlyIt != resources.cend());
+    QVERIFY(feedOnlyIt->tags.contains(QStringLiteral("opml")));
+    QVERIFY(feedOnlyIt->tags.contains(QStringLiteral("feed")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> folderResults = repository.search(SearchQuery{QStringLiteral("Engineering")});
+    QVERIFY(std::any_of(folderResults.cbegin(), folderResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("FPGA Daily");
+    }));
+
+    const QList<SearchResult> feedHostResults = repository.search(SearchQuery{QStringLiteral("feeds.example.com")});
+    QVERIFY(std::any_of(feedHostResults.cbegin(), feedHostResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("FPGA Daily");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("timing")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("FPGA Daily")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("timing");
+    }));
+}
+
+void DirectorySourceTest::fetchesRemoteWebShortcutContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/links")));
+    writeFile(dir.filePath(QStringLiteral("library/links/Remote Guide.url")),
+              QByteArray("[InternetShortcut]\n"
+                         "URL=https://docs.example.com/pinloom/live#routing\n"));
+
+    bool fetchCalled = false;
+    QUrl fetchedUrl;
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    source.setRemoteWebFetchingEnabled(true);
+    source.setWebPageFetcher([&](const QUrl &url, QString *errorMessage) {
+        fetchCalled = true;
+        fetchedUrl = url;
+        if (errorMessage) {
+            errorMessage->clear();
+        }
+
+        DirectoryLibrarySource::WebPageFetchResult result;
+        result.finalUrl = QUrl(QStringLiteral("https://docs.example.com/pinloom/live"));
+        result.contentType = QStringLiteral("text/html; charset=utf-8");
+        result.body = QByteArray("<!doctype html>"
+                                 "<html><head>"
+                                 "<title>Remote Pinloom Guide</title>"
+                                 "<link rel=\"canonical\" href=\"https://docs.example.com/pinloom/live\">"
+                                 "</head><body>"
+                                 "<h2 id=\"routing\">Browser Routing</h2>"
+                                 "<p>Remote launch handoff content is searchable after fetching.</p>"
+                                 "</body></html>");
+        return std::optional<DirectoryLibrarySource::WebPageFetchResult>(result);
+    });
+
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+    QVERIFY(fetchCalled);
+    QCOMPARE(fetchedUrl.toDisplayString(), QStringLiteral("https://docs.example.com/pinloom/live#routing"));
+
+    auto remoteIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url && resource.title == QLatin1String("Remote Pinloom Guide");
+    });
+    QVERIFY(remoteIt != resources.cend());
+    QCOMPARE(remoteIt->location, QStringLiteral("https://docs.example.com/pinloom/live#routing"));
+    QVERIFY(remoteIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(remoteIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/live")));
+    QVERIFY(remoteIt->aliases.contains(QStringLiteral("Browser Routing")));
+    QVERIFY(remoteIt->content.contains(QStringLiteral("Remote launch handoff content")));
+    QVERIFY(std::any_of(remoteIt->anchors.cbegin(), remoteIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("routing");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("launch handoff")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Url);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("routing")});
+    QVERIFY(std::any_of(anchorResults.cbegin(), anchorResults.cend(), [](const SearchResult &result) {
+        return result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("routing");
+    }));
+}
+
+void DirectorySourceTest::indexRootFetchesRemoteWebShortcutContent()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/links")));
+    writeFile(dir.filePath(QStringLiteral("library/links/Host Guide.url")),
+              QByteArray("[InternetShortcut]\n"
+                         "URL=https://docs.example.com/pinloom/host\n"));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    LibraryRoot root = makeLibraryRootForPath(dir.filePath(QStringLiteral("library")));
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    bool fetchCalled = false;
+    QUrl fetchedUrl;
+    IndexingService indexer(repository);
+    indexer.setRemoteWebFetchingEnabled(true);
+    indexer.setWebPageFetcher([&](const QUrl &url, QString *errorMessage) {
+        fetchCalled = true;
+        fetchedUrl = url;
+        if (errorMessage) {
+            errorMessage->clear();
+        }
+
+        DirectoryLibrarySource::WebPageFetchResult result;
+        result.finalUrl = url;
+        result.contentType = QStringLiteral("text/html");
+        result.body = QByteArray("<html><head><title>Host Integration Guide</title></head>"
+                                 "<body><h1 id=\"dock\">Dock Host</h1>"
+                                 "<p>ZeroSlack dock handoff content is fetched.</p></body></html>");
+        return std::optional<DirectoryLibrarySource::WebPageFetchResult>(result);
+    });
+
+    QVERIFY2(indexer.indexRoot(root), qPrintable(indexer.lastError()));
+    QVERIFY(fetchCalled);
+    QCOMPARE(fetchedUrl.toDisplayString(), QStringLiteral("https://docs.example.com/pinloom/host"));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("dock handoff")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Url);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("dock")});
+    QVERIFY(std::any_of(anchorResults.cbegin(), anchorResults.cend(), [](const SearchResult &result) {
+        return result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("dock");
+    }));
 }
 
 void DirectorySourceTest::indexesDirectoryResourcesIdempotently()

@@ -4,6 +4,8 @@
 
 Pinloom is a fast locator for personal and engineering knowledge. It helps users jump to the right material, anchor, note, file, PDF page, code line, folder, web page, alias, tag, or related resource without becoming a full-disk search tool.
 
+Pinloom's long-term product shape is a personal knowledge locator and jump layer. It should answer "where do I need to go next?" better than "which files contain this string?" Search quality is measured by how quickly a user lands on the right source, anchor, page, code line, or related note inside a curated library.
+
 ## Architecture Principles
 
 - Standalone first: Pinloom must run as a complete Qt application.
@@ -13,6 +15,16 @@ Pinloom is a fast locator for personal and engineering knowledge. It helps users
 - Obsidian friendliness: markdown tags, aliases, headings, wikilinks, and block ids should be indexed without making Pinloom an Obsidian add-on.
 - Precise anchors: search results should be able to land on PDF pages/regions, file lines, markdown headings/blocks, URLs, and manual targets.
 - Locator search: optimize for curated library positioning and fast jumps, not whole-disk crawling.
+
+## Long-Term Roadmap
+
+- ZeroSlack embedding boundary: make `pinloom_widgets` usable by standalone Pinloom and ZeroSlack without transferring ownership of core state to either host.
+- Obsidian-friendly indexing: parse frontmatter aliases, inline tags, wikilinks, and block references while keeping Markdown support useful outside Obsidian.
+- PDF navigation: index PDF metadata and pages first, then add page and region jump targets.
+- Code-aware locator: index source files by paths, symbols, line anchors, and project-relevant tags.
+- Manual anchors and relationships: let users create aliases, manual anchors, and related-resource links from the UI.
+- Ranking and recall: combine match type, recency, usage frequency, pinned resources, tags, and active project context.
+- Packaging and reliability: make standalone launch, deployment, database upgrades, and diagnostics boringly dependable.
 
 ## Milestones
 
@@ -85,3 +97,111 @@ Completed:
 - Anchor, title, filename, alias, and tag matches rank ahead of full-path matches.
 - Result items show readable two-line text and retain full-path tooltips.
 - Tests cover result ordering, filename matching, anchor display, and tooltip behavior.
+
+### ZeroSlack Embedding Boundary MVP
+
+Completed:
+
+- Keep `pinloom_core` host-neutral.
+- Expose `pinloom_widgets` APIs that let a host seed search text, focus the locator, and intercept selected result activation.
+- Let embedding hosts inspect the current selected open target and observe selection changes without triggering activation.
+- Let embedding hosts control the optional remote HTML fetch setting used during indexing.
+- Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
+- Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags and prefixes for ranking.
+- Include resource kind, title, matched field, matched context signals, score, and anchor details in host activation payloads.
+- Keep standalone behavior as the default fallback.
+- Document which responsibilities belong to Pinloom and which belong to the embedding host.
+
+Remaining follow-up:
+
+- Wire the boundary into the actual ZeroSlack dock/global-control host.
+
+### Obsidian-Friendly Indexing MVP
+
+Completed:
+
+- Parse YAML frontmatter aliases and tags.
+- Parse inline `#tags`, `[[wikilinks]]`, and block references.
+- Extract searchable Markdown body content while excluding frontmatter metadata from body text.
+- Extract Markdown task checkbox lines as searchable file-line anchors.
+- Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
+- Preserve normal Markdown behavior for non-Obsidian folders.
+- Add focused tests around mixed plain-Markdown and Obsidian vault inputs.
+
+### PDF Navigation MVP
+
+Completed:
+
+- Store PDF page anchors.
+- Add basic PDF metadata extraction.
+- Open search hits at the intended page when the platform viewer supports it.
+- Extract PDF annotation rectangles as region anchors.
+
+### Code-Aware Locator MVP
+
+Completed:
+
+- Index source-code files as first-class resources.
+- Add line and symbol anchors for common languages used in engineering work.
+- Add lightweight Rust, Go, Java, and C# symbol anchors.
+- Add dependency/import line anchors for common engineering languages.
+- Extract TODO/FIXME/NOTE comment line anchors for engineering source files.
+- Rank exact symbol and filename matches ahead of broad path matches.
+
+Remaining follow-up:
+
+- Replace lightweight regular-expression parsing with richer language-specific parsers if precision becomes a bottleneck.
+
+### Manual Anchors And Relationships MVP
+
+Completed:
+
+- Persist related-resource links.
+- Persist indexed `links-to` relations discovered from local Markdown links.
+- Surface relationships in compact result details without turning the main result list into a graph browser.
+- Add UI affordances for creating manual aliases and anchors.
+
+### Ranking And Recall MVP
+
+Completed:
+
+- Track recently opened resources and frequently used resource activations.
+- Track recently opened anchors and frequently used precise jumps.
+- Support pinned resources.
+- Support pinned library roots as project-level recall signals.
+- Support host-required kind/tag/location filters alongside host context ranking.
+- Apply recall signals as small ranking boosts without letting weak path matches outrank stronger match types.
+- Add project/context weighting while keeping ranking understandable.
+- Show matched fields, anchors, and host context matches in result tooltips.
+
+### Integration And Source Refinement MVP
+
+In progress:
+
+Completed:
+
+- Index local web shortcut files as URL resources without requiring network access.
+- Preserve URL fragments as searchable URL anchors.
+- Open URL resources through host interception or the standalone fallback URL opener.
+- Preserve matched URL fragment anchors when standalone fallback opens web pages or local HTML pages.
+- Extract PDF annotation rectangles as searchable region anchors.
+- Extract searchable PDF text from uncompressed text content streams.
+- Extract searchable PDF text from FlateDecode text content streams.
+- Extract searchable PDF text from ASCIIHexDecode text content streams and literal octal escapes.
+- Extract searchable PDF text from ASCII85Decode text content streams.
+- Apply ordered PDF stream filter chains for supported filters.
+- Extract searchable Markdown body content.
+- Extract Markdown task checkbox lines as searchable file-line anchors.
+- Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
+- Index Markdown external links as derived URL resources with host aliases and fragment anchors.
+- Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
+- Index browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
+- Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases and fragment anchors.
+- Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
+- Index small plain-text, log, config, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section anchors, and CSV/TSV column anchors.
+
+Remaining:
+
+- Wire the reusable panel into the actual ZeroSlack dock/global-control host.
+- Add fuller PDF content extraction for unsupported filters, complex encodings, and OCR, plus broader web source support beyond shortcuts, browser bookmark files, and OPML.
+- Add richer source-code parsing if lightweight symbol extraction becomes too noisy.

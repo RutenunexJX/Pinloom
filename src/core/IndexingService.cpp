@@ -3,6 +3,7 @@
 #include "pinloom/core/DirectoryLibrarySource.h"
 
 #include <QDateTime>
+#include <utility>
 
 namespace Pinloom {
 
@@ -22,13 +23,28 @@ bool IndexingService::index(const ILibrarySource &source)
     }
 
     int indexedCount = 0;
+    QList<ResourceRelation> discoveredRelations;
     for (const Resource &resource : resources) {
         if (!repository_.upsertResource(resource)) {
             lastError_ = QStringLiteral("Unable to index resource: %1").arg(resource.location);
             lastIndexedCount_ = indexedCount;
             return false;
         }
+        discoveredRelations.append(resource.relations);
         ++indexedCount;
+    }
+
+    for (const ResourceRelation &relation : discoveredRelations) {
+        if (!repository_.findResource(relation.sourceResourceId).has_value()
+            || !repository_.findResource(relation.targetResourceId).has_value()) {
+            continue;
+        }
+        if (!repository_.upsertResourceRelation(relation)) {
+            lastError_ = QStringLiteral("Unable to index relation: %1 -> %2")
+                             .arg(relation.sourceResourceId, relation.targetResourceId);
+            lastIndexedCount_ = indexedCount;
+            return false;
+        }
     }
 
     lastError_.clear();
@@ -45,6 +61,7 @@ bool IndexingService::indexRoot(const LibraryRoot &root)
     }
 
     DirectoryLibrarySource source(root.path);
+    configureDirectorySource(source);
     if (!index(source)) {
         return false;
     }
@@ -95,6 +112,29 @@ QString IndexingService::lastError() const
 int IndexingService::lastIndexedCount() const
 {
     return lastIndexedCount_;
+}
+
+void IndexingService::setRemoteWebFetchingEnabled(bool enabled)
+{
+    remoteWebFetchingEnabled_ = enabled;
+}
+
+bool IndexingService::remoteWebFetchingEnabled() const
+{
+    return remoteWebFetchingEnabled_;
+}
+
+void IndexingService::setWebPageFetcher(DirectoryLibrarySource::WebPageFetcher fetcher)
+{
+    webPageFetcher_ = std::move(fetcher);
+}
+
+void IndexingService::configureDirectorySource(DirectoryLibrarySource &source) const
+{
+    source.setRemoteWebFetchingEnabled(remoteWebFetchingEnabled_);
+    if (webPageFetcher_) {
+        source.setWebPageFetcher(webPageFetcher_);
+    }
 }
 
 } // namespace Pinloom

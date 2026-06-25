@@ -2,11 +2,17 @@
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
+#include <QDesktopServices>
+#include <QFile>
+#include <QCheckBox>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
-#include <QFile>
+#include <QUrl>
+#include <optional>
 
 using namespace Pinloom;
 
@@ -16,9 +22,48 @@ class WidgetSmokeTest : public QObject {
 private slots:
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
+    void panelExposesHostIndexingControls();
     void panelDisplaysAnchorAwareResults();
+    void panelDisplaysCodeSymbolResults();
+    void panelDisplaysFileLineResults();
+    void panelDisplaysPdfPageResults();
+    void panelPreservesPdfRegionOpenTarget();
+    void panelDisplaysRelationSummary();
+    void panelAddsManualAliasAndAnchor();
+    void panelPinsSelectedResource();
+    void panelPinsSelectedLibraryRoot();
+    void panelAppliesRequiredTagLocationAndKindFiltering();
+    void panelAppliesHostContextRanking();
+    void panelExposesCurrentOpenTargetForHostPreview();
+    void panelNotifiesHostWhenCurrentOpenTargetChanges();
+    void panelAllowsHostToHandleOpenTarget();
+    void panelAllowsHostToHandleUrlTarget();
+    void panelFallbackOpensUrlFragmentAnchor();
     void textPreviewLoadsTargetFile();
 };
+
+class CapturingUrlHandler : public QObject {
+    Q_OBJECT
+
+public slots:
+    void openUrl(const QUrl &url)
+    {
+        lastUrl = url;
+        ++openCount;
+    }
+
+public:
+    QUrl lastUrl;
+    int openCount = 0;
+};
+
+static void writeTestFile(const QString &path, const QByteArray &content)
+{
+    QFile file(path);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    QCOMPARE(file.write(content), static_cast<qint64>(content.size()));
+    file.close();
+}
 
 void WidgetSmokeTest::panelUsesInjectedRepository()
 {
@@ -40,7 +85,7 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
     searchEdit->setText(QStringLiteral("README"));
     QCOMPARE(results->count(), 1);
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
-    QCOMPARE(results->item(0)->toolTip(), resource.location);
+    QVERIFY(results->item(0)->toolTip().contains(resource.location));
 }
 
 void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
@@ -51,9 +96,72 @@ void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
 
     PinloomPanel panel(repository);
     auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    auto *fetchWebCheck = panel.findChild<QCheckBox *>(QStringLiteral("fetchRemoteWebPagesCheck"));
     QVERIFY(rootList);
+    QVERIFY(fetchWebCheck);
     QCOMPARE(rootList->count(), 1);
     QCOMPARE(rootList->item(0)->data(Qt::UserRole).toString(), root.id);
+    QVERIFY(!fetchWebCheck->isChecked());
+    QVERIFY(!panel.remoteWebFetchingEnabled());
+
+    panel.setRemoteWebFetchingEnabled(true);
+    QVERIFY(fetchWebCheck->isChecked());
+    QVERIFY(panel.remoteWebFetchingEnabled());
+
+    panel.setRemoteWebFetchingEnabled(false);
+    QVERIFY(!fetchWebCheck->isChecked());
+    QVERIFY(!panel.remoteWebFetchingEnabled());
+}
+
+void WidgetSmokeTest::panelExposesHostIndexingControls()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    writeTestFile(dir.filePath(QStringLiteral("note.md")),
+                  QByteArray("# Host Indexing\nPinloom selected root refresh\n"));
+
+    InMemoryLibraryRepository repository;
+    LibraryRoot root = makeLibraryRootForPath(dir.path());
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *status = panel.findChild<QLabel *>(QStringLiteral("statusLabel"));
+    QVERIFY(results);
+    QVERIFY(status);
+
+    const PinloomIndexingResult selectedResult = panel.indexSelectedLibraryRoot();
+    QVERIFY(selectedResult.success);
+    QVERIFY(selectedResult.indexedCount >= 2);
+    QVERIFY(selectedResult.error.isEmpty());
+    QVERIFY(status->text().contains(QStringLiteral("Indexed")));
+
+    panel.setSearchText(QStringLiteral("selected root refresh"));
+    QCOMPARE(results->count(), 1);
+
+    writeTestFile(dir.filePath(QStringLiteral("ops.log")),
+                  QByteArray("Pinloom all roots refresh\n"));
+    const PinloomIndexingResult allResult = panel.indexAllEnabledLibraryRoots();
+    QVERIFY(allResult.success);
+    QVERIFY(allResult.indexedCount >= 3);
+
+    panel.setSearchText(QStringLiteral("all roots refresh"));
+    QCOMPARE(results->count(), 1);
+
+    Resource stale;
+    stale.id = QStringLiteral("stale");
+    stale.kind = ResourceKind::File;
+    stale.title = QStringLiteral("stale.txt");
+    stale.location = QStringLiteral("stale.txt");
+    stale.content = QStringLiteral("stale resource");
+    QVERIFY(repository.upsertResource(stale));
+    QVERIFY(!repository.search(SearchQuery{QStringLiteral("stale resource")}).isEmpty());
+
+    const PinloomIndexingResult rebuildResult = panel.rebuildAllEnabledLibraryRoots();
+    QVERIFY(rebuildResult.success);
+    QVERIFY(rebuildResult.indexedCount >= 3);
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("stale resource")}).isEmpty());
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
@@ -78,8 +186,660 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
     QCOMPARE(results->count(), 1);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Heading] Power sequencing - line 3")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
-    QCOMPARE(results->item(0)->toolTip(), resource.location);
+    QVERIFY(results->item(0)->toolTip().contains(resource.location));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Heading")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
+}
+
+void WidgetSmokeTest::panelDisplaysCodeSymbolResults()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("code");
+    resource.kind = ResourceKind::CodeSnippet;
+    resource.title = QStringLiteral("pinloom.cpp");
+    resource.location = QStringLiteral("pinloom.cpp");
+    resource.anchors = {Anchor{AnchorType::CodeSymbol, QStringLiteral("JumpController"), 12}};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("JumpController"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Symbol] JumpController - line 12")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 12);
+}
+
+void WidgetSmokeTest::panelDisplaysFileLineResults()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("code-note");
+    resource.kind = ResourceKind::CodeSnippet;
+    resource.title = QStringLiteral("PinloomPanel.cpp");
+    resource.location = QStringLiteral("PinloomPanel.cpp");
+    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("TODO: wire ZeroSlack dock"), 27}};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("ZeroSlack dock"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] TODO: wire ZeroSlack dock - line 27")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 27);
+    QCOMPARE(static_cast<AnchorType>(results->item(0)->data(Qt::UserRole + 5).toInt()), AnchorType::FileLine);
+}
+
+void WidgetSmokeTest::panelDisplaysPdfPageResults()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Spec");
+    resource.location = QStringLiteral("spec.pdf");
+    Anchor page;
+    page.type = AnchorType::PdfPage;
+    page.target = QStringLiteral("Page 2");
+    page.page = 2;
+    resource.anchors = {page};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("Page 2"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Page] Page 2 - page 2")));
+    QVERIFY(!results->item(0)->text().contains(QStringLiteral("line -1")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 6).toInt(), 2);
+}
+
+void WidgetSmokeTest::panelPreservesPdfRegionOpenTarget()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf-region");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Annotated Spec");
+    resource.location = QStringLiteral("spec.pdf");
+    Anchor region;
+    region.type = AnchorType::PdfRegion;
+    region.target = QStringLiteral("Clock domain note");
+    region.page = 4;
+    region.region = QRectF(10.0, 20.0, 100.0, 40.0);
+    resource.anchors = {region};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool handled = false;
+    PinloomOpenTarget capturedTarget;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        handled = true;
+        capturedTarget = target;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    QVERIFY(results);
+    QVERIFY(openButton);
+
+    panel.setSearchText(QStringLiteral("Clock"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[PDF Region] Clock domain note - page 4")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 6).toInt(), 4);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 7).toDouble(), 10.0);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 8).toDouble(), 20.0);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 9).toDouble(), 100.0);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 10).toDouble(), 40.0);
+
+    results->setCurrentRow(0);
+    openButton->click();
+
+    QVERIFY(handled);
+    QVERIFY(capturedTarget.anchor.has_value());
+    QCOMPARE(capturedTarget.anchor->type, AnchorType::PdfRegion);
+    QCOMPARE(capturedTarget.anchor->target, QStringLiteral("Clock domain note"));
+    QCOMPARE(capturedTarget.anchor->page, 4);
+    QCOMPARE(capturedTarget.anchor->region, QRectF(10.0, 20.0, 100.0, 40.0));
+}
+
+void WidgetSmokeTest::panelDisplaysRelationSummary()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource note;
+    note.id = QStringLiteral("note");
+    note.kind = ResourceKind::Markdown;
+    note.title = QStringLiteral("Bringup Note");
+    note.location = QStringLiteral("note.md");
+    QVERIFY(repository.upsertResource(note));
+
+    Resource spec;
+    spec.id = QStringLiteral("spec");
+    spec.kind = ResourceKind::Pdf;
+    spec.title = QStringLiteral("PCIe Spec");
+    spec.location = QStringLiteral("spec.pdf");
+    QVERIFY(repository.upsertResource(spec));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = note.id;
+    relation.targetResourceId = spec.id;
+    relation.label = QStringLiteral("supports");
+    relation.note = QStringLiteral("chapter 7");
+    QVERIFY(repository.upsertResourceRelation(relation));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *relationLabel = panel.findChild<QLabel *>(QStringLiteral("relationLabel"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+    QVERIFY(relationLabel);
+
+    searchEdit->setText(QStringLiteral("Bringup"));
+    QCOMPARE(results->count(), 1);
+    results->setCurrentRow(0);
+    QVERIFY(relationLabel->text().contains(QStringLiteral("Related: supports -> PCIe Spec (chapter 7)")));
+}
+
+void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Bringup Note");
+    resource.location = QStringLiteral("note.md");
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
+    auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
+    QVERIFY(results);
+    QVERIFY(addAliasButton);
+    QVERIFY(addAnchorButton);
+
+    panel.setSearchText(QStringLiteral("Bringup"));
+    QCOMPARE(results->count(), 1);
+    results->setCurrentRow(0);
+
+    QVERIFY(panel.addAliasToSelectedResource(QStringLiteral("serial debug")));
+    QVERIFY(!panel.addAliasToSelectedResource(QStringLiteral("Serial Debug")));
+
+    panel.setSearchText(QStringLiteral("serial"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
+    results->setCurrentRow(0);
+
+    QVERIFY(panel.addManualAnchorToSelectedResource(QStringLiteral("Power rail check"), 7));
+    QVERIFY(!panel.addManualAnchorToSelectedResource(QStringLiteral("power rail check"), 7));
+
+    panel.setSearchText(QStringLiteral("Power rail"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] Power rail check - line 7")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 7);
+}
+
+void WidgetSmokeTest::panelPinsSelectedResource()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource cold;
+    cold.id = QStringLiteral("cold");
+    cold.kind = ResourceKind::Markdown;
+    cold.title = QStringLiteral("UART Alpha");
+    cold.location = QStringLiteral("alpha.md");
+    QVERIFY(repository.upsertResource(cold));
+
+    Resource hot;
+    hot.id = QStringLiteral("hot");
+    hot.kind = ResourceKind::Markdown;
+    hot.title = QStringLiteral("UART Zulu");
+    hot.location = QStringLiteral("zulu.md");
+    QVERIFY(repository.upsertResource(hot));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
+    QVERIFY(results);
+    QVERIFY(pinButton);
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(results->count(), 2);
+
+    int hotRow = -1;
+    for (int row = 0; row < results->count(); ++row) {
+        if (results->item(row)->data(Qt::UserRole).toString() == hot.id) {
+            hotRow = row;
+            break;
+        }
+    }
+    QVERIFY(hotRow >= 0);
+    results->setCurrentRow(hotRow);
+
+    pinButton->click();
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(hot.id);
+    QVERIFY(usage.has_value());
+    QVERIFY(usage->pinned);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+    QCOMPARE(pinButton->text(), QStringLiteral("Unpin"));
+
+    pinButton->click();
+    const std::optional<ResourceUsage> unpinnedUsage = repository.resourceUsage(hot.id);
+    QVERIFY(unpinnedUsage.has_value());
+    QVERIFY(!unpinnedUsage->pinned);
+    QCOMPARE(pinButton->text(), QStringLiteral("Pin"));
+}
+
+void WidgetSmokeTest::panelPinsSelectedLibraryRoot()
+{
+    InMemoryLibraryRepository repository;
+
+    LibraryRoot coldRoot = makeLibraryRootForPath(QStringLiteral("E:/workspace/cold"));
+    LibraryRoot hotRoot = makeLibraryRootForPath(QStringLiteral("E:/workspace/hot"));
+    QVERIFY(repository.upsertLibraryRoot(coldRoot));
+    QVERIFY(repository.upsertLibraryRoot(hotRoot));
+
+    Resource cold;
+    cold.id = QStringLiteral("cold-note");
+    cold.kind = ResourceKind::Markdown;
+    cold.title = QStringLiteral("Bringup Alpha");
+    cold.location = QStringLiteral("E:/workspace/cold/bringup.md");
+    QVERIFY(repository.upsertResource(cold));
+
+    Resource hot;
+    hot.id = QStringLiteral("hot-note");
+    hot.kind = ResourceKind::Markdown;
+    hot.title = QStringLiteral("Bringup Zulu");
+    hot.location = QStringLiteral("E:/workspace/hot/bringup.md");
+    QVERIFY(repository.upsertResource(hot));
+
+    PinloomPanel panel(repository);
+    auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    auto *pinRootButton = panel.findChild<QPushButton *>(QStringLiteral("pinRootButton"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(rootList);
+    QVERIFY(pinRootButton);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("Bringup"));
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), cold.id);
+
+    for (int row = 0; row < rootList->count(); ++row) {
+        if (rootList->item(row)->data(Qt::UserRole).toString() == hotRoot.id) {
+            rootList->setCurrentRow(row);
+            break;
+        }
+    }
+    QCOMPARE(rootList->currentItem()->data(Qt::UserRole).toString(), hotRoot.id);
+
+    pinRootButton->click();
+
+    const std::optional<LibraryRoot> pinnedRoot = repository.findLibraryRoot(hotRoot.id);
+    QVERIFY(pinnedRoot.has_value());
+    QVERIFY(pinnedRoot->pinned);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+    QVERIFY(pinRootButton->isChecked());
+    QVERIFY(rootList->currentItem()->text().contains(QStringLiteral("[Pinned]")));
+}
+
+void WidgetSmokeTest::panelAppliesRequiredTagLocationAndKindFiltering()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource project;
+    project.id = QStringLiteral("project");
+    project.kind = ResourceKind::Markdown;
+    project.title = QStringLiteral("UART Project Note");
+    project.location = QStringLiteral("E:/workspace/project/project.md");
+    project.tags = {QStringLiteral("zeroslack"), QStringLiteral("pcie")};
+    QVERIFY(repository.upsertResource(project));
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Url;
+    generic.title = QStringLiteral("UART Generic Note");
+    generic.location = QStringLiteral("https://docs.example.com/uart");
+    generic.tags = {QStringLiteral("notes")};
+    QVERIFY(repository.upsertResource(generic));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(results->count(), 2);
+
+    panel.setRequiredTags({QStringLiteral("zeroslack")});
+    QCOMPARE(panel.requiredTags(), QStringList{QStringLiteral("zeroslack")});
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), project.id);
+
+    panel.setRequiredTags({QStringLiteral("missing")});
+    QCOMPARE(results->count(), 0);
+
+    panel.setRequiredTags({});
+    QCOMPARE(results->count(), 2);
+
+    panel.setRequiredLocationPrefixes({QStringLiteral("E:/workspace/project")});
+    QCOMPARE(panel.requiredLocationPrefixes(), QStringList{QStringLiteral("E:/workspace/project")});
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), project.id);
+
+    panel.setRequiredLocationPrefixes({QStringLiteral("E:/workspace/missing")});
+    QCOMPARE(results->count(), 0);
+
+    panel.setRequiredLocationPrefixes({});
+    QCOMPARE(results->count(), 2);
+
+    panel.setRequiredResourceKinds({ResourceKind::Url});
+    QCOMPARE(panel.requiredResourceKinds(), QList<ResourceKind>{ResourceKind::Url});
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
+
+    panel.setRequiredResourceKinds({ResourceKind::Pdf});
+    QCOMPARE(results->count(), 0);
+
+    panel.setRequiredResourceKinds({});
+    QCOMPARE(results->count(), 2);
+}
+
+void WidgetSmokeTest::panelAppliesHostContextRanking()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Markdown;
+    generic.title = QStringLiteral("UART Alpha");
+    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
+    generic.tags = {QStringLiteral("notes")};
+    QVERIFY(repository.upsertResource(generic));
+
+    Resource contextual;
+    contextual.id = QStringLiteral("contextual");
+    contextual.kind = ResourceKind::Markdown;
+    contextual.title = QStringLiteral("UART Zulu");
+    contextual.location = QStringLiteral("E:/workspace/project/zulu.md");
+    contextual.tags = {QStringLiteral("pcie")};
+    QVERIFY(repository.upsertResource(contextual));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
+
+    panel.setContextTags({QStringLiteral("pcie")});
+    QCOMPARE(panel.contextTags(), QStringList{QStringLiteral("pcie")});
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), contextual.id);
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context tag: pcie")));
+
+    panel.setContextTags({});
+    panel.setContextLocationPrefixes({QStringLiteral("E:/workspace/project")});
+    QCOMPARE(panel.contextLocationPrefixes(), QStringList{QStringLiteral("E:/workspace/project")});
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), contextual.id);
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context location: E:/workspace/project")));
+}
+
+void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("ZeroSlack Handoff");
+    resource.location = QStringLiteral("E:/workspace/project/handoff.md");
+    resource.tags = {QStringLiteral("zeroslack")};
+    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 8}};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+
+    panel.setContextTags({QStringLiteral("zeroslack")});
+    panel.setContextLocationPrefixes({QStringLiteral("E:/workspace/project")});
+    panel.setSearchText(QStringLiteral("Dock"));
+
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+    QCOMPARE(results->count(), 1);
+    results->setCurrentRow(0);
+
+    const PinloomOpenTarget target = panel.currentOpenTarget();
+    QCOMPARE(target.resourceId, resource.id);
+    QCOMPARE(target.resourceKind, resource.kind);
+    QCOMPARE(target.title, resource.title);
+    QCOMPARE(target.location, resource.location);
+    QCOMPARE(target.matchedField, QStringLiteral("anchor"));
+    QCOMPARE(target.matchedContextTag, QStringLiteral("zeroslack"));
+    QCOMPARE(target.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
+    QVERIFY(target.score < 0.0);
+    QVERIFY(target.anchor.has_value());
+    QCOMPARE(static_cast<int>(target.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(target.anchor->target, QStringLiteral("Dock handoff"));
+    QCOMPARE(target.anchor->line, 8);
+}
+
+void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Preview Note");
+    resource.location = QStringLiteral("preview.md");
+    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Preview target"), 4}};
+    QVERIFY(repository.upsertResource(resource));
+
+    QList<PinloomOpenTarget> notifications;
+    PinloomPanelOptions options;
+    options.currentOpenTargetChangedHandler = [&](const PinloomOpenTarget &target) {
+        notifications.append(target);
+    };
+
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("Preview target"));
+
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+    QCOMPARE(results->count(), 1);
+
+    results->setCurrentRow(0);
+    QVERIFY(!notifications.isEmpty());
+
+    const PinloomOpenTarget notified = notifications.last();
+    const PinloomOpenTarget current = panel.currentOpenTarget();
+    QCOMPARE(notified.resourceId, current.resourceId);
+    QCOMPARE(notified.resourceKind, current.resourceKind);
+    QCOMPARE(notified.title, current.title);
+    QCOMPARE(notified.location, current.location);
+    QCOMPARE(notified.matchedField, current.matchedField);
+    QCOMPARE(notified.score, current.score);
+    QVERIFY(notified.anchor.has_value());
+    QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(notified.anchor->target, QStringLiteral("Preview target"));
+    QCOMPARE(notified.anchor->line, 4);
+}
+
+void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Note");
+    resource.location = QStringLiteral("note.md");
+    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 3}};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool handled = false;
+    PinloomOpenTarget capturedTarget;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        handled = true;
+        capturedTarget = target;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("Power"));
+    QCOMPARE(panel.searchText(), QStringLiteral("Power"));
+
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    QVERIFY(results);
+    QVERIFY(openButton);
+    QCOMPARE(results->count(), 1);
+
+    results->setCurrentRow(0);
+    openButton->click();
+
+    QVERIFY(handled);
+    QCOMPARE(capturedTarget.resourceId, resource.id);
+    QCOMPARE(capturedTarget.resourceKind, resource.kind);
+    QCOMPARE(capturedTarget.title, resource.title);
+    QCOMPARE(capturedTarget.location, resource.location);
+    QCOMPARE(capturedTarget.matchedField, QStringLiteral("anchor"));
+    QCOMPARE(capturedTarget.score, 0.0);
+    QVERIFY(capturedTarget.anchor.has_value());
+    QCOMPARE(static_cast<int>(capturedTarget.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(capturedTarget.anchor->target, QStringLiteral("Power sequencing"));
+    QCOMPARE(capturedTarget.anchor->line, 3);
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+    QVERIFY(usage->lastOpenedAt.isValid());
+
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, resource.anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+    QVERIFY(anchorUsage->lastOpenedAt.isValid());
+}
+
+void WidgetSmokeTest::panelAllowsHostToHandleUrlTarget()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("docs");
+    resource.kind = ResourceKind::Url;
+    resource.title = QStringLiteral("Pinloom Docs");
+    resource.location = QStringLiteral("https://docs.example.com/pinloom/setup#install");
+    resource.tags = {QStringLiteral("zeroslack")};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool handled = false;
+    PinloomOpenTarget capturedTarget;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        handled = true;
+        capturedTarget = target;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    QVERIFY(results);
+    QVERIFY(openButton);
+
+    panel.setSearchText(QStringLiteral("Docs"));
+    panel.setContextTags({QStringLiteral("zeroslack")});
+    panel.setContextLocationPrefixes({QStringLiteral("https://docs.example.com")});
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[URL] Pinloom Docs")));
+
+    results->setCurrentRow(0);
+    openButton->click();
+
+    QVERIFY(handled);
+    QCOMPARE(capturedTarget.resourceId, resource.id);
+    QCOMPARE(capturedTarget.resourceKind, resource.kind);
+    QCOMPARE(capturedTarget.title, resource.title);
+    QCOMPARE(capturedTarget.location, resource.location);
+    QCOMPARE(capturedTarget.matchedField, QStringLiteral("title"));
+    QCOMPARE(capturedTarget.matchedContextTag, QStringLiteral("zeroslack"));
+    QCOMPARE(capturedTarget.matchedContextLocationPrefix, QStringLiteral("https://docs.example.com"));
+    QVERIFY(capturedTarget.score < 10.0);
+    QVERIFY(!capturedTarget.anchor.has_value());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("docs-fragment");
+    resource.kind = ResourceKind::Url;
+    resource.title = QStringLiteral("Pinloom Docs");
+    resource.location = QStringLiteral("https://docs.example.com/pinloom/setup");
+    Anchor fragment;
+    fragment.type = AnchorType::UrlFragment;
+    fragment.target = QStringLiteral("install");
+    resource.anchors = {fragment};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    QVERIFY(results);
+    QVERIFY(openButton);
+
+    panel.setSearchText(QStringLiteral("install"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Fragment] install")));
+
+    CapturingUrlHandler handler;
+    QDesktopServices::setUrlHandler(QStringLiteral("https"), &handler, "openUrl");
+    results->setCurrentRow(0);
+    openButton->click();
+    QDesktopServices::unsetUrlHandler(QStringLiteral("https"));
+
+    QCOMPARE(handler.openCount, 1);
+    QCOMPARE(handler.lastUrl.adjusted(QUrl::RemoveFragment).toString(), resource.location);
+    QCOMPARE(handler.lastUrl.fragment(), QStringLiteral("install"));
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, fragment);
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
 }
 
 void WidgetSmokeTest::textPreviewLoadsTargetFile()

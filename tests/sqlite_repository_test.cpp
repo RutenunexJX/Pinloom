@@ -8,6 +8,7 @@
 #include <QTest>
 #include <QUuid>
 #include <algorithm>
+#include <optional>
 
 using namespace Pinloom;
 
@@ -18,6 +19,13 @@ private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
+    void tracksUsageAndRanksRecallSignals();
+    void filtersByRequiredLocationPrefixes();
+    void filtersByRequiredResourceKinds();
+    void ranksContextSignalsWithinMatchType();
+    void ranksPinnedLibraryRootSignalsWithinMatchType();
+    void tracksAnchorUsageAndRanksAnchorRecall();
+    void managesResourceRelations();
     void managesLibraryRoots();
     void upgradesVersionOneDatabase();
     void upgradesVersionTwoDatabaseWithRoots();
@@ -125,7 +133,7 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     resource.aliases = {QStringLiteral("serial notes"), QStringLiteral("board diary")};
     resource.anchors = {
         Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing")},
-        Anchor{AnchorType::FileLine, QStringLiteral("docs/bringup.md"), 42}
+        Anchor{AnchorType::FileLine, QStringLiteral("Debug checkpoint"), 42}
     };
 
     QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
@@ -149,6 +157,12 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(anchorResults.size(), 1);
     QVERIFY(anchorResults.first().matchedAnchor.has_value());
     QCOMPARE(anchorResults.first().matchedAnchor->target, QStringLiteral("Power sequencing"));
+
+    const QList<SearchResult> lineResults = repository.search(SearchQuery{QStringLiteral("checkpoint")});
+    QCOMPARE(lineResults.size(), 1);
+    QVERIFY(lineResults.first().matchedAnchor.has_value());
+    QCOMPARE(lineResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(lineResults.first().matchedAnchor->line, 42);
 
     SearchQuery taggedQuery;
     taggedQuery.text = QStringLiteral("plan");
@@ -220,6 +234,329 @@ void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
     QCOMPARE(filenameResults.first().matchedField, QStringLiteral("filename"));
 }
 
+void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource cold;
+    cold.id = QStringLiteral("cold");
+    cold.kind = ResourceKind::Markdown;
+    cold.title = QStringLiteral("UART Alpha");
+    cold.location = QStringLiteral("alpha.md");
+    QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
+
+    Resource hot;
+    hot.id = QStringLiteral("hot");
+    hot.kind = ResourceKind::Markdown;
+    hot.title = QStringLiteral("UART Zulu");
+    hot.location = QStringLiteral("zulu.md");
+    QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
+
+    QVERIFY2(repository.recordResourceOpen(hot.id), qPrintable(repository.lastError()));
+    QVERIFY2(repository.recordResourceOpen(hot.id), qPrintable(repository.lastError()));
+    QVERIFY2(repository.setResourcePinned(hot.id, true), qPrintable(repository.lastError()));
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(hot.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 2);
+    QVERIFY(usage->lastOpenedAt.isValid());
+    QVERIFY(usage->pinned);
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("UART")});
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, hot.id);
+    QCOMPARE(results.first().matchedField, QStringLiteral("title"));
+
+    QVERIFY2(repository.setResourcePinned(hot.id, false), qPrintable(repository.lastError()));
+    const std::optional<ResourceUsage> unpinnedUsage = repository.resourceUsage(hot.id);
+    QVERIFY(unpinnedUsage.has_value());
+    QVERIFY(!unpinnedUsage->pinned);
+
+    QVERIFY2(repository.setResourcePinned(hot.id, true), qPrintable(repository.lastError()));
+    hot.title = QStringLiteral("UART Zulu Updated");
+    QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
+    const std::optional<ResourceUsage> preservedUsage = repository.resourceUsage(hot.id);
+    QVERIFY(preservedUsage.has_value());
+    QCOMPARE(preservedUsage->openCount, 2);
+    QVERIFY(preservedUsage->pinned);
+}
+
+void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource project;
+    project.id = QStringLiteral("project");
+    project.kind = ResourceKind::Markdown;
+    project.title = QStringLiteral("UART Project Note");
+    project.location = QStringLiteral("E:/workspace/project/notes/uart.md");
+    project.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 9}};
+    QVERIFY2(repository.upsertResource(project), qPrintable(repository.lastError()));
+
+    Resource other;
+    other.id = QStringLiteral("other");
+    other.kind = ResourceKind::Markdown;
+    other.title = QStringLiteral("UART Other Note");
+    other.location = QStringLiteral("E:/workspace/other/uart.md");
+    other.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 4}};
+    QVERIFY2(repository.upsertResource(other), qPrintable(repository.lastError()));
+
+    SearchQuery query;
+    query.text = QStringLiteral("UART");
+    query.requiredLocationPrefixes = {QStringLiteral("E:/workspace/project")};
+
+    const QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().resource.id, project.id);
+
+    SearchQuery anchorQuery;
+    anchorQuery.text = QStringLiteral("Dock handoff");
+    anchorQuery.requiredLocationPrefixes = {QStringLiteral("E:/workspace/project")};
+
+    const QList<SearchResult> anchorResults = repository.search(anchorQuery);
+    QCOMPARE(anchorResults.size(), 1);
+    QCOMPARE(anchorResults.first().resource.id, project.id);
+    QVERIFY(anchorResults.first().matchedAnchor.has_value());
+
+    query.requiredLocationPrefixes = {QStringLiteral("E:/workspace/missing")};
+    QVERIFY(repository.search(query).isEmpty());
+}
+
+void SqliteRepositoryTest::filtersByRequiredResourceKinds()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource note;
+    note.id = QStringLiteral("note");
+    note.kind = ResourceKind::Markdown;
+    note.title = QStringLiteral("UART Note");
+    note.location = QStringLiteral("note.md");
+    note.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 4}};
+    QVERIFY2(repository.upsertResource(note), qPrintable(repository.lastError()));
+
+    Resource link;
+    link.id = QStringLiteral("link");
+    link.kind = ResourceKind::Url;
+    link.title = QStringLiteral("UART Link");
+    link.location = QStringLiteral("https://docs.example.com/uart#handoff");
+    link.anchors = {Anchor{AnchorType::UrlFragment, QStringLiteral("Dock handoff")}};
+    QVERIFY2(repository.upsertResource(link), qPrintable(repository.lastError()));
+
+    SearchQuery query;
+    query.text = QStringLiteral("UART");
+    query.requiredKinds = {ResourceKind::Url};
+
+    const QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().resource.id, link.id);
+
+    SearchQuery anchorQuery;
+    anchorQuery.text = QStringLiteral("Dock handoff");
+    anchorQuery.requiredKinds = {ResourceKind::Markdown};
+
+    const QList<SearchResult> anchorResults = repository.search(anchorQuery);
+    QCOMPARE(anchorResults.size(), 1);
+    QCOMPARE(anchorResults.first().resource.id, note.id);
+    QVERIFY(anchorResults.first().matchedAnchor.has_value());
+}
+
+void SqliteRepositoryTest::ranksContextSignalsWithinMatchType()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Markdown;
+    generic.title = QStringLiteral("UART Alpha");
+    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
+    generic.tags = {QStringLiteral("notes")};
+    QVERIFY2(repository.upsertResource(generic), qPrintable(repository.lastError()));
+
+    Resource contextual;
+    contextual.id = QStringLiteral("contextual");
+    contextual.kind = ResourceKind::Markdown;
+    contextual.title = QStringLiteral("UART Zulu");
+    contextual.location = QStringLiteral("E:/workspace/project/zulu.md");
+    contextual.tags = {QStringLiteral("pcie")};
+    QVERIFY2(repository.upsertResource(contextual), qPrintable(repository.lastError()));
+
+    SearchQuery query;
+    query.text = QStringLiteral("UART");
+    query.contextTags = {QStringLiteral("pcie")};
+    query.contextLocationPrefixes = {QStringLiteral("E:/workspace/project")};
+
+    const QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, contextual.id);
+    QCOMPARE(results.first().matchedField, QStringLiteral("title"));
+}
+
+void SqliteRepositoryTest::ranksPinnedLibraryRootSignalsWithinMatchType()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    LibraryRoot coldRoot = makeLibraryRootForPath(QStringLiteral("E:/workspace/cold"));
+    LibraryRoot hotRoot = makeLibraryRootForPath(QStringLiteral("E:/workspace/hot"));
+    hotRoot.pinned = true;
+    QVERIFY2(repository.upsertLibraryRoot(coldRoot), qPrintable(repository.lastError()));
+    QVERIFY2(repository.upsertLibraryRoot(hotRoot), qPrintable(repository.lastError()));
+
+    Resource cold;
+    cold.id = QStringLiteral("cold-note");
+    cold.kind = ResourceKind::Markdown;
+    cold.title = QStringLiteral("Bringup Checklist");
+    cold.location = QStringLiteral("E:/workspace/cold/bringup.md");
+    QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
+
+    Resource hot;
+    hot.id = QStringLiteral("hot-note");
+    hot.kind = ResourceKind::Markdown;
+    hot.title = QStringLiteral("Bringup Checklist");
+    hot.location = QStringLiteral("E:/workspace/hot/bringup.md");
+    QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> pinnedResults = repository.search(SearchQuery{QStringLiteral("Bringup")});
+    QCOMPARE(pinnedResults.size(), 2);
+    QCOMPARE(pinnedResults.first().resource.id, hot.id);
+
+    QVERIFY2(repository.setLibraryRootPinned(hotRoot.id, false), qPrintable(repository.lastError()));
+    QVERIFY2(repository.setLibraryRootPinned(coldRoot.id, true), qPrintable(repository.lastError()));
+    const QList<SearchResult> repinnedResults = repository.search(SearchQuery{QStringLiteral("Bringup")});
+    QCOMPARE(repinnedResults.size(), 2);
+    QCOMPARE(repinnedResults.first().resource.id, cold.id);
+}
+
+void SqliteRepositoryTest::tracksAnchorUsageAndRanksAnchorRecall()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource cold;
+    cold.id = QStringLiteral("cold-anchor");
+    cold.kind = ResourceKind::Markdown;
+    cold.title = QStringLiteral("Alpha");
+    cold.location = QStringLiteral("alpha.md");
+    cold.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 1}};
+    QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
+
+    Resource hot;
+    hot.id = QStringLiteral("hot-anchor");
+    hot.kind = ResourceKind::Markdown;
+    hot.title = QStringLiteral("Zulu");
+    hot.location = QStringLiteral("zulu.md");
+    hot.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 2}};
+    QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
+
+    QVERIFY2(repository.recordAnchorOpen(hot.id, hot.anchors.first()), qPrintable(repository.lastError()));
+    QVERIFY2(repository.recordAnchorOpen(hot.id, hot.anchors.first()), qPrintable(repository.lastError()));
+
+    const std::optional<AnchorUsage> usage = repository.anchorUsage(hot.id, hot.anchors.first());
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 2);
+    QVERIFY(usage->lastOpenedAt.isValid());
+    QCOMPARE(usage->anchor.line, 2);
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("Power")});
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, hot.id);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->line, 2);
+
+    hot.title = QStringLiteral("Zulu Updated");
+    QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
+    const std::optional<AnchorUsage> preservedUsage = repository.anchorUsage(hot.id, hot.anchors.first());
+    QVERIFY(preservedUsage.has_value());
+    QCOMPARE(preservedUsage->openCount, 2);
+}
+
+void SqliteRepositoryTest::managesResourceRelations()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource source;
+    source.id = QStringLiteral("note");
+    source.kind = ResourceKind::Markdown;
+    source.title = QStringLiteral("Bringup Note");
+    source.location = QStringLiteral("note.md");
+    QVERIFY2(repository.upsertResource(source), qPrintable(repository.lastError()));
+
+    Resource target;
+    target.id = QStringLiteral("spec");
+    target.kind = ResourceKind::Pdf;
+    target.title = QStringLiteral("PCIe Spec");
+    target.location = QStringLiteral("spec.pdf");
+    QVERIFY2(repository.upsertResource(target), qPrintable(repository.lastError()));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = source.id;
+    relation.targetResourceId = target.id;
+    relation.label = QStringLiteral("supports");
+    relation.note = QStringLiteral("chapter 7");
+    QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
+
+    QList<ResourceRelation> sourceRelations = repository.resourceRelations(source.id);
+    QCOMPARE(sourceRelations.size(), 1);
+    QCOMPARE(sourceRelations.first().sourceResourceId, source.id);
+    QCOMPARE(sourceRelations.first().targetResourceId, target.id);
+    QCOMPARE(sourceRelations.first().label, QStringLiteral("supports"));
+    QCOMPARE(sourceRelations.first().note, QStringLiteral("chapter 7"));
+
+    relation.note = QStringLiteral("chapter 8");
+    QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
+    sourceRelations = repository.resourceRelations(target.id);
+    QCOMPARE(sourceRelations.size(), 1);
+    QCOMPARE(sourceRelations.first().note, QStringLiteral("chapter 8"));
+    QCOMPARE(repository.allResourceRelations().size(), 1);
+
+    source.title = QStringLiteral("Bringup Note Updated");
+    QVERIFY2(repository.upsertResource(source), qPrintable(repository.lastError()));
+    QCOMPARE(repository.resourceRelations(source.id).size(), 1);
+
+    QVERIFY2(repository.removeResourceRelation(source.id, target.id, relation.label), qPrintable(repository.lastError()));
+    QVERIFY(repository.resourceRelations(source.id).isEmpty());
+}
+
 void SqliteRepositoryTest::managesLibraryRoots()
 {
     QTemporaryDir dir;
@@ -239,6 +576,12 @@ void SqliteRepositoryTest::managesLibraryRoots()
     std::optional<LibraryRoot> stored = repository.findLibraryRoot(root.id);
     QVERIFY(stored.has_value());
     QVERIFY(!stored->enabled);
+
+    QVERIFY2(repository.setLibraryRootPinned(root.id, true), qPrintable(repository.lastError()));
+    stored = repository.findLibraryRoot(root.id);
+    QVERIFY(stored.has_value());
+    QVERIFY(stored->pinned);
+    QCOMPARE(repository.libraryRoots().first().id, root.id);
 
     const QDateTime indexedAt = QDateTime::currentDateTimeUtc();
     QVERIFY2(repository.updateLibraryRootLastIndexedAt(root.id, indexedAt), qPrintable(repository.lastError()));
@@ -285,6 +628,9 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
 
     QCOMPARE(repository.libraryRoots().size(), 1);
+    QVERIFY(!repository.libraryRoots().first().pinned);
+    QVERIFY2(repository.setLibraryRootPinned(QStringLiteral("dir:test"), true), qPrintable(repository.lastError()));
+    QCOMPARE(repository.libraryRoots().first().pinned, true);
     const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
     QVERIFY(legacy.has_value());
 
@@ -295,6 +641,14 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     resource.location = QStringLiteral("anchored.md");
     resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Deep Link"), 7}};
     QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = QStringLiteral("legacy");
+    relation.targetResourceId = resource.id;
+    relation.label = QStringLiteral("relates");
+    relation.note = QStringLiteral("upgrade path");
+    QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
+    QCOMPARE(repository.resourceRelations(QStringLiteral("legacy")).size(), 1);
 
     const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("deep")});
     QCOMPARE(results.size(), 1);

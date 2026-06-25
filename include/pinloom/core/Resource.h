@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/Anchor.h"
+#include "pinloom/core/ResourceRelation.h"
 
 #include <QDateTime>
 #include <QString>
@@ -28,6 +29,8 @@ struct Resource {
     QStringList tags;
     QStringList aliases;
     QList<Anchor> anchors;
+    QList<ResourceRelation> relations;
+    QString content;
     QDateTime updatedAt;
 };
 

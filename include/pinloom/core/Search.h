@@ -11,6 +11,10 @@ namespace Pinloom {
 struct SearchQuery {
     QString text;
     QStringList requiredTags;
+    QStringList requiredLocationPrefixes;
+    QList<ResourceKind> requiredKinds;
+    QStringList contextTags;
+    QStringList contextLocationPrefixes;
     int limit = 50;
 };
 
