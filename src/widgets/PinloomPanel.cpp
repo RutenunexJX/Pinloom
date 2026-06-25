@@ -513,6 +513,19 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     return openTargetForItem(resultList_->currentItem(), resultList_->currentRow());
 }
 
+PinloomOpenTarget PinloomPanel::openTargetForResourceId(const QString &resourceId) const
+{
+    if (resourceId.isEmpty()) {
+        return {};
+    }
+
+    const std::optional<Resource> resource = repository_.findResource(resourceId);
+    if (!resource.has_value()) {
+        return {};
+    }
+    return openTargetForResource(resource.value());
+}
+
 PinloomOpenTarget PinloomPanel::resultAt(int row) const
 {
     if (row < 0 || row >= resultList_->count()) {

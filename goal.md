@@ -123,6 +123,7 @@ Completed:
 - Let embedding hosts add aliases and manual anchors by resource id without driving result-list selection.
 - Let embedding hosts pin and unpin resources by id without driving result-list selection.
 - Let embedding hosts create, update, and remove resource relations by id without driving result-list selection.
+- Let embedding hosts inspect open-target payloads by resource id without driving search or result-list selection.
 - Let embedding hosts inspect related targets by resource id without driving result-list selection.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.

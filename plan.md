@@ -179,6 +179,7 @@ Status:
 - Host-selectable embedded chrome options: done.
 - Host current-open-target query and change notification APIs for previews/status surfaces: done.
 - Host current result target list snapshot API: done.
+- Host resource-id-based open-target query API: done.
 - Host current-related-target query API for previews/status surfaces: done.
 - Host resource-id-based related-target query API: done.
 - Host-triggered result count and selection navigation APIs: done.

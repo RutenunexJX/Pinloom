@@ -1168,6 +1168,16 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
+    const PinloomOpenTarget directTarget = panel.openTargetForResourceId(resource.id);
+    QCOMPARE(directTarget.resourceId, resource.id);
+    QCOMPARE(directTarget.resourceKind, resource.kind);
+    QCOMPARE(directTarget.title, resource.title);
+    QCOMPARE(directTarget.location, resource.location);
+    QCOMPARE(directTarget.resultRow, -1);
+    QVERIFY(!directTarget.anchor.has_value());
+    QVERIFY(panel.openTargetForResourceId(QStringLiteral("missing")).resourceId.isEmpty());
+    QVERIFY(panel.openTargetForResourceId(QString()).resourceId.isEmpty());
+
     QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
     QCOMPARE(panel.currentOpenTarget().resultRow, -1);
     QCOMPARE(panel.resultAt(0).resourceId, resource.id);
