@@ -157,6 +157,7 @@ Completed:
 - Add compile_commands.json line anchors and `compiles` relations from compilation databases to indexed source files.
 - Add dependency/import line anchors for common engineering languages.
 - Support Go import block and JS/TS dynamic import dependency anchors.
+- Add shell, PowerShell, and batch script code classification, function/label anchors, and script dependency line anchors.
 - Extract TODO/FIXME/NOTE comment line anchors for engineering source files.
 - Rank exact symbol and filename matches ahead of broad path matches.
 

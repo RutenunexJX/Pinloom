@@ -305,7 +305,15 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
             QStringLiteral("svh"),
             QStringLiteral("v"),
             QStringLiteral("vh"),
-            QStringLiteral("tcl")
+            QStringLiteral("tcl"),
+            QStringLiteral("sh"),
+            QStringLiteral("bash"),
+            QStringLiteral("zsh"),
+            QStringLiteral("fish"),
+            QStringLiteral("ps1"),
+            QStringLiteral("psm1"),
+            QStringLiteral("bat"),
+            QStringLiteral("cmd")
         }.contains(suffix)) {
         return ResourceKind::CodeSnippet;
     }
@@ -2702,6 +2710,14 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
         QStringLiteral("^import\\s+(?:static\\s+)?([^;]+);"));
     static const QRegularExpression csharpUsingPattern(
         QStringLiteral("^using\\s+([^;=]+);"));
+    static const QRegularExpression shellSourcePattern(
+        QStringLiteral("^(?:source|\\.)\\s+([^\\s#;]+)"));
+    static const QRegularExpression powershellImportModulePattern(
+        QStringLiteral("^Import-Module\\s+([^\\s#;]+)"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression batchCallPattern(
+        QStringLiteral("^call\\s+([^\\s&|]+)"),
+        QRegularExpression::CaseInsensitiveOption);
 
     struct DependencyPattern {
         const QRegularExpression *pattern;
@@ -2719,7 +2735,10 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
              DependencyPattern{&rustUsePattern, QStringLiteral("use")},
              DependencyPattern{&goImportPattern, QStringLiteral("import")},
              DependencyPattern{&javaImportPattern, QStringLiteral("import")},
-             DependencyPattern{&csharpUsingPattern, QStringLiteral("using")}
+             DependencyPattern{&csharpUsingPattern, QStringLiteral("using")},
+             DependencyPattern{&shellSourcePattern, QStringLiteral("source")},
+             DependencyPattern{&powershellImportModulePattern, QStringLiteral("import-module")},
+             DependencyPattern{&batchCallPattern, QStringLiteral("call")}
          }) {
         const QRegularExpressionMatch match = candidate.pattern->match(trimmed);
         if (match.hasMatch()) {
@@ -4305,6 +4324,15 @@ void appendCodeSymbolsFromLine(Resource &resource, const QString &line, int line
     static const QRegularExpression hdlPattern(
         QStringLiteral("^(?:module|interface|package|class|task|function)\\s+(?:automatic\\s+)?([A-Za-z_][A-Za-z0-9_$]*)\\b"));
     static const QRegularExpression tclPattern(QStringLiteral("^proc\\s+([^\\s{]+)\\b"));
+    static const QRegularExpression shellFunctionPattern(
+        QStringLiteral("^function\\s+([A-Za-z_][A-Za-z0-9_:-]*)\\b"));
+    static const QRegularExpression shellParenFunctionPattern(
+        QStringLiteral("^([A-Za-z_][A-Za-z0-9_:-]*)\\s*\\(\\s*\\)\\s*(?:\\{|$)"));
+    static const QRegularExpression powershellFunctionPattern(
+        QStringLiteral("^function\\s+([A-Za-z_][A-Za-z0-9_-]*)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression batchLabelPattern(
+        QStringLiteral("^:([A-Za-z_][A-Za-z0-9_.-]*)\\b"));
 
     const QRegularExpressionMatch cppTestMatch = cppTestPattern.match(trimmed);
     if (cppTestMatch.hasMatch()) {
@@ -4338,7 +4366,11 @@ void appendCodeSymbolsFromLine(Resource &resource, const QString &line, int line
              &goFunctionPattern,
              &jvmDotNetTypePattern,
              &hdlPattern,
-             &tclPattern
+             &tclPattern,
+             &shellFunctionPattern,
+             &shellParenFunctionPattern,
+             &powershellFunctionPattern,
+             &batchLabelPattern
          }) {
         const QRegularExpressionMatch match = pattern->match(trimmed);
         if (match.hasMatch()) {

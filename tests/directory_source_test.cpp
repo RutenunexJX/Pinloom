@@ -1857,6 +1857,20 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
               QByteArray("public sealed class DockHost {\n"
                          "    public void AttachDock() {}\n"
                          "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/deploy.sh")),
+              QByteArray("build_pinloom() {\n"
+                         "  echo dock\n"
+                         "}\n"
+                         "function deploy_host {\n"
+                         "  echo host\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/Bootstrap.ps1")),
+              QByteArray("Function Invoke-PinloomDock {\n"
+                         "  Write-Output dock\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/setup.cmd")),
+              QByteArray(":prepare_dock\n"
+                         "echo ready\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -1896,6 +1910,19 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     QVERIFY(hasSymbol(*csharpIt, QStringLiteral("DockHost"), 1));
     QVERIFY(hasSymbol(*csharpIt, QStringLiteral("AttachDock"), 2));
 
+    const auto shellIt = findCode(QStringLiteral("deploy.sh"));
+    QVERIFY(shellIt != resources.cend());
+    QVERIFY(hasSymbol(*shellIt, QStringLiteral("build_pinloom"), 1));
+    QVERIFY(hasSymbol(*shellIt, QStringLiteral("deploy_host"), 4));
+
+    const auto powershellIt = findCode(QStringLiteral("Bootstrap.ps1"));
+    QVERIFY(powershellIt != resources.cend());
+    QVERIFY(hasSymbol(*powershellIt, QStringLiteral("Invoke-PinloomDock"), 1));
+
+    const auto batchIt = findCode(QStringLiteral("setup.cmd"));
+    QVERIFY(batchIt != resources.cend());
+    QVERIFY(hasSymbol(*batchIt, QStringLiteral("prepare_dock"), 1));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -1915,6 +1942,18 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     QCOMPARE(goResults.first().resource.kind, ResourceKind::CodeSnippet);
     QVERIFY(goResults.first().matchedAnchor.has_value());
     QCOMPARE(goResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+
+    const QList<SearchResult> powershellResults = repository.search(SearchQuery{QStringLiteral("Invoke-PinloomDock")});
+    QCOMPARE(powershellResults.size(), 1);
+    QCOMPARE(powershellResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(powershellResults.first().matchedAnchor.has_value());
+    QCOMPARE(powershellResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+
+    const QList<SearchResult> batchResults = repository.search(SearchQuery{QStringLiteral("prepare_dock")});
+    QCOMPARE(batchResults.size(), 1);
+    QCOMPARE(batchResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(batchResults.first().matchedAnchor.has_value());
+    QCOMPARE(batchResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
 }
 
 void DirectorySourceTest::extractsCodeTestCaseAnchors()
@@ -2021,6 +2060,14 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     writeFile(dir.filePath(QStringLiteral("library/src/DockHost.cs")),
               QByteArray("using ZeroSlack.Dock;\n"
                          "public sealed class DockHost {}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/deploy.sh")),
+              QByteArray(". ./env.sh\n"
+                         "source scripts/build-env.sh\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/Bootstrap.ps1")),
+              QByteArray("Import-Module ZeroSlack.Dock\n"
+                         ". .\\common.ps1\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/setup.bat")),
+              QByteArray("call scripts\\prepare.cmd\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -2072,6 +2119,20 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     QVERIFY(csharpIt != resources.cend());
     QVERIFY(hasLineAnchor(*csharpIt, QStringLiteral("using: ZeroSlack.Dock"), 1));
 
+    const auto shellIt = findCode(QStringLiteral("deploy.sh"));
+    QVERIFY(shellIt != resources.cend());
+    QVERIFY(hasLineAnchor(*shellIt, QStringLiteral("source: ./env.sh"), 1));
+    QVERIFY(hasLineAnchor(*shellIt, QStringLiteral("source: scripts/build-env.sh"), 2));
+
+    const auto powershellIt = findCode(QStringLiteral("Bootstrap.ps1"));
+    QVERIFY(powershellIt != resources.cend());
+    QVERIFY(hasLineAnchor(*powershellIt, QStringLiteral("import-module: ZeroSlack.Dock"), 1));
+    QVERIFY(hasLineAnchor(*powershellIt, QStringLiteral("source: .\\common.ps1"), 2));
+
+    const auto batchIt = findCode(QStringLiteral("setup.bat"));
+    QVERIFY(batchIt != resources.cend());
+    QVERIFY(hasLineAnchor(*batchIt, QStringLiteral("call: scripts\\prepare.cmd"), 1));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -2095,6 +2156,21 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("require: @zeroslack/dock");
     }));
+
+    const QList<SearchResult> importModuleResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack.Dock")});
+    QVERIFY(std::any_of(importModuleResults.cbegin(), importModuleResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Bootstrap.ps1")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("import-module: ZeroSlack.Dock");
+    }));
+
+    const QList<SearchResult> batchCallResults = repository.search(SearchQuery{QStringLiteral("prepare.cmd")});
+    QCOMPARE(batchCallResults.size(), 1);
+    QCOMPARE(batchCallResults.first().resource.title, QStringLiteral("setup.bat"));
+    QVERIFY(batchCallResults.first().matchedAnchor.has_value());
+    QCOMPARE(batchCallResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(batchCallResults.first().matchedAnchor->target, QStringLiteral("call: scripts\\prepare.cmd"));
 }
 
 void DirectorySourceTest::extractsCMakeBuildAnchors()
