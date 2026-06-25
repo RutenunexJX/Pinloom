@@ -326,7 +326,13 @@ bool isPlainTextUrlListCandidate(const QFileInfo &fileInfo)
         QStringLiteral("log"),
         QStringLiteral("list"),
         QStringLiteral("links"),
-        QStringLiteral("urls")
+        QStringLiteral("urls"),
+        QStringLiteral("yaml"),
+        QStringLiteral("yml"),
+        QStringLiteral("toml"),
+        QStringLiteral("ini"),
+        QStringLiteral("cfg"),
+        QStringLiteral("conf")
     }.contains(suffix);
 }
 
@@ -1879,7 +1885,7 @@ QString titleFromTextBeforeUrl(QString linePrefix)
         linePrefix = linePrefix.mid(1).trimmed();
     }
 
-    static const QRegularExpression trailingSeparatorPattern(QStringLiteral("[\\s:=-]+$"));
+    static const QRegularExpression trailingSeparatorPattern(QStringLiteral("(?:[\\s:=-]+|[\"'<]+)+$"));
     linePrefix.remove(trailingSeparatorPattern);
     return collapsedWhitespace(linePrefix);
 }

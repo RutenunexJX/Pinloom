@@ -45,6 +45,7 @@ private slots:
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
     void extractsJsonUrlResources();
+    void extractsStructuredTextUrlResources();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
     void extractsBookmarkExportLinks();
@@ -2313,6 +2314,124 @@ void DirectorySourceTest::extractsJsonUrlResources()
     QCOMPARE(hostRelations.size(), 1);
     QCOMPARE(hostRelations.first().sourceResourceId, referencesIt->id);
     QCOMPARE(hostRelations.first().targetResourceId, hostIt->id);
+}
+
+void DirectorySourceTest::extractsStructuredTextUrlResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/config")));
+    writeFile(dir.filePath(QStringLiteral("library/config/workspace.yml")),
+              QByteArray("pinloom:\n"
+                         "  docs_url: https://docs.example.com/pinloom/workspace#roots\n"
+                         "  support:\n"
+                         "    - https://status.example.com/zeroslack\n"
+                         "  local: file://ignored\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/settings.toml")),
+              QByteArray("[links]\n"
+                         "handoff = \"https://docs.example.com/pinloom/handoff#dock\"\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto workspaceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("workspace.yml");
+    });
+    QVERIFY(workspaceIt != resources.cend());
+    QVERIFY(std::any_of(workspaceIt->anchors.cbegin(), workspaceIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: docs_url -> https://docs.example.com/pinloom/workspace#roots")
+            && anchor.line == 2;
+    }));
+    QVERIFY(std::any_of(workspaceIt->anchors.cbegin(), workspaceIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: status.example.com -> https://status.example.com/zeroslack")
+            && anchor.line == 4;
+    }));
+    QVERIFY(std::none_of(workspaceIt->anchors.cbegin(), workspaceIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.contains(QStringLiteral("file://ignored"));
+    }));
+
+    auto workspaceDocsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/workspace#roots");
+    });
+    QVERIFY(workspaceDocsIt != resources.cend());
+    QCOMPARE(workspaceDocsIt->title, QStringLiteral("docs_url"));
+    QVERIFY(workspaceDocsIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(workspaceDocsIt->tags.contains(QStringLiteral("web-link")));
+    QVERIFY(workspaceDocsIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(workspaceDocsIt->aliases.contains(QStringLiteral("workspace")));
+    QCOMPARE(workspaceDocsIt->anchors.size(), 1);
+    QCOMPARE(workspaceDocsIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(workspaceDocsIt->anchors.first().target, QStringLiteral("roots"));
+
+    auto settingsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("settings.toml");
+    });
+    QVERIFY(settingsIt != resources.cend());
+    QVERIFY(std::any_of(settingsIt->anchors.cbegin(), settingsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: handoff -> https://docs.example.com/pinloom/handoff#dock")
+            && anchor.line == 2;
+    }));
+
+    auto handoffIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/handoff#dock");
+    });
+    QVERIFY(handoffIt != resources.cend());
+    QCOMPARE(handoffIt->title, QStringLiteral("handoff"));
+    QVERIFY(handoffIt->aliases.contains(QStringLiteral("settings")));
+    QCOMPARE(handoffIt->anchors.size(), 1);
+    QCOMPARE(handoffIt->anchors.first().target, QStringLiteral("dock"));
+
+    QCOMPARE(workspaceIt->relations.size(), 2);
+    QVERIFY(std::any_of(workspaceIt->relations.cbegin(), workspaceIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == workspaceIt->id
+            && relation.targetResourceId == workspaceDocsIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 2: url: docs_url -> https://docs.example.com/pinloom/workspace#roots");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("roots")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("docs_url")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("roots");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("handoff")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("settings.toml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2
+            && result.matchedAnchor->target == QLatin1String("url: handoff -> https://docs.example.com/pinloom/handoff#dock");
+    }));
+
+    const QList<ResourceRelation> handoffRelations = repository.resourceRelations(handoffIt->id);
+    QCOMPARE(handoffRelations.size(), 1);
+    QCOMPARE(handoffRelations.first().sourceResourceId, settingsIt->id);
+    QCOMPARE(handoffRelations.first().targetResourceId, handoffIt->id);
 }
 
 void DirectorySourceTest::extractsTabularUrlResources()

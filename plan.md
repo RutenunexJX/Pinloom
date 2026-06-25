@@ -343,10 +343,11 @@ Status:
 - Sitemap XML URL indexing as individual URL resources: done.
 - Plain-text URL list indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - JSON/JSONL URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
+- YAML/TOML/INI/config URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
-- Broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, and CSV/TSV URL columns: deferred.
+- Broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
 - Richer source-code parsing: deferred until lightweight symbols prove insufficient.

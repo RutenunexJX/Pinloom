@@ -219,11 +219,12 @@ Completed:
 - Index plain-text URL list files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source list.
 - Index CSV/TSV URL columns as individual URL resources with host aliases, table aliases, category/tag aliases, fragment anchors, source row anchors, and `links-to` relations back to the source table.
 - Index JSON/JSONL URL strings as individual URL resources with path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
+- Index YAML/TOML/INI/config URL strings as individual URL resources with fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
 - Index small plain-text, log, config, manifest, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
 
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, and CSV/TSV URL columns.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Add richer source-code parsing if lightweight symbol extraction becomes too noisy.
