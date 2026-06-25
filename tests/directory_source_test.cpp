@@ -4162,6 +4162,24 @@ void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto bookmarksIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("Bookmarks");
+    });
+    QVERIFY(bookmarksIt != resources.cend());
+    QVERIFY(bookmarksIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(bookmarksIt->tags.contains(QStringLiteral("browser-bookmark")));
+    QVERIFY(std::any_of(bookmarksIt->anchors.cbegin(), bookmarksIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Timing Closure -> https://fpga.example.com/timing#slack")
+            && anchor.line == 9;
+    }));
+    QVERIFY(std::any_of(bookmarksIt->anchors.cbegin(), bookmarksIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock")
+            && anchor.line == 17;
+    }));
+
     auto timingIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.title == QLatin1String("Timing Closure")
@@ -4175,6 +4193,27 @@ void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
     QVERIFY(timingIt->aliases.contains(QStringLiteral("Bookmarks Bar / FPGA")));
     QVERIFY(std::any_of(timingIt->anchors.cbegin(), timingIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("slack");
+    }));
+
+    auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom Host API")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#dock");
+    });
+    QVERIFY(hostIt != resources.cend());
+
+    QCOMPARE(bookmarksIt->relations.size(), 2);
+    QVERIFY(std::any_of(bookmarksIt->relations.cbegin(), bookmarksIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == bookmarksIt->id
+            && relation.targetResourceId == timingIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("browser bookmark line 9: url: Timing Closure -> https://fpga.example.com/timing#slack");
+    }));
+    QVERIFY(std::any_of(bookmarksIt->relations.cbegin(), bookmarksIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == bookmarksIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("browser bookmark line 17: url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
     }));
 
     SqliteLibraryRepository repository;
@@ -4197,6 +4236,29 @@ void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("dock");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Host API")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("Bookmarks")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 17
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
+    }));
+
+    const QList<ResourceRelation> bookmarkRelations = repository.resourceRelations(bookmarksIt->id);
+    QCOMPARE(bookmarkRelations.size(), 2);
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == bookmarksIt->id
+            && relation.targetResourceId == timingIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == bookmarksIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to");
     }));
 }
 

@@ -135,8 +135,10 @@ struct CompileCommandEntry {
 
 struct BrowserBookmarkLink {
     QUrl url;
+    QString rawUrl;
     QString title;
     QStringList folderPath;
+    int lineNumber = -1;
 };
 
 struct BrowserHistoryLink {
@@ -2778,13 +2780,15 @@ void appendBrowserBookmarkLinksFromNode(const QJsonObject &node,
 {
     const QString type = node.value(QStringLiteral("type")).toString();
     if (type.compare(QStringLiteral("url"), Qt::CaseInsensitive) == 0) {
-        const QUrl url = QUrl::fromUserInput(node.value(QStringLiteral("url")).toString().trimmed());
+        const QString rawUrl = node.value(QStringLiteral("url")).toString().trimmed();
+        const QUrl url = QUrl::fromUserInput(rawUrl);
         if (!isIndexableWebUrl(url)) {
             return;
         }
 
         BrowserBookmarkLink link;
         link.url = url;
+        link.rawUrl = rawUrl;
         link.title = node.value(QStringLiteral("name")).toString().trimmed();
         if (link.title.isEmpty()) {
             link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
@@ -5415,6 +5419,111 @@ void appendBookmarkExportSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<BrowserBookmarkLink> browserBookmarkLinksFromJsonFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(bytes, &parseError);
+    if (parseError.error != QJsonParseError::NoError) {
+        return {};
+    }
+
+    const QString text = QString::fromUtf8(bytes);
+    QList<BrowserBookmarkLink> links = browserBookmarkLinksFromJsonDocument(document);
+    for (BrowserBookmarkLink &link : links) {
+        link.lineNumber = lineNumberForJsonPropertyValue(text, QStringLiteral("url"), link.rawUrl);
+    }
+    return links;
+}
+
+QList<BrowserBookmarkLink> deduplicatedBrowserBookmarkLinks(const QList<BrowserBookmarkLink> &links)
+{
+    QList<BrowserBookmarkLink> deduplicated;
+    QStringList seenUrls;
+    for (const BrowserBookmarkLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+        deduplicated.append(link);
+    }
+    return deduplicated;
+}
+
+QString browserBookmarkLineAnchorTarget(const BrowserBookmarkLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> browserBookmarkResourcesFromLinks(const QFileInfo &fileInfo,
+                                                  const QList<BrowserBookmarkLink> &links)
+{
+    QList<Resource> resources;
+    for (const BrowserBookmarkLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("browser-bookmark:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("bookmark"));
+        appendUnique(resource.tags, QStringLiteral("browser-bookmark"));
+        for (const QString &folder : link.folderPath) {
+            appendUnique(resource.aliases, folder);
+        }
+        if (!link.folderPath.isEmpty()) {
+            appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendBrowserBookmarkSourceMetadata(Resource &sourceResource,
+                                         const QList<BrowserBookmarkLink> &links,
+                                         const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("bookmark"));
+        appendUnique(sourceResource.tags, QStringLiteral("browser-bookmark"));
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const BrowserBookmarkLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = browserBookmarkLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("browser bookmark line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("browser bookmark: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 bool isWarcFileCandidate(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
@@ -6475,7 +6584,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
             derivedResources.append(bookmarkResources);
         }
     } else if (isBrowserBookmarkJsonCandidate(fileInfo)) {
-        browserBookmarkResources = browserBookmarkResourcesFromJsonFile(fileInfo);
+        const QList<BrowserBookmarkLink> browserBookmarkLinks =
+            deduplicatedBrowserBookmarkLinks(browserBookmarkLinksFromJsonFile(fileInfo));
+        browserBookmarkResources = browserBookmarkResourcesFromLinks(fileInfo, browserBookmarkLinks);
+        appendBrowserBookmarkSourceMetadata(primary, browserBookmarkLinks, browserBookmarkResources);
         derivedResources.append(browserBookmarkResources);
     } else if (suffix == QLatin1String("opml")) {
         const QList<OpmlLink> opmlLinks = deduplicatedOpmlLinks(opmlLinksFromFile(fileInfo));
@@ -6601,45 +6713,9 @@ QList<Resource> DirectoryLibrarySource::bookmarkResourcesFromHtmlFile(const QFil
 
 QList<Resource> DirectoryLibrarySource::browserBookmarkResourcesFromJsonFile(const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        return {};
-    }
-
-    QJsonParseError parseError;
-    const QJsonDocument document = QJsonDocument::fromJson(file.readAll(), &parseError);
-    if (parseError.error != QJsonParseError::NoError) {
-        return {};
-    }
-
-    QList<Resource> resources;
-    QStringList seenUrls;
-    for (const BrowserBookmarkLink &link : browserBookmarkLinksFromJsonDocument(document)) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
-            continue;
-        }
-        seenUrls.append(urlKey);
-
-        Resource resource;
-        resource.id = QStringLiteral("browser-bookmark:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("bookmark"));
-        appendUnique(resource.tags, QStringLiteral("browser-bookmark"));
-        for (const QString &folder : link.folderPath) {
-            appendUnique(resource.aliases, folder);
-        }
-        if (!link.folderPath.isEmpty()) {
-            appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
-        }
-        resources.append(resource);
-    }
-    return resources;
+    return browserBookmarkResourcesFromLinks(
+        fileInfo,
+        deduplicatedBrowserBookmarkLinks(browserBookmarkLinksFromJsonFile(fileInfo)));
 }
 
 QList<Resource> DirectoryLibrarySource::opmlResourcesFromFile(const QFileInfo &fileInfo) const
