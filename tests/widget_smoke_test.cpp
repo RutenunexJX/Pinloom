@@ -181,6 +181,38 @@ void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
     QVERIFY(!panel.setLibraryRootEnabledById(QStringLiteral("missing-root"), false));
     QCOMPARE(panel.selectedLibraryRoot().id, root.id);
     QCOMPARE(statusNotifications.last(), QStringLiteral("Library folder no longer exists"));
+
+    QVERIFY(!panel.addLibraryRootPath(QString()));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("No library folder path provided"));
+
+    const QString addedPath = QStringLiteral("E:/Pinloom/host-extra");
+    const LibraryRoot addedRoot = makeLibraryRootForPath(addedPath);
+    QVERIFY(panel.addLibraryRootPath(addedPath));
+    const std::optional<LibraryRoot> storedAddedRoot = repository.findLibraryRoot(addedRoot.id);
+    QVERIFY(storedAddedRoot.has_value());
+    QCOMPARE(storedAddedRoot->path, addedRoot.path);
+    QCOMPARE(panel.selectedLibraryRoot().id, addedRoot.id);
+    QCOMPARE(rootList->count(), 3);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Added library folder"));
+    QVERIFY(std::any_of(rootSnapshots.last().cbegin(),
+                       rootSnapshots.last().cend(),
+                       [&](const PinloomLibraryRootTarget &target) {
+                           return target.id == addedRoot.id && target.path == addedRoot.path;
+                       }));
+
+    QVERIFY(panel.removeSelectedLibraryRoot());
+    QVERIFY(!repository.findLibraryRoot(addedRoot.id).has_value());
+    QCOMPARE(rootList->count(), 2);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Removed library folder; indexed resources were kept"));
+    const QList<PinloomLibraryRootTarget> rootsAfterRemove = panel.libraryRoots();
+    QVERIFY(std::none_of(rootsAfterRemove.cbegin(),
+                        rootsAfterRemove.cend(),
+                        [&](const PinloomLibraryRootTarget &target) {
+                            return target.id == addedRoot.id;
+                        }));
+
+    QVERIFY(!panel.removeLibraryRootById(QStringLiteral("missing-root")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Library folder no longer exists"));
     QVERIFY(!fetchWebCheck->isChecked());
     QVERIFY(!panel.remoteWebFetchingEnabled());
 

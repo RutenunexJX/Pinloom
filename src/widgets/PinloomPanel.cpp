@@ -907,6 +907,54 @@ bool PinloomPanel::setLibraryRootEnabledById(const QString &id, bool enabled)
     return true;
 }
 
+bool PinloomPanel::addLibraryRootPath(const QString &path)
+{
+    if (path.trimmed().isEmpty()) {
+        updateStatus(tr("No library folder path provided"));
+        return false;
+    }
+
+    const LibraryRoot root = makeLibraryRootForPath(path);
+    if (!repository_.upsertLibraryRoot(root)) {
+        updateStatus(tr("Unable to save library folder"));
+        return false;
+    }
+
+    loadLibraryRoots();
+    selectLibraryRootById(root.id);
+    updateStatus(tr("Added library folder"));
+    return true;
+}
+
+bool PinloomPanel::removeSelectedLibraryRoot()
+{
+    return removeLibraryRootById(selectedRootId());
+}
+
+bool PinloomPanel::removeLibraryRootById(const QString &id)
+{
+    if (id.isEmpty()) {
+        updateStatus(tr("No library folder selected"));
+        return false;
+    }
+
+    if (!repository_.findLibraryRoot(id).has_value()) {
+        loadLibraryRoots();
+        updateStatus(tr("Library folder no longer exists"));
+        return false;
+    }
+
+    if (!repository_.removeLibraryRoot(id)) {
+        updateStatus(tr("Unable to remove library folder"));
+        return false;
+    }
+
+    loadLibraryRoots();
+    refreshResults();
+    updateStatus(tr("Removed library folder; indexed resources were kept"));
+    return true;
+}
+
 void PinloomPanel::addLibraryRoot()
 {
     const QString path = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
@@ -914,32 +962,12 @@ void PinloomPanel::addLibraryRoot()
         return;
     }
 
-    const LibraryRoot root = makeLibraryRootForPath(path);
-    if (!repository_.upsertLibraryRoot(root)) {
+    if (!addLibraryRootPath(path)) {
         QMessageBox::warning(this, tr("Add folder failed"), tr("Unable to save library folder."));
         return;
     }
 
-    loadLibraryRoots();
-    selectLibraryRootById(root.id);
     refreshSelectedRoot();
-}
-
-void PinloomPanel::removeSelectedLibraryRoot()
-{
-    const QString id = selectedRootId();
-    if (id.isEmpty()) {
-        updateStatus(tr("No library folder selected"));
-        return;
-    }
-
-    if (!repository_.removeLibraryRoot(id)) {
-        updateStatus(tr("Unable to remove library folder"));
-        return;
-    }
-
-    loadLibraryRoots();
-    updateStatus(tr("Removed library folder; indexed resources were kept"));
 }
 
 void PinloomPanel::refreshSelectedRoot()

@@ -132,6 +132,9 @@ public:
     PinloomIndexingResult indexSelectedLibraryRoot();
     PinloomIndexingResult indexAllEnabledLibraryRoots();
     PinloomIndexingResult rebuildAllEnabledLibraryRoots();
+    bool addLibraryRootPath(const QString &path);
+    bool removeSelectedLibraryRoot();
+    bool removeLibraryRootById(const QString &id);
     bool addAliasToSelectedResource(const QString &alias);
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
@@ -142,7 +145,6 @@ public:
 
 private slots:
     void addLibraryRoot();
-    void removeSelectedLibraryRoot();
     void refreshSelectedRoot();
     void refreshAllRoots();
     void rebuildAllRoots();
