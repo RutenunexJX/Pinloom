@@ -117,6 +117,10 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         return false;
     }
 
+    if (fileInfo.fileName().compare(QStringLiteral("go.mod"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+
     const QString suffix = fileInfo.suffix().toLower();
     return QStringList{
         QStringLiteral("txt"),
@@ -1710,6 +1714,140 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource, const QString 
     }
 }
 
+struct ManifestDependencyState {
+    bool inPackageJsonDependencySection = false;
+    bool inCargoDependencySection = false;
+    bool inGoRequireBlock = false;
+};
+
+bool isPackageJsonDependencySection(const QString &name)
+{
+    return name == QLatin1String("dependencies")
+        || name == QLatin1String("devDependencies")
+        || name == QLatin1String("peerDependencies")
+        || name == QLatin1String("optionalDependencies");
+}
+
+bool isCargoDependencySection(const QString &name)
+{
+    return name == QLatin1String("dependencies")
+        || name == QLatin1String("dev-dependencies")
+        || name == QLatin1String("build-dependencies")
+        || name.endsWith(QLatin1String(".dependencies"))
+        || name.endsWith(QLatin1String(".dev-dependencies"))
+        || name.endsWith(QLatin1String(".build-dependencies"));
+}
+
+bool isRequirementsFile(const QFileInfo &fileInfo)
+{
+    return fileInfo.suffix().compare(QStringLiteral("txt"), Qt::CaseInsensitive) == 0
+        && fileInfo.completeBaseName().startsWith(QStringLiteral("requirements"), Qt::CaseInsensitive);
+}
+
+void appendManifestDependencyAnchorsFromLine(Resource &resource,
+                                             const QFileInfo &fileInfo,
+                                             const QString &line,
+                                             int lineNumber,
+                                             ManifestDependencyState &state)
+{
+    const QString fileName = fileInfo.fileName().toLower();
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    if (fileName == QLatin1String("package.json")) {
+        static const QRegularExpression sectionPattern(QStringLiteral("^\"([^\"]+)\"\\s*:\\s*\\{"));
+        static const QRegularExpression dependencyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:"));
+
+        const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
+        if (sectionMatch.hasMatch()) {
+            state.inPackageJsonDependencySection = isPackageJsonDependencySection(sectionMatch.captured(1));
+            return;
+        }
+        if (state.inPackageJsonDependencySection) {
+            if (trimmed.startsWith(QLatin1Char('}'))) {
+                state.inPackageJsonDependencySection = false;
+                return;
+            }
+            const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
+            if (dependencyMatch.hasMatch()) {
+                appendFileLineAnchor(resource,
+                                     QStringLiteral("dependency: %1").arg(dependencyMatch.captured(1).trimmed()),
+                                     lineNumber);
+            }
+        }
+        return;
+    }
+
+    if (fileName == QLatin1String("cargo.toml")) {
+        static const QRegularExpression sectionPattern(QStringLiteral("^\\[([^\\]]+)\\]$"));
+        static const QRegularExpression dependencyPattern(QStringLiteral("^(?:\"([^\"]+)\"|([A-Za-z0-9_.-]+))\\s*="));
+
+        const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
+        if (sectionMatch.hasMatch()) {
+            state.inCargoDependencySection = isCargoDependencySection(sectionMatch.captured(1));
+            return;
+        }
+        if (state.inCargoDependencySection) {
+            const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
+            if (dependencyMatch.hasMatch()) {
+                const QString dependency = dependencyMatch.captured(1).isEmpty()
+                    ? dependencyMatch.captured(2)
+                    : dependencyMatch.captured(1);
+                appendFileLineAnchor(resource,
+                                     QStringLiteral("dependency: %1").arg(dependency.trimmed()),
+                                     lineNumber);
+            }
+        }
+        return;
+    }
+
+    if (fileName == QLatin1String("go.mod")) {
+        static const QRegularExpression singleRequirePattern(QStringLiteral("^require\\s+([^\\s]+)\\s+v\\S+"));
+        static const QRegularExpression blockDependencyPattern(QStringLiteral("^([^\\s]+)\\s+v\\S+"));
+
+        if (trimmed == QLatin1String("require (")) {
+            state.inGoRequireBlock = true;
+            return;
+        }
+        if (state.inGoRequireBlock) {
+            if (trimmed.startsWith(QLatin1Char(')'))) {
+                state.inGoRequireBlock = false;
+                return;
+            }
+            const QRegularExpressionMatch dependencyMatch = blockDependencyPattern.match(trimmed);
+            if (dependencyMatch.hasMatch()) {
+                appendFileLineAnchor(resource,
+                                     QStringLiteral("dependency: %1").arg(dependencyMatch.captured(1).trimmed()),
+                                     lineNumber);
+            }
+            return;
+        }
+
+        const QRegularExpressionMatch requireMatch = singleRequirePattern.match(trimmed);
+        if (requireMatch.hasMatch()) {
+            appendFileLineAnchor(resource,
+                                 QStringLiteral("dependency: %1").arg(requireMatch.captured(1).trimmed()),
+                                 lineNumber);
+        }
+        return;
+    }
+
+    if (isRequirementsFile(fileInfo)) {
+        static const QRegularExpression requirementPattern(QStringLiteral("^([A-Za-z0-9_.-]+)(?:\\[[^\\]]+\\])?\\s*(?:[<>=!~]=|===|@|;|$)"));
+        if (trimmed.startsWith(QLatin1Char('-'))) {
+            return;
+        }
+        const QRegularExpressionMatch requirementMatch = requirementPattern.match(trimmed);
+        if (requirementMatch.hasMatch()) {
+            appendFileLineAnchor(resource,
+                                 QStringLiteral("dependency: %1").arg(requirementMatch.captured(1).trimmed()),
+                                 lineNumber);
+        }
+    }
+}
+
 QString normalizedDelimitedCell(QString cell)
 {
     cell = cell.trimmed();
@@ -2385,12 +2523,14 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool structured = isStructuredPlainTextFile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
+    ManifestDependencyState manifestDependencyState;
     int lineNumber = 0;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
         ++lineNumber;
         contentLines.append(line);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
+        appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
         if (structured) {
             appendStructuredPlainTextAnchorsFromLine(resource, line, lineNumber);
         }

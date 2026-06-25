@@ -18,6 +18,7 @@ private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
     void extractsStructuredPlainTextLineAnchors();
+    void extractsManifestDependencyLineAnchors();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsObsidianAliasesTagsAndWikilinks();
     void extractsMarkdownBodyContent();
@@ -272,6 +273,113 @@ void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 1;
+    }));
+}
+
+void DirectorySourceTest::extractsManifestDependencyLineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/package.json")),
+              QByteArray("{\n"
+                         "  \"dependencies\": {\n"
+                         "    \"react\": \"^18.2.0\",\n"
+                         "    \"@zeroslack/dock\": \"workspace:*\"\n"
+                         "  },\n"
+                         "  \"devDependencies\": {\n"
+                         "    \"vite\": \"^5.0.0\"\n"
+                         "  }\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/Cargo.toml")),
+              QByteArray("[dependencies]\n"
+                         "serde = \"1\"\n"
+                         "tokio = { version = \"1\", features = [\"rt\"] }\n"));
+    writeFile(dir.filePath(QStringLiteral("library/go.mod")),
+              QByteArray("module example.com/pinloom\n"
+                         "require (\n"
+                         "    github.com/pkg/errors v0.9.1\n"
+                         "    golang.org/x/net v0.22.0\n"
+                         ")\n"
+                         "require github.com/stretchr/testify v1.8.4\n"));
+    writeFile(dir.filePath(QStringLiteral("library/requirements-dev.txt")),
+              QByteArray("pinloom-sdk>=1.2\n"
+                         "PySide6==6.10.2\n"
+                         "-r base.txt\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasDependency = [](const Resource &resource, const QString &dependency, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == QStringLiteral("dependency: %1").arg(dependency)
+                && anchor.line == line;
+        });
+    };
+
+    const auto packageIt = findFile(QStringLiteral("package.json"));
+    QVERIFY(packageIt != resources.cend());
+    QVERIFY(hasDependency(*packageIt, QStringLiteral("react"), 3));
+    QVERIFY(hasDependency(*packageIt, QStringLiteral("@zeroslack/dock"), 4));
+    QVERIFY(hasDependency(*packageIt, QStringLiteral("vite"), 7));
+
+    const auto cargoIt = findFile(QStringLiteral("Cargo.toml"));
+    QVERIFY(cargoIt != resources.cend());
+    QVERIFY(hasDependency(*cargoIt, QStringLiteral("serde"), 2));
+    QVERIFY(hasDependency(*cargoIt, QStringLiteral("tokio"), 3));
+
+    const auto goIt = findFile(QStringLiteral("go.mod"));
+    QVERIFY(goIt != resources.cend());
+    QVERIFY(hasDependency(*goIt, QStringLiteral("github.com/pkg/errors"), 3));
+    QVERIFY(hasDependency(*goIt, QStringLiteral("golang.org/x/net"), 4));
+    QVERIFY(hasDependency(*goIt, QStringLiteral("github.com/stretchr/testify"), 6));
+
+    const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
+    QVERIFY(requirementsIt != resources.cend());
+    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
+    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("PySide6"), 2));
+    QVERIFY(!hasDependency(*requirementsIt, QStringLiteral("base.txt"), 3));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> reactResults = repository.search(SearchQuery{QStringLiteral("react")});
+    QVERIFY(std::any_of(reactResults.cbegin(), reactResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("package.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("dependency: react");
+    }));
+
+    const QList<SearchResult> tokioResults = repository.search(SearchQuery{QStringLiteral("tokio")});
+    QVERIFY(std::any_of(tokioResults.cbegin(), tokioResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Cargo.toml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("dependency: tokio");
+    }));
+
+    const QList<SearchResult> goResults = repository.search(SearchQuery{QStringLiteral("testify")});
+    QVERIFY(std::any_of(goResults.cbegin(), goResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("go.mod")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("dependency: github.com/stretchr/testify");
     }));
 }
 

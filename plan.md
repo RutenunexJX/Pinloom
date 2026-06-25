@@ -318,7 +318,7 @@ Status:
 - Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
 - OPML subscription/link list indexing as individual URL resources: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
-- Small plain-text/log/config/tabular file content indexing with TODO/FIXME/NOTE, config key/section, and CSV/TSV column line anchors: done.
+- Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section, package dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond shortcuts, browser bookmark files, and OPML: deferred.
