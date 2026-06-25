@@ -249,6 +249,7 @@ Completed:
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases and fragment anchors.
 - Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, and fragment anchors.
 - Index sitemap XML URLs as individual URL resources with searchable sitemap tags and fragment anchors.
+- Index `robots.txt` Sitemap directives as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
 - Index HAR/http archive entries as individual URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file.
 - Index WARC response records as individual URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
 - Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
@@ -262,5 +263,5 @@ Completed:
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/history/places with bookmark metadata, OPML, feeds, sitemaps, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Add richer source-code parsing if lightweight symbol extraction becomes too noisy.

@@ -523,6 +523,13 @@ bool isPlainTextUrlListCandidate(const QFileInfo &fileInfo)
     }.contains(suffix);
 }
 
+bool isRobotsTxtCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 512 * 1024
+        && fileInfo.fileName().compare(QStringLiteral("robots.txt"), Qt::CaseInsensitive) == 0;
+}
+
 bool isFeedXmlCandidate(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 4 * 1024 * 1024) {
@@ -2679,6 +2686,67 @@ QList<TextUrlLink> textUrlLinksFromFile(const QFileInfo &fileInfo)
     }
 
     return textUrlLinksFromDocument(QString::fromUtf8(bytes));
+}
+
+QList<TextUrlLink> robotsSitemapLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (!isRobotsTxtCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    QList<TextUrlLink> links;
+    QStringList seenUrls;
+    static const QRegularExpression sitemapPattern(
+        QStringLiteral("^\\s*Sitemap\\s*:\\s*(\\S.*)\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression whitespacePattern(QStringLiteral("\\s+"));
+
+    int lineNumber = 0;
+    for (const QString &line : QString::fromUtf8(bytes).split(QLatin1Char('\n'))) {
+        ++lineNumber;
+        const QRegularExpressionMatch match = sitemapPattern.match(line);
+        if (!match.hasMatch()) {
+            continue;
+        }
+
+        const QStringList urlParts = match.captured(1).trimmed().split(whitespacePattern, Qt::SkipEmptyParts);
+        if (urlParts.isEmpty()) {
+            continue;
+        }
+
+        const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(urlParts.first()));
+        if (!isIndexableWebUrl(url)) {
+            continue;
+        }
+
+        const QString urlKey = url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+
+        TextUrlLink link;
+        link.url = url;
+        link.title = url.path().isEmpty() || url.path() == QLatin1String("/")
+            ? url.host()
+            : url.path().section(QLatin1Char('/'), -1);
+        if (link.title.isEmpty()) {
+            link.title = url.toDisplayString();
+        }
+        link.lineNumber = lineNumber;
+        links.append(link);
+    }
+    return links;
 }
 
 bool looksLikeBookmarkExport(const QString &html)
@@ -5449,6 +5517,28 @@ QList<Resource> textUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList
     return resources;
 }
 
+QList<Resource> robotsSitemapResourcesFromLinks(const QFileInfo &fileInfo, const QList<TextUrlLink> &links)
+{
+    QList<Resource> resources;
+    for (const TextUrlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("robots-sitemap:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("robots"));
+        appendUnique(resource.tags, QStringLiteral("sitemap"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        appendUnique(resource.aliases, fileInfo.fileName());
+        resources.append(resource);
+    }
+    return resources;
+}
+
 QString textUrlLineAnchorTarget(const TextUrlLink &link)
 {
     const QString title = link.title.trimmed().isEmpty()
@@ -5477,6 +5567,35 @@ void appendPlainTextUrlSourceMetadata(Resource &sourceResource,
         relation.note = link.lineNumber > 0
             ? QStringLiteral("text line %1: %2").arg(link.lineNumber).arg(anchorTarget)
             : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
+}
+
+void appendRobotsSitemapSourceMetadata(Resource &sourceResource,
+                                       const QList<TextUrlLink> &links,
+                                       const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("robots"));
+        appendUnique(sourceResource.tags, QStringLiteral("sitemap"));
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const TextUrlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = textUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("robots line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("robots: %1").arg(anchorTarget);
         sourceResource.relations.append(relation);
     }
 }
@@ -6005,7 +6124,14 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(feedResourcesFromXmlFile(fileInfo));
         derivedResources.append(sitemapResourcesFromXmlFile(fileInfo));
     }
-    if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
+    const bool robotsTxtCandidate = primary.kind == ResourceKind::File && isRobotsTxtCandidate(fileInfo);
+    if (robotsTxtCandidate) {
+        const QList<TextUrlLink> robotsLinks = robotsSitemapLinksFromFile(fileInfo);
+        const QList<Resource> robotsResources = robotsSitemapResourcesFromLinks(fileInfo, robotsLinks);
+        appendRobotsSitemapSourceMetadata(primary, robotsLinks, robotsResources);
+        derivedResources.append(robotsResources);
+    }
+    if (primary.kind == ResourceKind::File && !robotsTxtCandidate && isPlainTextUrlListCandidate(fileInfo)) {
         const QList<TextUrlLink> textLinks = textUrlLinksFromFile(fileInfo);
         const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
         appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
