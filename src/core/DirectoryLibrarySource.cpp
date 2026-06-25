@@ -102,6 +102,42 @@ QString normalizedMarkdownReferenceId(QString id)
     return id;
 }
 
+QString decodePdfUtf16Bytes(const QByteArray &bytes, bool bigEndian, int offset)
+{
+    QString decoded;
+    for (int i = offset; i + 1 < bytes.size(); i += 2) {
+        const ushort high = static_cast<unsigned char>(bytes.at(i));
+        const ushort low = static_cast<unsigned char>(bytes.at(i + 1));
+        const ushort codeUnit = bigEndian
+            ? static_cast<ushort>((high << 8) | low)
+            : static_cast<ushort>((low << 8) | high);
+        decoded.append(QChar(codeUnit));
+    }
+    return decoded.trimmed();
+}
+
+QString decodePdfTextBytes(const QByteArray &bytes)
+{
+    if (bytes.isEmpty()) {
+        return {};
+    }
+    if (bytes.size() >= 2
+        && static_cast<unsigned char>(bytes.at(0)) == 0xfe
+        && static_cast<unsigned char>(bytes.at(1)) == 0xff) {
+        return decodePdfUtf16Bytes(bytes, true, 2);
+    }
+    if (bytes.size() >= 2
+        && static_cast<unsigned char>(bytes.at(0)) == 0xff
+        && static_cast<unsigned char>(bytes.at(1)) == 0xfe) {
+        return decodePdfUtf16Bytes(bytes, false, 2);
+    }
+
+    const QString utf8 = QString::fromUtf8(bytes);
+    return utf8.contains(QChar::ReplacementCharacter)
+        ? QString::fromLatin1(bytes).trimmed()
+        : utf8.trimmed();
+}
+
 QString normalizedPath(const QFileInfo &fileInfo)
 {
     return QDir::cleanPath(fileInfo.absoluteFilePath());
@@ -505,8 +541,8 @@ QString markdownPlainTextFromLine(QString line)
 
 QString decodePdfLiteralString(const QString &value)
 {
-    QString decoded;
-    decoded.reserve(value.size());
+    QByteArray bytes;
+    bytes.reserve(value.size());
 
     int cursor = 0;
     while (cursor < value.size()) {
@@ -526,26 +562,26 @@ QString decodePdfLiteralString(const QString &value)
                 bool ok = false;
                 const int code = octal.toInt(&ok, 8);
                 if (ok) {
-                    decoded.append(QChar(static_cast<ushort>(code)));
+                    bytes.append(static_cast<char>(code & 0xff));
                 }
                 continue;
             }
 
             switch (escaped.unicode()) {
             case 'n':
-                decoded.append(QLatin1Char('\n'));
+                bytes.append('\n');
                 break;
             case 'r':
-                decoded.append(QLatin1Char('\r'));
+                bytes.append('\r');
                 break;
             case 't':
-                decoded.append(QLatin1Char('\t'));
+                bytes.append('\t');
                 break;
             case 'b':
-                decoded.append(QLatin1Char('\b'));
+                bytes.append('\b');
                 break;
             case 'f':
-                decoded.append(QLatin1Char('\f'));
+                bytes.append('\f');
                 break;
             case '\r':
                 if (cursor < value.size() && value.at(cursor) == QLatin1Char('\n')) {
@@ -555,16 +591,16 @@ QString decodePdfLiteralString(const QString &value)
             case '\n':
                 break;
             default:
-                decoded.append(escaped);
+                bytes.append(static_cast<char>(escaped.unicode() & 0xff));
                 break;
             }
             continue;
         }
 
-        decoded.append(ch);
+        bytes.append(static_cast<char>(ch.unicode() & 0xff));
     }
 
-    return decoded.trimmed();
+    return decodePdfTextBytes(bytes);
 }
 
 QString pdfTitleFromText(const QString &text)
@@ -616,7 +652,7 @@ QString pdfTitleFromText(const QString &text)
         const int end = text.indexOf(QLatin1Char('>'), cursor + 1);
         if (end > cursor) {
             const QByteArray bytes = QByteArray::fromHex(text.mid(cursor + 1, end - cursor - 1).toLatin1());
-            return QString::fromUtf8(bytes).trimmed();
+            return decodePdfTextBytes(bytes);
         }
     }
 
@@ -1061,21 +1097,7 @@ QString decodePdfHexString(QString hex)
         hex.append(QLatin1Char('0'));
     }
 
-    const QByteArray bytes = QByteArray::fromHex(hex.toLatin1());
-    if (bytes.size() >= 2
-        && static_cast<unsigned char>(bytes.at(0)) == 0xfe
-        && static_cast<unsigned char>(bytes.at(1)) == 0xff) {
-        QString decoded;
-        for (int i = 2; i + 1 < bytes.size(); i += 2) {
-            const ushort codeUnit = static_cast<ushort>(
-                (static_cast<unsigned char>(bytes.at(i)) << 8)
-                | static_cast<unsigned char>(bytes.at(i + 1)));
-            decoded.append(QChar(codeUnit));
-        }
-        return decoded.trimmed();
-    }
-
-    return QString::fromUtf8(bytes).trimmed();
+    return decodePdfTextBytes(QByteArray::fromHex(hex.toLatin1()));
 }
 
 bool readPdfHexStringAt(const QString &text, int start, QString *value, int *end)

@@ -28,6 +28,7 @@ private slots:
     void extractsMarkdownReferenceLinkResources();
     void extractsPdfTitleAndPageAnchors();
     void extractsPdfContentText();
+    void extractsUtf16PdfContentText();
     void extractsFlateEncodedPdfContentText();
     void extractsAsciiHexEncodedPdfContentText();
     void extractsAscii85EncodedPdfContentText();
@@ -1101,6 +1102,63 @@ void DirectorySourceTest::extractsPdfContentText()
     QCOMPARE(contentResults.size(), 1);
     QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsUtf16PdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/utf16.pdf")),
+              QByteArray("%PDF-1.4\n"
+                         "1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n"
+                         "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n"
+                         "3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n"
+                         "4 0 obj << /Length 190 >>\n"
+                         "stream\n"
+                         "BT\n"
+                         "/F1 12 Tf\n"
+                         "72 720 Td\n"
+                         "<FEFF00500069006E006C006F006F006D002000550054004600310036> Tj\n"
+                         "(\\376\\377\\000Z\\000e\\000r\\000o\\000S\\000l\\000a\\000c\\000k\\000 \\000U\\000n\\000i\\000c\\000o\\000d\\000e) Tj\n"
+                         "ET\n"
+                         "endstream\n"
+                         "endobj\n"
+                         "5 0 obj << /Title <FEFF00500044004600200055006E00690063006F00640065> >> endobj\n"
+                         "trailer << /Root 1 0 R /Info 5 0 R >>\n"
+                         "%%EOF\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("utf16.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->aliases.contains(QStringLiteral("PDF Unicode")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("Pinloom UTF16")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ZeroSlack Unicode")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack Unicode")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("PDF Unicode")});
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().matchedField, QStringLiteral("alias"));
 }
 
 void DirectorySourceTest::extractsFlateEncodedPdfContentText()
