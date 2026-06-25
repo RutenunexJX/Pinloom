@@ -333,6 +333,7 @@ Status:
 - Markdown task checkbox line anchors/search: done.
 - Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.
 - Markdown external link URL resources with source line anchors and `links-to` relations: done.
+- Markdown reference-style external link URL resources with source line anchors and `links-to` relations: done.
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
 - OPML subscription/link list indexing as individual URL resources: done.

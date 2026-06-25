@@ -25,6 +25,7 @@ private slots:
     void extractsLocalMarkdownLinkAnchors();
     void extractsMarkdownTaskLineAnchors();
     void extractsMarkdownLinkResources();
+    void extractsMarkdownReferenceLinkResources();
     void extractsPdfTitleAndPageAnchors();
     void extractsPdfContentText();
     void extractsFlateEncodedPdfContentText();
@@ -913,6 +914,87 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 5
             && result.matchedAnchor->target == QLatin1String("url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
+    }));
+}
+
+void DirectorySourceTest::extractsMarkdownReferenceLinkResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+    writeFile(dir.filePath(QStringLiteral("library/runbook.md")),
+              QByteArray("# Runbook\n"
+                         "Read [Host API][pinloom-host] before wiring.\n"
+                         "Skip image references like ![Badge][badge].\n"
+                         "[pinloom-host]: https://docs.example.com/pinloom/host#context \"Host API\"\n"
+                         "[badge]: https://cdn.example.com/badge.png\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown
+            && resource.title == QLatin1String("runbook.md");
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Host API -> https://docs.example.com/pinloom/host#context")
+            && anchor.line == 2;
+    }));
+
+    auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Host API");
+    });
+    QVERIFY(hostIt != resources.cend());
+    QCOMPARE(hostIt->location, QStringLiteral("https://docs.example.com/pinloom/host#context"));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("markdown-link")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(std::any_of(hostIt->anchors.cbegin(), hostIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("context");
+    }));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("cdn.example.com"));
+    }));
+
+    QCOMPARE(markdownIt->relations.size(), 1);
+    QCOMPARE(markdownIt->relations.first().sourceResourceId, markdownIt->id);
+    QCOMPARE(markdownIt->relations.first().targetResourceId, hostIt->id);
+    QCOMPARE(markdownIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(markdownIt->relations.first().note,
+             QStringLiteral("markdown line 2: url: Host API -> https://docs.example.com/pinloom/host#context"));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("context")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Host API")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment;
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Host API")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Markdown
+            && result.resource.title == QLatin1String("runbook.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2
+            && result.matchedAnchor->target == QLatin1String("url: Host API -> https://docs.example.com/pinloom/host#context");
     }));
 }
 

@@ -42,6 +42,17 @@ struct HtmlLink {
     int lineNumber = -1;
 };
 
+struct MarkdownReferenceDefinition {
+    QUrl url;
+    int lineNumber = -1;
+};
+
+struct MarkdownReferenceUse {
+    QString id;
+    QString title;
+    int lineNumber = -1;
+};
+
 struct TextUrlLink {
     QUrl url;
     QString title;
@@ -83,6 +94,13 @@ struct SitemapLink {
 
 QString markdownPlainTextFromLine(QString line);
 void appendFileLineAnchor(Resource &resource, const QString &target, int line);
+
+QString normalizedMarkdownReferenceId(QString id)
+{
+    id = markdownPlainTextFromLine(id).toLower().trimmed();
+    id.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
+    return id;
+}
 
 QString normalizedPath(const QFileInfo &fileInfo)
 {
@@ -2761,8 +2779,13 @@ QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
     const QRegularExpression inlineLinkPattern(
         QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\((https?://[^\\s\\)]+)\\)"));
     const QRegularExpression autolinkPattern(QStringLiteral("<(https?://[^\\s<>]+)>"));
+    const QRegularExpression referenceDefinitionPattern(
+        QStringLiteral("^\\s{0,3}\\[([^\\]]+)\\]:\\s*(?:<([^>]+)>|([^\\s]+))(?:\\s+.*)?$"));
+    const QRegularExpression referenceUsePattern(QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\[([^\\]]*)\\]"));
 
     QList<HtmlLink> links;
+    QHash<QString, MarkdownReferenceDefinition> referenceDefinitions;
+    QList<MarkdownReferenceUse> referenceUses;
     QStringList seenUrls;
     auto appendLink = [&](const QString &rawUrl, const QString &rawTitle, int lineNumber) {
         const QUrl url = QUrl::fromUserInput(rawUrl.trimmed());
@@ -2812,6 +2835,22 @@ QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
             continue;
         }
 
+        const QRegularExpressionMatch referenceDefinitionMatch = referenceDefinitionPattern.match(line);
+        if (referenceDefinitionMatch.hasMatch()) {
+            const QString rawUrl = referenceDefinitionMatch.captured(2).isEmpty()
+                ? referenceDefinitionMatch.captured(3)
+                : referenceDefinitionMatch.captured(2);
+            const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(rawUrl));
+            if (isIndexableWebUrl(url)) {
+                MarkdownReferenceDefinition definition;
+                definition.url = url;
+                definition.lineNumber = lineNumber;
+                referenceDefinitions.insert(normalizedMarkdownReferenceId(referenceDefinitionMatch.captured(1)),
+                                            definition);
+            }
+            continue;
+        }
+
         QRegularExpressionMatchIterator inlineMatches = inlineLinkPattern.globalMatch(line);
         while (inlineMatches.hasNext()) {
             const QRegularExpressionMatch match = inlineMatches.next();
@@ -2823,6 +2862,30 @@ QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
             const QRegularExpressionMatch match = autolinkMatches.next();
             appendLink(match.captured(1), QString(), lineNumber);
         }
+
+        QRegularExpressionMatchIterator referenceMatches = referenceUsePattern.globalMatch(line);
+        while (referenceMatches.hasNext()) {
+            const QRegularExpressionMatch match = referenceMatches.next();
+            const QString title = markdownPlainTextFromLine(match.captured(1));
+            const QString id = match.captured(2).trimmed().isEmpty()
+                ? title
+                : match.captured(2);
+            MarkdownReferenceUse use;
+            use.id = normalizedMarkdownReferenceId(id);
+            use.title = title;
+            use.lineNumber = lineNumber;
+            referenceUses.append(use);
+        }
+    }
+
+    for (const MarkdownReferenceUse &use : referenceUses) {
+        const auto definitionIt = referenceDefinitions.constFind(use.id);
+        if (definitionIt == referenceDefinitions.cend()) {
+            continue;
+        }
+        appendLink(definitionIt->url.toString(QUrl::FullyEncoded),
+                   use.title,
+                   use.lineNumber > 0 ? use.lineNumber : definitionIt->lineNumber);
     }
 
     return links;
