@@ -533,12 +533,15 @@ QList<PinloomOpenTarget> PinloomPanel::currentResults() const
 
 QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
 {
+    return relatedTargetsForResource(selectedResultResourceId());
+}
+
+QList<PinloomRelatedTarget> PinloomPanel::relatedTargetsForResource(const QString &resourceId) const
+{
     QList<PinloomRelatedTarget> targets;
-    const QString resourceId = selectedResultResourceId();
     if (resourceId.isEmpty()) {
         return targets;
     }
-
     for (const ResourceRelation &relation : repository_.resourceRelations(resourceId)) {
         const bool currentIsSource = relation.sourceResourceId == resourceId;
         const QString otherResourceId = currentIsSource ? relation.targetResourceId : relation.sourceResourceId;

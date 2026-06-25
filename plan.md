@@ -180,6 +180,7 @@ Status:
 - Host current-open-target query and change notification APIs for previews/status surfaces: done.
 - Host current result target list snapshot API: done.
 - Host current-related-target query API for previews/status surfaces: done.
+- Host resource-id-based related-target query API: done.
 - Host-triggered result count and selection navigation APIs: done.
 - Host direct result selection by row or resource id: done.
 - Host result-count change notifications: done.
@@ -298,6 +299,7 @@ Status:
 - Indexed `links-to` relations from local Markdown links: done.
 - Compact relationship summary in result details: done.
 - Host-facing current related-target API: done.
+- Host-facing resource-id related-target API: done.
 - Host-facing relation create/update/remove API: done.
 - Manual anchor and alias editing UI: done.
 - Resource-id-based host APIs for manual alias and anchor editing: done.

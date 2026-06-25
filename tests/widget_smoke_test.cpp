@@ -605,6 +605,14 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QCOMPARE(statusNotifications.last(), QStringLiteral("Saved resource relation"));
     QVERIFY(relationLabel->text().contains(QStringLiteral("supports -> PCIe Spec (chapter 7)")));
 
+    QList<PinloomRelatedTarget> relatedById = panel.relatedTargetsForResource(note.id);
+    QCOMPARE(relatedById.size(), 1);
+    QCOMPARE(relatedById.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(relatedById.first().relationNote, QStringLiteral("chapter 7"));
+    QVERIFY(relatedById.first().currentIsSource);
+    QCOMPARE(relatedById.first().target.resourceId, spec.id);
+    QCOMPARE(relatedById.first().target.resourceKind, spec.kind);
+
     QList<PinloomRelatedTarget> related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
     QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
@@ -640,9 +648,17 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QCOMPARE(related.first().target.location, note.location);
     QCOMPARE(related.first().target.resultRow, -1);
 
+    relatedById = panel.relatedTargetsForResource(spec.id);
+    QCOMPARE(relatedById.size(), 1);
+    QCOMPARE(relatedById.first().relationNote, QStringLiteral("chapter 8"));
+    QVERIFY(!relatedById.first().currentIsSource);
+    QCOMPARE(relatedById.first().target.resourceId, note.id);
+
     QVERIFY(panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
     QCOMPARE(statusNotifications.last(), QStringLiteral("Removed resource relation"));
     QVERIFY(panel.currentRelatedTargets().isEmpty());
+    QVERIFY(panel.relatedTargetsForResource(note.id).isEmpty());
+    QVERIFY(panel.relatedTargetsForResource(QStringLiteral("missing")).isEmpty());
     QVERIFY(relationLabel->text().isEmpty());
     QVERIFY(!panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
     QCOMPARE(statusNotifications.last(), QStringLiteral("Unable to remove resource relation"));

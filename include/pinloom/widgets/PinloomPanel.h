@@ -115,6 +115,7 @@ public:
     PinloomOpenTarget resultAt(int row) const;
     QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
+    QList<PinloomRelatedTarget> relatedTargetsForResource(const QString &resourceId) const;
     bool upsertResourceRelation(const QString &sourceResourceId,
                                 const QString &targetResourceId,
                                 const QString &label,
