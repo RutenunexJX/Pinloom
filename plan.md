@@ -334,7 +334,7 @@ Status:
 - OPML subscription/link list indexing as individual URL resources: done.
 - RSS and Atom feed XML entry indexing as individual URL resources: done.
 - Sitemap XML URL indexing as individual URL resources: done.
-- Plain-text URL list indexing as individual URL resources: done.
+- Plain-text URL list indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.

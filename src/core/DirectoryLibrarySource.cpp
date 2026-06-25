@@ -45,6 +45,7 @@ struct HtmlLink {
 struct TextUrlLink {
     QUrl url;
     QString title;
+    int lineNumber = -1;
 };
 
 struct TabularUrlLink {
@@ -1649,7 +1650,9 @@ QList<TextUrlLink> textUrlLinksFromDocument(const QString &text)
     QStringList seenUrls;
     static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
 
+    int lineNumber = 0;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
+        ++lineNumber;
         QRegularExpressionMatchIterator matches = urlPattern.globalMatch(line);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
@@ -1667,6 +1670,7 @@ QList<TextUrlLink> textUrlLinksFromDocument(const QString &text)
             TextUrlLink link;
             link.url = url;
             link.title = titleFromTextBeforeUrl(line.left(match.capturedStart()));
+            link.lineNumber = lineNumber;
             if (link.title.isEmpty()) {
                 link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
             }
@@ -1674,6 +1678,25 @@ QList<TextUrlLink> textUrlLinksFromDocument(const QString &text)
         }
     }
     return links;
+}
+
+QList<TextUrlLink> textUrlLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    return textUrlLinksFromDocument(QString::fromUtf8(bytes));
 }
 
 bool looksLikeBookmarkExport(const QString &html)
@@ -2856,6 +2879,58 @@ void appendMarkdownUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<Resource> textUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<TextUrlLink> &links)
+{
+    QList<Resource> resources;
+    for (const TextUrlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("text-url:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("web-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString textUrlLineAnchorTarget(const TextUrlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendPlainTextUrlSourceMetadata(Resource &sourceResource,
+                                      const QList<TextUrlLink> &links,
+                                      const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const TextUrlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = textUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("text line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
+}
+
 void appendTabularHeaderAnchorsFromLine(Resource &resource, const QString &line, int lineNumber, QChar delimiter)
 {
     const QStringList headers = splitDelimitedLine(line, delimiter);
@@ -3042,7 +3117,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(sitemapResourcesFromXmlFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
-        derivedResources.append(plainTextUrlResourcesFromFile(fileInfo));
+        const QList<TextUrlLink> textLinks = textUrlLinksFromFile(fileInfo);
+        const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
+        appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
+        derivedResources.append(textResources);
     }
     if (primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value()) {
         const QList<TabularUrlLink> tabularLinks = tabularUrlLinksFromFile(fileInfo);
@@ -3084,32 +3162,6 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         applyPlainTextMetadata(resource, fileInfo);
     }
     return resource;
-}
-
-QList<Resource> DirectoryLibrarySource::plainTextUrlResourcesFromFile(const QFileInfo &fileInfo) const
-{
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return {};
-    }
-
-    const QString text = QString::fromUtf8(file.readAll());
-    QList<Resource> resources;
-    for (const TextUrlLink &link : textUrlLinksFromDocument(text)) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        Resource resource;
-        resource.id = QStringLiteral("text-url:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("web-link"));
-        appendUnique(resource.aliases, fileInfo.completeBaseName());
-        resources.append(resource);
-    }
-    return resources;
 }
 
 QList<Resource> DirectoryLibrarySource::bookmarkResourcesFromHtmlFile(const QFileInfo &fileInfo) const

@@ -36,7 +36,7 @@ Implemented:
 - OPML subscription/link list indexing as individual URL resources with host aliases, feed aliases, folder aliases, feed tags, and URL fragment anchors.
 - RSS and Atom feed XML indexing as individual URL resources with feed aliases, category tags, host aliases, and URL fragment anchors.
 - Sitemap XML indexing as individual URL resources with sitemap tags, host aliases, and URL fragment anchors.
-- Plain-text URL list indexing from `.txt`, `.text`, `.log`, `.list`, `.links`, and `.urls` files as individual URL resources with host aliases and fragment anchors.
+- Plain-text URL list indexing from `.txt`, `.text`, `.log`, `.list`, `.links`, and `.urls` files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source list.
 - CSV/TSV URL-column indexing as individual URL resources with host aliases, table aliases, category/tag aliases, fragment anchors, source row anchors, and `links-to` relations back to the source table.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
@@ -192,4 +192,5 @@ Integration And Source Refinement MVP validation:
 
 - Configure: passed
 - Build: passed
+- Additional source-link validation: passed for plain-text URL list source line anchors and `links-to` relations (`pinloom_directory_source_test`)
 - Tests: passed for Markdown body content extraction/search, Markdown task line anchors, local relative Markdown link aliases/anchors/relations, Markdown external link URL resources with source line anchors and `links-to` relations, plain-text URL list resources, CSV/TSV URL-column resources with source row anchors and `links-to` relations, RSS/Atom feed entry resources, sitemap URL resources, plain-text file content indexing, action line anchors, config key/section/path anchors, package manifest dependency anchors, CSV/TSV column anchors, local web shortcut indexing, browser bookmark export/native JSON indexing, OPML link/feed indexing, URL fragment anchors, URL fragment fallback opening, local HTML page content extraction/search, optional remote HTML fetch for web shortcuts, lightweight PDF text extraction/search for uncompressed, FlateDecode, ASCIIHexDecode, RunLengthDecode, LZWDecode, literal octal escapes, and ordered filter chains, URL activation through host interception, PDF annotation region anchors, and PDF region open-target preservation (`pinloom_directory_source_test`, `pinloom_widget_smoke_test`)

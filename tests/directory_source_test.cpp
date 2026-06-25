@@ -1854,6 +1854,26 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto fileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("research.urls");
+    });
+    QVERIFY(fileIt != resources.cend());
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: status.example.org -> https://status.example.org/zeroslack")
+            && anchor.line == 2;
+    }));
+    QVERIFY(std::none_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.contains(QStringLiteral("not-web"));
+    }));
+
     auto launchIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.location == QLatin1String("https://docs.example.com/pinloom/launch#overview");
@@ -1880,6 +1900,19 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
     });
     QVERIFY(statusIt != resources.cend());
     QCOMPARE(statusIt->title, QStringLiteral("status.example.org"));
+    QCOMPARE(fileIt->relations.size(), 2);
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == launchIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 1: url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
+    }));
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == statusIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 2: url: status.example.org -> https://status.example.org/zeroslack");
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -1901,6 +1934,30 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("overview");
+    }));
+
+    const QList<ResourceRelation> fileRelations = repository.resourceRelations(fileIt->id);
+    QCOMPARE(fileRelations.size(), 2);
+    QVERIFY(std::any_of(fileRelations.cbegin(), fileRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == launchIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 1: url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
+    }));
+
+    const QList<ResourceRelation> launchRelations = repository.resourceRelations(launchIt->id);
+    QCOMPARE(launchRelations.size(), 1);
+    QCOMPARE(launchRelations.first().sourceResourceId, fileIt->id);
+    QCOMPARE(launchRelations.first().targetResourceId, launchIt->id);
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Launch Notes")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("research.urls")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 1
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
     }));
 }
 
