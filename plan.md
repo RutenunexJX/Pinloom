@@ -191,7 +191,7 @@ Status:
 - Host-triggered library-root enable/disable API: done.
 - Host-triggered current-result activation API: done.
 - Host-controllable optional remote HTML fetching toggle: done.
-- Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.
+- Host-triggered selected-root, root-by-id, all-root, and rebuild indexing APIs with structured results: done.
 - Host indexing completion callback and latest-result query API: done.
 - Host-required resource-kind, tag, and location-prefix filtering APIs: done.
 - Host relation-aware context-resource ranking API: done.

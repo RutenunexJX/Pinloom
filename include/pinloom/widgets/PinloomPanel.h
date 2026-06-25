@@ -130,6 +130,7 @@ public:
     QString statusText() const;
     PinloomIndexingResult lastIndexingResult() const;
     PinloomIndexingResult indexSelectedLibraryRoot();
+    PinloomIndexingResult indexLibraryRootById(const QString &id);
     PinloomIndexingResult indexAllEnabledLibraryRoots();
     PinloomIndexingResult rebuildAllEnabledLibraryRoots();
     bool addLibraryRootPath(const QString &path);

@@ -683,7 +683,11 @@ PinloomIndexingResult PinloomPanel::lastIndexingResult() const
 
 PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
 {
-    const QString id = selectedRootId();
+    return indexLibraryRootById(selectedRootId());
+}
+
+PinloomIndexingResult PinloomPanel::indexLibraryRootById(const QString &id)
+{
     if (id.isEmpty()) {
         const QString error = tr("No library folder selected");
         updateStatus(error);

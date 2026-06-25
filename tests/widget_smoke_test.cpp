@@ -233,9 +233,16 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     writeTestFile(dir.filePath(QStringLiteral("note.md")),
                   QByteArray("# Host Indexing\nPinloom selected root refresh\n"));
 
+    QTemporaryDir directDir;
+    QVERIFY(directDir.isValid());
+    writeTestFile(directDir.filePath(QStringLiteral("direct.md")),
+                  QByteArray("# Direct Root\nPinloom direct root refresh\n"));
+
     InMemoryLibraryRepository repository;
     LibraryRoot root = makeLibraryRootForPath(dir.path());
     QVERIFY(repository.upsertLibraryRoot(root));
+    LibraryRoot directRoot = makeLibraryRootForPath(directDir.path());
+    QVERIFY(repository.upsertLibraryRoot(directRoot));
 
     QList<PinloomIndexingResult> indexingNotifications;
     QStringList statusNotifications;
@@ -258,11 +265,27 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     QVERIFY(!panel.statusText().isEmpty());
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
+    QVERIFY(panel.selectLibraryRootById(root.id));
+    const PinloomIndexingResult directResult = panel.indexLibraryRootById(directRoot.id);
+    QVERIFY(directResult.success);
+    QVERIFY(directResult.indexedCount >= 2);
+    QVERIFY(directResult.error.isEmpty());
+    QCOMPARE(indexingNotifications.size(), 1);
+    QCOMPARE(indexingNotifications.last().success, directResult.success);
+    QCOMPARE(indexingNotifications.last().indexedCount, directResult.indexedCount);
+    QCOMPARE(panel.lastIndexingResult().indexedCount, directResult.indexedCount);
+    QCOMPARE(panel.selectedLibraryRoot().id, directRoot.id);
+
+    panel.setSearchText(QStringLiteral("direct root refresh"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    QVERIFY(panel.selectLibraryRootById(root.id));
     const PinloomIndexingResult selectedResult = panel.indexSelectedLibraryRoot();
     QVERIFY(selectedResult.success);
     QVERIFY(selectedResult.indexedCount >= 2);
     QVERIFY(selectedResult.error.isEmpty());
-    QCOMPARE(indexingNotifications.size(), 1);
+    QCOMPARE(indexingNotifications.size(), 2);
     QCOMPARE(indexingNotifications.last().success, selectedResult.success);
     QCOMPARE(indexingNotifications.last().indexedCount, selectedResult.indexedCount);
     QCOMPARE(panel.lastIndexingResult().indexedCount, selectedResult.indexedCount);
@@ -279,8 +302,8 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
                   QByteArray("Pinloom all roots refresh\n"));
     const PinloomIndexingResult allResult = panel.indexAllEnabledLibraryRoots();
     QVERIFY(allResult.success);
-    QVERIFY(allResult.indexedCount >= 3);
-    QCOMPARE(indexingNotifications.size(), 2);
+    QVERIFY(allResult.indexedCount >= 4);
+    QCOMPARE(indexingNotifications.size(), 3);
     QCOMPARE(indexingNotifications.last().success, allResult.success);
     QCOMPARE(indexingNotifications.last().indexedCount, allResult.indexedCount);
     QCOMPARE(panel.lastIndexingResult().indexedCount, allResult.indexedCount);
@@ -300,8 +323,8 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
 
     const PinloomIndexingResult rebuildResult = panel.rebuildAllEnabledLibraryRoots();
     QVERIFY(rebuildResult.success);
-    QVERIFY(rebuildResult.indexedCount >= 3);
-    QCOMPARE(indexingNotifications.size(), 3);
+    QVERIFY(rebuildResult.indexedCount >= 4);
+    QCOMPARE(indexingNotifications.size(), 4);
     QCOMPARE(indexingNotifications.last().success, rebuildResult.success);
     QCOMPARE(indexingNotifications.last().indexedCount, rebuildResult.indexedCount);
     QCOMPARE(panel.lastIndexingResult().indexedCount, rebuildResult.indexedCount);
@@ -329,6 +352,16 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     QCOMPARE(emptyPanel.lastIndexingResult().error, missingRootResult.error);
     QCOMPARE(emptyPanel.statusText(), missingRootResult.error);
     QCOMPARE(failedStatusNotifications.last(), missingRootResult.error);
+
+    const PinloomIndexingResult missingDirectRootResult =
+        emptyPanel.indexLibraryRootById(QStringLiteral("missing-root"));
+    QVERIFY(!missingDirectRootResult.success);
+    QCOMPARE(missingDirectRootResult.indexedCount, 0);
+    QCOMPARE(missingDirectRootResult.error, QStringLiteral("Library folder no longer exists"));
+    QCOMPARE(failedNotifications.size(), 2);
+    QCOMPARE(failedNotifications.last().error, missingDirectRootResult.error);
+    QCOMPARE(emptyPanel.lastIndexingResult().error, missingDirectRootResult.error);
+    QCOMPARE(failedStatusNotifications.last(), missingDirectRootResult.error);
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
