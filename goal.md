@@ -122,6 +122,7 @@ Completed:
 - Let embedding hosts observe completed indexing results and query the latest structured indexing result without reading UI text.
 - Let embedding hosts add aliases and manual anchors by resource id without driving result-list selection.
 - Let embedding hosts pin and unpin resources by id without driving result-list selection.
+- Let embedding hosts create, update, and remove resource relations by id without driving result-list selection.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, result row, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.
@@ -186,6 +187,7 @@ Completed:
 - Persist indexed `links-to` relations discovered from local Markdown links.
 - Surface relationships in compact result details without turning the main result list into a graph browser.
 - Expose current related targets through the host-facing panel API.
+- Expose host APIs for creating, updating, and removing resource relations.
 - Add UI affordances for creating manual aliases and anchors.
 - Expose resource-id-based host APIs for adding manual aliases and anchors.
 

@@ -578,21 +578,32 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     spec.location = QStringLiteral("spec.pdf");
     QVERIFY(repository.upsertResource(spec));
 
-    ResourceRelation relation;
-    relation.sourceResourceId = note.id;
-    relation.targetResourceId = spec.id;
-    relation.label = QStringLiteral("supports");
-    relation.note = QStringLiteral("chapter 7");
-    QVERIFY(repository.upsertResourceRelation(relation));
-
-    PinloomPanel panel(repository);
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    PinloomPanel panel(repository, options);
     QVERIFY(panel.currentRelatedTargets().isEmpty());
 
     panel.setSearchText(QStringLiteral("Bringup"));
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *relationLabel = panel.findChild<QLabel *>(QStringLiteral("relationLabel"));
     QVERIFY(results);
+    QVERIFY(relationLabel);
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
+    QVERIFY(panel.currentRelatedTargets().isEmpty());
+
+    QVERIFY(!panel.upsertResourceRelation(note.id, spec.id, QString(), QStringLiteral("chapter 7")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Select related resources and enter a relation label"));
+
+    QVERIFY(panel.upsertResourceRelation(note.id,
+                                         spec.id,
+                                         QStringLiteral("supports"),
+                                         QStringLiteral("chapter 7")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Saved resource relation"));
+    QVERIFY(relationLabel->text().contains(QStringLiteral("supports -> PCIe Spec (chapter 7)")));
 
     QList<PinloomRelatedTarget> related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
@@ -606,6 +617,14 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QCOMPARE(related.first().target.resultRow, -1);
     QVERIFY(!related.first().target.anchor.has_value());
 
+    QVERIFY(panel.upsertResourceRelation(note.id,
+                                         spec.id,
+                                         QStringLiteral("supports"),
+                                         QStringLiteral("chapter 8")));
+    related = panel.currentRelatedTargets();
+    QCOMPARE(related.size(), 1);
+    QCOMPARE(related.first().relationNote, QStringLiteral("chapter 8"));
+
     panel.setSearchText(QStringLiteral("PCIe Spec"));
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
@@ -613,13 +632,20 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
     QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
-    QCOMPARE(related.first().relationNote, QStringLiteral("chapter 7"));
+    QCOMPARE(related.first().relationNote, QStringLiteral("chapter 8"));
     QVERIFY(!related.first().currentIsSource);
     QCOMPARE(related.first().target.resourceId, note.id);
     QCOMPARE(related.first().target.resourceKind, note.kind);
     QCOMPARE(related.first().target.title, note.title);
     QCOMPARE(related.first().target.location, note.location);
     QCOMPARE(related.first().target.resultRow, -1);
+
+    QVERIFY(panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Removed resource relation"));
+    QVERIFY(panel.currentRelatedTargets().isEmpty());
+    QVERIFY(relationLabel->text().isEmpty());
+    QVERIFY(!panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Unable to remove resource relation"));
 }
 
 void WidgetSmokeTest::panelAddsManualAliasAndAnchor()

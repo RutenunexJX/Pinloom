@@ -561,6 +561,72 @@ QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
     return targets;
 }
 
+bool PinloomPanel::upsertResourceRelation(const QString &sourceResourceId,
+                                          const QString &targetResourceId,
+                                          const QString &label,
+                                          const QString &note)
+{
+    const QString trimmedLabel = label.trimmed();
+    if (sourceResourceId.isEmpty() || targetResourceId.isEmpty() || trimmedLabel.isEmpty()) {
+        updateStatus(tr("Select related resources and enter a relation label"));
+        return false;
+    }
+
+    if (!repository_.findResource(sourceResourceId).has_value()
+        || !repository_.findResource(targetResourceId).has_value()) {
+        refreshResults();
+        updateStatus(tr("Related resource no longer exists"));
+        return false;
+    }
+
+    ResourceRelation relation;
+    relation.sourceResourceId = sourceResourceId;
+    relation.targetResourceId = targetResourceId;
+    relation.label = trimmedLabel;
+    relation.note = note.trimmed();
+    if (!repository_.upsertResourceRelation(relation)) {
+        updateStatus(tr("Unable to save resource relation"));
+        return false;
+    }
+
+    const QString previousResourceId = selectedResultResourceId();
+    refreshResults();
+    if (!previousResourceId.isEmpty()) {
+        selectResultResource(previousResourceId);
+    }
+    if (selectedResultResourceId().isEmpty()) {
+        selectResultResource(sourceResourceId);
+    }
+    refreshRelationSummary();
+    updateStatus(tr("Saved resource relation"));
+    return true;
+}
+
+bool PinloomPanel::removeResourceRelation(const QString &sourceResourceId,
+                                          const QString &targetResourceId,
+                                          const QString &label)
+{
+    const QString trimmedLabel = label.trimmed();
+    if (sourceResourceId.isEmpty() || targetResourceId.isEmpty() || trimmedLabel.isEmpty()) {
+        updateStatus(tr("Select related resources and enter a relation label"));
+        return false;
+    }
+
+    if (!repository_.removeResourceRelation(sourceResourceId, targetResourceId, trimmedLabel)) {
+        updateStatus(tr("Unable to remove resource relation"));
+        return false;
+    }
+
+    const QString previousResourceId = selectedResultResourceId();
+    refreshResults();
+    if (!previousResourceId.isEmpty()) {
+        selectResultResource(previousResourceId);
+    }
+    refreshRelationSummary();
+    updateStatus(tr("Removed resource relation"));
+    return true;
+}
+
 PinloomLibraryRootTarget PinloomPanel::selectedLibraryRoot() const
 {
     const QString id = selectedRootId();

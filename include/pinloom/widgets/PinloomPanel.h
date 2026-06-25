@@ -115,6 +115,13 @@ public:
     PinloomOpenTarget resultAt(int row) const;
     QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
+    bool upsertResourceRelation(const QString &sourceResourceId,
+                                const QString &targetResourceId,
+                                const QString &label,
+                                const QString &note = QString());
+    bool removeResourceRelation(const QString &sourceResourceId,
+                                const QString &targetResourceId,
+                                const QString &label);
     PinloomLibraryRootTarget selectedLibraryRoot() const;
     QList<PinloomLibraryRootTarget> libraryRoots() const;
     int resultCount() const;

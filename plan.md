@@ -195,6 +195,7 @@ Status:
 - Host indexing completion callback and latest-result query API: done.
 - Host resource-id-based manual alias and anchor editing API: done.
 - Host resource-id-based resource pin/unpin API: done.
+- Host resource-id-based relation create/update/remove API: done.
 - Host-required resource-kind, tag, and location-prefix filtering APIs: done.
 - Host relation-aware context-resource ranking API: done.
 - Host relation-label-scoped context ranking API: done.
@@ -297,6 +298,7 @@ Status:
 - Indexed `links-to` relations from local Markdown links: done.
 - Compact relationship summary in result details: done.
 - Host-facing current related-target API: done.
+- Host-facing relation create/update/remove API: done.
 - Manual anchor and alias editing UI: done.
 - Resource-id-based host APIs for manual alias and anchor editing: done.
 
