@@ -3737,6 +3737,7 @@ void DirectorySourceTest::extractsMhtmlPageContent()
                          "</head><body>\r\n"
                          "<h2 id=3D\"snapshot\">Saved Snapshot</h2>\r\n"
                          "<p>Archived launch reference for ZeroSlack embedding.</p>\r\n"
+                         "<a href=3D\"https://docs.example.com/pinloom/host#dock\">Host Playbook</a>\r\n"
                          "</body></html>\r\n"
                          "------=_PinloomBoundary--\r\n"));
 
@@ -3761,6 +3762,25 @@ void DirectorySourceTest::extractsMhtmlPageContent()
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
     }));
 
+    auto playbookIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Host Playbook")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#dock");
+    });
+    QVERIFY(playbookIt != resources.cend());
+    QVERIFY(playbookIt->tags.contains(QStringLiteral("html-link")));
+    QVERIFY(playbookIt->tags.contains(QStringLiteral("web-archive-link")));
+    QVERIFY(playbookIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(std::any_of(playbookIt->anchors.cbegin(), playbookIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("dock");
+    }));
+    QVERIFY(std::any_of(archiveIt->relations.cbegin(), archiveIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == archiveIt->id
+            && relation.targetResourceId == playbookIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("html link: url: Host Playbook -> https://docs.example.com/pinloom/host#dock");
+    }));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -3774,6 +3794,18 @@ void DirectorySourceTest::extractsMhtmlPageContent()
         return result.resource.kind == ResourceKind::Url
             && result.resource.title == QLatin1String("Pinloom Web Archive")
             && result.matchedField == QLatin1String("content");
+    }));
+
+    const QList<ResourceRelation> relations = repository.resourceRelations(archiveIt->id);
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.targetResourceId == playbookIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+
+    const QList<SearchResult> linkResults = repository.search(SearchQuery{QStringLiteral("Host Playbook")});
+    QVERIFY(std::any_of(linkResults.cbegin(), linkResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Host Playbook");
     }));
 }
 

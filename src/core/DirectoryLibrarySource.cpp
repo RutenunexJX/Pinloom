@@ -2171,6 +2171,23 @@ QString htmlFromMhtmlArchive(const QByteArray &bytes)
     return {};
 }
 
+std::optional<QString> htmlDocumentFromFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return std::nullopt;
+    }
+
+    const QByteArray bytes = file.readAll();
+    const QString html = isMhtmlFile(fileInfo)
+        ? htmlFromMhtmlArchive(bytes)
+        : QString::fromUtf8(bytes);
+    if (html.isEmpty()) {
+        return std::nullopt;
+    }
+    return html;
+}
+
 QList<HtmlLink> htmlLinksFromDocument(const QString &html)
 {
     QList<HtmlLink> links;
@@ -2194,6 +2211,12 @@ QList<HtmlLink> htmlLinksFromDocument(const QString &html)
         links.append(link);
     }
     return links;
+}
+
+QList<HtmlLink> htmlLinksFromFile(const QFileInfo &fileInfo)
+{
+    const std::optional<QString> html = htmlDocumentFromFile(fileInfo);
+    return html.has_value() ? htmlLinksFromDocument(html.value()) : QList<HtmlLink>{};
 }
 
 QString trimmedPlainTextUrl(QString rawUrl)
@@ -4793,7 +4816,7 @@ QList<Resource> markdownLinkResourcesFromLinks(const QFileInfo &fileInfo, const 
     return resources;
 }
 
-QString markdownUrlLineAnchorTarget(const HtmlLink &link)
+QString urlLinkAnchorTarget(const HtmlLink &link)
 {
     const QString title = link.title.trimmed().isEmpty()
         ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
@@ -4809,7 +4832,7 @@ void appendMarkdownUrlSourceMetadata(Resource &sourceResource,
     for (int i = 0; i < count; ++i) {
         const HtmlLink &link = links.at(i);
         const Resource &urlResource = urlResources.at(i);
-        const QString anchorTarget = markdownUrlLineAnchorTarget(link);
+        const QString anchorTarget = urlLinkAnchorTarget(link);
         if (link.lineNumber > 0) {
             appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
         }
@@ -4821,6 +4844,47 @@ void appendMarkdownUrlSourceMetadata(Resource &sourceResource,
         relation.note = link.lineNumber > 0
             ? QStringLiteral("markdown line %1: %2").arg(link.lineNumber).arg(anchorTarget)
             : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
+}
+
+QList<Resource> htmlLinkResourcesFromLinks(const QFileInfo &fileInfo, const QList<HtmlLink> &links)
+{
+    QList<Resource> resources;
+    for (const HtmlLink &link : links) {
+        Resource resource;
+        resource.id = QStringLiteral("html-link:%1:%2")
+                          .arg(normalizedPath(fileInfo),
+                               link.url.toString(QUrl::FullyEncoded));
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = link.url.toString(QUrl::FullyEncoded);
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("html-link"));
+        if (isMhtmlFile(fileInfo)) {
+            appendUnique(resource.tags, QStringLiteral("web-archive-link"));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendHtmlUrlSourceMetadata(Resource &sourceResource,
+                                 const QList<HtmlLink> &links,
+                                 const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const HtmlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = urlLinkAnchorTarget(link);
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = QStringLiteral("html link: %1").arg(anchorTarget);
         sourceResource.relations.append(relation);
     }
 }
@@ -5382,8 +5446,16 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         appendMarkdownUrlSourceMetadata(primary, markdownLinks, markdownResources);
         derivedResources.append(markdownResources);
     } else if (primary.kind == ResourceKind::Url
-        && (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))) {
-        derivedResources.append(bookmarkResourcesFromHtmlFile(fileInfo));
+        && (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo))) {
+        const QList<Resource> bookmarkResources = bookmarkResourcesFromHtmlFile(fileInfo);
+        if (bookmarkResources.isEmpty()) {
+            const QList<HtmlLink> htmlLinks = htmlLinksFromFile(fileInfo);
+            const QList<Resource> htmlResources = htmlLinkResourcesFromLinks(fileInfo, htmlLinks);
+            appendHtmlUrlSourceMetadata(primary, htmlLinks, htmlResources);
+            derivedResources.append(htmlResources);
+        } else {
+            derivedResources.append(bookmarkResources);
+        }
     } else if (isBrowserBookmarkJsonCandidate(fileInfo)) {
         browserBookmarkResources = browserBookmarkResourcesFromJsonFile(fileInfo);
         derivedResources.append(browserBookmarkResources);
@@ -5478,18 +5550,17 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
 
 QList<Resource> DirectoryLibrarySource::bookmarkResourcesFromHtmlFile(const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    const std::optional<QString> html = htmlDocumentFromFile(fileInfo);
+    if (!html.has_value()) {
         return {};
     }
 
-    const QString html = QString::fromUtf8(file.readAll());
-    if (!looksLikeBookmarkExport(html)) {
+    if (!looksLikeBookmarkExport(html.value())) {
         return {};
     }
 
     QList<Resource> resources;
-    for (const HtmlLink &link : htmlLinksFromDocument(html)) {
+    for (const HtmlLink &link : htmlLinksFromDocument(html.value())) {
         Resource resource;
         resource.id = QStringLiteral("bookmark:%1:%2")
                           .arg(normalizedPath(fileInfo),
@@ -5891,21 +5962,12 @@ void DirectoryLibrarySource::applyUrlMetadata(Resource &resource, const QFileInf
 
 void DirectoryLibrarySource::applyHtmlMetadata(Resource &resource, const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    const std::optional<QString> html = htmlDocumentFromFile(fileInfo);
+    if (!html.has_value()) {
         resource.kind = ResourceKind::File;
         return;
     }
-
-    const QByteArray bytes = file.readAll();
-    const QString html = isMhtmlFile(fileInfo)
-        ? htmlFromMhtmlArchive(bytes)
-        : QString::fromUtf8(bytes);
-    if (html.isEmpty()) {
-        resource.kind = ResourceKind::File;
-        return;
-    }
-    applyHtmlDocumentMetadata(resource, html, fileInfo.fileName(), std::nullopt);
+    applyHtmlDocumentMetadata(resource, html.value(), fileInfo.fileName(), std::nullopt);
     if (isMhtmlFile(fileInfo)) {
         appendUnique(resource.tags, QStringLiteral("web-archive"));
         appendUnique(resource.aliases, fileInfo.completeBaseName());
