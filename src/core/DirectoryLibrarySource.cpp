@@ -83,6 +83,24 @@ struct JsonUrlLink {
     int lineNumber = -1;
 };
 
+struct CalendarUrlReference {
+    QUrl url;
+    int lineNumber = -1;
+};
+
+struct CalendarEvent {
+    QString summary;
+    QString location;
+    QString startsAt;
+    QString endsAt;
+    int eventLineNumber = -1;
+    int summaryLineNumber = -1;
+    int startLineNumber = -1;
+    int endLineNumber = -1;
+    int locationLineNumber = -1;
+    QList<CalendarUrlReference> urls;
+};
+
 struct HarEntryLink {
     QUrl url;
     QString title;
@@ -4694,6 +4712,322 @@ void appendPlainTextUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
+bool isIcalendarFileCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return suffix == QLatin1String("ics") || suffix == QLatin1String("ical");
+}
+
+QString unescapeIcalendarText(const QString &value)
+{
+    QString unescaped;
+    unescaped.reserve(value.size());
+    bool escaping = false;
+    for (const QChar ch : value) {
+        if (escaping) {
+            if (ch == QLatin1Char('n') || ch == QLatin1Char('N')) {
+                unescaped.append(QLatin1Char(' '));
+            } else {
+                unescaped.append(ch);
+            }
+            escaping = false;
+            continue;
+        }
+
+        if (ch == QLatin1Char('\\')) {
+            escaping = true;
+        } else {
+            unescaped.append(ch);
+        }
+    }
+    if (escaping) {
+        unescaped.append(QLatin1Char('\\'));
+    }
+    return collapsedWhitespace(unescaped);
+}
+
+QString formatIcalendarDateTime(QString value)
+{
+    value = value.trimmed();
+    if (value.size() < 8) {
+        return value;
+    }
+
+    const QString compact = value.endsWith(QLatin1Char('Z'), Qt::CaseInsensitive)
+        ? value.left(value.size() - 1)
+        : value;
+    static const QRegularExpression pattern(QStringLiteral("^(\\d{4})(\\d{2})(\\d{2})(?:T(\\d{2})(\\d{2})(\\d{2})?)?$"));
+    const QRegularExpressionMatch match = pattern.match(compact);
+    if (!match.hasMatch()) {
+        return value;
+    }
+
+    QString formatted = QStringLiteral("%1-%2-%3")
+                            .arg(match.captured(1), match.captured(2), match.captured(3));
+    if (!match.captured(4).isEmpty()) {
+        formatted.append(QStringLiteral(" %1:%2").arg(match.captured(4), match.captured(5)));
+        if (!match.captured(6).isEmpty()) {
+            formatted.append(QStringLiteral(":%1").arg(match.captured(6)));
+        }
+        if (value.endsWith(QLatin1Char('Z'), Qt::CaseInsensitive)) {
+            formatted.append(QStringLiteral(" UTC"));
+        }
+    }
+    return formatted;
+}
+
+struct CalendarLogicalLine {
+    QString text;
+    int lineNumber = -1;
+};
+
+QList<CalendarLogicalLine> unfoldedIcalendarLines(const QString &text)
+{
+    QList<CalendarLogicalLine> lines;
+    int lineNumber = 0;
+    for (QString line : text.split(QLatin1Char('\n'))) {
+        ++lineNumber;
+        if (line.endsWith(QLatin1Char('\r'))) {
+            line.chop(1);
+        }
+        if (!lines.isEmpty()
+            && !line.isEmpty()
+            && (line.front() == QLatin1Char(' ') || line.front() == QLatin1Char('\t'))) {
+            lines.last().text.append(line.mid(1));
+            continue;
+        }
+        lines.append(CalendarLogicalLine{line, lineNumber});
+    }
+    return lines;
+}
+
+QString icalendarPropertyName(const QString &line)
+{
+    const int colon = line.indexOf(QLatin1Char(':'));
+    if (colon < 0) {
+        return {};
+    }
+    QString name = line.left(colon).section(QLatin1Char(';'), 0, 0).trimmed();
+    return name.toUpper();
+}
+
+QString icalendarPropertyValue(const QString &line)
+{
+    const int colon = line.indexOf(QLatin1Char(':'));
+    if (colon < 0) {
+        return {};
+    }
+    return unescapeIcalendarText(line.mid(colon + 1).trimmed());
+}
+
+QString trimmedIcalendarUrlCandidate(QString value)
+{
+    value = value.trimmed();
+    while (!value.isEmpty()
+           && (value.endsWith(QLatin1Char('.'))
+               || value.endsWith(QLatin1Char(','))
+               || value.endsWith(QLatin1Char(';'))
+               || value.endsWith(QLatin1Char(')'))
+               || value.endsWith(QLatin1Char(']')))) {
+        value.chop(1);
+    }
+    return value;
+}
+
+void appendCalendarUrlReference(CalendarEvent &event,
+                                const QString &rawUrl,
+                                int lineNumber,
+                                QStringList &seenUrls)
+{
+    const QUrl url = QUrl::fromUserInput(trimmedIcalendarUrlCandidate(rawUrl));
+    if (!isIndexableWebUrl(url)) {
+        return;
+    }
+
+    const QString urlKey = url.toString(QUrl::FullyEncoded);
+    if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+        return;
+    }
+
+    seenUrls.append(urlKey);
+    event.urls.append(CalendarUrlReference{url, lineNumber});
+}
+
+void appendCalendarUrlsFromValue(CalendarEvent &event,
+                                 const QString &value,
+                                 int lineNumber,
+                                 QStringList &seenUrls)
+{
+    static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"),
+                                               QRegularExpression::CaseInsensitiveOption);
+    QRegularExpressionMatchIterator matches = urlPattern.globalMatch(value);
+    while (matches.hasNext()) {
+        appendCalendarUrlReference(event, matches.next().captured(0), lineNumber, seenUrls);
+    }
+}
+
+QList<CalendarEvent> calendarEventsFromFile(const QFileInfo &fileInfo)
+{
+    if (!isIcalendarFileCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    QList<CalendarEvent> events;
+    CalendarEvent currentEvent;
+    QStringList seenUrls;
+    bool inEvent = false;
+
+    for (const CalendarLogicalLine &line : unfoldedIcalendarLines(QString::fromUtf8(bytes))) {
+        const QString name = icalendarPropertyName(line.text);
+        const QString value = icalendarPropertyValue(line.text);
+        if (name == QLatin1String("BEGIN") && value.compare(QStringLiteral("VEVENT"), Qt::CaseInsensitive) == 0) {
+            currentEvent = CalendarEvent{};
+            currentEvent.eventLineNumber = line.lineNumber;
+            seenUrls.clear();
+            inEvent = true;
+            continue;
+        }
+        if (!inEvent) {
+            continue;
+        }
+        if (name == QLatin1String("END") && value.compare(QStringLiteral("VEVENT"), Qt::CaseInsensitive) == 0) {
+            events.append(currentEvent);
+            currentEvent = CalendarEvent{};
+            seenUrls.clear();
+            inEvent = false;
+            continue;
+        }
+
+        if (name == QLatin1String("SUMMARY")) {
+            currentEvent.summary = value;
+            currentEvent.summaryLineNumber = line.lineNumber;
+        } else if (name == QLatin1String("DTSTART")) {
+            currentEvent.startsAt = formatIcalendarDateTime(value);
+            currentEvent.startLineNumber = line.lineNumber;
+        } else if (name == QLatin1String("DTEND")) {
+            currentEvent.endsAt = formatIcalendarDateTime(value);
+            currentEvent.endLineNumber = line.lineNumber;
+        } else if (name == QLatin1String("LOCATION")) {
+            currentEvent.location = value;
+            currentEvent.locationLineNumber = line.lineNumber;
+            appendCalendarUrlsFromValue(currentEvent, value, line.lineNumber, seenUrls);
+        } else if (name == QLatin1String("URL")) {
+            appendCalendarUrlReference(currentEvent, value, line.lineNumber, seenUrls);
+        } else if (name == QLatin1String("DESCRIPTION")) {
+            appendCalendarUrlsFromValue(currentEvent, value, line.lineNumber, seenUrls);
+        }
+    }
+
+    if (inEvent) {
+        events.append(currentEvent);
+    }
+    return events;
+}
+
+QList<Resource> calendarUrlResourcesFromEvents(const QFileInfo &fileInfo, const QList<CalendarEvent> &events)
+{
+    QList<Resource> resources;
+    for (const CalendarEvent &event : events) {
+        for (const CalendarUrlReference &reference : event.urls) {
+            const QString urlKey = reference.url.toString(QUrl::FullyEncoded);
+            Resource resource;
+            resource.id = QStringLiteral("calendar-url:%1:%2:%3")
+                              .arg(normalizedPath(fileInfo), QString::number(reference.lineNumber), urlKey);
+            resource.kind = ResourceKind::Url;
+            resource.title = event.summary.trimmed().isEmpty()
+                ? (reference.url.host().isEmpty() ? reference.url.toDisplayString() : reference.url.host())
+                : event.summary;
+            resource.location = urlKey;
+            resource.updatedAt = fileInfo.lastModified().toUTC();
+            appendWebUrlMetadata(resource, reference.url);
+            appendUnique(resource.tags, QStringLiteral("calendar-link"));
+            appendUnique(resource.aliases, fileInfo.completeBaseName());
+            appendUnique(resource.aliases, event.summary);
+            appendUnique(resource.aliases, event.location);
+            appendUnique(resource.aliases, event.startsAt);
+            resources.append(resource);
+        }
+    }
+    return resources;
+}
+
+QString calendarUrlLineAnchorTarget(const CalendarEvent &event, const CalendarUrlReference &reference)
+{
+    const QString title = event.summary.trimmed().isEmpty()
+        ? (reference.url.host().isEmpty() ? reference.url.toDisplayString() : reference.url.host())
+        : event.summary.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, reference.url.toString(QUrl::FullyEncoded));
+}
+
+void appendCalendarSourceMetadata(Resource &sourceResource,
+                                  const QList<CalendarEvent> &events,
+                                  const QList<Resource> &urlResources)
+{
+    int urlResourceIndex = 0;
+    for (const CalendarEvent &event : events) {
+        appendUnique(sourceResource.tags, QStringLiteral("calendar"));
+        appendUnique(sourceResource.aliases, event.summary);
+        appendUnique(sourceResource.aliases, event.location);
+
+        if (!event.summary.isEmpty()) {
+            appendFileLineAnchor(sourceResource,
+                                 QStringLiteral("calendar event: %1").arg(event.summary),
+                                 event.summaryLineNumber > 0 ? event.summaryLineNumber : event.eventLineNumber);
+        }
+        if (!event.startsAt.isEmpty()) {
+            appendFileLineAnchor(sourceResource,
+                                 QStringLiteral("calendar start: %1").arg(event.startsAt),
+                                 event.startLineNumber);
+        }
+        if (!event.endsAt.isEmpty()) {
+            appendFileLineAnchor(sourceResource,
+                                 QStringLiteral("calendar end: %1").arg(event.endsAt),
+                                 event.endLineNumber);
+        }
+        if (!event.location.isEmpty()) {
+            appendFileLineAnchor(sourceResource,
+                                 QStringLiteral("calendar location: %1").arg(event.location),
+                                 event.locationLineNumber);
+        }
+
+        for (const CalendarUrlReference &reference : event.urls) {
+            if (urlResourceIndex >= urlResources.size()) {
+                break;
+            }
+
+            const Resource &urlResource = urlResources.at(urlResourceIndex);
+            const QString anchorTarget = calendarUrlLineAnchorTarget(event, reference);
+            if (reference.lineNumber > 0) {
+                appendFileLineAnchor(sourceResource, anchorTarget, reference.lineNumber);
+            }
+
+            ResourceRelation relation;
+            relation.sourceResourceId = sourceResource.id;
+            relation.targetResourceId = urlResource.id;
+            relation.label = QStringLiteral("links-to");
+            relation.note = reference.lineNumber > 0
+                ? QStringLiteral("calendar line %1: %2").arg(reference.lineNumber).arg(anchorTarget)
+                : anchorTarget;
+            sourceResource.relations.append(relation);
+            ++urlResourceIndex;
+        }
+    }
+}
+
 void appendTabularHeaderAnchorsFromLine(Resource &resource, const QString &line, int lineNumber, QChar delimiter)
 {
     const QStringList headers = splitDelimitedLine(line, delimiter);
@@ -4908,6 +5242,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     }
     if (primary.kind == ResourceKind::File && isCompileCommandsFile(fileInfo)) {
         appendCompileCommandMetadata(primary, compileCommandEntriesFromFile(fileInfo));
+    }
+    if (primary.kind == ResourceKind::File && isIcalendarFileCandidate(fileInfo)) {
+        const QList<CalendarEvent> calendarEvents = calendarEventsFromFile(fileInfo);
+        const QList<Resource> calendarResources = calendarUrlResourcesFromEvents(fileInfo, calendarEvents);
+        appendCalendarSourceMetadata(primary, calendarEvents, calendarResources);
+        derivedResources.append(calendarResources);
     }
     if (primary.kind == ResourceKind::File
         && isJsonUrlCandidate(fileInfo)

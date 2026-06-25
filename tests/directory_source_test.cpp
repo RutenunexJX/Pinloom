@@ -52,6 +52,7 @@ private slots:
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
+    void extractsIcalendarEventUrlResources();
     void extractsJsonUrlResources();
     void extractsHarEntryLinks();
     void extractsStructuredTextUrlResources();
@@ -3009,6 +3010,135 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 1
             && result.matchedAnchor->target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
+    }));
+}
+
+void DirectorySourceTest::extractsIcalendarEventUrlResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/calendar")));
+    writeFile(dir.filePath(QStringLiteral("library/calendar/pinloom.ics")),
+              QByteArray("BEGIN:VCALENDAR\r\n"
+                         "VERSION:2.0\r\n"
+                         "BEGIN:VEVENT\r\n"
+                         "SUMMARY:ZeroSlack Dock Planning\r\n"
+                         "DTSTART:20260701T090000Z\r\n"
+                         "DTEND:20260701T100000Z\r\n"
+                         "LOCATION:Planning Room\r\n"
+                         "URL:https://meet.example.com/pinloom#agenda\r\n"
+                         "DESCRIPTION:Read https://docs.example.com/pinloom/calendar#notes before the call\r\n"
+                         "END:VEVENT\r\n"
+                         "BEGIN:VEVENT\r\n"
+                         "SUMMARY:Offline Review\r\n"
+                         "DTSTART;VALUE=DATE:20260702\r\n"
+                         "LOCATION:Desk\r\n"
+                         "END:VEVENT\r\n"
+                         "END:VCALENDAR\r\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto calendarIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("pinloom.ics");
+    });
+    QVERIFY(calendarIt != resources.cend());
+    QVERIFY(calendarIt->tags.contains(QStringLiteral("calendar")));
+    QVERIFY(calendarIt->aliases.contains(QStringLiteral("ZeroSlack Dock Planning")));
+    QVERIFY(calendarIt->aliases.contains(QStringLiteral("Offline Review")));
+
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar event: ZeroSlack Dock Planning"), 4));
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar start: 2026-07-01 09:00:00 UTC"), 5));
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar end: 2026-07-01 10:00:00 UTC"), 6));
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar location: Planning Room"), 7));
+    QVERIFY(hasLineAnchor(*calendarIt,
+                          QStringLiteral("url: ZeroSlack Dock Planning -> https://meet.example.com/pinloom#agenda"),
+                          8));
+    QVERIFY(hasLineAnchor(*calendarIt,
+                          QStringLiteral("url: ZeroSlack Dock Planning -> https://docs.example.com/pinloom/calendar#notes"),
+                          9));
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar event: Offline Review"), 12));
+    QVERIFY(hasLineAnchor(*calendarIt, QStringLiteral("calendar start: 2026-07-02"), 13));
+
+    auto meetingIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://meet.example.com/pinloom#agenda");
+    });
+    QVERIFY(meetingIt != resources.cend());
+    QCOMPARE(meetingIt->title, QStringLiteral("ZeroSlack Dock Planning"));
+    QVERIFY(meetingIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(meetingIt->tags.contains(QStringLiteral("calendar-link")));
+    QVERIFY(meetingIt->aliases.contains(QStringLiteral("pinloom")));
+    QVERIFY(meetingIt->aliases.contains(QStringLiteral("Planning Room")));
+    QVERIFY(meetingIt->aliases.contains(QStringLiteral("2026-07-01 09:00:00 UTC")));
+    QVERIFY(std::any_of(meetingIt->anchors.cbegin(), meetingIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("agenda");
+    }));
+
+    auto docsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/calendar#notes");
+    });
+    QVERIFY(docsIt != resources.cend());
+
+    QCOMPARE(calendarIt->relations.size(), 2);
+    QVERIFY(std::any_of(calendarIt->relations.cbegin(), calendarIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == calendarIt->id
+            && relation.targetResourceId == meetingIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("calendar line 8: url: ZeroSlack Dock Planning -> https://meet.example.com/pinloom#agenda");
+    }));
+    QVERIFY(std::any_of(calendarIt->relations.cbegin(), calendarIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == calendarIt->id
+            && relation.targetResourceId == docsIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("calendar line 9: url: ZeroSlack Dock Planning -> https://docs.example.com/pinloom/calendar#notes");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("agenda")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("ZeroSlack Dock Planning")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("agenda");
+    }));
+
+    const QList<SearchResult> offlineResults = repository.search(SearchQuery{QStringLiteral("Offline Review")});
+    QVERIFY(std::any_of(offlineResults.cbegin(), offlineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("pinloom.ics")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("calendar event: Offline Review");
+    }));
+
+    const QList<ResourceRelation> calendarRelations = repository.resourceRelations(calendarIt->id);
+    QCOMPARE(calendarRelations.size(), 2);
+    QVERIFY(std::any_of(calendarRelations.cbegin(), calendarRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.targetResourceId == meetingIt->id
+            && relation.note == QLatin1String("calendar line 8: url: ZeroSlack Dock Planning -> https://meet.example.com/pinloom#agenda");
     }));
 }
 
