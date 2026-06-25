@@ -51,6 +51,7 @@ struct TabularUrlLink {
     QString title;
     QStringList aliases;
     QStringList tags;
+    int lineNumber = -1;
 };
 
 struct BrowserBookmarkLink {
@@ -2499,6 +2500,36 @@ QStringList splitTabularMetadataValues(const QString &value)
     return values;
 }
 
+bool looksLikeExplicitOrBareWebUrl(const QString &value)
+{
+    const QString trimmed = value.trimmed();
+    if (trimmed.startsWith(QLatin1String("http://"), Qt::CaseInsensitive)
+        || trimmed.startsWith(QLatin1String("https://"), Qt::CaseInsensitive)) {
+        return true;
+    }
+
+    QString hostCandidate = trimmed;
+    const int pathIndex = hostCandidate.indexOf(QLatin1Char('/'));
+    if (pathIndex >= 0) {
+        hostCandidate = hostCandidate.left(pathIndex);
+    }
+    const int queryIndex = hostCandidate.indexOf(QLatin1Char('?'));
+    if (queryIndex >= 0) {
+        hostCandidate = hostCandidate.left(queryIndex);
+    }
+    const int fragmentIndex = hostCandidate.indexOf(QLatin1Char('#'));
+    if (fragmentIndex >= 0) {
+        hostCandidate = hostCandidate.left(fragmentIndex);
+    }
+    const int portIndex = hostCandidate.indexOf(QLatin1Char(':'));
+    if (portIndex >= 0) {
+        hostCandidate = hostCandidate.left(portIndex);
+    }
+
+    return hostCandidate.startsWith(QLatin1String("www."), Qt::CaseInsensitive)
+        || hostCandidate.contains(QLatin1Char('.'));
+}
+
 QUrl urlFromTabularCell(const QString &cell)
 {
     const QString trimmed = cell.trimmed();
@@ -2506,9 +2537,11 @@ QUrl urlFromTabularCell(const QString &cell)
         return {};
     }
 
-    QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(trimmed));
-    if (isIndexableWebUrl(url)) {
-        return url;
+    if (looksLikeExplicitOrBareWebUrl(trimmed)) {
+        QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(trimmed));
+        if (isIndexableWebUrl(url)) {
+            return url;
+        }
     }
 
     static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
@@ -2516,7 +2549,7 @@ QUrl urlFromTabularCell(const QString &cell)
     if (!match.hasMatch()) {
         return {};
     }
-    url = QUrl::fromUserInput(trimmedPlainTextUrl(match.captured(0)));
+    const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(match.captured(0)));
     return isIndexableWebUrl(url) ? url : QUrl();
 }
 
@@ -2585,6 +2618,7 @@ QList<TabularUrlLink> tabularUrlLinksFromDocument(const QString &text, QChar del
 
             TabularUrlLink link;
             link.url = url;
+            link.lineNumber = lineIndex + 1;
             if (titleColumn >= 0 && titleColumn < cells.size() && titleColumn != urlColumn) {
                 link.title = collapsedWhitespace(cells.at(titleColumn));
             }
@@ -2607,6 +2641,88 @@ QList<TabularUrlLink> tabularUrlLinksFromDocument(const QString &text, QChar del
     }
 
     return links;
+}
+
+QList<TabularUrlLink> tabularUrlLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return {};
+    }
+
+    const std::optional<QChar> delimiter = tabularDelimiterForFile(fileInfo);
+    if (!delimiter.has_value()) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    return tabularUrlLinksFromDocument(QString::fromUtf8(bytes), delimiter.value());
+}
+
+QList<Resource> tabularUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<TabularUrlLink> &links)
+{
+    QList<Resource> resources;
+    for (const TabularUrlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("tabular-url:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("tabular-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        for (const QString &alias : link.aliases) {
+            appendUnique(resource.aliases, alias);
+        }
+        for (const QString &tag : link.tags) {
+            appendUnique(resource.tags, tag);
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString tabularUrlLineAnchorTarget(const TabularUrlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendTabularUrlSourceMetadata(Resource &sourceResource,
+                                    const QList<TabularUrlLink> &links,
+                                    const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const TabularUrlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = tabularUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("table row %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
 }
 
 void appendTabularHeaderAnchorsFromLine(Resource &resource, const QString &line, int lineNumber, QChar delimiter)
@@ -2775,29 +2891,34 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
 {
     QList<Resource> resources;
     Resource primary = resourceFromFileInfo(fileInfo);
-    resources.append(primary);
+    QList<Resource> derivedResources;
 
     const QString suffix = fileInfo.suffix().toLower();
     if (primary.kind == ResourceKind::Markdown) {
-        resources.append(markdownLinkResourcesFromFile(fileInfo));
+        derivedResources.append(markdownLinkResourcesFromFile(fileInfo));
     } else if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))) {
-        resources.append(bookmarkResourcesFromHtmlFile(fileInfo));
+        derivedResources.append(bookmarkResourcesFromHtmlFile(fileInfo));
     } else if (isBrowserBookmarkJsonCandidate(fileInfo)) {
-        resources.append(browserBookmarkResourcesFromJsonFile(fileInfo));
+        derivedResources.append(browserBookmarkResourcesFromJsonFile(fileInfo));
     } else if (suffix == QLatin1String("opml")) {
-        resources.append(opmlResourcesFromFile(fileInfo));
+        derivedResources.append(opmlResourcesFromFile(fileInfo));
     } else if (isFeedXmlCandidate(fileInfo)) {
-        resources.append(feedResourcesFromXmlFile(fileInfo));
-        resources.append(sitemapResourcesFromXmlFile(fileInfo));
+        derivedResources.append(feedResourcesFromXmlFile(fileInfo));
+        derivedResources.append(sitemapResourcesFromXmlFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
-        resources.append(plainTextUrlResourcesFromFile(fileInfo));
+        derivedResources.append(plainTextUrlResourcesFromFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value()) {
-        resources.append(tabularUrlResourcesFromFile(fileInfo));
+        const QList<TabularUrlLink> tabularLinks = tabularUrlLinksFromFile(fileInfo);
+        const QList<Resource> tabularResources = tabularUrlResourcesFromLinks(fileInfo, tabularLinks);
+        appendTabularUrlSourceMetadata(primary, tabularLinks, tabularResources);
+        derivedResources.append(tabularResources);
     }
 
+    resources.append(primary);
+    resources.append(derivedResources);
     return resources;
 }
 
@@ -2945,52 +3066,6 @@ QList<Resource> DirectoryLibrarySource::plainTextUrlResourcesFromFile(const QFil
         appendWebUrlMetadata(resource, link.url);
         appendUnique(resource.tags, QStringLiteral("web-link"));
         appendUnique(resource.aliases, fileInfo.completeBaseName());
-        resources.append(resource);
-    }
-    return resources;
-}
-
-QList<Resource> DirectoryLibrarySource::tabularUrlResourcesFromFile(const QFileInfo &fileInfo) const
-{
-    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
-        return {};
-    }
-
-    const std::optional<QChar> delimiter = tabularDelimiterForFile(fileInfo);
-    if (!delimiter.has_value()) {
-        return {};
-    }
-
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return {};
-    }
-
-    const QByteArray bytes = file.readAll();
-    if (bytes.contains('\0')) {
-        return {};
-    }
-
-    const QString text = QString::fromUtf8(bytes);
-    QList<Resource> resources;
-    for (const TabularUrlLink &link : tabularUrlLinksFromDocument(text, delimiter.value())) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        Resource resource;
-        resource.id = QStringLiteral("tabular-url:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("tabular-link"));
-        appendUnique(resource.aliases, fileInfo.completeBaseName());
-        for (const QString &alias : link.aliases) {
-            appendUnique(resource.aliases, alias);
-        }
-        for (const QString &tag : link.tags) {
-            appendUnique(resource.tags, tag);
-        }
         resources.append(resource);
     }
     return resources;

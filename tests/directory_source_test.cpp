@@ -1858,6 +1858,11 @@ void DirectorySourceTest::extractsTabularUrlResources()
             && anchor.target == QLatin1String("column: URL")
             && anchor.line == 1;
     }));
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock")
+            && anchor.line == 2;
+    }));
 
     auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -1876,6 +1881,13 @@ void DirectorySourceTest::extractsTabularUrlResources()
     QCOMPARE(hostIt->anchors.size(), 1);
     QCOMPARE(hostIt->anchors.first().type, AnchorType::UrlFragment);
     QCOMPARE(hostIt->anchors.first().target, QStringLiteral("dock"));
+    QCOMPARE(fileIt->relations.size(), 2);
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("table row 2: url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
+    }));
 
     const int duplicateCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -1915,6 +1927,30 @@ void DirectorySourceTest::extractsTabularUrlResources()
     QVERIFY(std::any_of(hostResults.cbegin(), hostResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::Url
             && result.resource.title == QLatin1String("FPGA Notes");
+    }));
+
+    const QList<ResourceRelation> fileRelations = repository.resourceRelations(fileIt->id);
+    QCOMPARE(fileRelations.size(), 2);
+    QVERIFY(std::any_of(fileRelations.cbegin(), fileRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("table row 2: url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
+    }));
+
+    const QList<ResourceRelation> urlRelations = repository.resourceRelations(hostIt->id);
+    QCOMPARE(urlRelations.size(), 1);
+    QCOMPARE(urlRelations.first().sourceResourceId, fileIt->id);
+    QCOMPARE(urlRelations.first().targetResourceId, hostIt->id);
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Host API")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("research.csv")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 2
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
     }));
 }
 

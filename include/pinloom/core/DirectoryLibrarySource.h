@@ -34,7 +34,6 @@ private:
     Resource resourceFromFileInfo(const QFileInfo &fileInfo) const;
     QList<Resource> markdownLinkResourcesFromFile(const QFileInfo &fileInfo) const;
     QList<Resource> plainTextUrlResourcesFromFile(const QFileInfo &fileInfo) const;
-    QList<Resource> tabularUrlResourcesFromFile(const QFileInfo &fileInfo) const;
     QList<Resource> bookmarkResourcesFromHtmlFile(const QFileInfo &fileInfo) const;
     QList<Resource> browserBookmarkResourcesFromJsonFile(const QFileInfo &fileInfo) const;
     QList<Resource> opmlResourcesFromFile(const QFileInfo &fileInfo) const;
