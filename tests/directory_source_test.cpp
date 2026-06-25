@@ -3868,6 +3868,7 @@ void DirectorySourceTest::extractsHtmlPageContent()
                          "</head><body>\n"
                          "<h1 id=\"install\">Install &amp; Launch</h1>\n"
                          "<p>This page explains browser launch routing and saved web references.</p>\n"
+                         "<a href=\"https://docs.example.com/pinloom/launch#browser\">Browser Launch</a>\n"
                          "</body></html>\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
@@ -3890,6 +3891,28 @@ void DirectorySourceTest::extractsHtmlPageContent()
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("install");
     }));
 
+    auto launchIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Browser Launch")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/launch#browser");
+    });
+    QVERIFY(launchIt != resources.cend());
+    QVERIFY(launchIt->tags.contains(QStringLiteral("html-link")));
+    QVERIFY(std::any_of(launchIt->anchors.cbegin(), launchIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("browser");
+    }));
+    QVERIFY(std::any_of(htmlIt->anchors.cbegin(), htmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Browser Launch -> https://docs.example.com/pinloom/launch#browser")
+            && anchor.line == 10;
+    }));
+    QVERIFY(std::any_of(htmlIt->relations.cbegin(), htmlIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == launchIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("html link: url: Browser Launch -> https://docs.example.com/pinloom/launch#browser");
+    }));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -3899,9 +3922,11 @@ void DirectorySourceTest::extractsHtmlPageContent()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("browser launch")});
-    QCOMPARE(contentResults.size(), 1);
-    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Url);
-    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+    QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Web Guide")
+            && result.matchedField == QLatin1String("content");
+    }));
 
     const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("install")});
     QVERIFY(!anchorResults.isEmpty());
@@ -3909,6 +3934,23 @@ void DirectorySourceTest::extractsHtmlPageContent()
         return result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("install");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Browser Launch")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Web Guide")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 10
+            && result.matchedAnchor->target == QLatin1String("url: Browser Launch -> https://docs.example.com/pinloom/launch#browser");
+    }));
+
+    const QList<ResourceRelation> htmlRelations = repository.resourceRelations(htmlIt->id);
+    QVERIFY(std::any_of(htmlRelations.cbegin(), htmlRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == htmlIt->id
+            && relation.targetResourceId == launchIt->id
+            && relation.label == QLatin1String("links-to");
     }));
 }
 

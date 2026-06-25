@@ -5343,14 +5343,15 @@ QList<Resource> htmlLinkResourcesFromLinks(const QFileInfo &fileInfo, const QLis
 
 void appendHtmlUrlSourceMetadata(Resource &sourceResource,
                                  const QList<HtmlLink> &links,
-                                 const QList<Resource> &urlResources)
+                                 const QList<Resource> &urlResources,
+                                 bool appendSourceLineAnchors)
 {
     const int count = std::min(links.size(), urlResources.size());
     for (int i = 0; i < count; ++i) {
         const HtmlLink &link = links.at(i);
         const Resource &urlResource = urlResources.at(i);
         const QString anchorTarget = urlLinkAnchorTarget(link);
-        if (link.lineNumber > 0) {
+        if (appendSourceLineAnchors && link.lineNumber > 0) {
             appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
         }
 
@@ -6577,7 +6578,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         if (bookmarkResources.isEmpty()) {
             const QList<HtmlLink> htmlLinks = htmlLinksFromFile(fileInfo);
             const QList<Resource> htmlResources = htmlLinkResourcesFromLinks(fileInfo, htmlLinks);
-            appendHtmlUrlSourceMetadata(primary, htmlLinks, htmlResources);
+            appendHtmlUrlSourceMetadata(primary, htmlLinks, htmlResources, !isMhtmlFile(fileInfo));
             derivedResources.append(htmlResources);
         } else {
             appendBookmarkExportSourceMetadata(primary, bookmarkLinks, bookmarkResources);
