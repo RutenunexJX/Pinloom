@@ -45,6 +45,7 @@ private slots:
     void extractsCodeTestCaseAnchors();
     void extractsCodeDependencyLineAnchors();
     void extractsCMakeBuildAnchors();
+    void extractsMakeAndDockerBuildAnchors();
     void extractsCompileCommandsRelations();
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
@@ -2307,6 +2308,115 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("dependency: Qt6");
     }));
+}
+
+void DirectorySourceTest::extractsMakeAndDockerBuildAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/build")));
+    writeFile(dir.filePath(QStringLiteral("library/Makefile")),
+              QByteArray(".PHONY: all clean\n"
+                         "all build: app\n"
+                         "\t@echo build\n"
+                         "clean:\n"
+                         "\t@rm -rf build\n"));
+    writeFile(dir.filePath(QStringLiteral("library/build/rules.mk")),
+              QByteArray("pinloom-docs:\n"
+                         "\t@echo docs\n"));
+    writeFile(dir.filePath(QStringLiteral("library/Dockerfile")),
+              QByteArray("FROM qt:6.10 AS build\n"
+                         "COPY src/ /app/src/\n"
+                         "ADD assets.tar.gz /app/assets/\n"
+                         "FROM build AS runtime\n"));
+    writeFile(dir.filePath(QStringLiteral("library/Dockerfile.dev")),
+              QByteArray("FROM ubuntu:24.04\n"));
+    writeFile(dir.filePath(QStringLiteral("library/app.dockerfile")),
+              QByteArray("FROM alpine:3.20 AS tools\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findCode = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+        });
+    };
+    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    const auto makefileIt = findCode(QStringLiteral("Makefile"));
+    QVERIFY(makefileIt != resources.cend());
+    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: all"), 2));
+    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: build"), 2));
+    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: clean"), 4));
+    QVERIFY(!hasSymbol(*makefileIt, QStringLiteral("make target: .PHONY"), 1));
+
+    const auto rulesIt = findCode(QStringLiteral("rules.mk"));
+    QVERIFY(rulesIt != resources.cend());
+    QVERIFY(hasSymbol(*rulesIt, QStringLiteral("make target: pinloom-docs"), 1));
+
+    const auto dockerIt = findCode(QStringLiteral("Dockerfile"));
+    QVERIFY(dockerIt != resources.cend());
+    QVERIFY(hasSymbol(*dockerIt, QStringLiteral("docker stage: build"), 1));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker base: qt:6.10"), 1));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker COPY: src/"), 2));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker ADD: assets.tar.gz"), 3));
+    QVERIFY(hasSymbol(*dockerIt, QStringLiteral("docker stage: runtime"), 4));
+
+    const auto dockerDevIt = findCode(QStringLiteral("Dockerfile.dev"));
+    QVERIFY(dockerDevIt != resources.cend());
+    QVERIFY(hasLineAnchor(*dockerDevIt, QStringLiteral("docker base: ubuntu:24.04"), 1));
+
+    const auto dockerSuffixIt = findCode(QStringLiteral("app.dockerfile"));
+    QVERIFY(dockerSuffixIt != resources.cend());
+    QVERIFY(hasSymbol(*dockerSuffixIt, QStringLiteral("docker stage: tools"), 1));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> makeResults = repository.search(SearchQuery{QStringLiteral("pinloom-docs")});
+    QCOMPARE(makeResults.size(), 1);
+    QCOMPARE(makeResults.first().resource.title, QStringLiteral("rules.mk"));
+    QVERIFY(makeResults.first().matchedAnchor.has_value());
+    QCOMPARE(makeResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+    QCOMPARE(makeResults.first().matchedAnchor->target, QStringLiteral("make target: pinloom-docs"));
+
+    const QList<SearchResult> dockerStageResults = repository.search(SearchQuery{QStringLiteral("runtime")});
+    QVERIFY(std::any_of(dockerStageResults.cbegin(), dockerStageResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Dockerfile")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->target == QLatin1String("docker stage: runtime");
+    }));
+
+    const QList<SearchResult> dockerCopyResults = repository.search(SearchQuery{QStringLiteral("assets.tar.gz")});
+    QCOMPARE(dockerCopyResults.size(), 1);
+    QCOMPARE(dockerCopyResults.first().resource.title, QStringLiteral("Dockerfile"));
+    QVERIFY(dockerCopyResults.first().matchedAnchor.has_value());
+    QCOMPARE(dockerCopyResults.first().matchedAnchor->type, AnchorType::FileLine);
+    QCOMPARE(dockerCopyResults.first().matchedAnchor->target, QStringLiteral("docker ADD: assets.tar.gz"));
 }
 
 void DirectorySourceTest::extractsCompileCommandsRelations()

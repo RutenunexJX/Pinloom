@@ -257,6 +257,37 @@ bool isCMakeFile(const QFileInfo &fileInfo)
             || fileInfo.suffix().compare(QStringLiteral("cmake"), Qt::CaseInsensitive) == 0);
 }
 
+bool isMakefile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString fileName = fileInfo.fileName();
+    if (fileName.compare(QStringLiteral("Makefile"), Qt::CaseInsensitive) == 0
+        || fileName.compare(QStringLiteral("GNUmakefile"), Qt::CaseInsensitive) == 0) {
+        return true;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return suffix == QLatin1String("mk") || suffix == QLatin1String("mak");
+}
+
+bool isDockerfile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString fileName = fileInfo.fileName();
+    if (fileName.compare(QStringLiteral("Dockerfile"), Qt::CaseInsensitive) == 0
+        || fileName.startsWith(QStringLiteral("Dockerfile."), Qt::CaseInsensitive)) {
+        return true;
+    }
+
+    return fileInfo.suffix().compare(QStringLiteral("dockerfile"), Qt::CaseInsensitive) == 0;
+}
+
 bool hasCodeShebang(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
@@ -285,7 +316,7 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
         return ResourceKind::Folder;
     }
 
-    if (isCMakeFile(fileInfo)) {
+    if (isCMakeFile(fileInfo) || isMakefile(fileInfo) || isDockerfile(fileInfo)) {
         return ResourceKind::CodeSnippet;
     }
 
@@ -2842,6 +2873,69 @@ void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lin
     }
 }
 
+void appendMakefileAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+{
+    if (line.startsWith(QLatin1Char('\t'))) {
+        return;
+    }
+
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    static const QRegularExpression targetPattern(
+        QStringLiteral("^([^:#=]+?)\\s*:(?![=:])"));
+    const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
+    if (!targetMatch.hasMatch()) {
+        return;
+    }
+
+    const QStringList targets = targetMatch.captured(1).split(QRegularExpression(QStringLiteral("\\s+")),
+                                                              Qt::SkipEmptyParts);
+    for (const QString &target : targets) {
+        const QString normalized = target.trimmed();
+        if (!normalized.isEmpty() && !normalized.startsWith(QLatin1Char('.'))) {
+            appendCodeSymbol(resource, QStringLiteral("make target: %1").arg(normalized), lineNumber);
+        }
+    }
+}
+
+void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+{
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    static const QRegularExpression fromPattern(
+        QStringLiteral("^FROM\\s+([^\\s]+)(?:\\s+AS\\s+([A-Za-z0-9_.-]+))?\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression copyPattern(
+        QStringLiteral("^(COPY|ADD)\\s+(?:--[^\\s]+\\s+)*([^\\s]+)"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    const QRegularExpressionMatch fromMatch = fromPattern.match(trimmed);
+    if (fromMatch.hasMatch()) {
+        const QString stage = fromMatch.captured(2).trimmed();
+        if (!stage.isEmpty()) {
+            appendCodeSymbol(resource, QStringLiteral("docker stage: %1").arg(stage), lineNumber);
+        }
+        appendFileLineAnchor(resource,
+                             QStringLiteral("docker base: %1").arg(fromMatch.captured(1).trimmed()),
+                             lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch copyMatch = copyPattern.match(trimmed);
+    if (copyMatch.hasMatch()) {
+        appendFileLineAnchor(resource,
+                             QStringLiteral("docker %1: %2")
+                                 .arg(copyMatch.captured(1).toUpper(), copyMatch.captured(2).trimmed()),
+                             lineNumber);
+    }
+}
+
 bool isGoImportBlockStart(const QString &line)
 {
     static const QRegularExpression pattern(QStringLiteral("^import\\s*\\($"));
@@ -4917,6 +5011,8 @@ void DirectoryLibrarySource::applyCodeMetadata(Resource &resource, const QFileIn
     int lineNumber = 0;
     bool inGoImportBlock = false;
     const bool cmakeFile = isCMakeFile(fileInfo);
+    const bool makefile = isMakefile(fileInfo);
+    const bool dockerfile = isDockerfile(fileInfo);
     while (!file.atEnd()) {
         ++lineNumber;
         const QString line = QString::fromUtf8(file.readLine());
@@ -4924,6 +5020,12 @@ void DirectoryLibrarySource::applyCodeMetadata(Resource &resource, const QFileIn
 
         if (cmakeFile) {
             appendCMakeAnchorsFromLine(resource, line, lineNumber);
+        }
+        if (makefile) {
+            appendMakefileAnchorsFromLine(resource, line, lineNumber);
+        }
+        if (dockerfile) {
+            appendDockerfileAnchorsFromLine(resource, line, lineNumber);
         }
 
         if (inGoImportBlock) {
