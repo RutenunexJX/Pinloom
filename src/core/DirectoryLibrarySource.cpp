@@ -1125,6 +1125,44 @@ int pdfDestinationPageObjectNumber(const QString &objectBody)
     return match.hasMatch() ? match.captured(1).toInt() : -1;
 }
 
+QString pdfNamedDestinationAfterKey(const QString &objectBody, const QString &key)
+{
+    QString name = pdfNameValueAfterKey(objectBody, key);
+    if (!name.isEmpty()) {
+        return name;
+    }
+    return pdfLiteralValueAfterKey(objectBody, key);
+}
+
+QHash<QString, int> pdfNamedDestinationPageObjectNumbers(const QList<PdfObject> &objects)
+{
+    QHash<QString, int> destinations;
+    static const QRegularExpression namedArrayPattern(
+        QStringLiteral("(?:/([A-Za-z0-9_.:-]+)|\\(([^()]*)\\))\\s*\\[\\s*(\\d+)\\s+\\d+\\s+R\\b"),
+        QRegularExpression::DotMatchesEverythingOption);
+
+    for (const PdfObject &object : objects) {
+        if (!object.body.contains(QStringLiteral("/Dests"))
+            && !object.body.contains(QStringLiteral("/Names"))) {
+            continue;
+        }
+
+        QRegularExpressionMatchIterator matches = namedArrayPattern.globalMatch(object.body);
+        while (matches.hasNext()) {
+            const QRegularExpressionMatch match = matches.next();
+            const QString name = match.captured(1).isEmpty()
+                ? decodePdfLiteralString(match.captured(2))
+                : match.captured(1).trimmed();
+            const int pageObjectNumber = match.captured(3).toInt();
+            if (!name.isEmpty() && pageObjectNumber > 0) {
+                destinations.insert(name, pageObjectNumber);
+            }
+        }
+    }
+
+    return destinations;
+}
+
 QHash<int, int> pdfPageNumbersByObjectNumber(const QList<PdfObject> &objects)
 {
     QHash<int, int> pageNumbers;
@@ -1165,7 +1203,8 @@ void appendPdfPageAnchor(Resource &resource, const QString &target, int page)
 
 void appendPdfOutlineAnchors(Resource &resource,
                              const QList<PdfObject> &objects,
-                             const QHash<int, int> &pageNumbers)
+                             const QHash<int, int> &pageNumbers,
+                             const QHash<QString, int> &namedDestinations)
 {
     for (const PdfObject &object : objects) {
         if (!object.body.contains(QStringLiteral("/Title"))) {
@@ -1173,7 +1212,15 @@ void appendPdfOutlineAnchors(Resource &resource,
         }
 
         const QString title = pdfLiteralValueAfterKey(object.body, QStringLiteral("Title"));
-        const int pageObjectNumber = pdfDestinationPageObjectNumber(object.body);
+        int pageObjectNumber = pdfDestinationPageObjectNumber(object.body);
+        if (pageObjectNumber <= 0) {
+            const QString namedDestination = pdfNamedDestinationAfterKey(object.body, QStringLiteral("Dest"));
+            pageObjectNumber = namedDestinations.value(namedDestination, -1);
+        }
+        if (pageObjectNumber <= 0) {
+            const QString namedDestination = pdfNamedDestinationAfterKey(object.body, QStringLiteral("D"));
+            pageObjectNumber = namedDestinations.value(namedDestination, -1);
+        }
         if (title.isEmpty() || !pageNumbers.contains(pageObjectNumber)) {
             continue;
         }
@@ -6174,7 +6221,8 @@ void DirectoryLibrarySource::applyPdfMetadata(Resource &resource, const QFileInf
     const QList<PdfObject> objects = pdfObjectsFromText(pdfText);
     resource.content = pdfContentTextFromObjects(objects);
     const QHash<int, int> pageNumbers = pdfPageNumbersByObjectNumber(objects);
-    appendPdfOutlineAnchors(resource, objects, pageNumbers);
+    const QHash<QString, int> namedDestinations = pdfNamedDestinationPageObjectNumbers(objects);
+    appendPdfOutlineAnchors(resource, objects, pageNumbers, namedDestinations);
 
     QHash<int, QString> objectsByNumber;
     for (const PdfObject &object : objects) {

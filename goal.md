@@ -155,7 +155,7 @@ Completed:
 Completed:
 
 - Store PDF page anchors.
-- Store PDF outline/bookmark titles as searchable page anchors when destinations point at pages.
+- Store PDF outline/bookmark titles as searchable page anchors when direct or named destinations point at pages.
 - Add basic PDF metadata extraction.
 - Open search hits at the intended page when the platform viewer supports it.
 - Extract PDF annotation rectangles as region anchors.
@@ -223,7 +223,7 @@ Completed:
 - Open URL resources through host interception or the standalone fallback URL opener.
 - Preserve matched URL fragment anchors when standalone fallback opens web pages or local HTML pages.
 - Extract PDF annotation rectangles as searchable region anchors.
-- Extract PDF outline/bookmark destinations as searchable page anchors.
+- Extract PDF outline/bookmark direct and named destinations as searchable page anchors.
 - Extract searchable PDF text from uncompressed text content streams, including `TJ` text arrays with split glyph runs.
 - Extract searchable PDF text from FlateDecode text content streams.
 - Extract searchable PDF text from ASCIIHexDecode text content streams and literal octal escapes.
