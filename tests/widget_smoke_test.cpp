@@ -825,6 +825,8 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
     };
 
     PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("missing"));
+    QVERIFY(!panel.selectFirstResult());
     QVERIFY(!panel.activateCurrentOpenTarget());
 
     panel.setSearchText(QStringLiteral("Dock"));
@@ -833,7 +835,7 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
     QVERIFY(results);
     QCOMPARE(results->count(), 1);
 
-    results->setCurrentRow(0);
+    QVERIFY(panel.selectFirstResult());
     QVERIFY(panel.activateCurrentOpenTarget());
 
     QVERIFY(handled);

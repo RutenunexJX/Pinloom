@@ -441,6 +441,15 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     return target;
 }
 
+bool PinloomPanel::selectFirstResult()
+{
+    if (resultList_->count() <= 0) {
+        return false;
+    }
+    resultList_->setCurrentRow(0);
+    return resultList_->currentItem() != nullptr;
+}
+
 void PinloomPanel::setRemoteWebFetchingEnabled(bool enabled)
 {
     if (fetchRemoteWebPagesCheck_) {
