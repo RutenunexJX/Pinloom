@@ -185,6 +185,7 @@ Status:
 - Host result-count change notifications: done.
 - Host current result snapshot change notifications: done.
 - Host status text query and change notifications: done.
+- Host library-root snapshot query, direct selection, and change notifications: done.
 - Host-triggered current-result activation API: done.
 - Host-controllable optional remote HTML fetching toggle: done.
 - Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.

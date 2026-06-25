@@ -3,6 +3,7 @@
 #include "pinloom/core/Anchor.h"
 #include "pinloom/core/LibraryRepository.h"
 
+#include <QDateTime>
 #include <QList>
 #include <QStringList>
 #include <QWidget>
@@ -43,6 +44,16 @@ struct PinloomRelatedTarget {
     PinloomOpenTarget target;
 };
 
+struct PinloomLibraryRootTarget {
+    QString id;
+    QString path;
+    QString displayName;
+    bool enabled = false;
+    bool pinned = false;
+    QDateTime lastIndexedAt;
+    int rootRow = -1;
+};
+
 struct PinloomIndexingResult {
     bool success = false;
     int indexedCount = 0;
@@ -54,6 +65,8 @@ struct PinloomPanelOptions {
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
     std::function<void(int resultCount)> resultCountChangedHandler;
     std::function<void(const QList<PinloomOpenTarget> &results)> resultsChangedHandler;
+    std::function<void(const PinloomLibraryRootTarget &root)> currentLibraryRootChangedHandler;
+    std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     bool showLibraryRootControls = true;
@@ -102,9 +115,12 @@ public:
     PinloomOpenTarget resultAt(int row) const;
     QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
+    PinloomLibraryRootTarget selectedLibraryRoot() const;
+    QList<PinloomLibraryRootTarget> libraryRoots() const;
     int resultCount() const;
     bool selectResultAt(int row);
     bool selectResultResource(const QString &resourceId);
+    bool selectLibraryRootById(const QString &id);
     bool selectFirstResult();
     bool selectNextResult();
     bool selectPreviousResult();
@@ -139,10 +155,11 @@ private slots:
     void notifyCurrentOpenTargetChanged();
     void notifyResultCountChanged();
     void notifyResultsChanged();
+    void notifyCurrentLibraryRootChanged();
+    void notifyLibraryRootsChanged();
 
 private:
     void loadLibraryRoots();
-    void selectLibraryRoot(const QString &id);
     void updateStatus(const QString &message);
     QString selectedRootId() const;
     QString selectedResultResourceId() const;

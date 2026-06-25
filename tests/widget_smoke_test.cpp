@@ -2,6 +2,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
+#include <QDateTime>
 #include <QDesktopServices>
 #include <QFile>
 #include <QCheckBox>
@@ -100,15 +101,57 @@ void WidgetSmokeTest::panelLoadsSavedLibraryRoots()
 {
     InMemoryLibraryRepository repository;
     LibraryRoot root = makeLibraryRootForPath(QStringLiteral("E:/Pinloom/Pinloom"));
+    root.displayName = QStringLiteral("Pinloom Project");
+    root.lastIndexedAt = QDateTime::fromString(QStringLiteral("2026-06-25T02:15:00Z"), Qt::ISODate);
     QVERIFY(repository.upsertLibraryRoot(root));
 
-    PinloomPanel panel(repository);
+    LibraryRoot pinnedRoot = makeLibraryRootForPath(QStringLiteral("E:/Pinloom/docs"));
+    pinnedRoot.displayName = QStringLiteral("Docs");
+    pinnedRoot.enabled = false;
+    pinnedRoot.pinned = true;
+    QVERIFY(repository.upsertLibraryRoot(pinnedRoot));
+
+    QList<PinloomLibraryRootTarget> selectedNotifications;
+    QList<QList<PinloomLibraryRootTarget>> rootSnapshots;
+    PinloomPanelOptions options;
+    options.currentLibraryRootChangedHandler = [&](const PinloomLibraryRootTarget &target) {
+        selectedNotifications.append(target);
+    };
+    options.libraryRootsChangedHandler = [&](const QList<PinloomLibraryRootTarget> &roots) {
+        rootSnapshots.append(roots);
+    };
+
+    PinloomPanel panel(repository, options);
     auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
     auto *fetchWebCheck = panel.findChild<QCheckBox *>(QStringLiteral("fetchRemoteWebPagesCheck"));
     QVERIFY(rootList);
     QVERIFY(fetchWebCheck);
-    QCOMPARE(rootList->count(), 1);
-    QCOMPARE(rootList->item(0)->data(Qt::UserRole).toString(), root.id);
+    QCOMPARE(rootList->count(), 2);
+    QCOMPARE(rootList->item(0)->data(Qt::UserRole).toString(), pinnedRoot.id);
+    QCOMPARE(rootList->item(1)->data(Qt::UserRole).toString(), root.id);
+    QCOMPARE(panel.libraryRoots().size(), 2);
+    QCOMPARE(panel.libraryRoots().at(0).id, pinnedRoot.id);
+    QCOMPARE(panel.libraryRoots().at(0).displayName, pinnedRoot.displayName);
+    QCOMPARE(panel.libraryRoots().at(0).enabled, false);
+    QCOMPARE(panel.libraryRoots().at(0).pinned, true);
+    QCOMPARE(panel.libraryRoots().at(0).rootRow, 0);
+    QCOMPARE(panel.libraryRoots().at(1).id, root.id);
+    QCOMPARE(panel.libraryRoots().at(1).lastIndexedAt, root.lastIndexedAt);
+    QVERIFY(!rootSnapshots.isEmpty());
+    QCOMPARE(rootSnapshots.last().size(), 2);
+    QCOMPARE(rootSnapshots.last().at(0).id, pinnedRoot.id);
+    QCOMPARE(panel.selectedLibraryRoot().id, pinnedRoot.id);
+    QVERIFY(!selectedNotifications.isEmpty());
+    QCOMPARE(selectedNotifications.last().id, pinnedRoot.id);
+
+    QVERIFY(panel.selectLibraryRootById(root.id));
+    QCOMPARE(panel.selectedLibraryRoot().id, root.id);
+    QCOMPARE(panel.selectedLibraryRoot().path, root.path);
+    QCOMPARE(panel.selectedLibraryRoot().displayName, root.displayName);
+    QCOMPARE(panel.selectedLibraryRoot().rootRow, 1);
+    QCOMPARE(selectedNotifications.last().id, root.id);
+    QVERIFY(!panel.selectLibraryRootById(QStringLiteral("missing-root")));
+    QCOMPARE(panel.selectedLibraryRoot().id, root.id);
     QVERIFY(!fetchWebCheck->isChecked());
     QVERIFY(!panel.remoteWebFetchingEnabled());
 

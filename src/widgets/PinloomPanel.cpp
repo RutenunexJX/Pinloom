@@ -236,6 +236,19 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     return target;
 }
 
+PinloomLibraryRootTarget libraryRootTargetForRoot(const LibraryRoot &root, int row)
+{
+    PinloomLibraryRootTarget target;
+    target.id = root.id;
+    target.path = root.path;
+    target.displayName = root.displayName;
+    target.enabled = root.enabled;
+    target.pinned = root.pinned;
+    target.lastIndexedAt = root.lastIndexedAt;
+    target.rootRow = row;
+    return target;
+}
+
 QUrl urlForLocation(const QString &location)
 {
     const QUrl parsed(location);
@@ -358,6 +371,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
     connect(rootList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshRootPinButtonState);
+    connect(rootList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentLibraryRootChanged);
 
     rootControlsWidget_->setVisible(options_.showLibraryRootControls);
     rootList_->setVisible(options_.showLibraryRootControls);
@@ -547,6 +561,33 @@ QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
     return targets;
 }
 
+PinloomLibraryRootTarget PinloomPanel::selectedLibraryRoot() const
+{
+    const QString id = selectedRootId();
+    if (id.isEmpty()) {
+        return {};
+    }
+
+    const QList<LibraryRoot> roots = repository_.libraryRoots();
+    for (int row = 0; row < roots.size(); ++row) {
+        if (roots.at(row).id == id) {
+            return libraryRootTargetForRoot(roots.at(row), row);
+        }
+    }
+    return {};
+}
+
+QList<PinloomLibraryRootTarget> PinloomPanel::libraryRoots() const
+{
+    QList<PinloomLibraryRootTarget> targets;
+    const QList<LibraryRoot> roots = repository_.libraryRoots();
+    targets.reserve(roots.size());
+    for (int row = 0; row < roots.size(); ++row) {
+        targets.append(libraryRootTargetForRoot(roots.at(row), row));
+    }
+    return targets;
+}
+
 int PinloomPanel::resultCount() const
 {
     return resultList_->count();
@@ -571,6 +612,21 @@ bool PinloomPanel::selectResultResource(const QString &resourceId)
         if (item->data(Qt::UserRole).toString() == resourceId) {
             resultList_->setCurrentItem(item);
             return true;
+        }
+    }
+    return false;
+}
+
+bool PinloomPanel::selectLibraryRootById(const QString &id)
+{
+    if (id.isEmpty()) {
+        return false;
+    }
+    for (int row = 0; row < rootList_->count(); ++row) {
+        QListWidgetItem *item = rootList_->item(row);
+        if (item->data(Qt::UserRole).toString() == id) {
+            rootList_->setCurrentItem(item);
+            return rootList_->currentItem() == item;
         }
     }
     return false;
@@ -651,7 +707,7 @@ PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
     }
 
     loadLibraryRoots();
-    selectLibraryRoot(id);
+    selectLibraryRootById(id);
     refreshResults();
     updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
     return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
@@ -802,7 +858,7 @@ void PinloomPanel::addLibraryRoot()
     }
 
     loadLibraryRoots();
-    selectLibraryRoot(root.id);
+    selectLibraryRootById(root.id);
     refreshSelectedRoot();
 }
 
@@ -879,7 +935,7 @@ void PinloomPanel::toggleSelectedLibraryRootPin()
     }
 
     loadLibraryRoots();
-    selectLibraryRoot(id);
+    selectLibraryRootById(id);
     refreshResults();
     updateStatus(nextPinned ? tr("Pinned folder") : tr("Unpinned folder"));
 }
@@ -1132,6 +1188,20 @@ void PinloomPanel::notifyResultsChanged()
     }
 }
 
+void PinloomPanel::notifyCurrentLibraryRootChanged()
+{
+    if (options_.currentLibraryRootChangedHandler) {
+        options_.currentLibraryRootChangedHandler(selectedLibraryRoot());
+    }
+}
+
+void PinloomPanel::notifyLibraryRootsChanged()
+{
+    if (options_.libraryRootsChangedHandler) {
+        options_.libraryRootsChangedHandler(libraryRoots());
+    }
+}
+
 void PinloomPanel::loadLibraryRoots()
 {
     const QString currentId = selectedRootId();
@@ -1145,23 +1215,13 @@ void PinloomPanel::loadLibraryRoots()
     }
 
     if (!currentId.isEmpty()) {
-        selectLibraryRoot(currentId);
+        selectLibraryRootById(currentId);
     }
     if (!rootList_->currentItem() && rootList_->count() > 0) {
         rootList_->setCurrentRow(0);
     }
     refreshRootPinButtonState();
-}
-
-void PinloomPanel::selectLibraryRoot(const QString &id)
-{
-    for (int row = 0; row < rootList_->count(); ++row) {
-        QListWidgetItem *item = rootList_->item(row);
-        if (item->data(Qt::UserRole).toString() == id) {
-            rootList_->setCurrentItem(item);
-            return;
-        }
-    }
+    notifyLibraryRootsChanged();
 }
 
 void PinloomPanel::updateStatus(const QString &message)
