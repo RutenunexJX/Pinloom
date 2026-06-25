@@ -377,7 +377,7 @@ Status:
 - Firefox places.sqlite indexing as individual URL resources with bookmark metadata: done.
 - OPML subscription/link list indexing as individual URL resources: done.
 - RSS and Atom feed XML entry indexing as individual URL resources: done.
-- Sitemap XML URL indexing as individual URL resources: done.
+- Sitemap XML URL indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - robots.txt Sitemap directive indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - HAR/http archive entry indexing as individual URL resources: done.
 - WARC response record indexing as individual URL resources with extracted HTML content, source line anchors, and `links-to` relations: done.

@@ -178,6 +178,7 @@ struct FeedEntryLink {
 struct SitemapLink {
     QUrl url;
     bool sitemapIndexEntry = false;
+    int lineNumber = -1;
 };
 
 QString markdownPlainTextFromLine(QString line);
@@ -3326,11 +3327,13 @@ QList<SitemapLink> sitemapLinksFromXmlDocument(const QByteArray &content)
             } else if (sitemapIndex && name == QLatin1String("sitemap")) {
                 inSitemap = true;
             } else if ((inUrl || inSitemap) && name == QLatin1String("loc")) {
+                const int lineNumber = static_cast<int>(reader.lineNumber());
                 const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
                 if (isIndexableWebUrl(url)) {
                     SitemapLink link;
                     link.url = url;
                     link.sitemapIndexEntry = inSitemap;
+                    link.lineNumber = lineNumber;
                     links.append(link);
                 }
             }
@@ -5600,6 +5603,109 @@ void appendRobotsSitemapSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<SitemapLink> sitemapLinksFromXmlFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    return sitemapLinksFromXmlDocument(file.readAll());
+}
+
+QList<SitemapLink> deduplicatedSitemapLinks(const QList<SitemapLink> &links)
+{
+    QList<SitemapLink> deduplicated;
+    QStringList seenUrls;
+    for (const SitemapLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+        deduplicated.append(link);
+    }
+    return deduplicated;
+}
+
+QString sitemapLinkTitle(const SitemapLink &link)
+{
+    QString title = link.url.path().isEmpty() || link.url.path() == QLatin1String("/")
+        ? link.url.host()
+        : link.url.path().section(QLatin1Char('/'), -1);
+    if (title.isEmpty()) {
+        title = link.url.toDisplayString();
+    }
+    return title;
+}
+
+QString sitemapLineAnchorTarget(const SitemapLink &link)
+{
+    return QStringLiteral("url: %1 -> %2")
+        .arg(sitemapLinkTitle(link), link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> sitemapResourcesFromLinks(const QFileInfo &fileInfo, const QList<SitemapLink> &links)
+{
+    QList<Resource> resources;
+    for (const SitemapLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("sitemap:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = sitemapLinkTitle(link);
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("sitemap"));
+        if (link.sitemapIndexEntry) {
+            appendUnique(resource.tags, QStringLiteral("sitemap-index"));
+        }
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendSitemapXmlSourceMetadata(Resource &sourceResource,
+                                    const QList<SitemapLink> &links,
+                                    const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("sitemap"));
+        if (std::any_of(links.cbegin(), links.cend(), [](const SitemapLink &link) {
+                return link.sitemapIndexEntry;
+            })) {
+            appendUnique(sourceResource.tags, QStringLiteral("sitemap-index"));
+        }
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const SitemapLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = sitemapLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("%1 line %2: %3")
+                  .arg(link.sitemapIndexEntry ? QStringLiteral("sitemap-index") : QStringLiteral("sitemap"))
+                  .arg(link.lineNumber)
+                  .arg(anchorTarget)
+            : QStringLiteral("%1: %2")
+                  .arg(link.sitemapIndexEntry ? QStringLiteral("sitemap-index") : QStringLiteral("sitemap"),
+                       anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 bool isIcalendarFileCandidate(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
@@ -6122,7 +6228,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(opmlResourcesFromFile(fileInfo));
     } else if (isFeedXmlCandidate(fileInfo)) {
         derivedResources.append(feedResourcesFromXmlFile(fileInfo));
-        derivedResources.append(sitemapResourcesFromXmlFile(fileInfo));
+        const QList<SitemapLink> sitemapLinks = deduplicatedSitemapLinks(sitemapLinksFromXmlFile(fileInfo));
+        const QList<Resource> sitemapResources = sitemapResourcesFromLinks(fileInfo, sitemapLinks);
+        appendSitemapXmlSourceMetadata(primary, sitemapLinks, sitemapResources);
+        derivedResources.append(sitemapResources);
     }
     const bool robotsTxtCandidate = primary.kind == ResourceKind::File && isRobotsTxtCandidate(fileInfo);
     if (robotsTxtCandidate) {
@@ -6375,41 +6484,7 @@ QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo
 
 QList<Resource> DirectoryLibrarySource::sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        return {};
-    }
-
-    QList<Resource> resources;
-    QStringList seenUrls;
-    for (const SitemapLink &link : sitemapLinksFromXmlDocument(file.readAll())) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
-            continue;
-        }
-        seenUrls.append(urlKey);
-
-        Resource resource;
-        resource.id = QStringLiteral("sitemap:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.url.path().isEmpty() || link.url.path() == QLatin1String("/")
-            ? link.url.host()
-            : link.url.path().section(QLatin1Char('/'), -1);
-        if (resource.title.isEmpty()) {
-            resource.title = link.url.toDisplayString();
-        }
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("sitemap"));
-        if (link.sitemapIndexEntry) {
-            appendUnique(resource.tags, QStringLiteral("sitemap-index"));
-        }
-        appendUnique(resource.aliases, fileInfo.completeBaseName());
-        resources.append(resource);
-    }
-    return resources;
+    return sitemapResourcesFromLinks(fileInfo, deduplicatedSitemapLinks(sitemapLinksFromXmlFile(fileInfo)));
 }
 
 void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFileInfo &fileInfo) const

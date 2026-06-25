@@ -4507,6 +4507,23 @@ void DirectorySourceTest::extractsSitemapXmlLinks()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto sitemapFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("sitemap.xml");
+    });
+    QVERIFY(sitemapFileIt != resources.cend());
+    QVERIFY(sitemapFileIt->tags.contains(QStringLiteral("sitemap")));
+    QVERIFY(std::any_of(sitemapFileIt->anchors.cbegin(), sitemapFileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: guide -> https://docs.example.com/pinloom/guide#install")
+            && anchor.line == 3;
+    }));
+    QVERIFY(std::any_of(sitemapFileIt->anchors.cbegin(), sitemapFileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: reference -> https://docs.example.com/pinloom/reference")
+            && anchor.line == 5;
+    }));
+
     auto guideIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.location == QLatin1String("https://docs.example.com/pinloom/guide#install");
@@ -4534,6 +4551,45 @@ void DirectorySourceTest::extractsSitemapXmlLinks()
     QVERIFY(indexIt != resources.cend());
     QVERIFY(indexIt->tags.contains(QStringLiteral("sitemap")));
     QVERIFY(indexIt->tags.contains(QStringLiteral("sitemap-index")));
+
+    auto referenceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/reference");
+    });
+    QVERIFY(referenceIt != resources.cend());
+
+    QCOMPARE(sitemapFileIt->relations.size(), 2);
+    QVERIFY(std::any_of(sitemapFileIt->relations.cbegin(), sitemapFileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == sitemapFileIt->id
+            && relation.targetResourceId == guideIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("sitemap line 3: url: guide -> https://docs.example.com/pinloom/guide#install");
+    }));
+    QVERIFY(std::any_of(sitemapFileIt->relations.cbegin(), sitemapFileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == sitemapFileIt->id
+            && relation.targetResourceId == referenceIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("sitemap line 5: url: reference -> https://docs.example.com/pinloom/reference");
+    }));
+
+    auto sitemapIndexFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("sitemap-index.xml");
+    });
+    QVERIFY(sitemapIndexFileIt != resources.cend());
+    QVERIFY(sitemapIndexFileIt->tags.contains(QStringLiteral("sitemap")));
+    QVERIFY(sitemapIndexFileIt->tags.contains(QStringLiteral("sitemap-index")));
+    QVERIFY(std::any_of(sitemapIndexFileIt->anchors.cbegin(), sitemapIndexFileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: pinloom.xml -> https://docs.example.com/sitemaps/pinloom.xml")
+            && anchor.line == 3;
+    }));
+    QCOMPARE(sitemapIndexFileIt->relations.size(), 1);
+    QCOMPARE(sitemapIndexFileIt->relations.first().sourceResourceId, sitemapIndexFileIt->id);
+    QCOMPARE(sitemapIndexFileIt->relations.first().targetResourceId, indexIt->id);
+    QCOMPARE(sitemapIndexFileIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(sitemapIndexFileIt->relations.first().note,
+             QStringLiteral("sitemap-index line 3: url: pinloom.xml -> https://docs.example.com/sitemaps/pinloom.xml"));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -4563,6 +4619,28 @@ void DirectorySourceTest::extractsSitemapXmlLinks()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("install");
     }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("pinloom.xml")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("sitemap-index.xml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 3
+            && result.matchedAnchor->target == QLatin1String("url: pinloom.xml -> https://docs.example.com/sitemaps/pinloom.xml");
+    }));
+
+    const QList<ResourceRelation> sitemapRelations = repository.resourceRelations(sitemapFileIt->id);
+    QCOMPARE(sitemapRelations.size(), 2);
+    QVERIFY(std::any_of(sitemapRelations.cbegin(), sitemapRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == sitemapFileIt->id
+            && relation.targetResourceId == guideIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+
+    const QList<ResourceRelation> sitemapIndexRelations = repository.resourceRelations(sitemapIndexFileIt->id);
+    QCOMPARE(sitemapIndexRelations.size(), 1);
+    QCOMPARE(sitemapIndexRelations.first().targetResourceId, indexIt->id);
 }
 
 void DirectorySourceTest::extractsRobotsTxtSitemapLinks()
