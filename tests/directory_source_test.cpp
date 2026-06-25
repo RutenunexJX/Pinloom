@@ -685,18 +685,32 @@ void DirectorySourceTest::extractsLocalMarkdownLinkAnchors()
             && anchor.target == QLatin1String("link: Spec PDF -> docs/spec.pdf")
             && anchor.line == 2;
     }));
-    QVERIFY(std::none_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
-            && anchor.target.contains(QStringLiteral("External"));
+            && anchor.target == QLatin1String("url: External -> https://docs.example.com/spec")
+            && anchor.line == 3;
     }));
     QVERIFY(std::none_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target.contains(QStringLiteral("Diagram"));
     }));
-    QCOMPARE(markdownIt->relations.size(), 1);
-    QCOMPARE(markdownIt->relations.first().sourceResourceId, markdownIt->id);
-    QCOMPARE(markdownIt->relations.first().label, QStringLiteral("links-to"));
-    QVERIFY(markdownIt->relations.first().targetResourceId.endsWith(QStringLiteral("docs/spec.pdf")));
+    auto externalIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/spec");
+    });
+    QVERIFY(externalIt != resources.cend());
+    QCOMPARE(markdownIt->relations.size(), 2);
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("docs/spec.pdf"));
+    }));
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == externalIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("markdown line 3: url: External -> https://docs.example.com/spec");
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -707,11 +721,19 @@ void DirectorySourceTest::extractsLocalMarkdownLinkAnchors()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<ResourceRelation> relations = repository.resourceRelations(markdownIt->id);
-    QCOMPARE(relations.size(), 1);
-    QCOMPARE(relations.first().sourceResourceId, markdownIt->id);
-    QCOMPARE(relations.first().label, QStringLiteral("links-to"));
-    QVERIFY(relations.first().targetResourceId.endsWith(QStringLiteral("docs/spec.pdf")));
-    QCOMPARE(relations.first().note, QStringLiteral("link: Spec PDF -> docs/spec.pdf"));
+    QCOMPARE(relations.size(), 2);
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("docs/spec.pdf"))
+            && relation.note == QLatin1String("link: Spec PDF -> docs/spec.pdf");
+    }));
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == externalIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("markdown line 3: url: External -> https://docs.example.com/spec");
+    }));
 
     const QList<SearchResult> linkResults = repository.search(SearchQuery{QStringLiteral("Spec PDF")});
     QVERIFY(std::any_of(linkResults.cbegin(), linkResults.cend(), [](const SearchResult &result) {
@@ -795,6 +817,22 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown
+            && resource.title == QLatin1String("runbook.md");
+    });
+    QVERIFY(markdownIt != resources.cend());
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff")
+            && anchor.line == 5;
+    }));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: status.example.com -> https://status.example.com/system")
+            && anchor.line == 7;
+    }));
+
     auto guideIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.title == QLatin1String("ZeroSlack Dock Guide");
@@ -814,6 +852,19 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
     });
     QVERIFY(statusIt != resources.cend());
     QCOMPARE(statusIt->location, QStringLiteral("https://status.example.com/system"));
+    QCOMPARE(markdownIt->relations.size(), 2);
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == guideIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("markdown line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
+    }));
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == statusIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("markdown line 7: url: status.example.com -> https://status.example.com/system");
+    }));
 
     QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -838,6 +889,30 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
             && result.resource.title == QLatin1String("ZeroSlack Dock Guide")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment;
+    }));
+
+    const QList<ResourceRelation> markdownRelations = repository.resourceRelations(markdownIt->id);
+    QCOMPARE(markdownRelations.size(), 2);
+    QVERIFY(std::any_of(markdownRelations.cbegin(), markdownRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == guideIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("markdown line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
+    }));
+
+    const QList<ResourceRelation> guideRelations = repository.resourceRelations(guideIt->id);
+    QCOMPARE(guideRelations.size(), 1);
+    QCOMPARE(guideRelations.first().sourceResourceId, markdownIt->id);
+    QCOMPARE(guideRelations.first().targetResourceId, guideIt->id);
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack Dock Guide")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Markdown
+            && result.resource.title == QLatin1String("runbook.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 5
+            && result.matchedAnchor->target == QLatin1String("url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
     }));
 }
 

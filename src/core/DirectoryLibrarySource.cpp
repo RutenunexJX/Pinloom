@@ -39,6 +39,7 @@ struct PdfObject {
 struct HtmlLink {
     QUrl url;
     QString title;
+    int lineNumber = -1;
 };
 
 struct TextUrlLink {
@@ -2725,6 +2726,136 @@ void appendTabularUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QString markdown = QString::fromUtf8(file.readAll());
+    const QStringList lines = markdown.split(QLatin1Char('\n'));
+    const QRegularExpression inlineLinkPattern(
+        QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\((https?://[^\\s\\)]+)\\)"));
+    const QRegularExpression autolinkPattern(QStringLiteral("<(https?://[^\\s<>]+)>"));
+
+    QList<HtmlLink> links;
+    QStringList seenUrls;
+    auto appendLink = [&](const QString &rawUrl, const QString &rawTitle, int lineNumber) {
+        const QUrl url = QUrl::fromUserInput(rawUrl.trimmed());
+        if (!isIndexableWebUrl(url)) {
+            return;
+        }
+
+        const QString key = url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(key, Qt::CaseInsensitive)) {
+            return;
+        }
+        seenUrls.append(key);
+
+        HtmlLink link;
+        link.url = url;
+        link.title = rawTitle.trimmed();
+        link.lineNumber = lineNumber;
+        if (link.title.isEmpty()) {
+            link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+        }
+        links.append(link);
+    };
+
+    bool inFrontmatter = false;
+    bool inFence = false;
+    int lineNumber = 0;
+    for (const QString &line : lines) {
+        ++lineNumber;
+        const QString trimmed = line.trimmed();
+
+        if (lineNumber == 1 && trimmed == QLatin1String("---")) {
+            inFrontmatter = true;
+            continue;
+        }
+        if (inFrontmatter) {
+            if (trimmed == QLatin1String("---")) {
+                inFrontmatter = false;
+            }
+            continue;
+        }
+
+        if (trimmed.startsWith(QLatin1String("```")) || trimmed.startsWith(QLatin1String("~~~"))) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            continue;
+        }
+
+        QRegularExpressionMatchIterator inlineMatches = inlineLinkPattern.globalMatch(line);
+        while (inlineMatches.hasNext()) {
+            const QRegularExpressionMatch match = inlineMatches.next();
+            appendLink(match.captured(2), markdownPlainTextFromLine(match.captured(1)), lineNumber);
+        }
+
+        QRegularExpressionMatchIterator autolinkMatches = autolinkPattern.globalMatch(line);
+        while (autolinkMatches.hasNext()) {
+            const QRegularExpressionMatch match = autolinkMatches.next();
+            appendLink(match.captured(1), QString(), lineNumber);
+        }
+    }
+
+    return links;
+}
+
+QList<Resource> markdownLinkResourcesFromLinks(const QFileInfo &fileInfo, const QList<HtmlLink> &links)
+{
+    QList<Resource> resources;
+    for (const HtmlLink &link : links) {
+        Resource resource;
+        resource.id = QStringLiteral("markdown-link:%1:%2")
+                          .arg(normalizedPath(fileInfo),
+                               link.url.toString(QUrl::FullyEncoded));
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = link.url.toString(QUrl::FullyEncoded);
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("markdown-link"));
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString markdownUrlLineAnchorTarget(const HtmlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendMarkdownUrlSourceMetadata(Resource &sourceResource,
+                                     const QList<HtmlLink> &links,
+                                     const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const HtmlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = markdownUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("markdown line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : anchorTarget;
+        sourceResource.relations.append(relation);
+    }
+}
+
 void appendTabularHeaderAnchorsFromLine(Resource &resource, const QString &line, int lineNumber, QChar delimiter)
 {
     const QStringList headers = splitDelimitedLine(line, delimiter);
@@ -2895,7 +3026,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
 
     const QString suffix = fileInfo.suffix().toLower();
     if (primary.kind == ResourceKind::Markdown) {
-        derivedResources.append(markdownLinkResourcesFromFile(fileInfo));
+        const QList<HtmlLink> markdownLinks = markdownExternalLinksFromFile(fileInfo);
+        const QList<Resource> markdownResources = markdownLinkResourcesFromLinks(fileInfo, markdownLinks);
+        appendMarkdownUrlSourceMetadata(primary, markdownLinks, markdownResources);
+        derivedResources.append(markdownResources);
     } else if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))) {
         derivedResources.append(bookmarkResourcesFromHtmlFile(fileInfo));
@@ -2950,99 +3084,6 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         applyPlainTextMetadata(resource, fileInfo);
     }
     return resource;
-}
-
-QList<Resource> DirectoryLibrarySource::markdownLinkResourcesFromFile(const QFileInfo &fileInfo) const
-{
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return {};
-    }
-
-    const QString markdown = QString::fromUtf8(file.readAll());
-    const QStringList lines = markdown.split(QLatin1Char('\n'));
-    const QRegularExpression inlineLinkPattern(
-        QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\((https?://[^\\s\\)]+)\\)"));
-    const QRegularExpression autolinkPattern(QStringLiteral("<(https?://[^\\s<>]+)>"));
-
-    QList<HtmlLink> links;
-    QStringList seenUrls;
-    auto appendLink = [&](const QString &rawUrl, const QString &rawTitle) {
-        const QUrl url = QUrl::fromUserInput(rawUrl.trimmed());
-        if (!isIndexableWebUrl(url)) {
-            return;
-        }
-
-        const QString key = url.toString(QUrl::FullyEncoded);
-        if (seenUrls.contains(key, Qt::CaseInsensitive)) {
-            return;
-        }
-        seenUrls.append(key);
-
-        HtmlLink link;
-        link.url = url;
-        link.title = rawTitle.trimmed();
-        if (link.title.isEmpty()) {
-            link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
-        }
-        links.append(link);
-    };
-
-    bool inFrontmatter = false;
-    bool inFence = false;
-    int lineNumber = 0;
-    for (const QString &line : lines) {
-        ++lineNumber;
-        const QString trimmed = line.trimmed();
-
-        if (lineNumber == 1 && trimmed == QLatin1String("---")) {
-            inFrontmatter = true;
-            continue;
-        }
-        if (inFrontmatter) {
-            if (trimmed == QLatin1String("---")) {
-                inFrontmatter = false;
-            }
-            continue;
-        }
-
-        if (trimmed.startsWith(QLatin1String("```")) || trimmed.startsWith(QLatin1String("~~~"))) {
-            inFence = !inFence;
-            continue;
-        }
-        if (inFence) {
-            continue;
-        }
-
-        QRegularExpressionMatchIterator inlineMatches = inlineLinkPattern.globalMatch(line);
-        while (inlineMatches.hasNext()) {
-            const QRegularExpressionMatch match = inlineMatches.next();
-            appendLink(match.captured(2), markdownPlainTextFromLine(match.captured(1)));
-        }
-
-        QRegularExpressionMatchIterator autolinkMatches = autolinkPattern.globalMatch(line);
-        while (autolinkMatches.hasNext()) {
-            const QRegularExpressionMatch match = autolinkMatches.next();
-            appendLink(match.captured(1), QString());
-        }
-    }
-
-    QList<Resource> resources;
-    for (const HtmlLink &link : links) {
-        Resource resource;
-        resource.id = QStringLiteral("markdown-link:%1:%2")
-                          .arg(normalizedPath(fileInfo),
-                               link.url.toString(QUrl::FullyEncoded));
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = link.url.toString(QUrl::FullyEncoded);
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("markdown-link"));
-        resources.append(resource);
-    }
-
-    return resources;
 }
 
 QList<Resource> DirectoryLibrarySource::plainTextUrlResourcesFromFile(const QFileInfo &fileInfo) const

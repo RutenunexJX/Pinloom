@@ -204,7 +204,7 @@ Completed:
 - Extract searchable Markdown body content.
 - Extract Markdown task checkbox lines as searchable file-line anchors.
 - Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
-- Index Markdown external links as derived URL resources with host aliases and fragment anchors.
+- Index Markdown external links as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source note.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
 - Index browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases and fragment anchors.
