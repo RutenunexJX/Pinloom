@@ -21,6 +21,7 @@ private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
     void extractsStructuredPlainTextLineAnchors();
+    void extractsGithubActionsWorkflowAnchors();
     void extractsManifestDependencyLineAnchors();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsObsidianAliasesTagsAndWikilinks();
@@ -522,6 +523,119 @@ void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 1;
+    }));
+}
+
+void DirectorySourceTest::extractsGithubActionsWorkflowAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/.github/workflows")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/config")));
+    writeFile(dir.filePath(QStringLiteral("library/.github/workflows/ci.yml")),
+              QByteArray("name: Pinloom CI\n"
+                         "on: [push]\n"
+                         "jobs:\n"
+                         "  build:\n"
+                         "    name: Build and Test\n"
+                         "    runs-on: ubuntu-latest\n"
+                         "    steps:\n"
+                         "      - name: Checkout\n"
+                         "        uses: actions/checkout@v4\n"
+                         "      - name: Configure\n"
+                         "        run: cmake -S . -B build\n"
+                         "      - uses: actions/upload-artifact@v4\n"
+                         "  docs:\n"
+                         "    steps:\n"
+                         "      - run: ./scripts/build-docs.sh\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/ci.yml")),
+              QByteArray("name: Not A Workflow\n"
+                         "jobs:\n"
+                         "  ignored:\n"
+                         "    steps:\n"
+                         "      - uses: actions/cache@v4\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto workflowIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("ci.yml")
+            && resource.location.contains(QStringLiteral(".github/workflows"));
+    });
+    QVERIFY(workflowIt != resources.cend());
+
+    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow: Pinloom CI"), 1));
+    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow job: build"), 4));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow job name: Build and Test"), 5));
+    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow step: Checkout"), 8));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow action: actions/checkout@v4"), 9));
+    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow step: Configure"), 10));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow run: cmake -S . -B build"), 11));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow action: actions/upload-artifact@v4"), 12));
+    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow job: docs"), 13));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow run: ./scripts/build-docs.sh"), 15));
+
+    auto configIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("ci.yml")
+            && resource.location.contains(QStringLiteral("/config/"));
+    });
+    QVERIFY(configIt != resources.cend());
+    QVERIFY(std::none_of(configIt->anchors.cbegin(), configIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("workflow"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> workflowResults = repository.search(SearchQuery{QStringLiteral("Pinloom CI")});
+    QVERIFY(std::any_of(workflowResults.cbegin(), workflowResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("ci.yml")
+            && result.resource.location.contains(QStringLiteral(".github/workflows"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->target == QLatin1String("workflow: Pinloom CI");
+    }));
+
+    const QList<SearchResult> actionResults = repository.search(SearchQuery{QStringLiteral("upload-artifact")});
+    QVERIFY(std::any_of(actionResults.cbegin(), actionResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("ci.yml")
+            && result.resource.location.contains(QStringLiteral(".github/workflows"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("workflow action: actions/upload-artifact@v4");
+    }));
+
+    const QList<SearchResult> runResults = repository.search(SearchQuery{QStringLiteral("build-docs")});
+    QVERIFY(std::any_of(runResults.cbegin(), runResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("ci.yml")
+            && result.resource.location.contains(QStringLiteral(".github/workflows"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("workflow run: ./scripts/build-docs.sh");
     }));
 }
 

@@ -46,7 +46,7 @@ Implemented:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
-- Code resource classification, lightweight symbol anchors, Rust/Go/Java/C# symbol coverage, shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, and TODO/FIXME/NOTE line anchors for common engineering languages.
+- Code resource classification, lightweight symbol anchors, Rust/Go/Java/C# symbol coverage, shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, GitHub Actions workflow/job/step/action/run anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, and TODO/FIXME/NOTE line anchors for common engineering languages.
 - Persistent manual and indexed related-resource links with a compact relationship summary in the locator panel.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
 - Locator UI for creating manual aliases and anchors on selected resources.
@@ -180,7 +180,7 @@ Code-Aware Locator MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for code resource classification, C/C++/Python/JS/TS/HDL/Tcl/Rust/Go/Java/C#/shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, TODO/FIXME/NOTE line anchors, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for code resource classification, C/C++/Python/JS/TS/HDL/Tcl/Rust/Go/Java/C#/shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, GitHub Actions workflow/job/step/action/run anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, TODO/FIXME/NOTE line anchors, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 

@@ -155,6 +155,7 @@ Completed:
 - Add lightweight test case/suite anchors for C++ GoogleTest and JS/TS tests.
 - Add CMake project, target, package, option, function, macro, and test anchors for build-script jumps.
 - Add Makefile target anchors and Dockerfile stage/base/copy line anchors for build/container jumps.
+- Add GitHub Actions workflow, job, step, action, and run line anchors for CI jumps.
 - Add compile_commands.json line anchors and `compiles` relations from compilation databases to indexed source files.
 - Add dependency/import line anchors for common engineering languages.
 - Support Go import block and JS/TS dynamic import dependency anchors.

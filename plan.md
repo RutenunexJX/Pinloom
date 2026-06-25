@@ -257,6 +257,7 @@ Status:
 - Test case/suite anchors for C++ GoogleTest and JS/TS tests: done.
 - CMake project/target/package/option/function/macro/test anchors: done.
 - Makefile target anchors and Dockerfile stage/base/copy anchors: done.
+- GitHub Actions workflow/job/step/action/run anchors: done.
 - compile_commands.json line anchors and `compiles` relations: done.
 - Dependency/import line anchors for common engineering languages: done.
 - Go import block and JS/TS dynamic import anchors: done.

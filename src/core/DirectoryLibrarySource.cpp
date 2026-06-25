@@ -288,6 +288,21 @@ bool isDockerfile(const QFileInfo &fileInfo)
     return fileInfo.suffix().compare(QStringLiteral("dockerfile"), Qt::CaseInsensitive) == 0;
 }
 
+bool isGithubActionsWorkflowFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    if (suffix != QLatin1String("yml") && suffix != QLatin1String("yaml")) {
+        return false;
+    }
+
+    const QString path = QDir::fromNativeSeparators(fileInfo.absoluteFilePath());
+    return path.contains(QStringLiteral("/.github/workflows/"), Qt::CaseInsensitive);
+}
+
 bool hasCodeShebang(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
@@ -2964,6 +2979,12 @@ struct StructuredPlainTextState {
     QString sectionPath;
 };
 
+struct GithubActionsWorkflowState {
+    bool inJobs = false;
+    QString currentJob;
+    bool inSteps = false;
+};
+
 QString joinedConfigPath(QStringList parts)
 {
     parts.removeAll(QString());
@@ -2975,6 +2996,125 @@ void appendConfigPathAnchor(Resource &resource, const QStringList &pathParts, in
     const QString path = joinedConfigPath(pathParts);
     if (!path.isEmpty()) {
         appendFileLineAnchor(resource, QStringLiteral("path: %1").arg(path), lineNumber);
+    }
+}
+
+QString cleanedYamlScalar(QString value)
+{
+    value = value.trimmed();
+    if (value.size() >= 2) {
+        const QChar first = value.front();
+        const QChar last = value.back();
+        if ((first == QLatin1Char('"') && last == QLatin1Char('"'))
+            || (first == QLatin1Char('\'') && last == QLatin1Char('\''))) {
+            value = value.mid(1, value.size() - 2).trimmed();
+        }
+    }
+    return value;
+}
+
+int leadingSpaceCount(const QString &line)
+{
+    int count = 0;
+    while (count < line.size() && line.at(count).isSpace() && line.at(count) != QLatin1Char('\n')) {
+        count += line.at(count) == QLatin1Char('\t') ? 4 : 1;
+    }
+    return count;
+}
+
+void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
+                                               const QString &line,
+                                               int lineNumber,
+                                               GithubActionsWorkflowState &state)
+{
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    const int indent = leadingSpaceCount(line);
+    static const QRegularExpression keyPattern(QStringLiteral("^([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$"));
+    static const QRegularExpression listKeyPattern(QStringLiteral("^-\\s+([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$"));
+
+    if (indent == 0) {
+        const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
+        if (keyMatch.hasMatch()) {
+            const QString key = keyMatch.captured(1);
+            if (key == QLatin1String("name")) {
+                const QString workflowName = cleanedYamlScalar(keyMatch.captured(2));
+                if (!workflowName.isEmpty()) {
+                    appendCodeSymbol(resource, QStringLiteral("workflow: %1").arg(workflowName), lineNumber);
+                }
+            }
+            state.inJobs = key == QLatin1String("jobs");
+            state.currentJob.clear();
+            state.inSteps = false;
+        }
+        return;
+    }
+
+    if (!state.inJobs) {
+        return;
+    }
+
+    if (indent == 2) {
+        const QRegularExpressionMatch jobMatch = keyPattern.match(trimmed);
+        if (jobMatch.hasMatch()) {
+            state.currentJob = jobMatch.captured(1).trimmed();
+            state.inSteps = false;
+            if (!state.currentJob.isEmpty()) {
+                appendCodeSymbol(resource,
+                                 QStringLiteral("workflow job: %1").arg(state.currentJob),
+                                 lineNumber);
+            }
+        }
+        return;
+    }
+
+    if (state.currentJob.isEmpty()) {
+        return;
+    }
+
+    if (indent == 4) {
+        const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
+        if (keyMatch.hasMatch()) {
+            const QString key = keyMatch.captured(1);
+            if (key == QLatin1String("steps")) {
+                state.inSteps = true;
+                return;
+            }
+            if (key == QLatin1String("name")) {
+                const QString jobName = cleanedYamlScalar(keyMatch.captured(2));
+                if (!jobName.isEmpty()) {
+                    appendFileLineAnchor(resource,
+                                         QStringLiteral("workflow job name: %1").arg(jobName),
+                                         lineNumber);
+                }
+            }
+            state.inSteps = false;
+        }
+        return;
+    }
+
+    if (!state.inSteps || indent < 6) {
+        return;
+    }
+
+    const QRegularExpressionMatch listMatch = listKeyPattern.match(trimmed);
+    const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
+    const bool listKey = listMatch.hasMatch();
+    const QString key = listKey ? listMatch.captured(1) : keyMatch.captured(1);
+    const QString value = cleanedYamlScalar(listKey ? listMatch.captured(2) : keyMatch.captured(2));
+    if (key.isEmpty() || value.isEmpty() || value == QLatin1String("|") || value == QLatin1String(">")) {
+        return;
+    }
+
+    if (key == QLatin1String("name")) {
+        appendCodeSymbol(resource, QStringLiteral("workflow step: %1").arg(value), lineNumber);
+    } else if (key == QLatin1String("uses")) {
+        appendFileLineAnchor(resource, QStringLiteral("workflow action: %1").arg(value), lineNumber);
+    } else if (key == QLatin1String("run")) {
+        appendFileLineAnchor(resource, QStringLiteral("workflow run: %1").arg(value), lineNumber);
     }
 }
 
@@ -5110,10 +5250,12 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
 
     const QString text = QString::fromUtf8(bytes);
     const bool structured = isStructuredPlainTextFile(fileInfo);
+    const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     ManifestDependencyState manifestDependencyState;
     StructuredPlainTextState structuredPlainTextState;
+    GithubActionsWorkflowState githubActionsWorkflowState;
     int lineNumber = 0;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
@@ -5121,6 +5263,9 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         contentLines.append(line);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
+        if (githubActionsWorkflow) {
+            appendGithubActionsWorkflowAnchorsFromLine(resource, line, lineNumber, githubActionsWorkflowState);
+        }
         if (structured) {
             appendStructuredPlainTextAnchorsFromLine(resource, fileInfo, line, lineNumber, structuredPlainTextState);
         }
