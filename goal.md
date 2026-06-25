@@ -173,6 +173,7 @@ Completed:
 - Support pinned library roots as project-level recall signals.
 - Support host-required kind/tag/location filters alongside host context ranking.
 - Apply recall signals as small ranking boosts without letting weak path matches outrank stronger match types.
+- Boost exact title, filename, alias, tag, content, path, and anchor matches within their match type.
 - Add project/context weighting while keeping ranking understandable.
 - Show matched fields, anchors, and host context matches in result tooltips.
 

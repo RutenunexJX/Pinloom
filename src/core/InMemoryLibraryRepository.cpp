@@ -14,14 +14,39 @@ bool containsNeedle(const QString &text, const QString &needle)
     return text.contains(needle, Qt::CaseInsensitive);
 }
 
+bool equalsNeedle(const QString &text, const QString &needle)
+{
+    return text.trimmed().compare(needle.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+bool anyEqualsNeedle(const QStringList &values, const QString &needle)
+{
+    return std::any_of(values.cbegin(), values.cend(), [&](const QString &value) {
+        return equalsNeedle(value, needle);
+    });
+}
+
+double exactMatchScoreAdjustment(const QStringList &values, const QString &needle)
+{
+    return anyEqualsNeedle(values, needle) ? -0.75 : 0.0;
+}
+
+double exactMatchScoreAdjustment(const QString &value, const QString &needle)
+{
+    return exactMatchScoreAdjustment(QStringList{value}, needle);
+}
+
 SearchResult resourceResult(const Resource &resource, double score, const QString &field)
 {
     return SearchResult{resource, score, field, std::nullopt};
 }
 
-SearchResult anchorResult(const Resource &resource, const Anchor &anchor)
+SearchResult anchorResult(const Resource &resource, const Anchor &anchor, const QString &needle)
 {
-    return SearchResult{resource, 0.0, QStringLiteral("anchor"), anchor};
+    return SearchResult{resource,
+                        exactMatchScoreAdjustment(anchor.target, needle),
+                        QStringLiteral("anchor"),
+                        anchor};
 }
 
 QString anchorTypeKey(AnchorType type)
@@ -237,27 +262,39 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (resource.title.contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 10.0, QStringLiteral("title"));
+            SearchResult result = resourceResult(resource,
+                                                 10.0 + exactMatchScoreAdjustment(resource.title, needle),
+                                                 QStringLiteral("title"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 15.0, QStringLiteral("filename"));
+            SearchResult result = resourceResult(resource,
+                                                 15.0 + exactMatchScoreAdjustment(QFileInfo(resource.location).fileName(), needle),
+                                                 QStringLiteral("filename"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 20.0, QStringLiteral("alias"));
+            SearchResult result = resourceResult(resource,
+                                                 20.0 + exactMatchScoreAdjustment(resource.aliases, needle),
+                                                 QStringLiteral("alias"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (resource.tags.join(QLatin1Char('\n')).contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 30.0, QStringLiteral("tag"));
+            SearchResult result = resourceResult(resource,
+                                                 30.0 + exactMatchScoreAdjustment(resource.tags, needle),
+                                                 QStringLiteral("tag"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (resource.content.contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 80.0, QStringLiteral("content"));
+            SearchResult result = resourceResult(resource,
+                                                 80.0 + exactMatchScoreAdjustment(resource.content, needle),
+                                                 QStringLiteral("content"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         } else if (resource.location.contains(needle, caseMode)) {
-            SearchResult result = resourceResult(resource, 90.0, QStringLiteral("path"));
+            SearchResult result = resourceResult(resource,
+                                                 90.0 + exactMatchScoreAdjustment(resource.location, needle),
+                                                 QStringLiteral("path"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
             results.append(result);
         }
@@ -265,7 +302,7 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
         if (!needle.isEmpty()) {
             for (const Anchor &anchor : resource.anchors) {
                 if (containsNeedle(anchor.target, needle)) {
-                    SearchResult result = anchorResult(resource, anchor);
+                    SearchResult result = anchorResult(resource, anchor, needle);
                     applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
                     results.append(result);
                 }

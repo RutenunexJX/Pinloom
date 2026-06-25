@@ -46,6 +46,7 @@ Implemented:
 - Cleaned-up search result display with readable type labels and tooltips.
 - Search result tooltips summarize matched fields, matched anchors, and host-provided context matches.
 - Search ordering that prioritizes anchors, titles, filenames, aliases, and tags before full-path matches.
+- Search ordering gives exact title, filename, alias, tag, content, path, and anchor matches a small within-match-type boost.
 - Search ordering applies small recall boosts for pinned, recent, and frequently opened resources without overriding match-type quality.
 - Search ordering applies anchor-level recall boosts for frequently opened precise jumps.
 - Search ordering applies root-level boosts for resources inside pinned library folders.
@@ -182,7 +183,7 @@ Ranking And Recall MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for resource usage persistence, anchor usage persistence, pinned-resource ranking, pinned-root ranking, host context ranking, context tooltip details, usage preservation across resource updates, activation recording, anchor activation recording, and pin/unpin UI (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for resource usage persistence, anchor usage persistence, exact-match ranking, pinned-resource ranking, pinned-root ranking, host context ranking, context tooltip details, usage preservation across resource updates, activation recording, anchor activation recording, and pin/unpin UI (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_widget_smoke_test`)
 
 Integration And Source Refinement MVP validation:
 

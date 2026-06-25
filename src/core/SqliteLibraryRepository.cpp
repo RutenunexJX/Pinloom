@@ -177,7 +177,32 @@ bool containsAllTokens(const QString &text, const QStringList &tokens)
     return true;
 }
 
-double classifyResourceMatch(const Resource &resource, const QStringList &tokens, QString *matchedField)
+bool equalsQueryText(const QString &text, const QString &queryText)
+{
+    return text.trimmed().compare(queryText.trimmed(), Qt::CaseInsensitive) == 0;
+}
+
+bool anyEqualsQueryText(const QStringList &values, const QString &queryText)
+{
+    return std::any_of(values.cbegin(), values.cend(), [&](const QString &value) {
+        return equalsQueryText(value, queryText);
+    });
+}
+
+double exactMatchScoreAdjustment(const QStringList &values, const QString &queryText)
+{
+    return anyEqualsQueryText(values, queryText) ? -0.75 : 0.0;
+}
+
+double exactMatchScoreAdjustment(const QString &value, const QString &queryText)
+{
+    return exactMatchScoreAdjustment(QStringList{value}, queryText);
+}
+
+double classifyResourceMatch(const Resource &resource,
+                             const QStringList &tokens,
+                             const QString &queryText,
+                             QString *matchedField)
 {
     if (tokens.isEmpty()) {
         *matchedField = QStringLiteral("all");
@@ -185,31 +210,33 @@ double classifyResourceMatch(const Resource &resource, const QStringList &tokens
     }
 
     struct MatchCandidate {
-        QString text;
+        QStringList values;
         QString field;
         double score = 100.0;
     };
 
     const QList<MatchCandidate> candidates = {
-        {resource.title, QStringLiteral("title"), 10.0},
-        {QFileInfo(resource.location).fileName(), QStringLiteral("filename"), 15.0},
-        {resource.aliases.join(QLatin1Char('\n')), QStringLiteral("alias"), 20.0},
-        {resource.tags.join(QLatin1Char('\n')), QStringLiteral("tag"), 30.0},
-        {resource.content, QStringLiteral("content"), 80.0},
-        {resource.location, QStringLiteral("path"), 90.0},
+        {QStringList{resource.title}, QStringLiteral("title"), 10.0},
+        {QStringList{QFileInfo(resource.location).fileName()}, QStringLiteral("filename"), 15.0},
+        {resource.aliases, QStringLiteral("alias"), 20.0},
+        {resource.tags, QStringLiteral("tag"), 30.0},
+        {QStringList{resource.content}, QStringLiteral("content"), 80.0},
+        {QStringList{resource.location}, QStringLiteral("path"), 90.0},
     };
 
     for (const MatchCandidate &candidate : candidates) {
-        if (containsAllTokens(candidate.text, tokens)) {
+        const QString text = candidate.values.join(QLatin1Char('\n'));
+        if (containsAllTokens(text, tokens)) {
             *matchedField = candidate.field;
-            return candidate.score;
+            return candidate.score + exactMatchScoreAdjustment(candidate.values, queryText);
         }
     }
 
     for (const MatchCandidate &candidate : candidates) {
-        if (containsAnyToken(candidate.text, tokens)) {
+        const QString text = candidate.values.join(QLatin1Char('\n'));
+        if (containsAnyToken(text, tokens)) {
             *matchedField = candidate.field;
-            return candidate.score;
+            return candidate.score + exactMatchScoreAdjustment(candidate.values, queryText);
         }
     }
 
@@ -228,16 +255,19 @@ bool searchResultLessThan(const SearchResult &left, const SearchResult &right)
     return left.score < right.score;
 }
 
-SearchResult resourceSearchResult(const Resource &resource, const QStringList &tokens)
+SearchResult resourceSearchResult(const Resource &resource, const QStringList &tokens, const QString &queryText)
 {
     QString matchedField;
-    const double score = classifyResourceMatch(resource, tokens, &matchedField);
+    const double score = classifyResourceMatch(resource, tokens, queryText, &matchedField);
     return SearchResult{resource, score, matchedField, std::nullopt};
 }
 
-SearchResult anchorSearchResult(const Resource &resource, const Anchor &anchor)
+SearchResult anchorSearchResult(const Resource &resource, const Anchor &anchor, const QString &queryText)
 {
-    return SearchResult{resource, 0.0, QStringLiteral("anchor"), anchor};
+    return SearchResult{resource,
+                        exactMatchScoreAdjustment(anchor.target, queryText),
+                        QStringLiteral("anchor"),
+                        anchor};
 }
 
 bool shouldIndexAnchorTarget(const Anchor &anchor)
@@ -686,7 +716,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
         if (!ftsQuery.isEmpty()) {
             resource->content = sqlQuery.value(3).toString();
         }
-        SearchResult result = resourceSearchResult(resource.value(), plainTokens);
+        SearchResult result = resourceSearchResult(resource.value(), plainTokens, query.text);
         applyRankingSignals(result, query);
         results.append(result);
     }
@@ -726,7 +756,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             if (!matchesRequiredKinds(resource->kind, query.requiredKinds)) {
                 continue;
             }
-            SearchResult result = anchorSearchResult(resource.value(), resource->anchors.at(anchorOrder));
+            SearchResult result = anchorSearchResult(resource.value(), resource->anchors.at(anchorOrder), query.text);
             applyRankingSignals(result, query);
             results.append(result);
         }

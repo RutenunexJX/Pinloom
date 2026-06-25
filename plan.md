@@ -286,6 +286,7 @@ Status:
 - Host-required resource-kind, tag, and location-prefix filtering: done.
 - Anchor-level usage history and ranking: done.
 - Pinned roots and root-level ranking boosts: done.
+- Exact-match ranking within each match type: done.
 - Result tooltip details for match fields, anchors, and host context matches: done.
 
 ## MVP 14: Integration And Source Refinement

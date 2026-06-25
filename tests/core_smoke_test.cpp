@@ -12,6 +12,7 @@ class CoreSmokeTest : public QObject {
 private slots:
     void searchesAliasesAndTags();
     void ranksAnchorBeforePathMatches();
+    void ranksExactMatchesWithinMatchType();
     void ranksPinnedAndOpenedResourcesWithinMatchType();
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
@@ -69,6 +70,54 @@ void CoreSmokeTest::ranksAnchorBeforePathMatches()
     QVERIFY(results.size() >= 2);
     QCOMPARE(results.first().matchedField, QStringLiteral("anchor"));
     QVERIFY(results.first().matchedAnchor.has_value());
+}
+
+void CoreSmokeTest::ranksExactMatchesWithinMatchType()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource partialTitle;
+    partialTitle.id = QStringLiteral("partial-title");
+    partialTitle.kind = ResourceKind::Markdown;
+    partialTitle.title = QStringLiteral("UART Bringup");
+    partialTitle.location = QStringLiteral("partial.md");
+    QVERIFY(repository.upsertResource(partialTitle));
+
+    Resource exactTitle;
+    exactTitle.id = QStringLiteral("exact-title");
+    exactTitle.kind = ResourceKind::Markdown;
+    exactTitle.title = QStringLiteral("UART");
+    exactTitle.location = QStringLiteral("exact.md");
+    QVERIFY(repository.upsertResource(exactTitle));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("UART")});
+    QCOMPARE(titleResults.size(), 2);
+    QCOMPARE(titleResults.first().resource.id, exactTitle.id);
+    QCOMPARE(titleResults.first().matchedField, QStringLiteral("title"));
+    QVERIFY(titleResults.first().score < titleResults.at(1).score);
+
+    Resource partialAnchor;
+    partialAnchor.id = QStringLiteral("partial-anchor");
+    partialAnchor.kind = ResourceKind::Markdown;
+    partialAnchor.title = QStringLiteral("a.md");
+    partialAnchor.location = QStringLiteral("a.md");
+    partialAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 7}};
+    QVERIFY(repository.upsertResource(partialAnchor));
+
+    Resource exactAnchor;
+    exactAnchor.id = QStringLiteral("exact-anchor");
+    exactAnchor.kind = ResourceKind::Markdown;
+    exactAnchor.title = QStringLiteral("b.md");
+    exactAnchor.location = QStringLiteral("b.md");
+    exactAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power"), 3}};
+    QVERIFY(repository.upsertResource(exactAnchor));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power")});
+    QVERIFY(anchorResults.size() >= 2);
+    QCOMPARE(anchorResults.first().resource.id, exactAnchor.id);
+    QCOMPARE(anchorResults.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(anchorResults.first().matchedAnchor.has_value());
+    QVERIFY(anchorResults.first().score < anchorResults.at(1).score);
 }
 
 void CoreSmokeTest::ranksPinnedAndOpenedResourcesWithinMatchType()

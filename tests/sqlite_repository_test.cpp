@@ -19,6 +19,7 @@ private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
+    void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
@@ -232,6 +233,60 @@ void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
     const QList<SearchResult> filenameResults = repository.search(SearchQuery{QStringLiteral("schematic")});
     QCOMPARE(filenameResults.size(), 1);
     QCOMPARE(filenameResults.first().matchedField, QStringLiteral("filename"));
+}
+
+void SqliteRepositoryTest::ranksExactMatchesWithinMatchType()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource partialTitle;
+    partialTitle.id = QStringLiteral("partial-title");
+    partialTitle.kind = ResourceKind::Markdown;
+    partialTitle.title = QStringLiteral("UART Bringup");
+    partialTitle.location = QStringLiteral("partial.md");
+    QVERIFY2(repository.upsertResource(partialTitle), qPrintable(repository.lastError()));
+
+    Resource exactTitle;
+    exactTitle.id = QStringLiteral("exact-title");
+    exactTitle.kind = ResourceKind::Markdown;
+    exactTitle.title = QStringLiteral("UART");
+    exactTitle.location = QStringLiteral("exact.md");
+    QVERIFY2(repository.upsertResource(exactTitle), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("UART")});
+    QCOMPARE(titleResults.size(), 2);
+    QCOMPARE(titleResults.first().resource.id, exactTitle.id);
+    QCOMPARE(titleResults.first().matchedField, QStringLiteral("title"));
+    QVERIFY(titleResults.first().score < titleResults.at(1).score);
+
+    Resource partialAnchor;
+    partialAnchor.id = QStringLiteral("partial-anchor");
+    partialAnchor.kind = ResourceKind::Markdown;
+    partialAnchor.title = QStringLiteral("a.md");
+    partialAnchor.location = QStringLiteral("a.md");
+    partialAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 7}};
+    QVERIFY2(repository.upsertResource(partialAnchor), qPrintable(repository.lastError()));
+
+    Resource exactAnchor;
+    exactAnchor.id = QStringLiteral("exact-anchor");
+    exactAnchor.kind = ResourceKind::Markdown;
+    exactAnchor.title = QStringLiteral("b.md");
+    exactAnchor.location = QStringLiteral("b.md");
+    exactAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power"), 3}};
+    QVERIFY2(repository.upsertResource(exactAnchor), qPrintable(repository.lastError()));
+
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power")});
+    QVERIFY(anchorResults.size() >= 2);
+    QCOMPARE(anchorResults.first().resource.id, exactAnchor.id);
+    QCOMPARE(anchorResults.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(anchorResults.first().matchedAnchor.has_value());
+    QVERIFY(anchorResults.first().score < anchorResults.at(1).score);
 }
 
 void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
