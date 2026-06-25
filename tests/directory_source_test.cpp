@@ -4418,6 +4418,19 @@ void DirectorySourceTest::extractsFeedXmlLinks()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto rssFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("pinloom.rss");
+    });
+    QVERIFY(rssFileIt != resources.cend());
+    QVERIFY(rssFileIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(rssFileIt->aliases.contains(QStringLiteral("Pinloom Release Feed")));
+    QVERIFY(std::any_of(rssFileIt->anchors.cbegin(), rssFileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Dock API release -> https://docs.example.com/pinloom/releases/dock#api")
+            && anchor.line == 7;
+    }));
+
     auto rssIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.title == QLatin1String("Dock API release")
@@ -4440,6 +4453,26 @@ void DirectorySourceTest::extractsFeedXmlLinks()
     });
     QCOMPARE(rssResourceCount, 1);
 
+    QCOMPARE(rssFileIt->relations.size(), 1);
+    QCOMPARE(rssFileIt->relations.first().sourceResourceId, rssFileIt->id);
+    QCOMPARE(rssFileIt->relations.first().targetResourceId, rssIt->id);
+    QCOMPARE(rssFileIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(rssFileIt->relations.first().note,
+             QStringLiteral("feed line 7: url: Dock API release -> https://docs.example.com/pinloom/releases/dock#api"));
+
+    auto atomFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("updates.atom");
+    });
+    QVERIFY(atomFileIt != resources.cend());
+    QVERIFY(atomFileIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(atomFileIt->aliases.contains(QStringLiteral("ZeroSlack Updates")));
+    QVERIFY(std::any_of(atomFileIt->anchors.cbegin(), atomFileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Host bridge update -> https://zeroslack.example.com/updates/host#bridge")
+            && anchor.line == 6;
+    }));
+
     auto atomIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.title == QLatin1String("Host bridge update")
@@ -4451,6 +4484,13 @@ void DirectorySourceTest::extractsFeedXmlLinks()
     QVERIFY(atomIt->tags.contains(QStringLiteral("integration")));
     QVERIFY(atomIt->aliases.contains(QStringLiteral("ZeroSlack Updates")));
     QVERIFY(atomIt->aliases.contains(QStringLiteral("updates")));
+
+    QCOMPARE(atomFileIt->relations.size(), 1);
+    QCOMPARE(atomFileIt->relations.first().sourceResourceId, atomFileIt->id);
+    QCOMPARE(atomFileIt->relations.first().targetResourceId, atomIt->id);
+    QCOMPARE(atomFileIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(atomFileIt->relations.first().note,
+             QStringLiteral("feed line 6: url: Host bridge update -> https://zeroslack.example.com/updates/host#bridge"));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -4480,6 +4520,26 @@ void DirectorySourceTest::extractsFeedXmlLinks()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("bridge");
     }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Dock API release")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("pinloom.rss")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 7
+            && result.matchedAnchor->target == QLatin1String("url: Dock API release -> https://docs.example.com/pinloom/releases/dock#api");
+    }));
+
+    const QList<ResourceRelation> rssRelations = repository.resourceRelations(rssFileIt->id);
+    QCOMPARE(rssRelations.size(), 1);
+    QCOMPARE(rssRelations.first().sourceResourceId, rssFileIt->id);
+    QCOMPARE(rssRelations.first().targetResourceId, rssIt->id);
+
+    const QList<ResourceRelation> atomRelations = repository.resourceRelations(atomFileIt->id);
+    QCOMPARE(atomRelations.size(), 1);
+    QCOMPARE(atomRelations.first().sourceResourceId, atomFileIt->id);
+    QCOMPARE(atomRelations.first().targetResourceId, atomIt->id);
 }
 
 void DirectorySourceTest::extractsSitemapXmlLinks()

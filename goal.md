@@ -247,7 +247,7 @@ Completed:
 - Index Chromium/Edge-style browser History SQLite files as individual URL resources with visit-count aliases, fragment anchors, and `links-to` relations back to the history database.
 - Index Firefox `places.sqlite` files as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, fragment anchors, and `links-to` relations back to the places database.
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases and fragment anchors.
-- Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, and fragment anchors.
+- Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Index sitemap XML URLs as individual URL resources with searchable sitemap tags, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index `robots.txt` Sitemap directives as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
 - Index HAR/http archive entries as individual URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file.

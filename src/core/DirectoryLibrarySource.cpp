@@ -173,6 +173,7 @@ struct FeedEntryLink {
     QString title;
     QString feedTitle;
     QStringList categories;
+    int lineNumber = -1;
 };
 
 struct SitemapLink {
@@ -3239,14 +3240,18 @@ QList<FeedEntryLink> feedLinksFromXmlDocument(const QByteArray &content)
                 } else if (inItem && name == QLatin1String("title")) {
                     current.title = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
                 } else if (inItem && name == QLatin1String("link")) {
+                    const int lineNumber = static_cast<int>(reader.lineNumber());
                     const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
                     if (isIndexableWebUrl(url)) {
                         current.url = url;
+                        current.lineNumber = lineNumber;
                     }
                 } else if (inItem && name == QLatin1String("guid") && !isIndexableWebUrl(current.url)) {
+                    const int lineNumber = static_cast<int>(reader.lineNumber());
                     const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
                     if (isIndexableWebUrl(url)) {
                         current.url = url;
+                        current.lineNumber = lineNumber;
                     }
                 } else if (inItem && name == QLatin1String("category")) {
                     appendUnique(current.categories, reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
@@ -3260,16 +3265,20 @@ QList<FeedEntryLink> feedLinksFromXmlDocument(const QByteArray &content)
                 } else if (inEntry && name == QLatin1String("title")) {
                     current.title = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
                 } else if (inEntry && name == QLatin1String("link")) {
+                    const int lineNumber = static_cast<int>(reader.lineNumber());
                     const QString rel = xmlAttributeValue(reader.attributes(), QStringLiteral("rel"));
                     const QUrl url = QUrl::fromUserInput(xmlAttributeValue(reader.attributes(), QStringLiteral("href")));
                     if ((rel.isEmpty() || rel.compare(QStringLiteral("alternate"), Qt::CaseInsensitive) == 0)
                         && isIndexableWebUrl(url)) {
                         current.url = url;
+                        current.lineNumber = lineNumber;
                     }
                 } else if (inEntry && name == QLatin1String("id") && !isIndexableWebUrl(current.url)) {
+                    const int lineNumber = static_cast<int>(reader.lineNumber());
                     const QUrl url = QUrl::fromUserInput(reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed());
                     if (isIndexableWebUrl(url)) {
                         current.url = url;
+                        current.lineNumber = lineNumber;
                     }
                 } else if (inEntry && name == QLatin1String("category")) {
                     QString category = xmlAttributeValue(reader.attributes(), QStringLiteral("term"));
@@ -5603,6 +5612,95 @@ void appendRobotsSitemapSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<FeedEntryLink> feedLinksFromXmlFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    return feedLinksFromXmlDocument(file.readAll());
+}
+
+QList<FeedEntryLink> deduplicatedFeedEntryLinks(const QList<FeedEntryLink> &links)
+{
+    QList<FeedEntryLink> deduplicated;
+    QStringList seenUrls;
+    for (const FeedEntryLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+        deduplicated.append(link);
+    }
+    return deduplicated;
+}
+
+QString feedEntryLineAnchorTarget(const FeedEntryLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> feedResourcesFromLinks(const QFileInfo &fileInfo, const QList<FeedEntryLink> &links)
+{
+    QList<Resource> resources;
+    for (const FeedEntryLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("feed-entry:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("feed"));
+        appendUnique(resource.tags, QStringLiteral("feed-entry"));
+        appendUnique(resource.aliases, link.feedTitle);
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        for (const QString &category : link.categories) {
+            appendUnique(resource.tags, category);
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendFeedXmlSourceMetadata(Resource &sourceResource,
+                                 const QList<FeedEntryLink> &links,
+                                 const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("feed"));
+        for (const FeedEntryLink &link : links) {
+            appendUnique(sourceResource.aliases, link.feedTitle);
+        }
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const FeedEntryLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = feedEntryLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("feed line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("feed: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 QList<SitemapLink> sitemapLinksFromXmlFile(const QFileInfo &fileInfo)
 {
     QFile file(fileInfo.absoluteFilePath());
@@ -6227,7 +6325,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     } else if (suffix == QLatin1String("opml")) {
         derivedResources.append(opmlResourcesFromFile(fileInfo));
     } else if (isFeedXmlCandidate(fileInfo)) {
-        derivedResources.append(feedResourcesFromXmlFile(fileInfo));
+        const QList<FeedEntryLink> feedLinks = deduplicatedFeedEntryLinks(feedLinksFromXmlFile(fileInfo));
+        const QList<Resource> feedResources = feedResourcesFromLinks(fileInfo, feedLinks);
+        appendFeedXmlSourceMetadata(primary, feedLinks, feedResources);
+        derivedResources.append(feedResources);
         const QList<SitemapLink> sitemapLinks = deduplicatedSitemapLinks(sitemapLinksFromXmlFile(fileInfo));
         const QList<Resource> sitemapResources = sitemapResourcesFromLinks(fileInfo, sitemapLinks);
         appendSitemapXmlSourceMetadata(primary, sitemapLinks, sitemapResources);
@@ -6448,38 +6549,7 @@ QList<Resource> DirectoryLibrarySource::opmlResourcesFromFile(const QFileInfo &f
 
 QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        return {};
-    }
-
-    QList<Resource> resources;
-    QStringList seenUrls;
-    for (const FeedEntryLink &link : feedLinksFromXmlDocument(file.readAll())) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
-            continue;
-        }
-        seenUrls.append(urlKey);
-
-        Resource resource;
-        resource.id = QStringLiteral("feed-entry:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("feed"));
-        appendUnique(resource.tags, QStringLiteral("feed-entry"));
-        appendUnique(resource.aliases, link.feedTitle);
-        appendUnique(resource.aliases, fileInfo.completeBaseName());
-        for (const QString &category : link.categories) {
-            appendUnique(resource.tags, category);
-        }
-        resources.append(resource);
-    }
-    return resources;
+    return feedResourcesFromLinks(fileInfo, deduplicatedFeedEntryLinks(feedLinksFromXmlFile(fileInfo)));
 }
 
 QList<Resource> DirectoryLibrarySource::sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const
