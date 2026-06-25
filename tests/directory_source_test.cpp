@@ -39,6 +39,7 @@ private slots:
     void extractsCodeDependencyLineAnchors();
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
+    void extractsPlainTextUrlListResources();
     void extractsHtmlPageContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
@@ -1653,6 +1654,74 @@ void DirectorySourceTest::extractsWebShortcutResources()
         return result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("install");
+    }));
+}
+
+void DirectorySourceTest::extractsPlainTextUrlListResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/links")));
+    writeFile(dir.filePath(QStringLiteral("library/links/research.urls")),
+              QByteArray("Pinloom Launch Notes - https://docs.example.com/pinloom/launch#overview\n"
+                         "https://status.example.org/zeroslack\n"
+                         "Duplicate: https://docs.example.com/pinloom/launch#overview\n"
+                         "Ignore local file://not-web\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto launchIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/launch#overview");
+    });
+    QVERIFY(launchIt != resources.cend());
+    QCOMPARE(launchIt->title, QStringLiteral("Pinloom Launch Notes"));
+    QVERIFY(launchIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(launchIt->tags.contains(QStringLiteral("web-link")));
+    QVERIFY(launchIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(launchIt->aliases.contains(QStringLiteral("research")));
+    QCOMPARE(launchIt->anchors.size(), 1);
+    QCOMPARE(launchIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(launchIt->anchors.first().target, QStringLiteral("overview"));
+
+    const int launchResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/launch#overview");
+    });
+    QCOMPARE(launchResourceCount, 1);
+
+    auto statusIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://status.example.org/zeroslack");
+    });
+    QVERIFY(statusIt != resources.cend());
+    QCOMPARE(statusIt->title, QStringLiteral("status.example.org"));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Launch Notes")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Launch Notes");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("overview")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("overview");
     }));
 }
 

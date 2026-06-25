@@ -40,6 +40,11 @@ struct HtmlLink {
     QString title;
 };
 
+struct TextUrlLink {
+    QUrl url;
+    QString title;
+};
+
 struct BrowserBookmarkLink {
     QUrl url;
     QString title;
@@ -126,6 +131,9 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         QStringLiteral("txt"),
         QStringLiteral("text"),
         QStringLiteral("log"),
+        QStringLiteral("list"),
+        QStringLiteral("links"),
+        QStringLiteral("urls"),
         QStringLiteral("csv"),
         QStringLiteral("tsv"),
         QStringLiteral("json"),
@@ -164,6 +172,23 @@ std::optional<QChar> tabularDelimiterForFile(const QFileInfo &fileInfo)
         return QLatin1Char('\t');
     }
     return std::nullopt;
+}
+
+bool isPlainTextUrlListCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return QStringList{
+        QStringLiteral("txt"),
+        QStringLiteral("text"),
+        QStringLiteral("log"),
+        QStringLiteral("list"),
+        QStringLiteral("links"),
+        QStringLiteral("urls")
+    }.contains(suffix);
 }
 
 QString stripYamlQuotes(QString value)
@@ -1405,6 +1430,63 @@ QList<HtmlLink> htmlLinksFromDocument(const QString &html)
     return links;
 }
 
+QString trimmedPlainTextUrl(QString rawUrl)
+{
+    rawUrl = rawUrl.trimmed();
+    static const QString trailingPunctuation = QStringLiteral(".,;:!?)]}\"'");
+    while (!rawUrl.isEmpty() && trailingPunctuation.contains(rawUrl.back())) {
+        rawUrl.chop(1);
+    }
+    return rawUrl;
+}
+
+QString titleFromTextBeforeUrl(QString linePrefix)
+{
+    linePrefix = collapsedWhitespace(linePrefix);
+    while (linePrefix.startsWith(QLatin1Char('-'))
+           || linePrefix.startsWith(QLatin1Char('*'))
+           || linePrefix.startsWith(QLatin1Char('>'))) {
+        linePrefix = linePrefix.mid(1).trimmed();
+    }
+
+    static const QRegularExpression trailingSeparatorPattern(QStringLiteral("[\\s:=-]+$"));
+    linePrefix.remove(trailingSeparatorPattern);
+    return collapsedWhitespace(linePrefix);
+}
+
+QList<TextUrlLink> textUrlLinksFromDocument(const QString &text)
+{
+    QList<TextUrlLink> links;
+    QStringList seenUrls;
+    static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
+
+    for (const QString &line : text.split(QLatin1Char('\n'))) {
+        QRegularExpressionMatchIterator matches = urlPattern.globalMatch(line);
+        while (matches.hasNext()) {
+            const QRegularExpressionMatch match = matches.next();
+            const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(match.captured(0)));
+            if (!isIndexableWebUrl(url)) {
+                continue;
+            }
+
+            const QString urlKey = url.toString(QUrl::FullyEncoded);
+            if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+                continue;
+            }
+            seenUrls.append(urlKey);
+
+            TextUrlLink link;
+            link.url = url;
+            link.title = titleFromTextBeforeUrl(line.left(match.capturedStart()));
+            if (link.title.isEmpty()) {
+                link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+            }
+            links.append(link);
+        }
+    }
+    return links;
+}
+
 bool looksLikeBookmarkExport(const QString &html)
 {
     return html.contains(QStringLiteral("NETSCAPE-Bookmark-file-1"), Qt::CaseInsensitive)
@@ -2191,6 +2273,9 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     } else if (suffix == QLatin1String("opml")) {
         resources.append(opmlResourcesFromFile(fileInfo));
     }
+    if (primary.kind == ResourceKind::File && isPlainTextUrlListCandidate(fileInfo)) {
+        resources.append(plainTextUrlResourcesFromFile(fileInfo));
+    }
 
     return resources;
 }
@@ -2315,6 +2400,32 @@ QList<Resource> DirectoryLibrarySource::markdownLinkResourcesFromFile(const QFil
         resources.append(resource);
     }
 
+    return resources;
+}
+
+QList<Resource> DirectoryLibrarySource::plainTextUrlResourcesFromFile(const QFileInfo &fileInfo) const
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QString text = QString::fromUtf8(file.readAll());
+    QList<Resource> resources;
+    for (const TextUrlLink &link : textUrlLinksFromDocument(text)) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("text-url:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("web-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        resources.append(resource);
+    }
     return resources;
 }
 
