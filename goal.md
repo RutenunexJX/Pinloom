@@ -112,7 +112,7 @@ Completed:
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
-- Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, and related resource ids for ranking.
+- Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, matched field, matched context signals, score, and anchor details in host activation payloads.
 - Include relation label, note, direction, and related resource target details in host related-target payloads.
@@ -183,6 +183,7 @@ Completed:
 - Support pinned resources.
 - Support pinned library roots as project-level recall signals.
 - Support host-required kind/tag/location filters alongside host context ranking.
+- Support host-scoped relation labels for relation-aware context ranking.
 - Apply recall signals as small ranking boosts without letting weak path matches outrank stronger match types.
 - Boost exact title, filename, alias, tag, content, path, and anchor matches within their match type.
 - Add project/context weighting, including relation-aware active-resource weighting, while keeping ranking understandable.

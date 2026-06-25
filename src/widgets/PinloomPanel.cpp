@@ -412,6 +412,17 @@ QStringList PinloomPanel::contextResourceIds() const
     return contextResourceIds_;
 }
 
+void PinloomPanel::setContextRelationLabels(const QStringList &labels)
+{
+    contextRelationLabels_ = labels;
+    refreshResults();
+}
+
+QStringList PinloomPanel::contextRelationLabels() const
+{
+    return contextRelationLabels_;
+}
+
 void PinloomPanel::applyHostContext(const PinloomHostContext &context)
 {
     {
@@ -424,6 +435,7 @@ void PinloomPanel::applyHostContext(const PinloomHostContext &context)
     contextTags_ = context.contextTags;
     contextLocationPrefixes_ = context.contextLocationPrefixes;
     contextResourceIds_ = context.contextResourceIds;
+    contextRelationLabels_ = context.contextRelationLabels;
     refreshResults();
 }
 
@@ -437,6 +449,7 @@ PinloomHostContext PinloomPanel::hostContext() const
     context.contextTags = contextTags_;
     context.contextLocationPrefixes = contextLocationPrefixes_;
     context.contextResourceIds = contextResourceIds_;
+    context.contextRelationLabels = contextRelationLabels_;
     return context;
 }
 
@@ -826,6 +839,7 @@ void PinloomPanel::refreshResults()
     query.contextTags = contextTags_;
     query.contextLocationPrefixes = contextLocationPrefixes_;
     query.contextResourceIds = contextResourceIds_;
+    query.contextRelationLabels = contextRelationLabels_;
     query.limit = 100;
 
     const QList<SearchResult> results = repository_.search(query);

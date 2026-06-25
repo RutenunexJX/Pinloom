@@ -724,6 +724,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     context.contextTags = {QStringLiteral("pcie")};
     context.contextLocationPrefixes = {QStringLiteral("E:/workspace/project")};
     context.contextResourceIds = {project.id};
+    context.contextRelationLabels = {QStringLiteral("links-to")};
     panel.applyHostContext(context);
 
     const PinloomHostContext snapshot = panel.hostContext();
@@ -734,6 +735,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     QCOMPARE(snapshot.contextTags, context.contextTags);
     QCOMPARE(snapshot.contextLocationPrefixes, context.contextLocationPrefixes);
     QCOMPARE(snapshot.contextResourceIds, context.contextResourceIds);
+    QCOMPARE(snapshot.contextRelationLabels, context.contextRelationLabels);
 
     QCOMPARE(results->count(), 2);
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), project.id);
@@ -828,6 +830,14 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
 
     panel.setContextResourceIds({active.id});
     QCOMPARE(panel.contextResourceIds(), QStringList{active.id});
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+
+    panel.setContextRelationLabels({QStringLiteral("compiles")});
+    QCOMPARE(panel.contextRelationLabels(), QStringList{QStringLiteral("compiles")});
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
+
+    panel.setContextRelationLabels({QStringLiteral("supports")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
 

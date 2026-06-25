@@ -297,6 +297,18 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     QCOMPARE(results.first().resource.id, related.id);
     QCOMPARE(results.first().matchedContextResourceId, active.id);
     QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+
+    query.contextRelationLabels = {QStringLiteral("compiles")};
+    results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, generic.id);
+    QVERIFY(results.first().matchedContextRelationLabel.isEmpty());
+
+    query.contextRelationLabels = {QStringLiteral("SUPPORTS")};
+    results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, related.id);
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
 }
 
 void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()

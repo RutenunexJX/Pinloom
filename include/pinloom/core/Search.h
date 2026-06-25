@@ -16,6 +16,7 @@ struct SearchQuery {
     QStringList contextTags;
     QStringList contextLocationPrefixes;
     QStringList contextResourceIds;
+    QStringList contextRelationLabels;
     int limit = 50;
 };
 

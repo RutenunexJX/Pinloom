@@ -153,6 +153,24 @@ bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &required
     return requiredKinds.isEmpty() || requiredKinds.contains(kind);
 }
 
+bool matchesContextRelationLabel(const ResourceRelation &relation, const QStringList &labels)
+{
+    const bool hasFilter = std::any_of(labels.cbegin(), labels.cend(), [](const QString &label) {
+        return !label.trimmed().isEmpty();
+    });
+    if (!hasFilter) {
+        return true;
+    }
+    for (const QString &label : labels) {
+        const QString trimmedLabel = label.trimmed();
+        if (!trimmedLabel.isEmpty()
+            && relation.label.compare(trimmedLabel, Qt::CaseInsensitive) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::optional<ResourceRelation> matchedContextRelation(const Resource &resource,
                                                        const SearchQuery &query,
                                                        const QList<ResourceRelation> &relations)
@@ -164,6 +182,9 @@ std::optional<ResourceRelation> matchedContextRelation(const Resource &resource,
         }
 
         for (const ResourceRelation &relation : relations) {
+            if (!matchesContextRelationLabel(relation, query.contextRelationLabels)) {
+                continue;
+            }
             if ((relation.sourceResourceId == resource.id && relation.targetResourceId == contextId)
                 || (relation.targetResourceId == resource.id && relation.sourceResourceId == contextId)) {
                 return relation;

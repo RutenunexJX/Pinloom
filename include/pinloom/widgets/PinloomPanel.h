@@ -64,6 +64,7 @@ struct PinloomHostContext {
     QStringList contextTags;
     QStringList contextLocationPrefixes;
     QStringList contextResourceIds;
+    QStringList contextRelationLabels;
 };
 
 class PinloomPanel : public QWidget {
@@ -88,6 +89,8 @@ public:
     QStringList contextLocationPrefixes() const;
     void setContextResourceIds(const QStringList &resourceIds);
     QStringList contextResourceIds() const;
+    void setContextRelationLabels(const QStringList &labels);
+    QStringList contextRelationLabels() const;
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
@@ -144,6 +147,7 @@ private:
     QStringList contextTags_;
     QStringList contextLocationPrefixes_;
     QStringList contextResourceIds_;
+    QStringList contextRelationLabels_;
     QWidget *rootControlsWidget_ = nullptr;
     QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
