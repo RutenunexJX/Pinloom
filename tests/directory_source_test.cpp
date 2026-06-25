@@ -62,6 +62,7 @@ private slots:
     void extractsMhtmlPageContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
+    void extractsXbelBookmarkLinks();
     void extractsBrowserHistorySqliteLinks();
     void extractsFirefoxPlacesSqliteLinks();
     void extractsOpmlLinks();
@@ -4343,6 +4344,149 @@ void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
     }));
     QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == bookmarksIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+}
+
+void DirectorySourceTest::extractsXbelBookmarkLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/bookmarks")));
+    writeFile(dir.filePath(QStringLiteral("library/bookmarks/engineering.xbel")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<xbel version=\"1.0\">\n"
+                         "  <folder>\n"
+                         "    <title>Engineering</title>\n"
+                         "    <folder>\n"
+                         "      <title>FPGA</title>\n"
+                         "      <bookmark href=\"https://fpga.example.com/handbook#timing\">\n"
+                         "        <title>FPGA Handbook</title>\n"
+                         "      </bookmark>\n"
+                         "      <bookmark href=\"https://docs.example.com/pinloom/host#dock\">\n"
+                         "        <title>Pinloom Host API</title>\n"
+                         "      </bookmark>\n"
+                         "      <bookmark href=\"https://fpga.example.com/handbook#timing\">\n"
+                         "        <title>Duplicate FPGA Handbook</title>\n"
+                         "      </bookmark>\n"
+                         "    </folder>\n"
+                         "  </folder>\n"
+                         "</xbel>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto xbelIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("engineering.xbel");
+    });
+    QVERIFY(xbelIt != resources.cend());
+    QVERIFY(xbelIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(xbelIt->tags.contains(QStringLiteral("xbel")));
+    QVERIFY(std::any_of(xbelIt->anchors.cbegin(), xbelIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: FPGA Handbook -> https://fpga.example.com/handbook#timing")
+            && anchor.line == 7;
+    }));
+    QVERIFY(std::any_of(xbelIt->anchors.cbegin(), xbelIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock")
+            && anchor.line == 10;
+    }));
+
+    auto handbookIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("FPGA Handbook")
+            && resource.location == QLatin1String("https://fpga.example.com/handbook#timing");
+    });
+    QVERIFY(handbookIt != resources.cend());
+    QVERIFY(handbookIt->tags.contains(QStringLiteral("bookmark")));
+    QVERIFY(handbookIt->tags.contains(QStringLiteral("xbel")));
+    QVERIFY(handbookIt->aliases.contains(QStringLiteral("fpga.example.com")));
+    QVERIFY(handbookIt->aliases.contains(QStringLiteral("Engineering")));
+    QVERIFY(handbookIt->aliases.contains(QStringLiteral("FPGA")));
+    QVERIFY(handbookIt->aliases.contains(QStringLiteral("Engineering / FPGA")));
+    QVERIFY(std::any_of(handbookIt->anchors.cbegin(), handbookIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("timing");
+    }));
+
+    auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom Host API")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#dock");
+    });
+    QVERIFY(hostIt != resources.cend());
+    QVERIFY(hostIt->tags.contains(QStringLiteral("xbel")));
+    QVERIFY(std::any_of(hostIt->anchors.cbegin(), hostIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("dock");
+    }));
+
+    const int handbookResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://fpga.example.com/handbook#timing");
+    });
+    QCOMPARE(handbookResourceCount, 1);
+
+    QCOMPARE(xbelIt->relations.size(), 2);
+    QVERIFY(std::any_of(xbelIt->relations.cbegin(), xbelIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == xbelIt->id
+            && relation.targetResourceId == handbookIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("xbel line 7: url: FPGA Handbook -> https://fpga.example.com/handbook#timing");
+    }));
+    QVERIFY(std::any_of(xbelIt->relations.cbegin(), xbelIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == xbelIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("xbel line 10: url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> folderResults = repository.search(SearchQuery{QStringLiteral("Engineering")});
+    QVERIFY(std::any_of(folderResults.cbegin(), folderResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("FPGA Handbook");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("dock")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Pinloom Host API")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("dock");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Host API")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("engineering.xbel")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 10
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Host API -> https://docs.example.com/pinloom/host#dock");
+    }));
+
+    const QList<ResourceRelation> bookmarkRelations = repository.resourceRelations(xbelIt->id);
+    QCOMPARE(bookmarkRelations.size(), 2);
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == xbelIt->id
+            && relation.targetResourceId == handbookIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+    QVERIFY(std::any_of(bookmarkRelations.cbegin(), bookmarkRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == xbelIt->id
             && relation.targetResourceId == hostIt->id
             && relation.label == QLatin1String("links-to");
     }));

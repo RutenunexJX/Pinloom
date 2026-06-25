@@ -141,6 +141,26 @@ struct BrowserBookmarkLink {
     int lineNumber = -1;
 };
 
+struct XbelBookmarkLink {
+    QUrl url;
+    QString title;
+    QStringList folderPath;
+    int lineNumber = -1;
+};
+
+struct XbelParseContext {
+    enum class Type {
+        Folder,
+        Bookmark
+    };
+
+    Type type = Type::Folder;
+    QUrl url;
+    QString title;
+    int lineNumber = -1;
+    bool folderPathPushed = false;
+};
+
 struct BrowserHistoryLink {
     QUrl url;
     QString title;
@@ -178,6 +198,8 @@ struct FeedEntryLink {
     QStringList categories;
     int lineNumber = -1;
 };
+
+QString xmlAttributeValue(const QXmlStreamAttributes &attributes, const QString &name);
 
 struct SitemapLink {
     QUrl url;
@@ -2811,6 +2833,13 @@ bool isBrowserBookmarkJsonCandidate(const QFileInfo &fileInfo)
         || fileInfo.fileName().compare(QStringLiteral("Bookmarks"), Qt::CaseInsensitive) == 0;
 }
 
+bool isXbelBookmarkCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 4 * 1024 * 1024
+        && fileInfo.suffix().compare(QStringLiteral("xbel"), Qt::CaseInsensitive) == 0;
+}
+
 void appendBrowserBookmarkLinksFromNode(const QJsonObject &node,
                                         const QStringList &folderPath,
                                         QList<BrowserBookmarkLink> &links)
@@ -2881,6 +2910,109 @@ QList<BrowserBookmarkLink> browserBookmarkLinksFromJsonDocument(const QJsonDocum
         appendBrowserBookmarkLinksFromNode(it.value().toObject(), folderPath, links);
     }
     return links;
+}
+
+QList<XbelBookmarkLink> xbelBookmarkLinksFromDocument(const QByteArray &content)
+{
+    QXmlStreamReader reader(content);
+    QList<XbelBookmarkLink> links;
+    QList<XbelParseContext> stack;
+    QStringList folderPath;
+    bool rootSeen = false;
+
+    while (!reader.atEnd()) {
+        reader.readNext();
+        const QString name = reader.name().toString().toLower();
+
+        if (reader.isStartElement()) {
+            if (!rootSeen) {
+                rootSeen = true;
+                if (name != QLatin1String("xbel")) {
+                    return {};
+                }
+            }
+
+            if (name == QLatin1String("folder")) {
+                XbelParseContext context;
+                context.type = XbelParseContext::Type::Folder;
+                context.lineNumber = static_cast<int>(reader.lineNumber());
+                stack.append(context);
+            } else if (name == QLatin1String("bookmark")) {
+                const QUrl url = QUrl::fromUserInput(xmlAttributeValue(reader.attributes(), QStringLiteral("href")));
+                XbelParseContext context;
+                context.type = XbelParseContext::Type::Bookmark;
+                context.url = url;
+                context.lineNumber = static_cast<int>(reader.lineNumber());
+                stack.append(context);
+            } else if (name == QLatin1String("title") && !stack.isEmpty()) {
+                const QString title = reader.readElementText(QXmlStreamReader::SkipChildElements).trimmed();
+                XbelParseContext &context = stack.last();
+                context.title = title;
+                if (context.type == XbelParseContext::Type::Folder
+                    && !context.folderPathPushed
+                    && !title.isEmpty()) {
+                    folderPath.append(title);
+                    context.folderPathPushed = true;
+                }
+            }
+        } else if (reader.isEndElement()) {
+            if (name == QLatin1String("bookmark") && !stack.isEmpty()) {
+                const XbelParseContext context = stack.takeLast();
+                if (context.type == XbelParseContext::Type::Bookmark && isIndexableWebUrl(context.url)) {
+                    XbelBookmarkLink link;
+                    link.url = context.url;
+                    link.title = context.title.trimmed();
+                    if (link.title.isEmpty()) {
+                        link.title = context.url.host().isEmpty() ? context.url.toDisplayString() : context.url.host();
+                    }
+                    link.folderPath = folderPath;
+                    link.lineNumber = context.lineNumber;
+                    links.append(link);
+                }
+            } else if (name == QLatin1String("folder") && !stack.isEmpty()) {
+                const XbelParseContext context = stack.takeLast();
+                if (context.type == XbelParseContext::Type::Folder
+                    && context.folderPathPushed
+                    && !folderPath.isEmpty()) {
+                    folderPath.removeLast();
+                }
+            }
+        }
+    }
+
+    if (reader.hasError()) {
+        return {};
+    }
+    return links;
+}
+
+QList<XbelBookmarkLink> xbelBookmarkLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (!isXbelBookmarkCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    return xbelBookmarkLinksFromDocument(file.readAll());
+}
+
+QList<XbelBookmarkLink> deduplicatedXbelBookmarkLinks(const QList<XbelBookmarkLink> &links)
+{
+    QList<XbelBookmarkLink> deduplicated;
+    QStringList seenUrls;
+    for (const XbelBookmarkLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+        deduplicated.append(link);
+    }
+    return deduplicated;
 }
 
 bool isBrowserHistorySqliteCandidate(const QFileInfo &fileInfo)
@@ -5562,6 +5694,70 @@ void appendBrowserBookmarkSourceMetadata(Resource &sourceResource,
     }
 }
 
+QString xbelBookmarkLineAnchorTarget(const XbelBookmarkLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> xbelBookmarkResourcesFromLinks(const QFileInfo &fileInfo,
+                                               const QList<XbelBookmarkLink> &links)
+{
+    QList<Resource> resources;
+    for (const XbelBookmarkLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("xbel-bookmark:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("bookmark"));
+        appendUnique(resource.tags, QStringLiteral("xbel"));
+        for (const QString &folder : link.folderPath) {
+            appendUnique(resource.aliases, folder);
+        }
+        if (!link.folderPath.isEmpty()) {
+            appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendXbelBookmarkSourceMetadata(Resource &sourceResource,
+                                      const QList<XbelBookmarkLink> &links,
+                                      const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("bookmark"));
+        appendUnique(sourceResource.tags, QStringLiteral("xbel"));
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const XbelBookmarkLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = xbelBookmarkLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("xbel line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("xbel: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 bool isWarcFileCandidate(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
@@ -6627,6 +6823,13 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         browserBookmarkResources = browserBookmarkResourcesFromLinks(fileInfo, browserBookmarkLinks);
         appendBrowserBookmarkSourceMetadata(primary, browserBookmarkLinks, browserBookmarkResources);
         derivedResources.append(browserBookmarkResources);
+    } else if (isXbelBookmarkCandidate(fileInfo)) {
+        const QList<XbelBookmarkLink> xbelBookmarkLinks =
+            deduplicatedXbelBookmarkLinks(xbelBookmarkLinksFromFile(fileInfo));
+        const QList<Resource> xbelBookmarkResources =
+            xbelBookmarkResourcesFromLinks(fileInfo, xbelBookmarkLinks);
+        appendXbelBookmarkSourceMetadata(primary, xbelBookmarkLinks, xbelBookmarkResources);
+        derivedResources.append(xbelBookmarkResources);
     } else if (suffix == QLatin1String("opml")) {
         const QList<OpmlLink> opmlLinks = deduplicatedOpmlLinks(opmlLinksFromFile(fileInfo));
         const QList<Resource> opmlResources = opmlResourcesFromLinks(fileInfo, opmlLinks);

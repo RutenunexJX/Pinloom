@@ -375,6 +375,7 @@ Status:
 - MHTML/MHT outbound link URL resources with `links-to` relations: done.
 - Browser bookmark export HTML indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - Chromium/Edge-style Bookmarks JSON indexing as individual URL resources with source line anchors and `links-to` relations: done.
+- XBEL bookmark XML indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources: done.
 - Firefox places.sqlite indexing as individual URL resources with bookmark metadata: done.
 - OPML subscription/link list indexing as individual URL resources with source line anchors and `links-to` relations: done.
@@ -392,5 +393,5 @@ Status:
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
-- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
+- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
 - Richer source-code parsing: deferred until lightweight symbols prove insufficient.
