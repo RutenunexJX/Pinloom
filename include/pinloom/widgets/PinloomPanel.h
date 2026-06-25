@@ -35,6 +35,9 @@ struct PinloomOpenTarget {
 struct PinloomPanelOptions {
     std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
+    bool showLibraryRootControls = true;
+    bool showManualEditControls = true;
+    bool showPinControls = true;
 };
 
 struct PinloomIndexingResult {
@@ -120,6 +123,7 @@ private:
     QList<ResourceKind> requiredResourceKinds_;
     QStringList contextTags_;
     QStringList contextLocationPrefixes_;
+    QWidget *rootControlsWidget_ = nullptr;
     QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
     QListWidget *resultList_ = nullptr;

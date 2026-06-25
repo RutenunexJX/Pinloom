@@ -32,6 +32,7 @@ private slots:
     void panelAddsManualAliasAndAnchor();
     void panelPinsSelectedResource();
     void panelPinsSelectedLibraryRoot();
+    void panelSupportsEmbeddedChromeOptions();
     void panelAppliesRequiredTagLocationAndKindFiltering();
     void panelAppliesHostContextSnapshot();
     void panelAppliesHostContextRanking();
@@ -505,6 +506,56 @@ void WidgetSmokeTest::panelPinsSelectedLibraryRoot()
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
     QVERIFY(pinRootButton->isChecked());
     QVERIFY(rootList->currentItem()->text().contains(QStringLiteral("[Pinned]")));
+}
+
+void WidgetSmokeTest::panelSupportsEmbeddedChromeOptions()
+{
+    InMemoryLibraryRepository repository;
+
+    LibraryRoot root = makeLibraryRootForPath(QStringLiteral("E:/workspace/project"));
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("UART Project Note");
+    resource.location = QStringLiteral("E:/workspace/project/note.md");
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanelOptions options;
+    options.showLibraryRootControls = false;
+    options.showManualEditControls = false;
+    options.showPinControls = false;
+    PinloomPanel panel(repository, options);
+
+    auto *rootControls = panel.findChild<QWidget *>(QStringLiteral("libraryRootControls"));
+    auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
+    auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
+    auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
+    auto *pinRootButton = panel.findChild<QPushButton *>(QStringLiteral("pinRootButton"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(rootControls);
+    QVERIFY(rootList);
+    QVERIFY(addAliasButton);
+    QVERIFY(addAnchorButton);
+    QVERIFY(pinButton);
+    QVERIFY(pinRootButton);
+    QVERIFY(openButton);
+    QVERIFY(results);
+
+    QVERIFY(rootControls->isHidden());
+    QVERIFY(rootList->isHidden());
+    QVERIFY(addAliasButton->isHidden());
+    QVERIFY(addAnchorButton->isHidden());
+    QVERIFY(pinButton->isHidden());
+    QVERIFY(pinRootButton->isHidden());
+    QVERIFY(!openButton->isHidden());
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
 }
 
 void WidgetSmokeTest::panelAppliesRequiredTagLocationAndKindFiltering()

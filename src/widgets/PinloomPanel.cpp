@@ -218,8 +218,12 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 {
     auto *layout = new QVBoxLayout(this);
 
-    auto *rootToolbar = new QHBoxLayout();
+    rootControlsWidget_ = new QWidget(this);
+    rootControlsWidget_->setObjectName(QStringLiteral("libraryRootControls"));
+    auto *rootToolbar = new QHBoxLayout(rootControlsWidget_);
+    rootToolbar->setContentsMargins(0, 0, 0, 0);
     auto *addRootButton = new QPushButton(tr("Add Folder"), this);
+    addRootButton->setObjectName(QStringLiteral("addRootButton"));
     removeRootButton_ = new QPushButton(tr("Remove Folder"), this);
     refreshSelectedButton_ = new QPushButton(tr("Refresh Selected"), this);
     refreshAllButton_ = new QPushButton(tr("Refresh All"), this);
@@ -271,7 +275,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
 
-    layout->addLayout(rootToolbar);
+    layout->addWidget(rootControlsWidget_);
     layout->addWidget(rootList_);
     layout->addLayout(resultToolbar);
     layout->addWidget(resultList_, 1);
@@ -294,6 +298,13 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
     connect(rootList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshRootPinButtonState);
+
+    rootControlsWidget_->setVisible(options_.showLibraryRootControls);
+    rootList_->setVisible(options_.showLibraryRootControls);
+    addAliasButton_->setVisible(options_.showManualEditControls);
+    addAnchorButton_->setVisible(options_.showManualEditControls);
+    pinButton_->setVisible(options_.showPinControls);
+    pinRootButton_->setVisible(options_.showPinControls);
 
     loadLibraryRoots();
     refreshResults();
