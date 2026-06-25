@@ -114,7 +114,7 @@ Completed:
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
-- Include resource kind, title, matched field, matched context signals, score, and anchor details in host activation payloads.
+- Include resource kind, title, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.
 - Include relation label, note, direction, and related resource target details in host related-target payloads.
 - Keep standalone behavior as the default fallback.
 - Document which responsibilities belong to Pinloom and which belong to the embedding host.
@@ -187,7 +187,7 @@ Completed:
 - Apply recall signals as small ranking boosts without letting weak path matches outrank stronger match types.
 - Boost exact title, filename, alias, tag, content, path, and anchor matches within their match type.
 - Add project/context weighting, including relation-aware active-resource weighting, while keeping ranking understandable.
-- Show matched fields, anchors, and host context matches in result tooltips.
+- Show matched fields, anchors, and host context matches, including matched relation notes, in result tooltips.
 
 ### Integration And Source Refinement MVP
 

@@ -302,11 +302,12 @@ Status:
 - Context-aware ranking: done.
 - Relation-aware context-resource ranking: done.
 - Relation-label-scoped context ranking: done.
+- Matched relation-note payloads for context-ranked results: done.
 - Host-required resource-kind, tag, and location-prefix filtering: done.
 - Anchor-level usage history and ranking: done.
 - Pinned roots and root-level ranking boosts: done.
 - Exact-match ranking within each match type: done.
-- Result tooltip details for match fields, anchors, and host context matches: done.
+- Result tooltip details for match fields, anchors, host context matches, and matched relation notes: done.
 
 ## MVP 14: Integration And Source Refinement
 

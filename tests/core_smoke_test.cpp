@@ -283,6 +283,7 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     relation.sourceResourceId = active.id;
     relation.targetResourceId = related.id;
     relation.label = QStringLiteral("supports");
+    relation.note = QStringLiteral("active build edge");
     QVERIFY(repository.upsertResourceRelation(relation));
 
     SearchQuery query;
@@ -297,18 +298,21 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     QCOMPARE(results.first().resource.id, related.id);
     QCOMPARE(results.first().matchedContextResourceId, active.id);
     QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active build edge"));
 
     query.contextRelationLabels = {QStringLiteral("compiles")};
     results = repository.search(query);
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, generic.id);
     QVERIFY(results.first().matchedContextRelationLabel.isEmpty());
+    QVERIFY(results.first().matchedContextRelationNote.isEmpty());
 
     query.contextRelationLabels = {QStringLiteral("SUPPORTS")};
     results = repository.search(query);
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, related.id);
     QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active build edge"));
 }
 
 void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()

@@ -161,9 +161,14 @@ QString resultToolTip(const SearchResult &result, const SearchQuery &query)
         if (result.matchedContextRelationLabel.isEmpty()) {
             lines.append(QStringLiteral("Context resource: %1").arg(result.matchedContextResourceId));
         } else {
-            lines.append(QStringLiteral("Context relation: %1 via %2")
-                             .arg(result.matchedContextResourceId,
-                                  result.matchedContextRelationLabel));
+            QString relationLine = QStringLiteral("Context relation: %1 via %2")
+                                       .arg(result.matchedContextResourceId,
+                                            result.matchedContextRelationLabel);
+            const QString relationNote = result.matchedContextRelationNote.trimmed();
+            if (!relationNote.isEmpty()) {
+                relationLine.append(QStringLiteral(" (%1)").arg(relationNote));
+            }
+            lines.append(relationLine);
         }
     }
 
@@ -471,6 +476,7 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     target.matchedContextLocationPrefix = item->data(Qt::UserRole + 16).toString();
     target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
     target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
+    target.matchedContextRelationNote = item->data(Qt::UserRole + 19).toString();
 
     if (item->data(Qt::UserRole + 2).toBool()) {
         Anchor anchor;
@@ -857,6 +863,7 @@ void PinloomPanel::refreshResults()
         item->setData(Qt::UserRole + 16, matchedContextLocationPrefix(result.resource, query.contextLocationPrefixes));
         item->setData(Qt::UserRole + 17, result.matchedContextResourceId);
         item->setData(Qt::UserRole + 18, result.matchedContextRelationLabel);
+        item->setData(Qt::UserRole + 19, result.matchedContextRelationNote);
         if (result.matchedAnchor.has_value()) {
             const Anchor &anchor = result.matchedAnchor.value();
             item->setData(Qt::UserRole + 2, true);

@@ -818,6 +818,7 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     relation.sourceResourceId = active.id;
     relation.targetResourceId = related.id;
     relation.label = QStringLiteral("supports");
+    relation.note = QStringLiteral("active build edge");
     QVERIFY(repository.upsertResourceRelation(relation));
 
     PinloomPanel panel(repository);
@@ -832,6 +833,7 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     QCOMPARE(panel.contextResourceIds(), QStringList{active.id});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("(active build edge)")));
 
     panel.setContextRelationLabels({QStringLiteral("compiles")});
     QCOMPARE(panel.contextRelationLabels(), QStringList{QStringLiteral("compiles")});
@@ -840,12 +842,14 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     panel.setContextRelationLabels({QStringLiteral("supports")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("(active build edge)")));
 
     results->setCurrentRow(0);
     const PinloomOpenTarget target = panel.currentOpenTarget();
     QCOMPARE(target.resourceId, related.id);
     QCOMPARE(target.matchedContextResourceId, active.id);
     QCOMPARE(target.matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(target.matchedContextRelationNote, QStringLiteral("active build edge"));
 }
 
 void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()

@@ -27,6 +27,7 @@ struct SearchResult {
     std::optional<Anchor> matchedAnchor;
     QString matchedContextResourceId;
     QString matchedContextRelationLabel;
+    QString matchedContextRelationNote;
 };
 
 } // namespace Pinloom

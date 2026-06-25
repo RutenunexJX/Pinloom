@@ -30,6 +30,7 @@ struct PinloomOpenTarget {
     QString matchedContextLocationPrefix;
     QString matchedContextResourceId;
     QString matchedContextRelationLabel;
+    QString matchedContextRelationNote;
     double score = 0.0;
     std::optional<Anchor> anchor;
 };

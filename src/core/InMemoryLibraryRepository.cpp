@@ -242,6 +242,7 @@ void applyRankingSignals(SearchResult &result,
     if (contextRelation.has_value()) {
         result.score -= 0.4;
         result.matchedContextRelationLabel = contextRelation->label;
+        result.matchedContextRelationNote = contextRelation->note;
         result.matchedContextResourceId = contextRelation->sourceResourceId == result.resource.id
             ? contextRelation->targetResourceId
             : contextRelation->sourceResourceId;
