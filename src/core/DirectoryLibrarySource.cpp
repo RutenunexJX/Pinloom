@@ -323,6 +323,25 @@ QString markdownLinkPathWithoutFragment(QString target)
     return QUrl::fromPercentEncoding(target.trimmed().toUtf8()).trimmed();
 }
 
+QString markdownLinkFragment(QString target)
+{
+    target = target.trimmed();
+    const int fragmentIndex = target.indexOf(QLatin1Char('#'));
+    if (fragmentIndex < 0 || fragmentIndex + 1 >= target.size()) {
+        return {};
+    }
+    return QUrl::fromPercentEncoding(target.mid(fragmentIndex + 1).trimmed().toUtf8()).trimmed();
+}
+
+QString markdownNotePathForWikilink(QString targetPath)
+{
+    targetPath = targetPath.trimmed();
+    if (targetPath.isEmpty() || QFileInfo(targetPath).suffix().isEmpty()) {
+        targetPath.append(QStringLiteral(".md"));
+    }
+    return targetPath;
+}
+
 QString resourceIdForLinkedPath(const QFileInfo &sourceFileInfo, const QString &targetPath)
 {
     QFileInfo targetInfo;
@@ -354,6 +373,53 @@ void appendLocalMarkdownLinks(Resource &resource, const QFileInfo &fileInfo, con
         const QString anchorTarget = label.isEmpty()
             ? QStringLiteral("link: %1").arg(targetPath)
             : QStringLiteral("link: %1 -> %2").arg(label, targetPath);
+        appendFileLineAnchor(resource, anchorTarget, lineNumber);
+
+        const QString targetResourceId = resourceIdForLinkedPath(fileInfo, targetPath);
+        if (!targetResourceId.isEmpty() && targetResourceId != resource.id) {
+            ResourceRelation relation;
+            relation.sourceResourceId = resource.id;
+            relation.targetResourceId = targetResourceId;
+            relation.label = QStringLiteral("links-to");
+            relation.note = anchorTarget;
+            resource.relations.append(relation);
+        }
+    }
+}
+
+void appendLocalWikilinks(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
+{
+    static const QRegularExpression wikilinkPattern(QStringLiteral("\\[\\[([^\\]]+)\\]\\]"));
+    QRegularExpressionMatchIterator matches = wikilinkPattern.globalMatch(line);
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
+        const QString rawLink = match.captured(1).trimmed();
+        const QString rawTarget = rawLink.section(QLatin1Char('|'), 0, 0).trimmed();
+        const QString displayText = rawLink.section(QLatin1Char('|'), 1).trimmed();
+        const QString rawTargetPath = markdownLinkPathWithoutFragment(rawTarget);
+        if (rawTargetPath.isEmpty()) {
+            continue;
+        }
+
+        const QString targetPath = markdownNotePathForWikilink(rawTargetPath);
+        const QString fragment = markdownLinkFragment(rawTarget);
+        const QString normalizedFragment = fragment.startsWith(QLatin1Char('^')) ? fragment.mid(1) : fragment;
+        const QString label = displayText.isEmpty()
+            ? QFileInfo(rawTargetPath).fileName()
+            : markdownPlainTextFromLine(displayText);
+
+        appendUnique(resource.aliases, label);
+        appendUnique(resource.aliases, QFileInfo(targetPath).fileName());
+        appendUnique(resource.aliases, rawTargetPath);
+        appendUnique(resource.aliases, targetPath);
+        appendUnique(resource.aliases, normalizedFragment);
+
+        QString anchorTarget = label.isEmpty()
+            ? QStringLiteral("wikilink: %1").arg(targetPath)
+            : QStringLiteral("wikilink: %1 -> %2").arg(label, targetPath);
+        if (!normalizedFragment.isEmpty()) {
+            anchorTarget.append(QStringLiteral("#%1").arg(normalizedFragment));
+        }
         appendFileLineAnchor(resource, anchorTarget, lineNumber);
 
         const QString targetResourceId = resourceIdForLinkedPath(fileInfo, targetPath);
@@ -2870,6 +2936,7 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
 
         appendInlineTags(resource.tags, line);
         appendWikilinksAsAliases(resource.aliases, line);
+        appendLocalWikilinks(resource, fileInfo, line, lineNumber);
         appendLocalMarkdownLinks(resource, fileInfo, line, lineNumber);
 
         const QRegularExpressionMatch headingMatch = headingPattern.match(line);

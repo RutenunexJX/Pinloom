@@ -508,6 +508,7 @@ void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/deep")));
     writeFile(dir.filePath(QStringLiteral("library/notes.md")),
               QByteArray("---\n"
                          "aliases:\n"
@@ -517,6 +518,10 @@ void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
                          "---\n"
                          "# Bringup\n"
                          "Body #bringup and #lab/debug with [[Link Target]] and [[deep/note#^power-block|display]].\n"));
+    writeFile(dir.filePath(QStringLiteral("library/Link Target.md")),
+              QByteArray("# Link Target\n"));
+    writeFile(dir.filePath(QStringLiteral("library/deep/note.md")),
+              QByteArray("# Deep Note\n^power-block\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -524,7 +529,7 @@ void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown;
+        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("notes.md");
     });
     QVERIFY(markdownIt != resources.cend());
 
@@ -532,11 +537,34 @@ void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
     QVERIFY(markdownIt->aliases.contains(QStringLiteral("board diary")));
     QVERIFY(markdownIt->aliases.contains(QStringLiteral("Link Target")));
     QVERIFY(markdownIt->aliases.contains(QStringLiteral("deep/note")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("display")));
+    QVERIFY(markdownIt->aliases.contains(QStringLiteral("note.md")));
     QVERIFY(markdownIt->aliases.contains(QStringLiteral("power-block")));
     QVERIFY(markdownIt->tags.contains(QStringLiteral("fpga")));
     QVERIFY(markdownIt->tags.contains(QStringLiteral("uart")));
     QVERIFY(markdownIt->tags.contains(QStringLiteral("bringup")));
     QVERIFY(markdownIt->tags.contains(QStringLiteral("lab/debug")));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("wikilink: Link Target -> Link Target.md")
+            && anchor.line == 8;
+    }));
+    QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("wikilink: display -> deep/note.md#power-block")
+            && anchor.line == 8;
+    }));
+    QCOMPARE(markdownIt->relations.size(), 2);
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [](const ResourceRelation &relation) {
+        return relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("Link Target.md"))
+            && relation.note == QLatin1String("wikilink: Link Target -> Link Target.md");
+    }));
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [](const ResourceRelation &relation) {
+        return relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("deep/note.md"))
+            && relation.note == QLatin1String("wikilink: display -> deep/note.md#power-block");
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -547,8 +575,30 @@ void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("serial")}).size(), 1);
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("lab/debug")}).size(), 1);
-    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Link")}).size(), 1);
-    QCOMPARE(repository.search(SearchQuery{QStringLiteral("power-block")}).size(), 1);
+    const QList<SearchResult> linkAliasResults = repository.search(SearchQuery{QStringLiteral("Link")});
+    QVERIFY(std::any_of(linkAliasResults.cbegin(), linkAliasResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("notes.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("wikilink: Link Target -> Link Target.md");
+    }));
+
+    const QList<ResourceRelation> relations = repository.resourceRelations(markdownIt->id);
+    QCOMPARE(relations.size(), 2);
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [](const ResourceRelation &relation) {
+        return relation.targetResourceId.endsWith(QStringLiteral("Link Target.md"));
+    }));
+    QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [](const ResourceRelation &relation) {
+        return relation.targetResourceId.endsWith(QStringLiteral("deep/note.md"));
+    }));
+
+    const QList<SearchResult> wikilinkResults = repository.search(SearchQuery{QStringLiteral("power-block")});
+    QVERIFY(std::any_of(wikilinkResults.cbegin(), wikilinkResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("notes.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("wikilink: display -> deep/note.md#power-block");
+    }));
 }
 
 void DirectorySourceTest::extractsMarkdownBodyContent()

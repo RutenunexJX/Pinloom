@@ -125,6 +125,7 @@ Completed:
 - Extract searchable Markdown body content while excluding frontmatter metadata from body text.
 - Extract Markdown task checkbox lines as searchable file-line anchors.
 - Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
+- Extract Obsidian wikilinks as searchable file-line anchors and indexed `links-to` relations.
 - Preserve normal Markdown behavior for non-Obsidian folders.
 - Add focused tests around mixed plain-Markdown and Obsidian vault inputs.
 

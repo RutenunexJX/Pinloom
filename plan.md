@@ -201,6 +201,7 @@ Status:
 - Markdown body content extraction/search: done.
 - Markdown task checkbox line anchors/search: done.
 - Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.
+- Obsidian wikilink aliases/line anchors and indexed `links-to` relations: done.
 - Tests: done.
 - Build/test verification: done.
 
