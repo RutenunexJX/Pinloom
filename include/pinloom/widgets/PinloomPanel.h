@@ -134,6 +134,7 @@ public:
     bool selectNextResult();
     bool selectPreviousResult();
     bool activateCurrentOpenTarget();
+    bool activateResourceById(const QString &resourceId);
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
     QString statusText() const;
@@ -184,6 +185,7 @@ private:
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
+    bool activateOpenTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;
 

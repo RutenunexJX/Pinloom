@@ -1205,6 +1205,26 @@ void PinloomPanel::refreshRelationSummary()
 bool PinloomPanel::activateCurrentOpenTarget()
 {
     const PinloomOpenTarget target = currentOpenTarget();
+    return activateOpenTarget(target);
+}
+
+bool PinloomPanel::activateResourceById(const QString &resourceId)
+{
+    if (resourceId.isEmpty()) {
+        updateStatus(tr("No resource selected"));
+        return false;
+    }
+
+    const PinloomOpenTarget target = openTargetForResourceId(resourceId);
+    if (target.resourceId.isEmpty()) {
+        updateStatus(tr("Resource no longer exists"));
+        return false;
+    }
+    return activateOpenTarget(target);
+}
+
+bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
+{
     if (target.location.isEmpty()) {
         updateStatus(tr("No resource selected"));
         return false;

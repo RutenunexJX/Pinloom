@@ -45,6 +45,7 @@ private slots:
     void panelNotifiesHostWhenResultCountChanges();
     void panelAllowsHostResultNavigation();
     void panelAllowsHostToActivateCurrentOpenTarget();
+    void panelAllowsHostToActivateResourceById();
     void panelAllowsHostToHandleOpenTarget();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
@@ -1442,6 +1443,55 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
     const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, resource.anchors.first());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelAllowsHostToActivateResourceById()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Direct Note");
+    resource.location = QStringLiteral("direct-note.md");
+    QVERIFY(repository.upsertResource(resource));
+
+    int handledCount = 0;
+    PinloomOpenTarget capturedTarget;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        ++handledCount;
+        capturedTarget = target;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("missing"));
+    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QCOMPARE(panel.resultCount(), 0);
+
+    QVERIFY(panel.activateResourceById(resource.id));
+    QCOMPARE(handledCount, 1);
+    QCOMPARE(capturedTarget.resourceId, resource.id);
+    QCOMPARE(capturedTarget.resourceKind, resource.kind);
+    QCOMPARE(capturedTarget.title, resource.title);
+    QCOMPARE(capturedTarget.location, resource.location);
+    QCOMPARE(capturedTarget.resultRow, -1);
+    QVERIFY(capturedTarget.matchedField.isEmpty());
+    QVERIFY(!capturedTarget.anchor.has_value());
+    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    QVERIFY(!panel.activateResourceById(QStringLiteral("missing")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Resource no longer exists"));
+    QCOMPARE(handledCount, 1);
+
+    QVERIFY(!panel.activateResourceById(QString()));
+    QCOMPARE(panel.statusText(), QStringLiteral("No resource selected"));
+    QCOMPARE(handledCount, 1);
 }
 
 void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
