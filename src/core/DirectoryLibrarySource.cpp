@@ -17,7 +17,11 @@
 #include <QNetworkReply>
 #include <QNetworkRequest>
 #include <QRegularExpression>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QTimer>
+#include <QTimeZone>
 #include <QUrl>
 #include <QVector>
 #include <QXmlStreamReader>
@@ -83,6 +87,13 @@ struct BrowserBookmarkLink {
     QUrl url;
     QString title;
     QStringList folderPath;
+};
+
+struct BrowserHistoryLink {
+    QUrl url;
+    QString title;
+    int visitCount = 0;
+    QDateTime lastVisitedAt;
 };
 
 struct OpmlLink {
@@ -2034,6 +2045,138 @@ QList<BrowserBookmarkLink> browserBookmarkLinksFromJsonDocument(const QJsonDocum
     return links;
 }
 
+bool isBrowserHistorySqliteCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 128 * 1024 * 1024) {
+        return false;
+    }
+
+    const QString fileName = fileInfo.fileName().toLower();
+    return fileName == QLatin1String("history")
+        || fileName == QLatin1String("history.db")
+        || fileName == QLatin1String("history.sqlite")
+        || fileName == QLatin1String("history.sqlite3");
+}
+
+QDateTime dateTimeFromChromiumWebTime(qint64 value)
+{
+    if (value <= 0) {
+        return {};
+    }
+
+    static const qint64 unixEpochOffsetMicroseconds = 11644473600LL * 1000LL * 1000LL;
+    const qint64 unixMicroseconds = value - unixEpochOffsetMicroseconds;
+    return unixMicroseconds <= 0
+        ? QDateTime()
+        : QDateTime::fromMSecsSinceEpoch(unixMicroseconds / 1000, QTimeZone::UTC);
+}
+
+QList<BrowserHistoryLink> browserHistoryLinksFromSqliteFile(const QFileInfo &fileInfo)
+{
+    if (!isBrowserHistorySqliteCandidate(fileInfo)) {
+        return {};
+    }
+
+    QList<BrowserHistoryLink> links;
+    QStringList seenUrls;
+    const QString connectionName =
+        QStringLiteral("pinloom_browser_history_%1").arg(qHash(fileInfo.absoluteFilePath()));
+
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(fileInfo.absoluteFilePath());
+        if (!database.open()) {
+            database.close();
+        } else {
+            QSqlQuery tableQuery(database);
+            if (tableQuery.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name='urls'"))
+                && tableQuery.next()) {
+                QSqlQuery query(database);
+                if (query.exec(QStringLiteral(
+                        "SELECT url, title, visit_count, last_visit_time FROM urls ORDER BY last_visit_time DESC"))) {
+                    while (query.next()) {
+                        const QUrl url = QUrl::fromUserInput(query.value(0).toString().trimmed());
+                        if (!isIndexableWebUrl(url)) {
+                            continue;
+                        }
+
+                        const QString urlKey = url.toString(QUrl::FullyEncoded);
+                        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+                            continue;
+                        }
+                        seenUrls.append(urlKey);
+
+                        BrowserHistoryLink link;
+                        link.url = url;
+                        link.title = query.value(1).toString().trimmed();
+                        if (link.title.isEmpty()) {
+                            link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+                        }
+                        link.visitCount = query.value(2).toInt();
+                        link.lastVisitedAt = dateTimeFromChromiumWebTime(query.value(3).toLongLong());
+                        links.append(link);
+                    }
+                }
+            }
+            database.close();
+        }
+    }
+
+    QSqlDatabase::removeDatabase(connectionName);
+    return links;
+}
+
+QList<Resource> browserHistoryResourcesFromLinks(const QFileInfo &fileInfo,
+                                                 const QList<BrowserHistoryLink> &links)
+{
+    QList<Resource> resources;
+    for (const BrowserHistoryLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("browser-history:%1:%2").arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = link.lastVisitedAt.isValid() ? link.lastVisitedAt : fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("browser-history"));
+        if (link.visitCount > 0) {
+            appendUnique(resource.aliases, QStringLiteral("visited %1 times").arg(link.visitCount));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString browserHistoryAnchorTarget(const BrowserHistoryLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendBrowserHistorySourceMetadata(Resource &sourceResource,
+                                        const QList<BrowserHistoryLink> &links,
+                                        const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const BrowserHistoryLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = browserHistoryAnchorTarget(link);
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.visitCount > 0
+            ? QStringLiteral("browser history visits %1: %2").arg(link.visitCount).arg(anchorTarget)
+            : QStringLiteral("browser history: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 QString xmlAttributeValue(const QXmlStreamAttributes &attributes, const QString &name)
 {
     for (const QXmlStreamAttribute &attribute : attributes) {
@@ -3699,6 +3842,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> jsonResources = jsonUrlResourcesFromLinks(fileInfo, jsonLinks);
         appendJsonUrlSourceMetadata(primary, jsonLinks, jsonResources);
         derivedResources.append(jsonResources);
+    }
+    if (primary.kind == ResourceKind::File && isBrowserHistorySqliteCandidate(fileInfo)) {
+        const QList<BrowserHistoryLink> historyLinks = browserHistoryLinksFromSqliteFile(fileInfo);
+        const QList<Resource> historyResources = browserHistoryResourcesFromLinks(fileInfo, historyLinks);
+        appendBrowserHistorySourceMetadata(primary, historyLinks, historyResources);
+        derivedResources.append(historyResources);
     }
 
     resources.append(primary);

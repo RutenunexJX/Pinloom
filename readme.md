@@ -34,6 +34,7 @@ Implemented:
 - Standalone fallback opening preserves matched URL fragment anchors for web pages and local HTML pages.
 - Local `.html` and `.htm` page indexing with title, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources with host aliases, folder aliases, bookmark tags, and URL fragment anchors.
+- Chromium/Edge-style browser History SQLite indexing as individual URL resources with host aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the history database.
 - OPML subscription/link list indexing as individual URL resources with host aliases, feed aliases, folder aliases, feed tags, and URL fragment anchors.
 - RSS and Atom feed XML indexing as individual URL resources with feed aliases, category tags, host aliases, and URL fragment anchors.
 - Sitemap XML indexing as individual URL resources with sitemap tags, host aliases, and URL fragment anchors.
@@ -70,13 +71,13 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; richer source-code parsing; broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; richer source-code parsing; broader web source support beyond local HTML, shortcuts, bookmarks/history, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
 
 - Full ZeroSlack dock/global-control integration.
-- Fuller PDF text extraction for remaining unsupported filters/encodings and broader web source support beyond local HTML, shortcuts, bookmarks, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Fuller PDF text extraction for remaining unsupported filters/encodings and broader web source support beyond local HTML, shortcuts, bookmarks/history, OPML, feeds, sitemaps, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 
 ## Embedding Contract
 
@@ -196,4 +197,4 @@ Integration And Source Refinement MVP validation:
 - Configure: passed
 - Build: passed
 - Additional source-link validation: passed for plain-text URL list source line anchors and `links-to` relations (`pinloom_directory_source_test`)
-- Tests: passed for Markdown body content extraction/search, Markdown task line anchors, local relative Markdown link aliases/anchors/relations, Markdown inline and reference-style external link URL resources with source line anchors and `links-to` relations, plain-text URL list resources, JSON/JSONL URL resources with source line anchors and `links-to` relations, YAML/TOML/INI/config URL resources with source line anchors and `links-to` relations, CSV/TSV URL-column resources with source row anchors and `links-to` relations, RSS/Atom feed entry resources, sitemap URL resources, plain-text file content indexing, action line anchors, config key/section/path anchors, package manifest dependency anchors, CSV/TSV column anchors, local web shortcut indexing, browser bookmark export/native JSON indexing, OPML link/feed indexing, URL fragment anchors, URL fragment fallback opening, local HTML page content extraction/search, optional remote HTML fetch for web shortcuts, lightweight PDF text extraction/search for uncompressed, FlateDecode, ASCIIHexDecode, RunLengthDecode, LZWDecode, literal octal escapes, UTF-16 BOM strings, ToUnicode CMaps, and ordered filter chains, URL activation through host interception, PDF annotation region anchors, and PDF region open-target preservation (`pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for Markdown body content extraction/search, Markdown task line anchors, local relative Markdown link aliases/anchors/relations, Markdown inline and reference-style external link URL resources with source line anchors and `links-to` relations, plain-text URL list resources, JSON/JSONL URL resources with source line anchors and `links-to` relations, YAML/TOML/INI/config URL resources with source line anchors and `links-to` relations, CSV/TSV URL-column resources with source row anchors and `links-to` relations, RSS/Atom feed entry resources, sitemap URL resources, plain-text file content indexing, action line anchors, config key/section/path anchors, package manifest dependency anchors, CSV/TSV column anchors, local web shortcut indexing, browser bookmark export/native JSON indexing, Chromium/Edge-style History SQLite indexing, OPML link/feed indexing, URL fragment anchors, URL fragment fallback opening, local HTML page content extraction/search, optional remote HTML fetch for web shortcuts, lightweight PDF text extraction/search for uncompressed, FlateDecode, ASCIIHexDecode, RunLengthDecode, LZWDecode, literal octal escapes, UTF-16 BOM strings, ToUnicode CMaps, and ordered filter chains, URL activation through host interception, PDF annotation region anchors, and PDF region open-target preservation (`pinloom_directory_source_test`, `pinloom_widget_smoke_test`)

@@ -4,6 +4,9 @@
 
 #include <QDir>
 #include <QFile>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
@@ -50,6 +53,7 @@ private slots:
     void extractsHtmlPageContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
+    void extractsBrowserHistorySqliteLinks();
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
@@ -65,6 +69,49 @@ static void writeFile(const QString &path, const QByteArray &content = QByteArra
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly));
     file.write(content);
+}
+
+static void writeChromiumHistoryDatabase(const QString &path)
+{
+    const QString connectionName =
+        QStringLiteral("pinloom_test_history_%1").arg(qHash(path));
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(path);
+        QVERIFY2(database.open(), qPrintable(database.lastError().text()));
+
+        QSqlQuery query(database);
+        QVERIFY2(query.exec(QStringLiteral(
+                     "CREATE TABLE urls ("
+                     "id INTEGER PRIMARY KEY, "
+                     "url TEXT NOT NULL, "
+                     "title TEXT, "
+                     "visit_count INTEGER, "
+                     "last_visit_time INTEGER"
+                     ")")),
+                 qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(QStringLiteral("https://docs.example.com/pinloom/history#jump"));
+        query.addBindValue(QStringLiteral("Pinloom History Entry"));
+        query.addBindValue(7);
+        query.addBindValue(QVariant::fromValue<qlonglong>(13253760000000000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO urls(url, title, visit_count, last_visit_time) VALUES (?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(QStringLiteral("chrome://settings"));
+        query.addBindValue(QStringLiteral("Ignored Settings"));
+        query.addBindValue(2);
+        query.addBindValue(QVariant::fromValue<qlonglong>(13253760000001000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
 }
 
 static QByteArray ascii85Encode(const QByteArray &content)
@@ -2756,6 +2803,82 @@ void DirectorySourceTest::extractsBrowserBookmarkJsonLinks()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("dock");
     }));
+}
+
+void DirectorySourceTest::extractsBrowserHistorySqliteLinks()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/profile")));
+    const QString historyPath = dir.filePath(QStringLiteral("library/profile/History"));
+    writeChromiumHistoryDatabase(historyPath);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto historyIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("History");
+    });
+    QVERIFY(historyIt != resources.cend());
+
+    auto entryIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Pinloom History Entry")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/history#jump");
+    });
+    QVERIFY(entryIt != resources.cend());
+    QVERIFY(entryIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(entryIt->tags.contains(QStringLiteral("browser-history")));
+    QVERIFY(entryIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(entryIt->aliases.contains(QStringLiteral("visited 7 times")));
+    QVERIFY(std::any_of(entryIt->anchors.cbegin(), entryIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("jump");
+    }));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("chrome://settings"));
+    }));
+
+    QCOMPARE(historyIt->relations.size(), 1);
+    QCOMPARE(historyIt->relations.first().sourceResourceId, historyIt->id);
+    QCOMPARE(historyIt->relations.first().targetResourceId, entryIt->id);
+    QCOMPARE(historyIt->relations.first().label, QStringLiteral("links-to"));
+    QCOMPARE(historyIt->relations.first().note,
+             QStringLiteral("browser history visits 7: url: Pinloom History Entry -> https://docs.example.com/pinloom/history#jump"));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("History Entry")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom History Entry");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("jump")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom History Entry")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("jump");
+    }));
+
+    const QList<ResourceRelation> entryRelations = repository.resourceRelations(entryIt->id);
+    QCOMPARE(entryRelations.size(), 1);
+    QCOMPARE(entryRelations.first().sourceResourceId, historyIt->id);
+    QCOMPARE(entryRelations.first().targetResourceId, entryIt->id);
 }
 
 void DirectorySourceTest::extractsOpmlLinks()
