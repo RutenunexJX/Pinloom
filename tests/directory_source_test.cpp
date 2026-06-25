@@ -44,6 +44,7 @@ private slots:
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
+    void extractsJsonUrlResources();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
     void extractsBookmarkExportLinks();
@@ -2181,6 +2182,137 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
             && result.matchedAnchor->line == 1
             && result.matchedAnchor->target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
     }));
+}
+
+void DirectorySourceTest::extractsJsonUrlResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/data")));
+    writeFile(dir.filePath(QStringLiteral("library/data/references.json")),
+              QByteArray("{\n"
+                         "  \"references\": [\n"
+                         "    {\n"
+                         "      \"title\": \"Pinloom Host Guide\",\n"
+                         "      \"url\": \"https://docs.example.com/pinloom/host#embed\"\n"
+                         "    },\n"
+                         "    {\n"
+                         "      \"label\": \"Status Dashboard\",\n"
+                         "      \"href\": \"https://status.example.com/zeroslack\"\n"
+                         "    },\n"
+                         "    {\n"
+                         "      \"title\": \"Duplicate Host Guide\",\n"
+                         "      \"url\": \"https://docs.example.com/pinloom/host#embed\"\n"
+                         "    }\n"
+                         "  ],\n"
+                         "  \"local\": \"file://ignored\"\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/data/events.jsonl")),
+              QByteArray("{\"title\":\"Pinloom Release Feed\",\"link\":\"https://docs.example.com/pinloom/feed#latest\"}\n"
+                         "{\"message\":\"raw https://raw.example.com/incident path\"}\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto referencesIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("references.json");
+    });
+    QVERIFY(referencesIt != resources.cend());
+    QVERIFY(std::any_of(referencesIt->anchors.cbegin(), referencesIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Host Guide -> https://docs.example.com/pinloom/host#embed")
+            && anchor.line == 5;
+    }));
+    QVERIFY(std::any_of(referencesIt->anchors.cbegin(), referencesIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Status Dashboard -> https://status.example.com/zeroslack")
+            && anchor.line == 9;
+    }));
+    QVERIFY(std::none_of(referencesIt->anchors.cbegin(), referencesIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.contains(QStringLiteral("file://ignored"));
+    }));
+
+    auto hostIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#embed");
+    });
+    QVERIFY(hostIt != resources.cend());
+    QCOMPARE(hostIt->title, QStringLiteral("Pinloom Host Guide"));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("json-link")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("references")));
+    QVERIFY(hostIt->aliases.contains(QStringLiteral("references[0].url")));
+    QCOMPARE(hostIt->anchors.size(), 1);
+    QCOMPARE(hostIt->anchors.first().type, AnchorType::UrlFragment);
+    QCOMPARE(hostIt->anchors.first().target, QStringLiteral("embed"));
+
+    const int hostResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/host#embed");
+    });
+    QCOMPARE(hostResourceCount, 1);
+
+    auto feedIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/feed#latest");
+    });
+    QVERIFY(feedIt != resources.cend());
+    QCOMPARE(feedIt->title, QStringLiteral("Pinloom Release Feed"));
+    QVERIFY(feedIt->aliases.contains(QStringLiteral("events")));
+    QVERIFY(feedIt->aliases.contains(QStringLiteral("line1.link")));
+
+    QCOMPARE(referencesIt->relations.size(), 2);
+    QVERIFY(std::any_of(referencesIt->relations.cbegin(), referencesIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == referencesIt->id
+            && relation.targetResourceId == hostIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("json line 5 path references[0].url: url: Pinloom Host Guide -> https://docs.example.com/pinloom/host#embed");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Host Guide")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Host Guide");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("latest")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Pinloom Release Feed")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("latest");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Host Guide")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("references.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 5
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Host Guide -> https://docs.example.com/pinloom/host#embed");
+    }));
+
+    const QList<ResourceRelation> hostRelations = repository.resourceRelations(hostIt->id);
+    QCOMPARE(hostRelations.size(), 1);
+    QCOMPARE(hostRelations.first().sourceResourceId, referencesIt->id);
+    QCOMPARE(hostRelations.first().targetResourceId, hostIt->id);
 }
 
 void DirectorySourceTest::extractsTabularUrlResources()

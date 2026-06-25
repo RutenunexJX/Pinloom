@@ -72,6 +72,13 @@ struct TabularUrlLink {
     int lineNumber = -1;
 };
 
+struct JsonUrlLink {
+    QUrl url;
+    QString title;
+    QString path;
+    int lineNumber = -1;
+};
+
 struct BrowserBookmarkLink {
     QUrl url;
     QString title;
@@ -2982,6 +2989,277 @@ void appendTabularUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
+bool isJsonUrlCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return suffix == QLatin1String("json") || suffix == QLatin1String("jsonl");
+}
+
+QString jsonPathLabel(QStringList path)
+{
+    path.removeAll(QString());
+    return path.join(QLatin1Char('.')).trimmed();
+}
+
+QStringList jsonPathWithArrayIndex(QStringList path, int index)
+{
+    const QString suffix = QStringLiteral("[%1]").arg(index);
+    if (path.isEmpty()) {
+        path.append(suffix);
+    } else {
+        path.last().append(suffix);
+    }
+    return path;
+}
+
+QString jsonTitleFromObject(const QJsonObject &object)
+{
+    for (const QString &key : {
+             QStringLiteral("title"),
+             QStringLiteral("name"),
+             QStringLiteral("label"),
+             QStringLiteral("description"),
+             QStringLiteral("summary")
+         }) {
+        const QString value = object.value(key).toString().trimmed();
+        if (!value.isEmpty() && !isIndexableWebUrl(QUrl::fromUserInput(value))) {
+            return collapsedWhitespace(value);
+        }
+    }
+    return {};
+}
+
+int lineNumberForJsonUrl(const QString &text, const QString &rawUrl)
+{
+    const int index = text.indexOf(rawUrl);
+    if (index < 0) {
+        return -1;
+    }
+    return text.left(index).count(QLatin1Char('\n')) + 1;
+}
+
+void appendJsonUrlLinkFromString(const QString &text,
+                                 const QStringList &path,
+                                 const QString &siblingTitle,
+                                 int fallbackLineNumber,
+                                 const QString &documentText,
+                                 QStringList &seenUrls,
+                                 QList<JsonUrlLink> &links)
+{
+    static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
+    QRegularExpressionMatchIterator matches = urlPattern.globalMatch(text);
+    while (matches.hasNext()) {
+        const QRegularExpressionMatch match = matches.next();
+        const QString rawUrl = trimmedPlainTextUrl(match.captured(0));
+        const QUrl url = QUrl::fromUserInput(rawUrl);
+        if (!isIndexableWebUrl(url)) {
+            continue;
+        }
+
+        const QString urlKey = url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+
+        JsonUrlLink link;
+        link.url = url;
+        link.path = jsonPathLabel(path);
+        link.lineNumber = fallbackLineNumber > 0 ? fallbackLineNumber : lineNumberForJsonUrl(documentText, rawUrl);
+        link.title = siblingTitle.trimmed();
+        if (link.title.isEmpty() && match.capturedStart() > 0) {
+            link.title = titleFromTextBeforeUrl(text.left(match.capturedStart()));
+        }
+        if (link.title.isEmpty() && !link.path.isEmpty()) {
+            link.title = link.path.section(QLatin1Char('.'), -1);
+        }
+        if (link.title.isEmpty()) {
+            link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+        }
+        links.append(link);
+    }
+}
+
+void appendJsonUrlLinksFromValue(const QJsonValue &value,
+                                 const QStringList &path,
+                                 const QString &siblingTitle,
+                                 int fallbackLineNumber,
+                                 const QString &documentText,
+                                 QStringList &seenUrls,
+                                 QList<JsonUrlLink> &links)
+{
+    if (value.isString()) {
+        appendJsonUrlLinkFromString(value.toString(),
+                                    path,
+                                    siblingTitle,
+                                    fallbackLineNumber,
+                                    documentText,
+                                    seenUrls,
+                                    links);
+        return;
+    }
+
+    if (value.isArray()) {
+        const QJsonArray array = value.toArray();
+        for (int i = 0; i < array.size(); ++i) {
+            appendJsonUrlLinksFromValue(array.at(i),
+                                        jsonPathWithArrayIndex(path, i),
+                                        siblingTitle,
+                                        fallbackLineNumber,
+                                        documentText,
+                                        seenUrls,
+                                        links);
+        }
+        return;
+    }
+
+    if (value.isObject()) {
+        const QJsonObject object = value.toObject();
+        const QString objectTitle = jsonTitleFromObject(object);
+        const QString effectiveTitle = objectTitle.isEmpty() ? siblingTitle : objectTitle;
+        for (auto it = object.constBegin(); it != object.constEnd(); ++it) {
+            QStringList childPath = path;
+            childPath.append(it.key());
+            appendJsonUrlLinksFromValue(it.value(),
+                                        childPath,
+                                        effectiveTitle,
+                                        fallbackLineNumber,
+                                        documentText,
+                                        seenUrls,
+                                        links);
+        }
+    }
+}
+
+QList<JsonUrlLink> jsonUrlLinksFromFile(const QFileInfo &fileInfo)
+{
+    if (!isJsonUrlCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    const QString text = QString::fromUtf8(bytes);
+    QList<JsonUrlLink> links;
+    QStringList seenUrls;
+    const QString suffix = fileInfo.suffix().toLower();
+
+    if (suffix == QLatin1String("jsonl")) {
+        int lineNumber = 0;
+        for (const QString &line : text.split(QLatin1Char('\n'))) {
+            ++lineNumber;
+            const QString trimmed = line.trimmed();
+            if (trimmed.isEmpty()) {
+                continue;
+            }
+            const QJsonDocument document = QJsonDocument::fromJson(trimmed.toUtf8());
+            if (document.isNull()) {
+                appendJsonUrlLinkFromString(trimmed,
+                                            QStringList{QStringLiteral("line%1").arg(lineNumber)},
+                                            QString(),
+                                            lineNumber,
+                                            text,
+                                            seenUrls,
+                                            links);
+                continue;
+            }
+            appendJsonUrlLinksFromValue(document.isArray() ? QJsonValue(document.array()) : QJsonValue(document.object()),
+                                        QStringList{QStringLiteral("line%1").arg(lineNumber)},
+                                        QString(),
+                                        lineNumber,
+                                        text,
+                                        seenUrls,
+                                        links);
+        }
+        return links;
+    }
+
+    const QJsonDocument document = QJsonDocument::fromJson(bytes);
+    if (document.isNull()) {
+        return {};
+    }
+    appendJsonUrlLinksFromValue(document.isArray() ? QJsonValue(document.array()) : QJsonValue(document.object()),
+                                {},
+                                QString(),
+                                -1,
+                                text,
+                                seenUrls,
+                                links);
+    return links;
+}
+
+QList<Resource> jsonUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<JsonUrlLink> &links)
+{
+    QList<Resource> resources;
+    for (const JsonUrlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("json-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("json-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        appendUnique(resource.aliases, link.path);
+        resources.append(resource);
+    }
+    return resources;
+}
+
+QString jsonUrlLineAnchorTarget(const JsonUrlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+void appendJsonUrlSourceMetadata(Resource &sourceResource,
+                                 const QList<JsonUrlLink> &links,
+                                 const QList<Resource> &urlResources)
+{
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const JsonUrlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = jsonUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        if (link.lineNumber > 0 && !link.path.isEmpty()) {
+            relation.note = QStringLiteral("json line %1 path %2: %3")
+                                .arg(link.lineNumber)
+                                .arg(link.path, anchorTarget);
+        } else if (link.lineNumber > 0) {
+            relation.note = QStringLiteral("json line %1: %2").arg(link.lineNumber).arg(anchorTarget);
+        } else if (!link.path.isEmpty()) {
+            relation.note = QStringLiteral("json path %1: %2").arg(link.path, anchorTarget);
+        } else {
+            relation.note = anchorTarget;
+        }
+        sourceResource.relations.append(relation);
+    }
+}
+
 QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
 {
     QFile file(fileInfo.absoluteFilePath());
@@ -3376,6 +3654,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     QList<Resource> resources;
     Resource primary = resourceFromFileInfo(fileInfo);
     QList<Resource> derivedResources;
+    QList<Resource> browserBookmarkResources;
 
     const QString suffix = fileInfo.suffix().toLower();
     if (primary.kind == ResourceKind::Markdown) {
@@ -3387,7 +3666,8 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm"))) {
         derivedResources.append(bookmarkResourcesFromHtmlFile(fileInfo));
     } else if (isBrowserBookmarkJsonCandidate(fileInfo)) {
-        derivedResources.append(browserBookmarkResourcesFromJsonFile(fileInfo));
+        browserBookmarkResources = browserBookmarkResourcesFromJsonFile(fileInfo);
+        derivedResources.append(browserBookmarkResources);
     } else if (suffix == QLatin1String("opml")) {
         derivedResources.append(opmlResourcesFromFile(fileInfo));
     } else if (isFeedXmlCandidate(fileInfo)) {
@@ -3405,6 +3685,14 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> tabularResources = tabularUrlResourcesFromLinks(fileInfo, tabularLinks);
         appendTabularUrlSourceMetadata(primary, tabularLinks, tabularResources);
         derivedResources.append(tabularResources);
+    }
+    if (primary.kind == ResourceKind::File
+        && isJsonUrlCandidate(fileInfo)
+        && browserBookmarkResources.isEmpty()) {
+        const QList<JsonUrlLink> jsonLinks = jsonUrlLinksFromFile(fileInfo);
+        const QList<Resource> jsonResources = jsonUrlResourcesFromLinks(fileInfo, jsonLinks);
+        appendJsonUrlSourceMetadata(primary, jsonLinks, jsonResources);
+        derivedResources.append(jsonResources);
     }
 
     resources.append(primary);
