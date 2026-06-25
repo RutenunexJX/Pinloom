@@ -1680,7 +1680,47 @@ void appendGoImportBlockDependencyAnchorFromLine(Resource &resource, const QStri
     }
 }
 
-void appendStructuredPlainTextAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+struct StructuredPlainTextState {
+    QStringList jsonPath;
+    QList<int> yamlIndents;
+    QStringList yamlPath;
+    QString sectionPath;
+};
+
+QString joinedConfigPath(QStringList parts)
+{
+    parts.removeAll(QString());
+    return parts.join(QLatin1Char('.')).trimmed();
+}
+
+void appendConfigPathAnchor(Resource &resource, const QStringList &pathParts, int lineNumber)
+{
+    const QString path = joinedConfigPath(pathParts);
+    if (!path.isEmpty()) {
+        appendFileLineAnchor(resource, QStringLiteral("path: %1").arg(path), lineNumber);
+    }
+}
+
+void popJsonStructuredPathClosures(StructuredPlainTextState &state, const QString &trimmed)
+{
+    int cursor = 0;
+    while (cursor < trimmed.size()
+           && (trimmed.at(cursor) == QLatin1Char('}') || trimmed.at(cursor) == QLatin1Char(']'))) {
+        if (!state.jsonPath.isEmpty()) {
+            state.jsonPath.removeLast();
+        }
+        ++cursor;
+        while (cursor < trimmed.size() && trimmed.at(cursor).isSpace()) {
+            ++cursor;
+        }
+    }
+}
+
+void appendStructuredPlainTextAnchorsFromLine(Resource &resource,
+                                             const QFileInfo &fileInfo,
+                                             const QString &line,
+                                             int lineNumber,
+                                             StructuredPlainTextState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty()
@@ -1690,17 +1730,64 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource, const QString 
         return;
     }
 
+    const QString suffix = fileInfo.suffix().toLower();
+    const bool jsonLike = suffix == QLatin1String("json") || suffix == QLatin1String("jsonl");
+    const bool yamlLike = suffix == QLatin1String("yaml") || suffix == QLatin1String("yml");
+
     static const QRegularExpression sectionPattern(QStringLiteral("^\\[([^\\]]+)\\]$"));
     const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
     if (sectionMatch.hasMatch()) {
-        appendFileLineAnchor(resource, QStringLiteral("section: %1").arg(sectionMatch.captured(1).trimmed()), lineNumber);
+        state.sectionPath = sectionMatch.captured(1).trimmed();
+        appendFileLineAnchor(resource, QStringLiteral("section: %1").arg(state.sectionPath), lineNumber);
+        appendConfigPathAnchor(resource, state.sectionPath.split(QLatin1Char('.'), Qt::SkipEmptyParts), lineNumber);
         return;
     }
 
-    static const QRegularExpression jsonKeyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:"));
+    if (jsonLike) {
+        popJsonStructuredPathClosures(state, trimmed);
+    }
+
+    static const QRegularExpression jsonKeyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:\\s*(.*)$"));
     const QRegularExpressionMatch jsonKeyMatch = jsonKeyPattern.match(trimmed);
     if (jsonKeyMatch.hasMatch()) {
-        appendFileLineAnchor(resource, QStringLiteral("key: %1").arg(jsonKeyMatch.captured(1).trimmed()), lineNumber);
+        const QString key = jsonKeyMatch.captured(1).trimmed();
+        appendFileLineAnchor(resource, QStringLiteral("key: %1").arg(key), lineNumber);
+        if (jsonLike) {
+            appendConfigPathAnchor(resource, state.jsonPath + QStringList{key}, lineNumber);
+
+            const QString value = jsonKeyMatch.captured(2).trimmed();
+            const bool opensObject = value.startsWith(QLatin1Char('{')) && !value.contains(QLatin1Char('}'));
+            const bool opensArray = value.startsWith(QLatin1Char('[')) && !value.contains(QLatin1Char(']'));
+            if (opensObject || opensArray) {
+                state.jsonPath.append(key);
+            }
+        }
+        return;
+    }
+
+    static const QRegularExpression yamlKeyPattern(
+        QStringLiteral("^(\\s*)(?:-\\s+)?([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$"));
+    const QRegularExpressionMatch yamlKeyMatch = yamlKeyPattern.match(line);
+    if (yamlLike && yamlKeyMatch.hasMatch()) {
+        const int indent = yamlKeyMatch.captured(1).replace(QLatin1Char('\t'), QStringLiteral("    ")).size();
+        while (!state.yamlIndents.isEmpty() && state.yamlIndents.last() >= indent) {
+            state.yamlIndents.removeLast();
+            state.yamlPath.removeLast();
+        }
+
+        const QString key = yamlKeyMatch.captured(2).trimmed();
+        const QString value = yamlKeyMatch.captured(3).trimmed();
+        appendFileLineAnchor(resource, QStringLiteral("key: %1").arg(key), lineNumber);
+        appendConfigPathAnchor(resource, state.yamlPath + QStringList{key}, lineNumber);
+
+        if (value.isEmpty()
+            || value == QLatin1String("|")
+            || value == QLatin1String(">")
+            || (value.startsWith(QLatin1Char('[')) && !value.contains(QLatin1Char(']')))
+            || (value.startsWith(QLatin1Char('{')) && !value.contains(QLatin1Char('}')))) {
+            state.yamlIndents.append(indent);
+            state.yamlPath.append(key);
+        }
         return;
     }
 
@@ -1708,9 +1795,15 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource, const QString 
         QStringLiteral("^([A-Za-z0-9_.-]+)\\s*(?::|=)\\s*.+$"));
     const QRegularExpressionMatch assignmentKeyMatch = assignmentKeyPattern.match(trimmed);
     if (assignmentKeyMatch.hasMatch()) {
+        const QString key = assignmentKeyMatch.captured(1).trimmed();
         appendFileLineAnchor(resource,
-                             QStringLiteral("key: %1").arg(assignmentKeyMatch.captured(1).trimmed()),
+                             QStringLiteral("key: %1").arg(key),
                              lineNumber);
+        appendConfigPathAnchor(resource,
+                               state.sectionPath.isEmpty()
+                                   ? QStringList{key}
+                                   : state.sectionPath.split(QLatin1Char('.'), Qt::SkipEmptyParts) + QStringList{key},
+                               lineNumber);
     }
 }
 
@@ -2547,6 +2640,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     ManifestDependencyState manifestDependencyState;
+    StructuredPlainTextState structuredPlainTextState;
     int lineNumber = 0;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
@@ -2555,7 +2649,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
         if (structured) {
-            appendStructuredPlainTextAnchorsFromLine(resource, line, lineNumber);
+            appendStructuredPlainTextAnchorsFromLine(resource, fileInfo, line, lineNumber, structuredPlainTextState);
         }
         if (tabularDelimiter.has_value()
             && !tabularHeaderAnchorsAdded

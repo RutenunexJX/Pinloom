@@ -193,8 +193,19 @@ void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
     writeFile(dir.filePath(QStringLiteral("library/routes.json")),
               QByteArray("{\n"
                          "  \"pinloomDock\": true,\n"
+                         "  \"pinloom\": {\n"
+                         "    \"dock\": {\n"
+                         "      \"mode\": \"global\"\n"
+                         "    }\n"
+                         "  },\n"
                          "  \"jumpTarget\": \"handoff\"\n"
                          "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/workspace.yml")),
+              QByteArray("pinloom:\n"
+                         "  dock:\n"
+                         "    mode: global\n"
+                         "  sources:\n"
+                         "    - name: docs\n"));
     writeFile(dir.filePath(QStringLiteral("library/metrics.csv")),
               QByteArray("\"signal name\",baud_rate,handoff_status\n"
                          "uart0,115200,ready\n"));
@@ -204,30 +215,42 @@ void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
     auto settingsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File && resource.title == QLatin1String("settings.toml");
     });
     QVERIFY(settingsIt != resources.cend());
-    QVERIFY(std::any_of(settingsIt->anchors.cbegin(), settingsIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::FileLine
-            && anchor.target == QLatin1String("section: zeroslack")
-            && anchor.line == 1;
-    }));
-    QVERIFY(std::any_of(settingsIt->anchors.cbegin(), settingsIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::FileLine
-            && anchor.target == QLatin1String("key: remote_fetch")
-            && anchor.line == 2;
-    }));
+    QVERIFY(hasLineAnchor(*settingsIt, QStringLiteral("section: zeroslack"), 1));
+    QVERIFY(hasLineAnchor(*settingsIt, QStringLiteral("path: zeroslack"), 1));
+    QVERIFY(hasLineAnchor(*settingsIt, QStringLiteral("key: remote_fetch"), 2));
+    QVERIFY(hasLineAnchor(*settingsIt, QStringLiteral("path: zeroslack.remote_fetch"), 2));
 
     auto routesIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File && resource.title == QLatin1String("routes.json");
     });
     QVERIFY(routesIt != resources.cend());
-    QVERIFY(std::any_of(routesIt->anchors.cbegin(), routesIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::FileLine
-            && anchor.target == QLatin1String("key: pinloomDock")
-            && anchor.line == 2;
-    }));
+    QVERIFY(hasLineAnchor(*routesIt, QStringLiteral("key: pinloomDock"), 2));
+    QVERIFY(hasLineAnchor(*routesIt, QStringLiteral("path: pinloom"), 3));
+    QVERIFY(hasLineAnchor(*routesIt, QStringLiteral("path: pinloom.dock"), 4));
+    QVERIFY(hasLineAnchor(*routesIt, QStringLiteral("path: pinloom.dock.mode"), 5));
+    QVERIFY(hasLineAnchor(*routesIt, QStringLiteral("path: jumpTarget"), 8));
+
+    auto workspaceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("workspace.yml");
+    });
+    QVERIFY(workspaceIt != resources.cend());
+    QVERIFY(hasLineAnchor(*workspaceIt, QStringLiteral("path: pinloom"), 1));
+    QVERIFY(hasLineAnchor(*workspaceIt, QStringLiteral("path: pinloom.dock"), 2));
+    QVERIFY(hasLineAnchor(*workspaceIt, QStringLiteral("path: pinloom.dock.mode"), 3));
+    QVERIFY(hasLineAnchor(*workspaceIt, QStringLiteral("path: pinloom.sources"), 4));
+    QVERIFY(hasLineAnchor(*workspaceIt, QStringLiteral("path: pinloom.sources.name"), 5));
 
     auto metricsIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File && resource.title == QLatin1String("metrics.csv");
@@ -266,6 +289,22 @@ void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 2;
+    }));
+
+    const QList<SearchResult> jsonPathResults = repository.search(SearchQuery{QStringLiteral("pinloom dock mode")});
+    QVERIFY(std::any_of(jsonPathResults.cbegin(), jsonPathResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("routes.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("path: pinloom.dock.mode")
+            && result.matchedAnchor->line == 5;
+    }));
+
+    const QList<SearchResult> yamlPathResults = repository.search(SearchQuery{QStringLiteral("sources name")});
+    QVERIFY(std::any_of(yamlPathResults.cbegin(), yamlPathResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("workspace.yml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("path: pinloom.sources.name")
+            && result.matchedAnchor->line == 5;
     }));
 
     const QList<SearchResult> columnResults = repository.search(SearchQuery{QStringLiteral("baud_rate")});

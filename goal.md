@@ -200,7 +200,7 @@ Completed:
 - Index browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases and fragment anchors.
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases and fragment anchors.
 - Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
-- Index small plain-text, log, config, manifest, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section anchors, package dependency anchors, and CSV/TSV column anchors.
+- Index small plain-text, log, config, manifest, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
 
 Remaining:
 
