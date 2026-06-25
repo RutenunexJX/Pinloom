@@ -141,6 +141,7 @@ public:
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
+    bool setResourcePinnedById(const QString &resourceId, bool pinned);
     bool setSelectedLibraryRootPinned(bool pinned);
     bool setLibraryRootPinnedById(const QString &id, bool pinned);
     bool setSelectedLibraryRootEnabled(bool enabled);

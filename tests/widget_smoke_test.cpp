@@ -710,7 +710,13 @@ void WidgetSmokeTest::panelPinsSelectedResource()
     hot.location = QStringLiteral("zulu.md");
     QVERIFY(repository.upsertResource(hot));
 
-    PinloomPanel panel(repository);
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
     QVERIFY(results);
@@ -719,29 +725,31 @@ void WidgetSmokeTest::panelPinsSelectedResource()
     panel.setSearchText(QStringLiteral("UART"));
     QCOMPARE(results->count(), 2);
 
-    int hotRow = -1;
-    for (int row = 0; row < results->count(); ++row) {
-        if (results->item(row)->data(Qt::UserRole).toString() == hot.id) {
-            hotRow = row;
-            break;
-        }
-    }
-    QVERIFY(hotRow >= 0);
-    results->setCurrentRow(hotRow);
-
-    pinButton->click();
+    QVERIFY(panel.setResourcePinnedById(hot.id, true));
 
     const std::optional<ResourceUsage> usage = repository.resourceUsage(hot.id);
     QVERIFY(usage.has_value());
     QVERIFY(usage->pinned);
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+    QCOMPARE(panel.currentOpenTarget().resourceId, hot.id);
     QCOMPARE(pinButton->text(), QStringLiteral("Unpin"));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Pinned resource"));
 
-    pinButton->click();
+    QVERIFY(panel.setSelectedResourcePinned(false));
     const std::optional<ResourceUsage> unpinnedUsage = repository.resourceUsage(hot.id);
     QVERIFY(unpinnedUsage.has_value());
     QVERIFY(!unpinnedUsage->pinned);
     QCOMPARE(pinButton->text(), QStringLiteral("Pin"));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Unpinned resource"));
+
+    pinButton->click();
+    const std::optional<ResourceUsage> repinnedUsage = repository.resourceUsage(hot.id);
+    QVERIFY(repinnedUsage.has_value());
+    QVERIFY(repinnedUsage->pinned);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hot.id);
+
+    QVERIFY(!panel.setResourcePinnedById(QStringLiteral("missing"), true));
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Resource no longer exists"));
 }
 
 void WidgetSmokeTest::panelPinsSelectedLibraryRoot()

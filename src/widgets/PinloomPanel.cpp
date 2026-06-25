@@ -837,10 +837,20 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
 
 bool PinloomPanel::setSelectedResourcePinned(bool pinned)
 {
-    const QString resourceId = selectedResultResourceId();
+    return setResourcePinnedById(selectedResultResourceId(), pinned);
+}
+
+bool PinloomPanel::setResourcePinnedById(const QString &resourceId, bool pinned)
+{
     if (resourceId.isEmpty()) {
         updateStatus(tr("No resource selected"));
         refreshPinButtonState();
+        return false;
+    }
+
+    if (!repository_.findResource(resourceId).has_value()) {
+        refreshResults();
+        updateStatus(tr("Resource no longer exists"));
         return false;
     }
 
