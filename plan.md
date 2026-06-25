@@ -191,6 +191,7 @@ Status:
 - Host relation-aware context-resource ranking API: done.
 - Host relation-label-scoped context ranking API: done.
 - Atomic host search/filter/ranking context snapshot API: done.
+- Result row included in host open-target payloads: done.
 - Rich host activation payload with resource metadata, match/context details, score, and anchors: done.
 - Standalone fallback behavior: done.
 - Embedding ownership boundary documentation: done.

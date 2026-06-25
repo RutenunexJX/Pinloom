@@ -116,7 +116,7 @@ Completed:
 - Let embedding hosts observe completed indexing results and query the latest structured indexing result without reading UI text.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags, prefixes, related resource ids, and optional relation-label scopes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
-- Include resource kind, title, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.
+- Include resource kind, title, result row, matched field, matched context signals, matched relation label/note, score, and anchor details in host activation payloads.
 - Include relation label, note, direction, and related resource target details in host related-target payloads.
 - Keep standalone behavior as the default fallback.
 - Document which responsibilities belong to Pinloom and which belong to the embedding host.

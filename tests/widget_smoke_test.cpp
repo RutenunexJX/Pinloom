@@ -447,6 +447,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QCOMPARE(related.first().target.resourceKind, spec.kind);
     QCOMPARE(related.first().target.title, spec.title);
     QCOMPARE(related.first().target.location, spec.location);
+    QCOMPARE(related.first().target.resultRow, -1);
     QVERIFY(!related.first().target.anchor.has_value());
 
     panel.setSearchText(QStringLiteral("PCIe Spec"));
@@ -462,6 +463,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QCOMPARE(related.first().target.resourceKind, note.kind);
     QCOMPARE(related.first().target.title, note.title);
     QCOMPARE(related.first().target.location, note.location);
+    QCOMPARE(related.first().target.resultRow, -1);
 }
 
 void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
@@ -904,8 +906,11 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
 
     PinloomPanel panel(repository);
     QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QCOMPARE(panel.currentOpenTarget().resultRow, -1);
     QCOMPARE(panel.resultAt(0).resourceId, resource.id);
+    QCOMPARE(panel.resultAt(0).resultRow, 0);
     QVERIFY(panel.resultAt(-1).resourceId.isEmpty());
+    QCOMPARE(panel.resultAt(-1).resultRow, -1);
     QCOMPARE(panel.currentResults().size(), 1);
 
     panel.setSearchText(QStringLiteral("missing"));
@@ -922,6 +927,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     results->setCurrentRow(0);
 
     const PinloomOpenTarget rowTarget = panel.resultAt(0);
+    QCOMPARE(rowTarget.resultRow, 0);
     QCOMPARE(rowTarget.resourceId, resource.id);
     QCOMPARE(rowTarget.resourceKind, resource.kind);
     QCOMPARE(rowTarget.title, resource.title);
@@ -937,10 +943,12 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     const QList<PinloomOpenTarget> currentResults = panel.currentResults();
     QCOMPARE(currentResults.size(), 1);
     QCOMPARE(currentResults.first().resourceId, resource.id);
+    QCOMPARE(currentResults.first().resultRow, 0);
     QVERIFY(currentResults.first().anchor.has_value());
     QCOMPARE(currentResults.first().anchor->target, QStringLiteral("Dock handoff"));
 
     const PinloomOpenTarget target = panel.currentOpenTarget();
+    QCOMPARE(target.resultRow, 0);
     QCOMPARE(target.resourceId, resource.id);
     QCOMPARE(target.resourceKind, resource.kind);
     QCOMPARE(target.title, resource.title);
@@ -1066,9 +1074,11 @@ void WidgetSmokeTest::panelAllowsHostResultNavigation()
     QVERIFY(!panel.selectResultAt(2));
     QVERIFY(panel.selectFirstResult());
     QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
+    QCOMPARE(panel.currentOpenTarget().resultRow, 0);
 
     QVERIFY(panel.selectResultAt(1));
     QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
+    QCOMPARE(panel.currentOpenTarget().resultRow, 1);
     QVERIFY(!panel.selectResultAt(2));
     QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
 

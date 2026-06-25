@@ -200,13 +200,14 @@ PinloomOpenTarget openTargetForResource(const Resource &resource)
     return target;
 }
 
-PinloomOpenTarget openTargetForItem(const QListWidgetItem *item)
+PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
 {
     PinloomOpenTarget target;
     if (!item) {
         return target;
     }
 
+    target.resultRow = row;
     target.resourceId = item->data(Qt::UserRole).toString();
     target.location = item->data(Qt::UserRole + 1).toString();
     target.title = item->data(Qt::UserRole + 11).toString();
@@ -495,7 +496,7 @@ PinloomHostContext PinloomPanel::hostContext() const
 
 PinloomOpenTarget PinloomPanel::currentOpenTarget() const
 {
-    return openTargetForItem(resultList_->currentItem());
+    return openTargetForItem(resultList_->currentItem(), resultList_->currentRow());
 }
 
 PinloomOpenTarget PinloomPanel::resultAt(int row) const
@@ -503,7 +504,7 @@ PinloomOpenTarget PinloomPanel::resultAt(int row) const
     if (row < 0 || row >= resultList_->count()) {
         return {};
     }
-    return openTargetForItem(resultList_->item(row));
+    return openTargetForItem(resultList_->item(row), row);
 }
 
 QList<PinloomOpenTarget> PinloomPanel::currentResults() const
@@ -511,7 +512,7 @@ QList<PinloomOpenTarget> PinloomPanel::currentResults() const
     QList<PinloomOpenTarget> targets;
     targets.reserve(resultList_->count());
     for (int row = 0; row < resultList_->count(); ++row) {
-        targets.append(openTargetForItem(resultList_->item(row)));
+        targets.append(openTargetForItem(resultList_->item(row), row));
     }
     return targets;
 }
