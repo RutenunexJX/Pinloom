@@ -136,8 +136,9 @@ static void writeFirefoxPlacesDatabase(const QString &path)
                  qPrintable(query.lastError().text()));
 
         QVERIFY2(query.prepare(QStringLiteral(
-                     "INSERT INTO moz_places(url, title, visit_count, last_visit_date) VALUES (?, ?, ?, ?)")),
+                     "INSERT INTO moz_places(id, url, title, visit_count, last_visit_date) VALUES (?, ?, ?, ?, ?)")),
                  qPrintable(query.lastError().text()));
+        query.addBindValue(1);
         query.addBindValue(QStringLiteral("https://docs.example.com/pinloom/firefox#places"));
         query.addBindValue(QStringLiteral("Pinloom Firefox Place"));
         query.addBindValue(5);
@@ -145,12 +146,72 @@ static void writeFirefoxPlacesDatabase(const QString &path)
         QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
 
         QVERIFY2(query.prepare(QStringLiteral(
-                     "INSERT INTO moz_places(url, title, visit_count, last_visit_date) VALUES (?, ?, ?, ?)")),
+                     "INSERT INTO moz_places(id, url, title, visit_count, last_visit_date) VALUES (?, ?, ?, ?, ?)")),
                  qPrintable(query.lastError().text()));
+        query.addBindValue(2);
         query.addBindValue(QStringLiteral("about:config"));
         query.addBindValue(QStringLiteral("Ignored About Config"));
         query.addBindValue(3);
         query.addBindValue(QVariant::fromValue<qlonglong>(1710000000001000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.exec(QStringLiteral(
+                     "CREATE TABLE moz_bookmarks ("
+                     "id INTEGER PRIMARY KEY, "
+                     "type INTEGER, "
+                     "fk INTEGER, "
+                     "parent INTEGER, "
+                     "title TEXT, "
+                     "dateAdded INTEGER"
+                     ")")),
+                 qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO moz_bookmarks(id, type, fk, parent, title, dateAdded) "
+                     "VALUES (?, ?, ?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(1);
+        query.addBindValue(2);
+        query.addBindValue(QVariant());
+        query.addBindValue(0);
+        query.addBindValue(QString());
+        query.addBindValue(QVariant::fromValue<qlonglong>(1709999997000000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO moz_bookmarks(id, type, fk, parent, title, dateAdded) "
+                     "VALUES (?, ?, ?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(2);
+        query.addBindValue(2);
+        query.addBindValue(QVariant());
+        query.addBindValue(1);
+        query.addBindValue(QStringLiteral("Research"));
+        query.addBindValue(QVariant::fromValue<qlonglong>(1709999998000000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO moz_bookmarks(id, type, fk, parent, title, dateAdded) "
+                     "VALUES (?, ?, ?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(3);
+        query.addBindValue(2);
+        query.addBindValue(QVariant());
+        query.addBindValue(2);
+        query.addBindValue(QStringLiteral("Pinloom"));
+        query.addBindValue(QVariant::fromValue<qlonglong>(1709999999000000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO moz_bookmarks(id, type, fk, parent, title, dateAdded) "
+                     "VALUES (?, ?, ?, ?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(4);
+        query.addBindValue(1);
+        query.addBindValue(1);
+        query.addBindValue(3);
+        query.addBindValue(QStringLiteral("Pinned Firefox Guide"));
+        query.addBindValue(QVariant::fromValue<qlonglong>(1710000000000000LL));
         QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
 
         database.close();
@@ -2948,14 +3009,18 @@ void DirectorySourceTest::extractsFirefoxPlacesSqliteLinks()
 
     auto entryIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
-            && resource.title == QLatin1String("Pinloom Firefox Place")
+            && resource.title == QLatin1String("Pinned Firefox Guide")
             && resource.location == QLatin1String("https://docs.example.com/pinloom/firefox#places");
     });
     QVERIFY(entryIt != resources.cend());
     QVERIFY(entryIt->tags.contains(QStringLiteral("web")));
     QVERIFY(entryIt->tags.contains(QStringLiteral("browser-history")));
     QVERIFY(entryIt->tags.contains(QStringLiteral("firefox-history")));
+    QVERIFY(entryIt->tags.contains(QStringLiteral("firefox-bookmark")));
     QVERIFY(entryIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(entryIt->aliases.contains(QStringLiteral("Research")));
+    QVERIFY(entryIt->aliases.contains(QStringLiteral("Pinloom")));
+    QVERIFY(entryIt->aliases.contains(QStringLiteral("Research / Pinloom")));
     QVERIFY(entryIt->aliases.contains(QStringLiteral("visited 5 times")));
     QVERIFY(std::any_of(entryIt->anchors.cbegin(), entryIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("places");
@@ -2971,7 +3036,7 @@ void DirectorySourceTest::extractsFirefoxPlacesSqliteLinks()
     QCOMPARE(placesIt->relations.first().targetResourceId, entryIt->id);
     QCOMPARE(placesIt->relations.first().label, QStringLiteral("links-to"));
     QCOMPARE(placesIt->relations.first().note,
-             QStringLiteral("browser history visits 5: url: Pinloom Firefox Place -> https://docs.example.com/pinloom/firefox#places"));
+             QStringLiteral("browser history visits 5: url: Pinned Firefox Guide -> https://docs.example.com/pinloom/firefox#places"));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2981,16 +3046,16 @@ void DirectorySourceTest::extractsFirefoxPlacesSqliteLinks()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Firefox Place")});
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Pinned Firefox Guide")});
     QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::Url
-            && result.resource.title == QLatin1String("Pinloom Firefox Place");
+            && result.resource.title == QLatin1String("Pinned Firefox Guide");
     }));
 
     const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("places")});
     QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::Url
-            && result.resource.title == QLatin1String("Pinloom Firefox Place")
+            && result.resource.title == QLatin1String("Pinned Firefox Guide")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("places");

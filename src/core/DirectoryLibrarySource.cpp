@@ -92,8 +92,23 @@ struct BrowserBookmarkLink {
 struct BrowserHistoryLink {
     QUrl url;
     QString title;
+    QStringList aliases;
+    QStringList tags;
     int visitCount = 0;
     QDateTime lastVisitedAt;
+};
+
+struct FirefoxBookmarkNode {
+    int id = 0;
+    int type = 0;
+    int fk = 0;
+    int parent = 0;
+    QString title;
+};
+
+struct FirefoxBookmarkMetadata {
+    QString title;
+    QStringList folderPath;
 };
 
 struct OpmlLink {
@@ -2083,6 +2098,67 @@ QDateTime dateTimeFromUnixMicroseconds(qint64 value)
     return value <= 0 ? QDateTime() : QDateTime::fromMSecsSinceEpoch(value / 1000, QTimeZone::UTC);
 }
 
+QStringList firefoxBookmarkFolderPath(int bookmarkId, const QHash<int, FirefoxBookmarkNode> &nodes)
+{
+    QStringList path;
+    int currentId = nodes.value(bookmarkId).parent;
+    int guard = 0;
+    while (currentId > 0 && nodes.contains(currentId) && guard < 64) {
+        ++guard;
+        const FirefoxBookmarkNode node = nodes.value(currentId);
+        if (node.type == 2 && node.parent > 0 && !node.title.trimmed().isEmpty()) {
+            path.prepend(node.title.trimmed());
+        }
+        currentId = node.parent;
+    }
+    return path;
+}
+
+QHash<int, FirefoxBookmarkMetadata> firefoxBookmarkMetadataByPlaceId(QSqlDatabase &database)
+{
+    QHash<int, FirefoxBookmarkMetadata> metadataByPlaceId;
+
+    QSqlQuery tableQuery(database);
+    if (!tableQuery.exec(QStringLiteral(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='moz_bookmarks'"))
+        || !tableQuery.next()) {
+        return metadataByPlaceId;
+    }
+
+    QHash<int, FirefoxBookmarkNode> nodes;
+    QList<FirefoxBookmarkNode> bookmarks;
+    QSqlQuery query(database);
+    if (!query.exec(QStringLiteral(
+            "SELECT id, type, fk, parent, title FROM moz_bookmarks ORDER BY dateAdded DESC, id DESC"))) {
+        return metadataByPlaceId;
+    }
+
+    while (query.next()) {
+        FirefoxBookmarkNode node;
+        node.id = query.value(0).toInt();
+        node.type = query.value(1).toInt();
+        node.fk = query.value(2).toInt();
+        node.parent = query.value(3).toInt();
+        node.title = query.value(4).toString().trimmed();
+        nodes.insert(node.id, node);
+        if (node.type == 1 && node.fk > 0) {
+            bookmarks.append(node);
+        }
+    }
+
+    for (const FirefoxBookmarkNode &bookmark : bookmarks) {
+        if (metadataByPlaceId.contains(bookmark.fk)) {
+            continue;
+        }
+        FirefoxBookmarkMetadata metadata;
+        metadata.title = bookmark.title;
+        metadata.folderPath = firefoxBookmarkFolderPath(bookmark.id, nodes);
+        metadataByPlaceId.insert(bookmark.fk, metadata);
+    }
+
+    return metadataByPlaceId;
+}
+
 QList<BrowserHistoryLink> browserHistoryLinksFromSqliteFile(const QFileInfo &fileInfo)
 {
     if (!isBrowserHistorySqliteCandidate(fileInfo)) {
@@ -2158,11 +2234,13 @@ QList<BrowserHistoryLink> firefoxPlacesLinksFromSqliteFile(const QFileInfo &file
             QSqlQuery tableQuery(database);
             if (tableQuery.exec(QStringLiteral("SELECT name FROM sqlite_master WHERE type='table' AND name='moz_places'"))
                 && tableQuery.next()) {
+                const QHash<int, FirefoxBookmarkMetadata> bookmarkMetadata = firefoxBookmarkMetadataByPlaceId(database);
                 QSqlQuery query(database);
                 if (query.exec(QStringLiteral(
-                        "SELECT url, title, visit_count, last_visit_date FROM moz_places ORDER BY last_visit_date DESC"))) {
+                        "SELECT id, url, title, visit_count, last_visit_date FROM moz_places ORDER BY last_visit_date DESC"))) {
                     while (query.next()) {
-                        const QUrl url = QUrl::fromUserInput(query.value(0).toString().trimmed());
+                        const int placeId = query.value(0).toInt();
+                        const QUrl url = QUrl::fromUserInput(query.value(1).toString().trimmed());
                         if (!isIndexableWebUrl(url)) {
                             continue;
                         }
@@ -2175,12 +2253,25 @@ QList<BrowserHistoryLink> firefoxPlacesLinksFromSqliteFile(const QFileInfo &file
 
                         BrowserHistoryLink link;
                         link.url = url;
-                        link.title = query.value(1).toString().trimmed();
+                        const FirefoxBookmarkMetadata metadata = bookmarkMetadata.value(placeId);
+                        link.title = metadata.title.trimmed();
+                        if (link.title.isEmpty()) {
+                            link.title = query.value(2).toString().trimmed();
+                        }
                         if (link.title.isEmpty()) {
                             link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
                         }
-                        link.visitCount = query.value(2).toInt();
-                        link.lastVisitedAt = dateTimeFromUnixMicroseconds(query.value(3).toLongLong());
+                        link.visitCount = query.value(3).toInt();
+                        link.lastVisitedAt = dateTimeFromUnixMicroseconds(query.value(4).toLongLong());
+                        if (!metadata.title.trimmed().isEmpty() || !metadata.folderPath.isEmpty()) {
+                            appendUnique(link.tags, QStringLiteral("firefox-bookmark"));
+                        }
+                        for (const QString &folder : metadata.folderPath) {
+                            appendUnique(link.aliases, folder);
+                        }
+                        if (metadata.folderPath.size() > 1) {
+                            appendUnique(link.aliases, metadata.folderPath.join(QStringLiteral(" / ")));
+                        }
                         links.append(link);
                     }
                 }
@@ -2209,6 +2300,12 @@ QList<Resource> browserHistoryResourcesFromLinks(const QFileInfo &fileInfo,
         appendUnique(resource.tags, QStringLiteral("browser-history"));
         if (isFirefoxPlacesSqliteCandidate(fileInfo)) {
             appendUnique(resource.tags, QStringLiteral("firefox-history"));
+        }
+        for (const QString &tag : link.tags) {
+            appendUnique(resource.tags, tag);
+        }
+        for (const QString &alias : link.aliases) {
+            appendUnique(resource.aliases, alias);
         }
         if (link.visitCount > 0) {
             appendUnique(resource.aliases, QStringLiteral("visited %1 times").arg(link.visitCount));
