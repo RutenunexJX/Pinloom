@@ -166,6 +166,7 @@ struct OpmlLink {
     QString title;
     QUrl feedUrl;
     QStringList folderPath;
+    int lineNumber = -1;
 };
 
 struct FeedEntryLink {
@@ -3145,6 +3146,7 @@ QList<OpmlLink> opmlLinksFromDocument(const QByteArray &content)
         reader.readNext();
 
         if (reader.isStartElement() && reader.name().toString().compare(QStringLiteral("outline"), Qt::CaseInsensitive) == 0) {
+            const int lineNumber = static_cast<int>(reader.lineNumber());
             const QXmlStreamAttributes attributes = reader.attributes();
             QString title = xmlAttributeValue(attributes, QStringLiteral("text"));
             if (title.isEmpty()) {
@@ -3168,6 +3170,7 @@ QList<OpmlLink> opmlLinksFromDocument(const QByteArray &content)
                     link.feedUrl = feedUrl;
                 }
                 link.folderPath = folderPath;
+                link.lineNumber = lineNumber;
                 links.append(link);
             }
 
@@ -5612,6 +5615,96 @@ void appendRobotsSitemapSourceMetadata(Resource &sourceResource,
     }
 }
 
+QList<OpmlLink> opmlLinksFromFile(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return {};
+    }
+
+    return opmlLinksFromDocument(file.readAll());
+}
+
+QList<OpmlLink> deduplicatedOpmlLinks(const QList<OpmlLink> &links)
+{
+    QList<OpmlLink> deduplicated;
+    QStringList seenUrls;
+    for (const OpmlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+            continue;
+        }
+        seenUrls.append(urlKey);
+        deduplicated.append(link);
+    }
+    return deduplicated;
+}
+
+QString opmlLineAnchorTarget(const OpmlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> opmlResourcesFromLinks(const QFileInfo &fileInfo, const QList<OpmlLink> &links)
+{
+    QList<Resource> resources;
+    for (const OpmlLink &link : links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("opml-link:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("opml"));
+        if (isIndexableWebUrl(link.feedUrl)) {
+            appendUnique(resource.tags, QStringLiteral("feed"));
+            appendWebUrlMetadata(resource, link.feedUrl);
+        }
+        for (const QString &folder : link.folderPath) {
+            appendUnique(resource.aliases, folder);
+        }
+        if (!link.folderPath.isEmpty()) {
+            appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
+        }
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendOpmlSourceMetadata(Resource &sourceResource,
+                              const QList<OpmlLink> &links,
+                              const QList<Resource> &urlResources)
+{
+    if (!links.isEmpty()) {
+        appendUnique(sourceResource.tags, QStringLiteral("opml"));
+    }
+
+    const int count = std::min(links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const OpmlLink &link = links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = opmlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("opml line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("opml: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 QList<FeedEntryLink> feedLinksFromXmlFile(const QFileInfo &fileInfo)
 {
     QFile file(fileInfo.absoluteFilePath());
@@ -6323,7 +6416,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         browserBookmarkResources = browserBookmarkResourcesFromJsonFile(fileInfo);
         derivedResources.append(browserBookmarkResources);
     } else if (suffix == QLatin1String("opml")) {
-        derivedResources.append(opmlResourcesFromFile(fileInfo));
+        const QList<OpmlLink> opmlLinks = deduplicatedOpmlLinks(opmlLinksFromFile(fileInfo));
+        const QList<Resource> opmlResources = opmlResourcesFromLinks(fileInfo, opmlLinks);
+        appendOpmlSourceMetadata(primary, opmlLinks, opmlResources);
+        derivedResources.append(opmlResources);
     } else if (isFeedXmlCandidate(fileInfo)) {
         const QList<FeedEntryLink> feedLinks = deduplicatedFeedEntryLinks(feedLinksFromXmlFile(fileInfo));
         const QList<Resource> feedResources = feedResourcesFromLinks(fileInfo, feedLinks);
@@ -6509,42 +6605,7 @@ QList<Resource> DirectoryLibrarySource::browserBookmarkResourcesFromJsonFile(con
 
 QList<Resource> DirectoryLibrarySource::opmlResourcesFromFile(const QFileInfo &fileInfo) const
 {
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly)) {
-        return {};
-    }
-
-    QList<Resource> resources;
-    QStringList seenUrls;
-    for (const OpmlLink &link : opmlLinksFromDocument(file.readAll())) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
-        if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
-            continue;
-        }
-        seenUrls.append(urlKey);
-
-        Resource resource;
-        resource.id = QStringLiteral("opml-link:%1:%2")
-                          .arg(normalizedPath(fileInfo), urlKey);
-        resource.kind = ResourceKind::Url;
-        resource.title = link.title;
-        resource.location = urlKey;
-        resource.updatedAt = fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("opml"));
-        if (isIndexableWebUrl(link.feedUrl)) {
-            appendUnique(resource.tags, QStringLiteral("feed"));
-            appendWebUrlMetadata(resource, link.feedUrl);
-        }
-        for (const QString &folder : link.folderPath) {
-            appendUnique(resource.aliases, folder);
-        }
-        if (!link.folderPath.isEmpty()) {
-            appendUnique(resource.aliases, link.folderPath.join(QStringLiteral(" / ")));
-        }
-        resources.append(resource);
-    }
-    return resources;
+    return opmlResourcesFromLinks(fileInfo, deduplicatedOpmlLinks(opmlLinksFromFile(fileInfo)));
 }
 
 QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo &fileInfo) const

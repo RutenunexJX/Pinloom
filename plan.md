@@ -375,7 +375,7 @@ Status:
 - Browser bookmark export HTML and Chromium/Edge-style Bookmarks JSON indexing as individual URL resources: done.
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources: done.
 - Firefox places.sqlite indexing as individual URL resources with bookmark metadata: done.
-- OPML subscription/link list indexing as individual URL resources: done.
+- OPML subscription/link list indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - RSS and Atom feed XML entry indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - Sitemap XML URL indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - robots.txt Sitemap directive indexing as individual URL resources with source line anchors and `links-to` relations: done.

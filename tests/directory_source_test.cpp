@@ -4326,6 +4326,23 @@ void DirectorySourceTest::extractsOpmlLinks()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
+    auto opmlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("subscriptions.opml");
+    });
+    QVERIFY(opmlIt != resources.cend());
+    QVERIFY(opmlIt->tags.contains(QStringLiteral("opml")));
+    QVERIFY(std::any_of(opmlIt->anchors.cbegin(), opmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: FPGA Daily -> https://fpga.example.com/daily#timing")
+            && anchor.line == 6;
+    }));
+    QVERIFY(std::any_of(opmlIt->anchors.cbegin(), opmlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Pinloom Release Feed -> https://docs.example.com/pinloom/feed.xml")
+            && anchor.line == 7;
+    }));
+
     auto fpgaIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
             && resource.title == QLatin1String("FPGA Daily")
@@ -4349,6 +4366,20 @@ void DirectorySourceTest::extractsOpmlLinks()
     QVERIFY(feedOnlyIt != resources.cend());
     QVERIFY(feedOnlyIt->tags.contains(QStringLiteral("opml")));
     QVERIFY(feedOnlyIt->tags.contains(QStringLiteral("feed")));
+
+    QCOMPARE(opmlIt->relations.size(), 2);
+    QVERIFY(std::any_of(opmlIt->relations.cbegin(), opmlIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == opmlIt->id
+            && relation.targetResourceId == fpgaIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("opml line 6: url: FPGA Daily -> https://fpga.example.com/daily#timing");
+    }));
+    QVERIFY(std::any_of(opmlIt->relations.cbegin(), opmlIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == opmlIt->id
+            && relation.targetResourceId == feedOnlyIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("opml line 7: url: Pinloom Release Feed -> https://docs.example.com/pinloom/feed.xml");
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -4376,6 +4407,29 @@ void DirectorySourceTest::extractsOpmlLinks()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("timing");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Pinloom Release Feed")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("subscriptions.opml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 7
+            && result.matchedAnchor->target == QLatin1String("url: Pinloom Release Feed -> https://docs.example.com/pinloom/feed.xml");
+    }));
+
+    const QList<ResourceRelation> opmlRelations = repository.resourceRelations(opmlIt->id);
+    QCOMPARE(opmlRelations.size(), 2);
+    QVERIFY(std::any_of(opmlRelations.cbegin(), opmlRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == opmlIt->id
+            && relation.targetResourceId == fpgaIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+    QVERIFY(std::any_of(opmlRelations.cbegin(), opmlRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == opmlIt->id
+            && relation.targetResourceId == feedOnlyIt->id
+            && relation.label == QLatin1String("links-to");
     }));
 }
 
