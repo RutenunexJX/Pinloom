@@ -29,6 +29,7 @@ private slots:
     void panelDisplaysPdfPageResults();
     void panelPreservesPdfRegionOpenTarget();
     void panelDisplaysRelationSummary();
+    void panelExposesCurrentRelatedTargetsForHostPreview();
     void panelAddsManualAliasAndAnchor();
     void panelPinsSelectedResource();
     void panelPinsSelectedLibraryRoot();
@@ -363,6 +364,66 @@ void WidgetSmokeTest::panelDisplaysRelationSummary()
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
     QVERIFY(relationLabel->text().contains(QStringLiteral("Related: supports -> PCIe Spec (chapter 7)")));
+}
+
+void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource note;
+    note.id = QStringLiteral("note");
+    note.kind = ResourceKind::Markdown;
+    note.title = QStringLiteral("Bringup Note");
+    note.location = QStringLiteral("note.md");
+    QVERIFY(repository.upsertResource(note));
+
+    Resource spec;
+    spec.id = QStringLiteral("spec");
+    spec.kind = ResourceKind::Pdf;
+    spec.title = QStringLiteral("PCIe Spec");
+    spec.location = QStringLiteral("spec.pdf");
+    QVERIFY(repository.upsertResource(spec));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = note.id;
+    relation.targetResourceId = spec.id;
+    relation.label = QStringLiteral("supports");
+    relation.note = QStringLiteral("chapter 7");
+    QVERIFY(repository.upsertResourceRelation(relation));
+
+    PinloomPanel panel(repository);
+    QVERIFY(panel.currentRelatedTargets().isEmpty());
+
+    panel.setSearchText(QStringLiteral("Bringup"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+    QCOMPARE(results->count(), 1);
+    results->setCurrentRow(0);
+
+    QList<PinloomRelatedTarget> related = panel.currentRelatedTargets();
+    QCOMPARE(related.size(), 1);
+    QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(related.first().relationNote, QStringLiteral("chapter 7"));
+    QVERIFY(related.first().currentIsSource);
+    QCOMPARE(related.first().target.resourceId, spec.id);
+    QCOMPARE(related.first().target.resourceKind, spec.kind);
+    QCOMPARE(related.first().target.title, spec.title);
+    QCOMPARE(related.first().target.location, spec.location);
+    QVERIFY(!related.first().target.anchor.has_value());
+
+    panel.setSearchText(QStringLiteral("PCIe Spec"));
+    QCOMPARE(results->count(), 1);
+    results->setCurrentRow(0);
+
+    related = panel.currentRelatedTargets();
+    QCOMPARE(related.size(), 1);
+    QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(related.first().relationNote, QStringLiteral("chapter 7"));
+    QVERIFY(!related.first().currentIsSource);
+    QCOMPARE(related.first().target.resourceId, note.id);
+    QCOMPARE(related.first().target.resourceKind, note.kind);
+    QCOMPARE(related.first().target.title, note.title);
+    QCOMPARE(related.first().target.location, note.location);
 }
 
 void WidgetSmokeTest::panelAddsManualAliasAndAnchor()

@@ -55,7 +55,7 @@ Implemented:
 - Search ordering applies root-level boosts for resources inside pinned library folders.
 - Search filtering accepts host-required resource kinds, tags, and location prefixes, while ordering accepts host-provided context tags and location prefixes for embedded project/document context.
 - `pinloom_widgets` static library with repository-injected reusable `PinloomPanel`.
-- Host-facing `PinloomPanelOptions` and `PinloomOpenTarget` API so embedding hosts can choose embedded chrome, observe result-count/current-target changes, navigate results, trigger current-result activation, and intercept selected result activation with resource metadata, matched field, context matches, score, and anchor details.
+- Host-facing `PinloomPanelOptions`, `PinloomOpenTarget`, and `PinloomRelatedTarget` API so embedding hosts can choose embedded chrome, observe result-count/current-target changes, navigate results, inspect current related targets, trigger current-result activation, and intercept selected result activation with resource metadata, matched field, context matches, score, and anchor details.
 - Public `PinloomPanel` search text, focus, current-target, indexing, remote-web-fetching, required kind/tag/location filtering, context-ranking, and atomic host-context snapshot methods for dock/global-control hosts.
 - CTest registration that supplies Qt, Qt plugins, and MinGW runtime paths for Windows test runs.
 - `pinloom_app` standalone Qt application entry point using a default SQLite database under `QStandardPaths::AppDataLocation`.
@@ -89,7 +89,7 @@ Embedding hosts own:
 - Whether selected results open through host navigation, host previews, or Pinloom's fallback opener.
 - Host-specific context such as the active project, active document, or preferred focus shortcut.
 
-The core embedding API is `PinloomPanel(ILibraryRepository&, PinloomPanelOptions, QWidget*)`. A host can seed search through `setSearchText()`, focus the locator through `focusSearch()`, inspect result count through `resultCount()`, navigate results through `selectFirstResult()`, `selectNextResult()`, and `selectPreviousResult()`, inspect the current selection through `currentOpenTarget()`, activate the current selection through `activateCurrentOpenTarget()`, observe result-count changes through `PinloomPanelOptions::resultCountChangedHandler`, observe selection changes through `PinloomPanelOptions::currentOpenTargetChangedHandler`, choose compact embedded chrome through `showLibraryRootControls`, `showManualEditControls`, and `showPinControls`, control optional remote HTML fetching through `setRemoteWebFetchingEnabled()`, trigger indexing through `indexSelectedLibraryRoot()`, `indexAllEnabledLibraryRoots()`, and `rebuildAllEnabledLibraryRoots()`, filter by required resource kinds, tags, and location prefixes through `setRequiredResourceKinds()`, `setRequiredTags()`, and `setRequiredLocationPrefixes()`, pass ranking context through `setContextTags()` and `setContextLocationPrefixes()`, or apply the active host search/filter/ranking state atomically through `applyHostContext(const PinloomHostContext&)`. Indexing calls return `PinloomIndexingResult` with success, indexed count, and error fields. The `PinloomOpenTarget` payload includes the selected resource id, kind, title, location, matched field, matched context tag/location prefix, score, and optional anchor.
+The core embedding API is `PinloomPanel(ILibraryRepository&, PinloomPanelOptions, QWidget*)`. A host can seed search through `setSearchText()`, focus the locator through `focusSearch()`, inspect result count through `resultCount()`, navigate results through `selectFirstResult()`, `selectNextResult()`, and `selectPreviousResult()`, inspect the current selection through `currentOpenTarget()`, inspect its related resources through `currentRelatedTargets()`, activate the current selection through `activateCurrentOpenTarget()`, observe result-count changes through `PinloomPanelOptions::resultCountChangedHandler`, observe selection changes through `PinloomPanelOptions::currentOpenTargetChangedHandler`, choose compact embedded chrome through `showLibraryRootControls`, `showManualEditControls`, and `showPinControls`, control optional remote HTML fetching through `setRemoteWebFetchingEnabled()`, trigger indexing through `indexSelectedLibraryRoot()`, `indexAllEnabledLibraryRoots()`, and `rebuildAllEnabledLibraryRoots()`, filter by required resource kinds, tags, and location prefixes through `setRequiredResourceKinds()`, `setRequiredTags()`, and `setRequiredLocationPrefixes()`, pass ranking context through `setContextTags()` and `setContextLocationPrefixes()`, or apply the active host search/filter/ranking state atomically through `applyHostContext(const PinloomHostContext&)`. Indexing calls return `PinloomIndexingResult` with success, indexed count, and error fields. The `PinloomOpenTarget` payload includes the selected resource id, kind, title, location, matched field, matched context tag/location prefix, score, and optional anchor. The `PinloomRelatedTarget` payload includes relation label/note, direction, and the related resource target.
 
 ## Build
 
@@ -156,7 +156,7 @@ ZeroSlack Embedding Boundary MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for host search control, embedded chrome options, result count/navigation/change notifications, current-target observation, host-triggered current activation, indexing controls, required filters, context ranking, atomic host-context snapshots, host activation interception, and standalone fallback behavior (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for host search control, embedded chrome options, result count/navigation/change notifications, current-target observation, current-related-target inspection, host-triggered current activation, indexing controls, required filters, context ranking, atomic host-context snapshots, host activation interception, and standalone fallback behavior (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Obsidian-Friendly Indexing MVP validation:
 
@@ -180,7 +180,7 @@ Manual Anchors And Relationships MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for related-resource persistence, indexed Markdown link relations, compact relationship summaries, and manual anchor/alias editing UI (`pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for related-resource persistence, indexed Markdown link relations, compact relationship summaries, host related-target inspection, and manual anchor/alias editing UI (`pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Ranking And Recall MVP validation:
 

@@ -176,6 +176,16 @@ QString relationText(const ResourceRelation &relation, const QString &currentRes
     return QStringLiteral("%1 %2 %3 (%4)").arg(relation.label, direction, otherLabel, relation.note);
 }
 
+PinloomOpenTarget openTargetForResource(const Resource &resource)
+{
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    return target;
+}
+
 QUrl urlForLocation(const QString &location)
 {
     const QUrl parsed(location);
@@ -439,6 +449,36 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     }
 
     return target;
+}
+
+QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
+{
+    QList<PinloomRelatedTarget> targets;
+    const QString resourceId = selectedResultResourceId();
+    if (resourceId.isEmpty()) {
+        return targets;
+    }
+
+    for (const ResourceRelation &relation : repository_.resourceRelations(resourceId)) {
+        const bool currentIsSource = relation.sourceResourceId == resourceId;
+        const QString otherResourceId = currentIsSource ? relation.targetResourceId : relation.sourceResourceId;
+
+        PinloomRelatedTarget related;
+        related.relationLabel = relation.label;
+        related.relationNote = relation.note;
+        related.currentIsSource = currentIsSource;
+
+        const std::optional<Resource> resource = repository_.findResource(otherResourceId);
+        if (resource.has_value()) {
+            related.target = openTargetForResource(resource.value());
+        } else {
+            related.target.resourceId = otherResourceId;
+            related.target.title = otherResourceId;
+        }
+        targets.append(related);
+    }
+
+    return targets;
 }
 
 int PinloomPanel::resultCount() const

@@ -32,6 +32,13 @@ struct PinloomOpenTarget {
     std::optional<Anchor> anchor;
 };
 
+struct PinloomRelatedTarget {
+    QString relationLabel;
+    QString relationNote;
+    bool currentIsSource = false;
+    PinloomOpenTarget target;
+};
+
 struct PinloomPanelOptions {
     std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
@@ -79,6 +86,7 @@ public:
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
+    QList<PinloomRelatedTarget> currentRelatedTargets() const;
     int resultCount() const;
     bool selectFirstResult();
     bool selectNextResult();

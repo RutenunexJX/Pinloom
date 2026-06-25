@@ -178,6 +178,7 @@ Status:
 - Host-facing panel options and search control API: done.
 - Host-selectable embedded chrome options: done.
 - Host current-open-target query and change notification APIs for previews/status surfaces: done.
+- Host current-related-target query API for previews/status surfaces: done.
 - Host-triggered result count and selection navigation APIs: done.
 - Host result-count change notifications: done.
 - Host-triggered current-result activation API: done.
@@ -275,6 +276,7 @@ Status:
 - Related-resource persistence: done.
 - Indexed `links-to` relations from local Markdown links: done.
 - Compact relationship summary in result details: done.
+- Host-facing current related-target API: done.
 - Manual anchor and alias editing UI: done.
 
 ## MVP 13: Ranking And Recall

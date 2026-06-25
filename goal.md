@@ -106,6 +106,7 @@ Completed:
 - Expose `pinloom_widgets` APIs that let a host seed search text, focus the locator, and intercept selected result activation.
 - Let embedding hosts hide standalone management/editing chrome for compact dock/global-control embedding.
 - Let embedding hosts inspect the current selected open target and observe selection changes without triggering activation.
+- Let embedding hosts inspect related targets for the current selection without parsing UI text.
 - Let embedding hosts inspect result count and navigate result selection through API for command palette flows.
 - Let embedding hosts observe result-count changes after search/filter refreshes.
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
@@ -114,6 +115,7 @@ Completed:
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags and prefixes for ranking.
 - Let embedding hosts apply active search/filter/ranking context as one snapshot for project/document changes.
 - Include resource kind, title, matched field, matched context signals, score, and anchor details in host activation payloads.
+- Include relation label, note, direction, and related resource target details in host related-target payloads.
 - Keep standalone behavior as the default fallback.
 - Document which responsibilities belong to Pinloom and which belong to the embedding host.
 
@@ -167,6 +169,7 @@ Completed:
 - Persist related-resource links.
 - Persist indexed `links-to` relations discovered from local Markdown links.
 - Surface relationships in compact result details without turning the main result list into a graph browser.
+- Expose current related targets through the host-facing panel API.
 - Add UI affordances for creating manual aliases and anchors.
 
 ### Ranking And Recall MVP
