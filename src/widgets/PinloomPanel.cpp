@@ -784,12 +784,12 @@ void PinloomPanel::refreshRelationSummary()
     relationLabel_->setText(tr("Related: %1").arg(relationLines.join(QStringLiteral("; "))));
 }
 
-void PinloomPanel::openSelectedResource()
+bool PinloomPanel::activateCurrentOpenTarget()
 {
     const PinloomOpenTarget target = currentOpenTarget();
     if (target.location.isEmpty()) {
         updateStatus(tr("No resource selected"));
-        return;
+        return false;
     }
 
     const auto recordOpen = [this, &target]() {
@@ -803,18 +803,18 @@ void PinloomPanel::openSelectedResource()
 
     if (tryHostOpenTarget(target)) {
         recordOpen();
-        return;
+        return true;
     }
 
     if (target.anchor.has_value() && target.anchor->line > 0) {
         TextPreviewDialog preview(target.location, target.anchor->line, this);
         if (!preview.load()) {
             updateStatus(tr("Unable to preview %1").arg(target.location));
-            return;
+            return false;
         }
         recordOpen();
         preview.exec();
-        return;
+        return true;
     }
 
     QUrl targetUrl = urlForLocation(target.location);
@@ -827,9 +827,16 @@ void PinloomPanel::openSelectedResource()
 
     if (QDesktopServices::openUrl(targetUrl)) {
         recordOpen();
+        return true;
     } else {
         updateStatus(tr("Unable to open %1").arg(target.location));
     }
+    return false;
+}
+
+void PinloomPanel::openSelectedResource()
+{
+    activateCurrentOpenTarget();
 }
 
 void PinloomPanel::openResultItem(QListWidgetItem *item)

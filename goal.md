@@ -106,6 +106,7 @@ Completed:
 - Expose `pinloom_widgets` APIs that let a host seed search text, focus the locator, and intercept selected result activation.
 - Let embedding hosts hide standalone management/editing chrome for compact dock/global-control embedding.
 - Let embedding hosts inspect the current selected open target and observe selection changes without triggering activation.
+- Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.
 - Let embedding hosts trigger selected-root, all-root, and rebuild indexing flows with structured results.
 - Let embedding hosts hard-filter searches by required resource kinds, tags, and location prefixes while using context tags and prefixes for ranking.

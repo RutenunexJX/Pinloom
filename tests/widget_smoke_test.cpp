@@ -38,6 +38,7 @@ private slots:
     void panelAppliesHostContextRanking();
     void panelExposesCurrentOpenTargetForHostPreview();
     void panelNotifiesHostWhenCurrentOpenTargetChanges();
+    void panelAllowsHostToActivateCurrentOpenTarget();
     void panelAllowsHostToHandleOpenTarget();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
@@ -800,6 +801,55 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
     QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
     QCOMPARE(notified.anchor->target, QStringLiteral("Preview target"));
     QCOMPARE(notified.anchor->line, 4);
+}
+
+void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Note");
+    resource.location = QStringLiteral("note.md");
+    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock command"), 5}};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool handled = false;
+    PinloomOpenTarget capturedTarget;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        handled = true;
+        capturedTarget = target;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    QVERIFY(!panel.activateCurrentOpenTarget());
+
+    panel.setSearchText(QStringLiteral("Dock"));
+
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+    QCOMPARE(results->count(), 1);
+
+    results->setCurrentRow(0);
+    QVERIFY(panel.activateCurrentOpenTarget());
+
+    QVERIFY(handled);
+    QCOMPARE(capturedTarget.resourceId, resource.id);
+    QCOMPARE(capturedTarget.matchedField, QStringLiteral("anchor"));
+    QVERIFY(capturedTarget.anchor.has_value());
+    QCOMPARE(capturedTarget.anchor->target, QStringLiteral("Dock command"));
+    QCOMPARE(capturedTarget.anchor->line, 5);
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, resource.anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
 }
 
 void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()

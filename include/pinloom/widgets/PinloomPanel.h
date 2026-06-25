@@ -78,6 +78,7 @@ public:
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
+    bool activateCurrentOpenTarget();
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
     PinloomIndexingResult indexSelectedLibraryRoot();
