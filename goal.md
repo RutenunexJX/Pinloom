@@ -145,6 +145,7 @@ Completed:
 - Add line and symbol anchors for common languages used in engineering work.
 - Add lightweight Rust, Go, Java, and C# symbol anchors.
 - Add dependency/import line anchors for common engineering languages.
+- Support Go import block and JS/TS dynamic import dependency anchors.
 - Extract TODO/FIXME/NOTE comment line anchors for engineering source files.
 - Rank exact symbol and filename matches ahead of broad path matches.
 

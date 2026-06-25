@@ -241,6 +241,7 @@ Status:
 - Lightweight symbol anchors for common engineering languages: done.
 - Rust, Go, Java, and C# lightweight symbol anchors: done.
 - Dependency/import line anchors for common engineering languages: done.
+- Go import block and JS/TS dynamic import anchors: done.
 - TODO/FIXME/NOTE comment line anchors for source files: done.
 - Exact symbol and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 - Rich language-specific parsers: deferred.

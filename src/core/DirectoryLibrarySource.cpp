@@ -1616,6 +1616,8 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
         QStringLiteral("^import\\s+[\"']([^\"']+)[\"']"));
     static const QRegularExpression jsRequirePattern(
         QStringLiteral("^(?:const|let|var)\\s+[A-Za-z_$][A-Za-z0-9_$]*\\s*=\\s*require\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)"));
+    static const QRegularExpression jsDynamicImportPattern(
+        QStringLiteral("\\bimport\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)"));
     static const QRegularExpression rustUsePattern(
         QStringLiteral("^use\\s+([^;]+);"));
     static const QRegularExpression goImportPattern(
@@ -1636,6 +1638,7 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
              DependencyPattern{&jsImportFromPattern, QStringLiteral("import")},
              DependencyPattern{&jsSideEffectImportPattern, QStringLiteral("import")},
              DependencyPattern{&jsRequirePattern, QStringLiteral("require")},
+             DependencyPattern{&jsDynamicImportPattern, QStringLiteral("import")},
              DependencyPattern{&pythonImportPattern, QStringLiteral("import")},
              DependencyPattern{&rustUsePattern, QStringLiteral("use")},
              DependencyPattern{&goImportPattern, QStringLiteral("import")},
@@ -1649,6 +1652,27 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
                                  lineNumber);
             return;
         }
+    }
+}
+
+bool isGoImportBlockStart(const QString &line)
+{
+    static const QRegularExpression pattern(QStringLiteral("^import\\s*\\($"));
+    return pattern.match(line.trimmed()).hasMatch();
+}
+
+bool isGoImportBlockEnd(const QString &line)
+{
+    return line.trimmed().startsWith(QLatin1Char(')'));
+}
+
+void appendGoImportBlockDependencyAnchorFromLine(Resource &resource, const QString &line, int lineNumber)
+{
+    static const QRegularExpression pattern(
+        QStringLiteral("^(?:(?:[A-Za-z_][A-Za-z0-9_]*|\\.|_)\\s+)?\"([^\"]+)\""));
+    const QRegularExpressionMatch match = pattern.match(line.trimmed());
+    if (match.hasMatch()) {
+        appendFileLineAnchor(resource, QStringLiteral("import: %1").arg(match.captured(1).trimmed()), lineNumber);
     }
 }
 
@@ -2271,10 +2295,26 @@ void DirectoryLibrarySource::applyCodeMetadata(Resource &resource, const QFileIn
     }
 
     int lineNumber = 0;
+    bool inGoImportBlock = false;
     while (!file.atEnd()) {
         ++lineNumber;
         const QString line = QString::fromUtf8(file.readLine());
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
+
+        if (inGoImportBlock) {
+            if (isGoImportBlockEnd(line)) {
+                inGoImportBlock = false;
+            } else {
+                appendGoImportBlockDependencyAnchorFromLine(resource, line, lineNumber);
+            }
+            continue;
+        }
+
+        if (isGoImportBlockStart(line)) {
+            inGoImportBlock = true;
+            continue;
+        }
+
         appendCodeDependencyAnchorsFromLine(resource, line, lineNumber);
         appendCodeSymbolsFromLine(resource, line, lineNumber);
     }

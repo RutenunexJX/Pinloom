@@ -1129,12 +1129,16 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
                          "import pathlib, json\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/web.ts")),
               QByteArray("import type { PinloomOpenTarget } from \"./pinloom\";\n"
-                         "const bridge = require(\"@zeroslack/dock\");\n"));
+                         "const bridge = require(\"@zeroslack/dock\");\n"
+                         "const panel = await import(\"./lazy-panel\");\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/bridge.rs")),
               QByteArray("use crate::dock::HostBridge;\n"
                          "pub fn open_target() {}\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/server.go")),
-              QByteArray("import \"context\"\n"
+              QByteArray("import (\n"
+                         "    \"context\"\n"
+                         "    http \"net/http\"\n"
+                         ")\n"
                          "func StartRelay() {}\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/HostBridge.java")),
               QByteArray("import com.example.pinloom.Dock;\n"
@@ -1174,6 +1178,7 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     QVERIFY(tsIt != resources.cend());
     QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("import: ./pinloom"), 1));
     QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("require: @zeroslack/dock"), 2));
+    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("import: ./lazy-panel"), 3));
 
     const auto rustIt = findCode(QStringLiteral("bridge.rs"));
     QVERIFY(rustIt != resources.cend());
@@ -1181,7 +1186,8 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
 
     const auto goIt = findCode(QStringLiteral("server.go"));
     QVERIFY(goIt != resources.cend());
-    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: context"), 1));
+    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: context"), 2));
+    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: net/http"), 3));
 
     const auto javaIt = findCode(QStringLiteral("HostBridge.java"));
     QVERIFY(javaIt != resources.cend());
