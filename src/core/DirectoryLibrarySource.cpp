@@ -1908,6 +1908,10 @@ void appendCodeSymbolsFromLine(Resource &resource, const QString &line, int line
         return;
     }
 
+    static const QRegularExpression cppTestPattern(
+        QStringLiteral("^(?:TYPED_TEST|TYPED_TEST_P|TEST|TEST_F|TEST_P)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_:]*)\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)"));
+    static const QRegularExpression jsTestPattern(
+        QStringLiteral("^(describe|it|test)\\s*\\(\\s*([\"'`])([^\"'`\\r\\n]+)\\2"));
     static const QRegularExpression typePattern(
         QStringLiteral("^(?:template\\s*<[^>]+>\\s*)?(?:class|struct|enum(?:\\s+class)?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
     static const QRegularExpression cppFunctionPattern(
@@ -1933,6 +1937,25 @@ void appendCodeSymbolsFromLine(Resource &resource, const QString &line, int line
     static const QRegularExpression hdlPattern(
         QStringLiteral("^(?:module|interface|package|class|task|function)\\s+(?:automatic\\s+)?([A-Za-z_][A-Za-z0-9_$]*)\\b"));
     static const QRegularExpression tclPattern(QStringLiteral("^proc\\s+([^\\s{]+)\\b"));
+
+    const QRegularExpressionMatch cppTestMatch = cppTestPattern.match(trimmed);
+    if (cppTestMatch.hasMatch()) {
+        appendCodeSymbol(resource,
+                         QStringLiteral("%1.%2").arg(cppTestMatch.captured(1), cppTestMatch.captured(2)),
+                         lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch jsTestMatch = jsTestPattern.match(trimmed);
+    if (jsTestMatch.hasMatch()) {
+        const QString prefix = jsTestMatch.captured(1) == QLatin1String("describe")
+            ? QStringLiteral("suite")
+            : QStringLiteral("test");
+        appendCodeSymbol(resource,
+                         QStringLiteral("%1: %2").arg(prefix, jsTestMatch.captured(3).trimmed()),
+                         lineNumber);
+        return;
+    }
 
     for (const QRegularExpression *pattern : {
              &typePattern,

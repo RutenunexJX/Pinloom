@@ -144,6 +144,7 @@ Completed:
 - Index source-code files as first-class resources.
 - Add line and symbol anchors for common languages used in engineering work.
 - Add lightweight Rust, Go, Java, and C# symbol anchors.
+- Add lightweight test case/suite anchors for C++ GoogleTest and JS/TS tests.
 - Add dependency/import line anchors for common engineering languages.
 - Support Go import block and JS/TS dynamic import dependency anchors.
 - Extract TODO/FIXME/NOTE comment line anchors for engineering source files.

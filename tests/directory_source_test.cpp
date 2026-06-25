@@ -34,6 +34,7 @@ private slots:
     void extractsPdfRegionAnchors();
     void extractsCodeSymbolAnchors();
     void extractsAdditionalLanguageSymbolAnchors();
+    void extractsCodeTestCaseAnchors();
     void extractsCodeDependencyLineAnchors();
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
@@ -1220,6 +1221,78 @@ void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
     QCOMPARE(goResults.first().resource.kind, ResourceKind::CodeSnippet);
     QVERIFY(goResults.first().matchedAnchor.has_value());
     QCOMPARE(goResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+}
+
+void DirectorySourceTest::extractsCodeTestCaseAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/tests")));
+    writeFile(dir.filePath(QStringLiteral("library/tests/pinloom_test.cpp")),
+              QByteArray("TEST(PinloomLocator, OpensSelectedAnchor)\n"
+                         "{\n"
+                         "}\n"
+                         "TEST_F(PinloomPanelTest, RecordsActivation)\n"
+                         "{\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/tests/panel.test.ts")),
+              QByteArray("describe(\"Pinloom panel\", () => {\n"
+                         "  it('renders dock handoff state', () => {});\n"
+                         "  test(`records activation metrics`, () => {});\n"
+                         "});\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findCode = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+        });
+    };
+    auto hasSymbol = [](const Resource &resource, const QString &symbol, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == symbol
+                && anchor.line == line;
+        });
+    };
+
+    const auto cppIt = findCode(QStringLiteral("pinloom_test.cpp"));
+    QVERIFY(cppIt != resources.cend());
+    QVERIFY(hasSymbol(*cppIt, QStringLiteral("PinloomLocator.OpensSelectedAnchor"), 1));
+    QVERIFY(hasSymbol(*cppIt, QStringLiteral("PinloomPanelTest.RecordsActivation"), 4));
+
+    const auto tsIt = findCode(QStringLiteral("panel.test.ts"));
+    QVERIFY(tsIt != resources.cend());
+    QVERIFY(hasSymbol(*tsIt, QStringLiteral("suite: Pinloom panel"), 1));
+    QVERIFY(hasSymbol(*tsIt, QStringLiteral("test: renders dock handoff state"), 2));
+    QVERIFY(hasSymbol(*tsIt, QStringLiteral("test: records activation metrics"), 3));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> cppResults = repository.search(SearchQuery{QStringLiteral("OpensSelectedAnchor")});
+    QCOMPARE(cppResults.size(), 1);
+    QCOMPARE(cppResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(cppResults.first().matchedAnchor.has_value());
+    QCOMPARE(cppResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+    QCOMPARE(cppResults.first().matchedAnchor->target, QStringLiteral("PinloomLocator.OpensSelectedAnchor"));
+
+    const QList<SearchResult> jsResults = repository.search(SearchQuery{QStringLiteral("handoff")});
+    QCOMPARE(jsResults.size(), 1);
+    QCOMPARE(jsResults.first().resource.kind, ResourceKind::CodeSnippet);
+    QVERIFY(jsResults.first().matchedAnchor.has_value());
+    QCOMPARE(jsResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
+    QCOMPARE(jsResults.first().matchedAnchor->target, QStringLiteral("test: renders dock handoff state"));
 }
 
 void DirectorySourceTest::extractsCodeDependencyLineAnchors()
