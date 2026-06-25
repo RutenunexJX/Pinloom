@@ -44,6 +44,7 @@ private slots:
     void extractsAdditionalLanguageSymbolAnchors();
     void extractsCodeTestCaseAnchors();
     void extractsCodeDependencyLineAnchors();
+    void extractsCMakeBuildAnchors();
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
@@ -2092,6 +2093,93 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("require: @zeroslack/dock");
+    }));
+}
+
+void DirectorySourceTest::extractsCMakeBuildAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/build/cmake")));
+    writeFile(dir.filePath(QStringLiteral("library/CMakeLists.txt")),
+              QByteArray("cmake_minimum_required(VERSION 3.24)\n"
+                         "project(PinloomHost)\n"
+                         "find_package(Qt6 REQUIRED COMPONENTS Widgets Sql)\n"
+                         "option(PINLOOM_ENABLE_REMOTE_FETCH \"Fetch remote pages\" ON)\n"
+                         "add_library(pinloom_core STATIC src/core.cpp)\n"
+                         "add_executable(pinloom_app src/main.cpp)\n"
+                         "add_custom_target(pinloom_docs)\n"
+                         "add_test(NAME pinloom_core_smoke_test COMMAND pinloom_core_smoke_test)\n"));
+    writeFile(dir.filePath(QStringLiteral("library/build/cmake/PinloomHelpers.cmake")),
+              QByteArray("function(pinloom_add_widget_test name)\n"
+                         "endfunction()\n"
+                         "macro(pinloom_copy_runtime)\n"
+                         "endmacro()\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findCode = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+        });
+    };
+    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    const auto cmakeListsIt = findCode(QStringLiteral("CMakeLists.txt"));
+    QVERIFY(cmakeListsIt != resources.cend());
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("project: PinloomHost"), 2));
+    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("dependency: Qt6"), 3));
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_core"), 5));
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_app"), 6));
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_docs"), 7));
+    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("test: pinloom_core_smoke_test"), 8));
+
+    const auto helpersIt = findCode(QStringLiteral("PinloomHelpers.cmake"));
+    QVERIFY(helpersIt != resources.cend());
+    QVERIFY(hasSymbol(*helpersIt, QStringLiteral("function: pinloom_add_widget_test"), 1));
+    QVERIFY(hasSymbol(*helpersIt, QStringLiteral("macro: pinloom_copy_runtime"), 3));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> targetResults = repository.search(SearchQuery{QStringLiteral("pinloom_core")});
+    QVERIFY(std::any_of(targetResults.cbegin(), targetResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("CMakeLists.txt")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->target == QLatin1String("target: pinloom_core");
+    }));
+
+    const QList<SearchResult> packageResults = repository.search(SearchQuery{QStringLiteral("Qt6")});
+    QVERIFY(std::any_of(packageResults.cbegin(), packageResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("CMakeLists.txt")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("dependency: Qt6");
     }));
 }
 

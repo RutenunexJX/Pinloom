@@ -153,6 +153,7 @@ Completed:
 - Add line and symbol anchors for common languages used in engineering work.
 - Add lightweight Rust, Go, Java, and C# symbol anchors.
 - Add lightweight test case/suite anchors for C++ GoogleTest and JS/TS tests.
+- Add CMake project, target, package, option, function, macro, and test anchors for build-script jumps.
 - Add dependency/import line anchors for common engineering languages.
 - Support Go import block and JS/TS dynamic import dependency anchors.
 - Extract TODO/FIXME/NOTE comment line anchors for engineering source files.

@@ -243,10 +243,21 @@ QString normalizedPath(const QFileInfo &fileInfo)
     return QDir::cleanPath(fileInfo.absoluteFilePath());
 }
 
+bool isCMakeFile(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && (fileInfo.fileName().compare(QStringLiteral("CMakeLists.txt"), Qt::CaseInsensitive) == 0
+            || fileInfo.suffix().compare(QStringLiteral("cmake"), Qt::CaseInsensitive) == 0);
+}
+
 ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return ResourceKind::Folder;
+    }
+
+    if (isCMakeFile(fileInfo)) {
+        return ResourceKind::CodeSnippet;
     }
 
     const QString suffix = fileInfo.suffix().toLower();
@@ -2712,6 +2723,73 @@ void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line
     }
 }
 
+void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+{
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    static const QRegularExpression targetPattern(
+        QStringLiteral("^(?:qt_)?add_(?:executable|library|custom_target)\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression testPattern(
+        QStringLiteral("^add_test\\s*\\(\\s*(?:NAME\\s+)?([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression projectPattern(
+        QStringLiteral("^project\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression optionPattern(
+        QStringLiteral("^option\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression functionPattern(
+        QStringLiteral("^(function|macro)\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression packagePattern(
+        QStringLiteral("^find_package\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+
+    const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
+    if (targetMatch.hasMatch()) {
+        appendCodeSymbol(resource, QStringLiteral("target: %1").arg(targetMatch.captured(1)), lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch testMatch = testPattern.match(trimmed);
+    if (testMatch.hasMatch()) {
+        appendCodeSymbol(resource, QStringLiteral("test: %1").arg(testMatch.captured(1)), lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch projectMatch = projectPattern.match(trimmed);
+    if (projectMatch.hasMatch()) {
+        appendCodeSymbol(resource, QStringLiteral("project: %1").arg(projectMatch.captured(1)), lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch optionMatch = optionPattern.match(trimmed);
+    if (optionMatch.hasMatch()) {
+        appendCodeSymbol(resource, QStringLiteral("option: %1").arg(optionMatch.captured(1)), lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch functionMatch = functionPattern.match(trimmed);
+    if (functionMatch.hasMatch()) {
+        appendCodeSymbol(resource,
+                         QStringLiteral("%1: %2")
+                             .arg(functionMatch.captured(1).toLower(), functionMatch.captured(2)),
+                         lineNumber);
+        return;
+    }
+
+    const QRegularExpressionMatch packageMatch = packagePattern.match(trimmed);
+    if (packageMatch.hasMatch()) {
+        appendFileLineAnchor(resource,
+                             QStringLiteral("dependency: %1").arg(packageMatch.captured(1)),
+                             lineNumber);
+    }
+}
+
 bool isGoImportBlockStart(const QString &line)
 {
     static const QRegularExpression pattern(QStringLiteral("^import\\s*\\($"));
@@ -4618,10 +4696,15 @@ void DirectoryLibrarySource::applyCodeMetadata(Resource &resource, const QFileIn
 
     int lineNumber = 0;
     bool inGoImportBlock = false;
+    const bool cmakeFile = isCMakeFile(fileInfo);
     while (!file.atEnd()) {
         ++lineNumber;
         const QString line = QString::fromUtf8(file.readLine());
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
+
+        if (cmakeFile) {
+            appendCMakeAnchorsFromLine(resource, line, lineNumber);
+        }
 
         if (inGoImportBlock) {
             if (isGoImportBlockEnd(line)) {

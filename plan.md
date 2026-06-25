@@ -254,6 +254,7 @@ Status:
 - Lightweight symbol anchors for common engineering languages: done.
 - Rust, Go, Java, and C# lightweight symbol anchors: done.
 - Test case/suite anchors for C++ GoogleTest and JS/TS tests: done.
+- CMake project/target/package/option/function/macro/test anchors: done.
 - Dependency/import line anchors for common engineering languages: done.
 - Go import block and JS/TS dynamic import anchors: done.
 - TODO/FIXME/NOTE comment line anchors for source files: done.
