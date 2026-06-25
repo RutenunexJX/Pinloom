@@ -31,6 +31,7 @@ private slots:
     void extractsAsciiHexEncodedPdfContentText();
     void extractsAscii85EncodedPdfContentText();
     void extractsRunLengthEncodedPdfContentText();
+    void extractsLzwEncodedPdfContentText();
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsCodeSymbolAnchors();
@@ -1153,6 +1154,56 @@ void DirectorySourceTest::extractsRunLengthEncodedPdfContentText()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("RunLength Pinloom")});
+    QCOMPARE(contentResults.size(), 1);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
+    QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
+}
+
+void DirectorySourceTest::extractsLzwEncodedPdfContentText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library")));
+
+    const QByteArray encodedStream = QByteArray::fromHex(
+        "80108a80a179186220188c84054330286f0a878c21664050a0985a2b880a069371b0de"
+        "6f36880da613a1c8d27814c2cd40a2d8a0b465391bca66c3098cd62094c262428321"
+        "be6c2031498c867328a4bb0b250288b03808");
+    QByteArray pdf;
+    pdf.append("%PDF-1.4\n");
+    pdf.append("1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n");
+    pdf.append("2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n");
+    pdf.append("3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n");
+    pdf.append("4 0 obj << /Length ");
+    pdf.append(QByteArray::number(encodedStream.size()));
+    pdf.append(" /Filter /LZWDecode /DecodeParms << /EarlyChange 1 >> >>\nstream\n");
+    pdf.append(encodedStream);
+    pdf.append("\nendstream\nendobj\n%%EOF\n");
+    writeFile(dir.filePath(QStringLiteral("library/lzw.pdf")), pdf);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pdfIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("lzw.pdf");
+    });
+    QVERIFY(pdfIt != resources.cend());
+    QVERIFY(pdfIt->content.contains(QStringLiteral("LZW Pinloom matrix")));
+    QVERIFY(pdfIt->content.contains(QStringLiteral("ZeroSlack dock bridge")));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("LZW Pinloom")});
     QCOMPARE(contentResults.size(), 1);
     QCOMPARE(contentResults.first().resource.kind, ResourceKind::Pdf);
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));

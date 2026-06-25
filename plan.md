@@ -313,6 +313,7 @@ Status:
 - Lightweight PDF text extraction/search for ASCIIHexDecode streams and literal octal escapes: done.
 - Lightweight PDF text extraction/search for ASCII85Decode streams: done.
 - Lightweight PDF text extraction/search for RunLengthDecode streams: done.
+- Lightweight PDF text extraction/search for LZWDecode streams: done.
 - Ordered PDF stream filter chains for supported filters: done.
 - Markdown body content extraction/search: done.
 - Markdown task checkbox line anchors/search: done.
@@ -327,6 +328,6 @@ Status:
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
-- Fuller PDF content extraction for unsupported filters, complex encodings, and OCR: pending.
+- Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond shortcuts, browser bookmark files, and OPML: deferred.
 - Richer source-code parsing: deferred until lightweight symbols prove insufficient.

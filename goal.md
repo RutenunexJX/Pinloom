@@ -194,6 +194,7 @@ Completed:
 - Extract searchable PDF text from ASCIIHexDecode text content streams and literal octal escapes.
 - Extract searchable PDF text from ASCII85Decode text content streams.
 - Extract searchable PDF text from RunLengthDecode text content streams.
+- Extract searchable PDF text from LZWDecode text content streams.
 - Apply ordered PDF stream filter chains for supported filters.
 - Extract searchable Markdown body content.
 - Extract Markdown task checkbox lines as searchable file-line anchors.
@@ -211,5 +212,5 @@ Completed:
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for unsupported filters, complex encodings, and OCR, plus broader web source support beyond shortcuts, browser bookmark files, and OPML.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond shortcuts, browser bookmark files, and OPML.
 - Add richer source-code parsing if lightweight symbol extraction becomes too noisy.

@@ -19,6 +19,7 @@
 #include <QRegularExpression>
 #include <QTimer>
 #include <QUrl>
+#include <QVector>
 #include <QXmlStreamReader>
 #include <algorithm>
 #include <cmath>
@@ -1279,6 +1280,87 @@ QByteArray decodePdfRunLengthData(const QByteArray &encoded)
     return decoded;
 }
 
+QByteArray decodePdfLzwData(const QByteArray &encoded, int earlyChange = 1)
+{
+    if (encoded.isEmpty()) {
+        return {};
+    }
+
+    QVector<QByteArray> table(4096);
+    auto resetTable = [&]() {
+        std::fill(table.begin(), table.end(), QByteArray{});
+        for (int i = 0; i < 256; ++i) {
+            table[i] = QByteArray(1, static_cast<char>(i));
+        }
+    };
+
+    int byteIndex = 0;
+    int bitIndex = 0;
+    auto readCode = [&](int bitWidth, int *code) {
+        if (!code || bitWidth <= 0) {
+            return false;
+        }
+
+        int value = 0;
+        for (int i = 0; i < bitWidth; ++i) {
+            if (byteIndex >= encoded.size()) {
+                return false;
+            }
+            const int byte = static_cast<unsigned char>(encoded.at(byteIndex));
+            value = (value << 1) | ((byte >> (7 - bitIndex)) & 0x01);
+            ++bitIndex;
+            if (bitIndex == 8) {
+                bitIndex = 0;
+                ++byteIndex;
+            }
+        }
+        *code = value;
+        return true;
+    };
+
+    resetTable();
+    QByteArray decoded;
+    QByteArray previous;
+    int codeSize = 9;
+    int nextCode = 258;
+
+    int code = -1;
+    while (readCode(codeSize, &code)) {
+        if (code == 256) {
+            resetTable();
+            previous.clear();
+            codeSize = 9;
+            nextCode = 258;
+            continue;
+        }
+        if (code == 257) {
+            return decoded;
+        }
+
+        QByteArray entry;
+        if (code >= 0 && code < table.size() && !table.at(code).isEmpty()) {
+            entry = table.at(code);
+        } else if (code == nextCode && !previous.isEmpty()) {
+            entry = previous + previous.left(1);
+        } else {
+            return {};
+        }
+
+        decoded.append(entry);
+
+        if (!previous.isEmpty() && nextCode < table.size()) {
+            table[nextCode++] = previous + entry.left(1);
+            if (codeSize < 12 && nextCode + earlyChange == (1 << codeSize)) {
+                ++codeSize;
+            }
+        }
+
+        previous = entry;
+    }
+
+    return {};
+}
+
 QStringList pdfFilterNames(const QString &dictionary)
 {
     const int filterIndex = dictionary.indexOf(QStringLiteral("/Filter"));
@@ -1345,7 +1427,10 @@ QStringList pdfFilterNames(const QString &dictionary)
     return filters;
 }
 
-QByteArray decodePdfStreamFilter(const QByteArray &input, const QString &filterName, int decodedLengthHint)
+QByteArray decodePdfStreamFilter(const QByteArray &input,
+                                 const QString &filterName,
+                                 int decodedLengthHint,
+                                 int lzwEarlyChange)
 {
     if (filterName == QLatin1String("ASCIIHexDecode") || filterName == QLatin1String("AHx")) {
         return decodePdfAsciiHexData(input);
@@ -1358,6 +1443,9 @@ QByteArray decodePdfStreamFilter(const QByteArray &input, const QString &filterN
     }
     if (filterName == QLatin1String("RunLengthDecode") || filterName == QLatin1String("RL")) {
         return decodePdfRunLengthData(input);
+    }
+    if (filterName == QLatin1String("LZWDecode") || filterName == QLatin1String("LZW")) {
+        return decodePdfLzwData(input, lzwEarlyChange);
     }
     return {};
 }
@@ -1381,8 +1469,10 @@ QString pdfDecodedStreamBody(const QString &objectBody)
 
     QByteArray decoded = body;
     const int decodedLengthHint = pdfIntegerValueAfterKey(dictionary, QStringLiteral("DL"));
+    const int parsedLzwEarlyChange = pdfIntegerValueAfterKey(dictionary, QStringLiteral("EarlyChange"));
+    const int lzwEarlyChange = parsedLzwEarlyChange == 0 ? 0 : 1;
     for (const QString &filter : filters) {
-        decoded = decodePdfStreamFilter(decoded, filter, decodedLengthHint);
+        decoded = decodePdfStreamFilter(decoded, filter, decodedLengthHint, lzwEarlyChange);
         if (decoded.isEmpty()) {
             return {};
         }
