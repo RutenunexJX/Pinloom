@@ -529,13 +529,33 @@ int PinloomPanel::resultCount() const
     return resultList_->count();
 }
 
-bool PinloomPanel::selectFirstResult()
+bool PinloomPanel::selectResultAt(int row)
 {
-    if (resultList_->count() <= 0) {
+    if (row < 0 || row >= resultList_->count()) {
         return false;
     }
-    resultList_->setCurrentRow(0);
+    resultList_->setCurrentRow(row);
     return resultList_->currentItem() != nullptr;
+}
+
+bool PinloomPanel::selectResultResource(const QString &resourceId)
+{
+    if (resourceId.isEmpty()) {
+        return false;
+    }
+    for (int row = 0; row < resultList_->count(); ++row) {
+        QListWidgetItem *item = resultList_->item(row);
+        if (item->data(Qt::UserRole).toString() == resourceId) {
+            resultList_->setCurrentItem(item);
+            return true;
+        }
+    }
+    return false;
+}
+
+bool PinloomPanel::selectFirstResult()
+{
+    return selectResultAt(0);
 }
 
 bool PinloomPanel::selectNextResult()
@@ -546,8 +566,7 @@ bool PinloomPanel::selectNextResult()
     }
     const int currentRow = resultList_->currentRow();
     const int nextRow = currentRow < 0 ? 0 : std::min(currentRow + 1, count - 1);
-    resultList_->setCurrentRow(nextRow);
-    return resultList_->currentItem() != nullptr;
+    return selectResultAt(nextRow);
 }
 
 bool PinloomPanel::selectPreviousResult()
@@ -558,8 +577,7 @@ bool PinloomPanel::selectPreviousResult()
     }
     const int currentRow = resultList_->currentRow();
     const int previousRow = currentRow < 0 ? 0 : std::max(currentRow - 1, 0);
-    resultList_->setCurrentRow(previousRow);
-    return resultList_->currentItem() != nullptr;
+    return selectResultAt(previousRow);
 }
 
 void PinloomPanel::setRemoteWebFetchingEnabled(bool enabled)
@@ -1140,17 +1158,6 @@ QString PinloomPanel::selectedLocation() const
         return {};
     }
     return item->data(Qt::UserRole + 1).toString();
-}
-
-void PinloomPanel::selectResultResource(const QString &resourceId)
-{
-    for (int row = 0; row < resultList_->count(); ++row) {
-        QListWidgetItem *item = resultList_->item(row);
-        if (item->data(Qt::UserRole).toString() == resourceId) {
-            resultList_->setCurrentItem(item);
-            return;
-        }
-    }
 }
 
 PinloomIndexingResult PinloomPanel::finishIndexingResult(const PinloomIndexingResult &result)

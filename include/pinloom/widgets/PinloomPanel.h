@@ -98,6 +98,8 @@ public:
     PinloomOpenTarget currentOpenTarget() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
     int resultCount() const;
+    bool selectResultAt(int row);
+    bool selectResultResource(const QString &resourceId);
     bool selectFirstResult();
     bool selectNextResult();
     bool selectPreviousResult();
@@ -138,7 +140,6 @@ private:
     QString selectedRootId() const;
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
-    void selectResultResource(const QString &resourceId);
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;

@@ -107,7 +107,7 @@ Completed:
 - Let embedding hosts hide standalone management/editing chrome for compact dock/global-control embedding.
 - Let embedding hosts inspect the current selected open target and observe selection changes without triggering activation.
 - Let embedding hosts inspect related targets for the current selection without parsing UI text.
-- Let embedding hosts inspect result count and navigate result selection through API for command palette flows.
+- Let embedding hosts inspect result count, navigate result selection, and directly select results by row or resource id through API for command palette flows.
 - Let embedding hosts observe result-count changes after search/filter refreshes.
 - Let embedding hosts activate the current result through API for command palette or global-shortcut flows.
 - Let embedding hosts control the optional remote HTML fetch setting used during indexing.

@@ -1029,12 +1029,26 @@ void WidgetSmokeTest::panelAllowsHostResultNavigation()
 
     panel.setSearchText(QStringLiteral("missing"));
     QCOMPARE(panel.resultCount(), 0);
+    QVERIFY(!panel.selectResultAt(0));
+    QVERIFY(!panel.selectResultResource(alpha.id));
     QVERIFY(!panel.selectNextResult());
     QVERIFY(!panel.selectPreviousResult());
 
     panel.setSearchText(QStringLiteral("UART"));
     QCOMPARE(panel.resultCount(), 2);
+    QVERIFY(!panel.selectResultAt(-1));
+    QVERIFY(!panel.selectResultAt(2));
     QVERIFY(panel.selectFirstResult());
+    QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
+
+    QVERIFY(panel.selectResultAt(1));
+    QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
+    QVERIFY(!panel.selectResultAt(2));
+    QCOMPARE(panel.currentOpenTarget().resourceId, zulu.id);
+
+    QVERIFY(panel.selectResultResource(alpha.id));
+    QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
+    QVERIFY(!panel.selectResultResource(QStringLiteral("missing")));
     QCOMPARE(panel.currentOpenTarget().resourceId, alpha.id);
 
     QVERIFY(panel.selectNextResult());
