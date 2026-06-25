@@ -54,6 +54,7 @@ struct PinloomPanelOptions {
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
     std::function<void(int resultCount)> resultCountChangedHandler;
     std::function<void(const QList<PinloomOpenTarget> &results)> resultsChangedHandler;
+    std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     bool showLibraryRootControls = true;
     bool showManualEditControls = true;
@@ -110,6 +111,7 @@ public:
     bool activateCurrentOpenTarget();
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
+    QString statusText() const;
     PinloomIndexingResult lastIndexingResult() const;
     PinloomIndexingResult indexSelectedLibraryRoot();
     PinloomIndexingResult indexAllEnabledLibraryRoots();
@@ -158,6 +160,7 @@ private:
     QStringList contextLocationPrefixes_;
     QStringList contextResourceIds_;
     QStringList contextRelationLabels_;
+    QString statusText_;
     PinloomIndexingResult lastIndexingResult_;
     QWidget *rootControlsWidget_ = nullptr;
     QListWidget *rootList_ = nullptr;

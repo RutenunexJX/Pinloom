@@ -615,6 +615,11 @@ bool PinloomPanel::remoteWebFetchingEnabled() const
     return fetchRemoteWebPagesCheck_ && fetchRemoteWebPagesCheck_->isChecked();
 }
 
+QString PinloomPanel::statusText() const
+{
+    return statusText_;
+}
+
 PinloomIndexingResult PinloomPanel::lastIndexingResult() const
 {
     return lastIndexingResult_;
@@ -1161,7 +1166,11 @@ void PinloomPanel::selectLibraryRoot(const QString &id)
 
 void PinloomPanel::updateStatus(const QString &message)
 {
+    statusText_ = message;
     statusLabel_->setText(message);
+    if (options_.statusChangedHandler) {
+        options_.statusChangedHandler(statusText_);
+    }
 }
 
 QString PinloomPanel::selectedRootId() const
