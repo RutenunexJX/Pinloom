@@ -15,6 +15,7 @@ struct SearchQuery {
     QList<ResourceKind> requiredKinds;
     QStringList contextTags;
     QStringList contextLocationPrefixes;
+    QStringList contextResourceIds;
     int limit = 50;
 };
 
@@ -23,6 +24,8 @@ struct SearchResult {
     double score = 0.0;
     QString matchedField;
     std::optional<Anchor> matchedAnchor;
+    QString matchedContextResourceId;
+    QString matchedContextRelationLabel;
 };
 
 } // namespace Pinloom

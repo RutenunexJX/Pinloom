@@ -390,6 +390,26 @@ bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &required
     return requiredKinds.isEmpty() || requiredKinds.contains(kind);
 }
 
+std::optional<ResourceRelation> matchedContextRelation(const Resource &resource,
+                                                       const SearchQuery &query,
+                                                       const QList<ResourceRelation> &relations)
+{
+    for (const QString &contextResourceId : query.contextResourceIds) {
+        const QString contextId = contextResourceId.trimmed();
+        if (contextId.isEmpty() || contextId == resource.id) {
+            continue;
+        }
+
+        for (const ResourceRelation &relation : relations) {
+            if ((relation.sourceResourceId == resource.id && relation.targetResourceId == contextId)
+                || (relation.targetResourceId == resource.id && relation.sourceResourceId == contextId)) {
+                return relation;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 double contextScoreAdjustment(const Resource &resource, const SearchQuery &query)
 {
     double adjustment = 0.0;
@@ -1322,6 +1342,15 @@ AnchorUsage SqliteLibraryRepository::hydrateAnchorUsage(QSqlQuery &query) const
 void SqliteLibraryRepository::applyRankingSignals(SearchResult &result, const SearchQuery &query) const
 {
     result.score += contextScoreAdjustment(result.resource, query);
+    const std::optional<ResourceRelation> contextRelation =
+        matchedContextRelation(result.resource, query, resourceRelations(result.resource.id));
+    if (contextRelation.has_value()) {
+        result.score -= 0.4;
+        result.matchedContextRelationLabel = contextRelation->label;
+        result.matchedContextResourceId = contextRelation->sourceResourceId == result.resource.id
+            ? contextRelation->targetResourceId
+            : contextRelation->sourceResourceId;
+    }
 
     for (const LibraryRoot &root : libraryRoots()) {
         if (resourceMatchesLibraryRoot(result.resource, root)) {

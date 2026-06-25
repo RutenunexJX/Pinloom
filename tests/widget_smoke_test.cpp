@@ -37,6 +37,7 @@ private slots:
     void panelAppliesRequiredTagLocationAndKindFiltering();
     void panelAppliesHostContextSnapshot();
     void panelAppliesHostContextRanking();
+    void panelAppliesHostContextResourceRanking();
     void panelExposesCurrentOpenTargetForHostPreview();
     void panelNotifiesHostWhenCurrentOpenTargetChanges();
     void panelNotifiesHostWhenResultCountChanges();
@@ -722,6 +723,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     context.requiredResourceKinds = {ResourceKind::Markdown};
     context.contextTags = {QStringLiteral("pcie")};
     context.contextLocationPrefixes = {QStringLiteral("E:/workspace/project")};
+    context.contextResourceIds = {project.id};
     panel.applyHostContext(context);
 
     const PinloomHostContext snapshot = panel.hostContext();
@@ -731,6 +733,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     QCOMPARE(snapshot.requiredResourceKinds, context.requiredResourceKinds);
     QCOMPARE(snapshot.contextTags, context.contextTags);
     QCOMPARE(snapshot.contextLocationPrefixes, context.contextLocationPrefixes);
+    QCOMPARE(snapshot.contextResourceIds, context.contextResourceIds);
 
     QCOMPARE(results->count(), 2);
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), project.id);
@@ -782,6 +785,57 @@ void WidgetSmokeTest::panelAppliesHostContextRanking()
     QCOMPARE(panel.contextLocationPrefixes(), QStringList{QStringLiteral("E:/workspace/project")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), contextual.id);
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context location: E:/workspace/project")));
+}
+
+void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource active;
+    active.id = QStringLiteral("active");
+    active.kind = ResourceKind::Markdown;
+    active.title = QStringLiteral("Current Note");
+    active.location = QStringLiteral("E:/workspace/current.md");
+    QVERIFY(repository.upsertResource(active));
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Markdown;
+    generic.title = QStringLiteral("UART Alpha");
+    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
+    QVERIFY(repository.upsertResource(generic));
+
+    Resource related;
+    related.id = QStringLiteral("related");
+    related.kind = ResourceKind::Markdown;
+    related.title = QStringLiteral("UART Zulu");
+    related.location = QStringLiteral("E:/workspace/project/zulu.md");
+    QVERIFY(repository.upsertResource(related));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = active.id;
+    relation.targetResourceId = related.id;
+    relation.label = QStringLiteral("supports");
+    QVERIFY(repository.upsertResourceRelation(relation));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
+
+    panel.setContextResourceIds({active.id});
+    QCOMPARE(panel.contextResourceIds(), QStringList{active.id});
+    QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+
+    results->setCurrentRow(0);
+    const PinloomOpenTarget target = panel.currentOpenTarget();
+    QCOMPARE(target.resourceId, related.id);
+    QCOMPARE(target.matchedContextResourceId, active.id);
+    QCOMPARE(target.matchedContextRelationLabel, QStringLiteral("supports"));
 }
 
 void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()

@@ -185,6 +185,7 @@ Status:
 - Host-controllable optional remote HTML fetching toggle: done.
 - Host-triggered selected-root, all-root, and rebuild indexing APIs with structured results: done.
 - Host-required resource-kind, tag, and location-prefix filtering APIs: done.
+- Host relation-aware context-resource ranking API: done.
 - Atomic host search/filter/ranking context snapshot API: done.
 - Rich host activation payload with resource metadata, match/context details, score, and anchors: done.
 - Standalone fallback behavior: done.
@@ -296,6 +297,7 @@ Status:
 - Resource-level recency/frequency signals: done.
 - Pinned resources: done.
 - Context-aware ranking: done.
+- Relation-aware context-resource ranking: done.
 - Host-required resource-kind, tag, and location-prefix filtering: done.
 - Anchor-level usage history and ranking: done.
 - Pinned roots and root-level ranking boosts: done.

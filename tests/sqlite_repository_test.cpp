@@ -24,6 +24,7 @@ private slots:
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
     void ranksContextSignalsWithinMatchType();
+    void ranksRelatedContextResourcesWithinMatchType();
     void ranksPinnedLibraryRootSignalsWithinMatchType();
     void tracksAnchorUsageAndRanksAnchorRecall();
     void managesResourceRelations();
@@ -468,6 +469,57 @@ void SqliteRepositoryTest::ranksContextSignalsWithinMatchType()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, contextual.id);
     QCOMPARE(results.first().matchedField, QStringLiteral("title"));
+}
+
+void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource active;
+    active.id = QStringLiteral("active");
+    active.kind = ResourceKind::Markdown;
+    active.title = QStringLiteral("Current Note");
+    active.location = QStringLiteral("E:/workspace/current.md");
+    QVERIFY2(repository.upsertResource(active), qPrintable(repository.lastError()));
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Markdown;
+    generic.title = QStringLiteral("UART Alpha");
+    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
+    QVERIFY2(repository.upsertResource(generic), qPrintable(repository.lastError()));
+
+    Resource related;
+    related.id = QStringLiteral("related");
+    related.kind = ResourceKind::Markdown;
+    related.title = QStringLiteral("UART Zulu");
+    related.location = QStringLiteral("E:/workspace/project/zulu.md");
+    QVERIFY2(repository.upsertResource(related), qPrintable(repository.lastError()));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = active.id;
+    relation.targetResourceId = related.id;
+    relation.label = QStringLiteral("supports");
+    QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
+
+    SearchQuery query;
+    query.text = QStringLiteral("UART");
+    QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, generic.id);
+
+    query.contextResourceIds = {active.id};
+    results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, related.id);
+    QCOMPARE(results.first().matchedContextResourceId, active.id);
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
 }
 
 void SqliteRepositoryTest::ranksPinnedLibraryRootSignalsWithinMatchType()

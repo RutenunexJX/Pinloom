@@ -17,6 +17,7 @@ private slots:
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
     void ranksContextResourcesWithinMatchType();
+    void ranksRelatedContextResourcesWithinMatchType();
     void ranksOpenedAnchorsWithinAnchorMatches();
     void searchesExtractedContent();
     void exposesSqliteFts5SchemaDraft();
@@ -251,6 +252,51 @@ void CoreSmokeTest::ranksContextResourcesWithinMatchType()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, contextual.id);
     QCOMPARE(results.first().matchedField, QStringLiteral("title"));
+}
+
+void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource active;
+    active.id = QStringLiteral("active");
+    active.kind = ResourceKind::Markdown;
+    active.title = QStringLiteral("Current Note");
+    active.location = QStringLiteral("E:/workspace/current.md");
+    QVERIFY(repository.upsertResource(active));
+
+    Resource generic;
+    generic.id = QStringLiteral("generic");
+    generic.kind = ResourceKind::Markdown;
+    generic.title = QStringLiteral("UART Alpha");
+    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
+    QVERIFY(repository.upsertResource(generic));
+
+    Resource related;
+    related.id = QStringLiteral("related");
+    related.kind = ResourceKind::Markdown;
+    related.title = QStringLiteral("UART Zulu");
+    related.location = QStringLiteral("E:/workspace/project/zulu.md");
+    QVERIFY(repository.upsertResource(related));
+
+    ResourceRelation relation;
+    relation.sourceResourceId = active.id;
+    relation.targetResourceId = related.id;
+    relation.label = QStringLiteral("supports");
+    QVERIFY(repository.upsertResourceRelation(relation));
+
+    SearchQuery query;
+    query.text = QStringLiteral("UART");
+    QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, generic.id);
+
+    query.contextResourceIds = {active.id};
+    results = repository.search(query);
+    QCOMPARE(results.size(), 2);
+    QCOMPARE(results.first().resource.id, related.id);
+    QCOMPARE(results.first().matchedContextResourceId, active.id);
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
 }
 
 void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()

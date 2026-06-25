@@ -153,6 +153,26 @@ bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &required
     return requiredKinds.isEmpty() || requiredKinds.contains(kind);
 }
 
+std::optional<ResourceRelation> matchedContextRelation(const Resource &resource,
+                                                       const SearchQuery &query,
+                                                       const QList<ResourceRelation> &relations)
+{
+    for (const QString &contextResourceId : query.contextResourceIds) {
+        const QString contextId = contextResourceId.trimmed();
+        if (contextId.isEmpty() || contextId == resource.id) {
+            continue;
+        }
+
+        for (const ResourceRelation &relation : relations) {
+            if ((relation.sourceResourceId == resource.id && relation.targetResourceId == contextId)
+                || (relation.targetResourceId == resource.id && relation.sourceResourceId == contextId)) {
+                return relation;
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 double contextScoreAdjustment(const Resource &resource, const SearchQuery &query)
 {
     double adjustment = 0.0;
@@ -193,9 +213,18 @@ void applyRankingSignals(SearchResult &result,
                          const SearchQuery &query,
                          const QHash<QString, ResourceUsage> &usage,
                          const QHash<QString, AnchorUsage> &anchorUsage,
-                         const QHash<QString, LibraryRoot> &roots)
+                         const QHash<QString, LibraryRoot> &roots,
+                         const QList<ResourceRelation> &relations)
 {
     result.score += contextScoreAdjustment(result.resource, query);
+    const std::optional<ResourceRelation> contextRelation = matchedContextRelation(result.resource, query, relations);
+    if (contextRelation.has_value()) {
+        result.score -= 0.4;
+        result.matchedContextRelationLabel = contextRelation->label;
+        result.matchedContextResourceId = contextRelation->sourceResourceId == result.resource.id
+            ? contextRelation->targetResourceId
+            : contextRelation->sourceResourceId;
+    }
     result.score += pinnedRootScoreAdjustment(result.resource, roots);
 
     const auto usageIt = usage.constFind(result.resource.id);
@@ -259,43 +288,43 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 
         if (needle.isEmpty()) {
             SearchResult result = resourceResult(resource, 100.0, QStringLiteral("all"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (resource.title.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  10.0 + exactMatchScoreAdjustment(resource.title, needle),
                                                  QStringLiteral("title"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  15.0 + exactMatchScoreAdjustment(QFileInfo(resource.location).fileName(), needle),
                                                  QStringLiteral("filename"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  20.0 + exactMatchScoreAdjustment(resource.aliases, needle),
                                                  QStringLiteral("alias"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (resource.tags.join(QLatin1Char('\n')).contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  30.0 + exactMatchScoreAdjustment(resource.tags, needle),
                                                  QStringLiteral("tag"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (resource.content.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  80.0 + exactMatchScoreAdjustment(resource.content, needle),
                                                  QStringLiteral("content"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         } else if (resource.location.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  90.0 + exactMatchScoreAdjustment(resource.location, needle),
                                                  QStringLiteral("path"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
         }
 
@@ -303,7 +332,7 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
             for (const Anchor &anchor : resource.anchors) {
                 if (containsNeedle(anchor.target, needle)) {
                     SearchResult result = anchorResult(resource, anchor, needle);
-                    applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_);
+                    applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
                     results.append(result);
                 }
             }

@@ -28,6 +28,8 @@ struct PinloomOpenTarget {
     QString matchedField;
     QString matchedContextTag;
     QString matchedContextLocationPrefix;
+    QString matchedContextResourceId;
+    QString matchedContextRelationLabel;
     double score = 0.0;
     std::optional<Anchor> anchor;
 };
@@ -61,6 +63,7 @@ struct PinloomHostContext {
     QList<ResourceKind> requiredResourceKinds;
     QStringList contextTags;
     QStringList contextLocationPrefixes;
+    QStringList contextResourceIds;
 };
 
 class PinloomPanel : public QWidget {
@@ -83,6 +86,8 @@ public:
     QStringList contextTags() const;
     void setContextLocationPrefixes(const QStringList &prefixes);
     QStringList contextLocationPrefixes() const;
+    void setContextResourceIds(const QStringList &resourceIds);
+    QStringList contextResourceIds() const;
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
@@ -138,6 +143,7 @@ private:
     QList<ResourceKind> requiredResourceKinds_;
     QStringList contextTags_;
     QStringList contextLocationPrefixes_;
+    QStringList contextResourceIds_;
     QWidget *rootControlsWidget_ = nullptr;
     QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;

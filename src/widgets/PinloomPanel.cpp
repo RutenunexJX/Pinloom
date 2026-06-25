@@ -157,6 +157,15 @@ QString resultToolTip(const SearchResult &result, const SearchQuery &query)
     if (!contextLocationPrefix.isEmpty()) {
         lines.append(QStringLiteral("Context location: %1").arg(contextLocationPrefix));
     }
+    if (!result.matchedContextResourceId.isEmpty()) {
+        if (result.matchedContextRelationLabel.isEmpty()) {
+            lines.append(QStringLiteral("Context resource: %1").arg(result.matchedContextResourceId));
+        } else {
+            lines.append(QStringLiteral("Context relation: %1 via %2")
+                             .arg(result.matchedContextResourceId,
+                                  result.matchedContextRelationLabel));
+        }
+    }
 
     return lines.join(QLatin1Char('\n'));
 }
@@ -392,6 +401,17 @@ QStringList PinloomPanel::contextLocationPrefixes() const
     return contextLocationPrefixes_;
 }
 
+void PinloomPanel::setContextResourceIds(const QStringList &resourceIds)
+{
+    contextResourceIds_ = resourceIds;
+    refreshResults();
+}
+
+QStringList PinloomPanel::contextResourceIds() const
+{
+    return contextResourceIds_;
+}
+
 void PinloomPanel::applyHostContext(const PinloomHostContext &context)
 {
     {
@@ -403,6 +423,7 @@ void PinloomPanel::applyHostContext(const PinloomHostContext &context)
     requiredResourceKinds_ = context.requiredResourceKinds;
     contextTags_ = context.contextTags;
     contextLocationPrefixes_ = context.contextLocationPrefixes;
+    contextResourceIds_ = context.contextResourceIds;
     refreshResults();
 }
 
@@ -415,6 +436,7 @@ PinloomHostContext PinloomPanel::hostContext() const
     context.requiredResourceKinds = requiredResourceKinds_;
     context.contextTags = contextTags_;
     context.contextLocationPrefixes = contextLocationPrefixes_;
+    context.contextResourceIds = contextResourceIds_;
     return context;
 }
 
@@ -434,6 +456,8 @@ PinloomOpenTarget PinloomPanel::currentOpenTarget() const
     target.score = item->data(Qt::UserRole + 14).toDouble();
     target.matchedContextTag = item->data(Qt::UserRole + 15).toString();
     target.matchedContextLocationPrefix = item->data(Qt::UserRole + 16).toString();
+    target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
+    target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
 
     if (item->data(Qt::UserRole + 2).toBool()) {
         Anchor anchor;
@@ -801,6 +825,7 @@ void PinloomPanel::refreshResults()
     query.requiredKinds = requiredResourceKinds_;
     query.contextTags = contextTags_;
     query.contextLocationPrefixes = contextLocationPrefixes_;
+    query.contextResourceIds = contextResourceIds_;
     query.limit = 100;
 
     const QList<SearchResult> results = repository_.search(query);
@@ -816,6 +841,8 @@ void PinloomPanel::refreshResults()
         item->setData(Qt::UserRole + 14, result.score);
         item->setData(Qt::UserRole + 15, matchedContextTag(result.resource, query.contextTags));
         item->setData(Qt::UserRole + 16, matchedContextLocationPrefix(result.resource, query.contextLocationPrefixes));
+        item->setData(Qt::UserRole + 17, result.matchedContextResourceId);
+        item->setData(Qt::UserRole + 18, result.matchedContextRelationLabel);
         if (result.matchedAnchor.has_value()) {
             const Anchor &anchor = result.matchedAnchor.value();
             item->setData(Qt::UserRole + 2, true);
