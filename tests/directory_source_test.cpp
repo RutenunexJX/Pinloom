@@ -22,6 +22,7 @@ private slots:
     void indexesPlainTextFileContent();
     void extractsStructuredPlainTextLineAnchors();
     void extractsGithubActionsWorkflowAnchors();
+    void extractsGitlabCiPipelineAnchors();
     void extractsManifestDependencyLineAnchors();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsObsidianAliasesTagsAndWikilinks();
@@ -636,6 +637,112 @@ void DirectorySourceTest::extractsGithubActionsWorkflowAnchors()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("workflow run: ./scripts/build-docs.sh");
+    }));
+}
+
+void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/config")));
+    writeFile(dir.filePath(QStringLiteral("library/.gitlab-ci.yml")),
+              QByteArray("stages:\n"
+                         "  - build\n"
+                         "  - test\n"
+                         "default:\n"
+                         "  image: alpine:3.20\n"
+                         "build_app:\n"
+                         "  stage: build\n"
+                         "  image: gcc:13\n"
+                         "  script:\n"
+                         "    - cmake -S . -B build\n"
+                         "    - cmake --build build\n"
+                         "test_app:\n"
+                         "  stage: test\n"
+                         "  needs:\n"
+                         "    - build_app\n"
+                         "  script:\n"
+                         "    - ctest --test-dir build --output-on-failure\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/gitlab-ci.yml")),
+              QByteArray("stages:\n"
+                         "  - ignored\n"
+                         "build_app:\n"
+                         "  script:\n"
+                         "    - echo ignored\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto pipelineIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String(".gitlab-ci.yml");
+    });
+    QVERIFY(pipelineIt != resources.cend());
+
+    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::CodeSymbol
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab stage: build"), 2));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab stage: test"), 3));
+    QVERIFY(hasSymbol(*pipelineIt, QStringLiteral("gitlab job: build_app"), 6));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab job stage: build"), 7));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab image: gcc:13"), 8));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab script: cmake -S . -B build"), 10));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab script: cmake --build build"), 11));
+    QVERIFY(hasSymbol(*pipelineIt, QStringLiteral("gitlab job: test_app"), 12));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab job stage: test"), 13));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab needs: build_app"), 15));
+    QVERIFY(hasLineAnchor(*pipelineIt,
+                          QStringLiteral("gitlab script: ctest --test-dir build --output-on-failure"),
+                          17));
+
+    auto configIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("gitlab-ci.yml")
+            && resource.location.contains(QStringLiteral("/config/"));
+    });
+    QVERIFY(configIt != resources.cend());
+    QVERIFY(std::none_of(configIt->anchors.cbegin(), configIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("gitlab"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> jobResults = repository.search(SearchQuery{QStringLiteral("build_app")});
+    QVERIFY(std::any_of(jobResults.cbegin(), jobResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String(".gitlab-ci.yml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->target == QLatin1String("gitlab job: build_app");
+    }));
+
+    const QList<SearchResult> scriptResults = repository.search(SearchQuery{QStringLiteral("output-on-failure")});
+    QVERIFY(std::any_of(scriptResults.cbegin(), scriptResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String(".gitlab-ci.yml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target
+                == QLatin1String("gitlab script: ctest --test-dir build --output-on-failure");
     }));
 }
 

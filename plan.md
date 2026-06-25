@@ -258,6 +258,7 @@ Status:
 - CMake project/target/package/option/function/macro/test anchors: done.
 - Makefile target anchors and Dockerfile stage/base/copy anchors: done.
 - GitHub Actions workflow/job/step/action/run anchors: done.
+- GitLab CI stage/job/needs/script anchors: done.
 - compile_commands.json line anchors and `compiles` relations: done.
 - Dependency/import line anchors for common engineering languages: done.
 - Go import block and JS/TS dynamic import anchors: done.

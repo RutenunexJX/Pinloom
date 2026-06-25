@@ -303,6 +303,17 @@ bool isGithubActionsWorkflowFile(const QFileInfo &fileInfo)
     return path.contains(QStringLiteral("/.github/workflows/"), Qt::CaseInsensitive);
 }
 
+bool isGitlabCiFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString fileName = fileInfo.fileName();
+    return fileName.compare(QStringLiteral(".gitlab-ci.yml"), Qt::CaseInsensitive) == 0
+        || fileName.compare(QStringLiteral(".gitlab-ci.yaml"), Qt::CaseInsensitive) == 0;
+}
+
 bool hasCodeShebang(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
@@ -2985,6 +2996,11 @@ struct GithubActionsWorkflowState {
     bool inSteps = false;
 };
 
+struct GitlabCiPipelineState {
+    QString currentJob;
+    QString currentListKey;
+};
+
 QString joinedConfigPath(QStringList parts)
 {
     parts.removeAll(QString());
@@ -3116,6 +3132,150 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
     } else if (key == QLatin1String("run")) {
         appendFileLineAnchor(resource, QStringLiteral("workflow run: %1").arg(value), lineNumber);
     }
+}
+
+bool isGitlabCiReservedTopLevelKey(const QString &key)
+{
+    static const QStringList reservedKeys{
+        QStringLiteral("stages"),
+        QStringLiteral("types"),
+        QStringLiteral("variables"),
+        QStringLiteral("workflow"),
+        QStringLiteral("include"),
+        QStringLiteral("default"),
+        QStringLiteral("image"),
+        QStringLiteral("services"),
+        QStringLiteral("cache"),
+        QStringLiteral("before_script"),
+        QStringLiteral("after_script"),
+    };
+    return reservedKeys.contains(key, Qt::CaseInsensitive);
+}
+
+void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
+                                           const QString &line,
+                                           int lineNumber,
+                                           GitlabCiPipelineState &state)
+{
+    const QString trimmed = line.trimmed();
+    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
+        return;
+    }
+
+    const int indent = leadingSpaceCount(line);
+    static const QRegularExpression keyPattern(QStringLiteral("^([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$"));
+    static const QRegularExpression listItemPattern(QStringLiteral("^-\\s+(.+)$"));
+    static const QRegularExpression listKeyPattern(QStringLiteral("^-\\s+([A-Za-z0-9_.-]+)\\s*:\\s*(.*)$"));
+
+    if (indent == 0) {
+        const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
+        if (!keyMatch.hasMatch()) {
+            state.currentJob.clear();
+            state.currentListKey.clear();
+            return;
+        }
+
+        const QString key = keyMatch.captured(1).trimmed();
+        if (key == QLatin1String("stages")) {
+            state.currentJob.clear();
+            state.currentListKey = key;
+            return;
+        }
+
+        state.currentListKey.clear();
+        if (isGitlabCiReservedTopLevelKey(key)) {
+            state.currentJob.clear();
+            return;
+        }
+
+        state.currentJob = key;
+        if (!state.currentJob.isEmpty()) {
+            appendCodeSymbol(resource, QStringLiteral("gitlab job: %1").arg(state.currentJob), lineNumber);
+        }
+        return;
+    }
+
+    if (state.currentListKey == QLatin1String("stages") && indent >= 2) {
+        const QRegularExpressionMatch listMatch = listItemPattern.match(trimmed);
+        if (listMatch.hasMatch()) {
+            const QString stageName = cleanedYamlScalar(listMatch.captured(1));
+            if (!stageName.isEmpty()) {
+                appendFileLineAnchor(resource, QStringLiteral("gitlab stage: %1").arg(stageName), lineNumber);
+            }
+        }
+        return;
+    }
+
+    if (state.currentJob.isEmpty()) {
+        return;
+    }
+
+    if (indent == 2) {
+        const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
+        if (!keyMatch.hasMatch()) {
+            state.currentListKey.clear();
+            return;
+        }
+
+        const QString key = keyMatch.captured(1).trimmed();
+        const QString value = cleanedYamlScalar(keyMatch.captured(2));
+        if (key == QLatin1String("stage") && !value.isEmpty()) {
+            appendFileLineAnchor(resource, QStringLiteral("gitlab job stage: %1").arg(value), lineNumber);
+            state.currentListKey.clear();
+            return;
+        }
+        if (key == QLatin1String("image") && !value.isEmpty()) {
+            appendFileLineAnchor(resource, QStringLiteral("gitlab image: %1").arg(value), lineNumber);
+            state.currentListKey.clear();
+            return;
+        }
+
+        if (key == QLatin1String("script")
+            || key == QLatin1String("before_script")
+            || key == QLatin1String("after_script")
+            || key == QLatin1String("needs")) {
+            state.currentListKey = key;
+            if (!value.isEmpty() && value != QLatin1String("|") && value != QLatin1String(">")) {
+                const QString anchorPrefix = key == QLatin1String("needs")
+                    ? QStringLiteral("gitlab needs")
+                    : QStringLiteral("gitlab %1").arg(key);
+                appendFileLineAnchor(resource, QStringLiteral("%1: %2").arg(anchorPrefix, value), lineNumber);
+            }
+            return;
+        }
+
+        state.currentListKey.clear();
+        return;
+    }
+
+    if (indent < 4 || state.currentListKey.isEmpty()) {
+        return;
+    }
+
+    const QRegularExpressionMatch listMatch = listItemPattern.match(trimmed);
+    if (!listMatch.hasMatch()) {
+        return;
+    }
+
+    QString value = cleanedYamlScalar(listMatch.captured(1));
+    const QRegularExpressionMatch listKeyMatch = listKeyPattern.match(trimmed);
+    if (state.currentListKey == QLatin1String("needs")
+        && listKeyMatch.hasMatch()
+        && listKeyMatch.captured(1) == QLatin1String("job")) {
+        value = cleanedYamlScalar(listKeyMatch.captured(2));
+    }
+    if (value.isEmpty() || value == QLatin1String("|") || value == QLatin1String(">")) {
+        return;
+    }
+
+    if (state.currentListKey == QLatin1String("needs")) {
+        appendFileLineAnchor(resource, QStringLiteral("gitlab needs: %1").arg(value), lineNumber);
+        return;
+    }
+
+    appendFileLineAnchor(resource,
+                         QStringLiteral("gitlab %1: %2").arg(state.currentListKey, value),
+                         lineNumber);
 }
 
 void popJsonStructuredPathClosures(StructuredPlainTextState &state, const QString &trimmed)
@@ -5251,11 +5411,13 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const QString text = QString::fromUtf8(bytes);
     const bool structured = isStructuredPlainTextFile(fileInfo);
     const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
+    const bool gitlabCi = isGitlabCiFile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     ManifestDependencyState manifestDependencyState;
     StructuredPlainTextState structuredPlainTextState;
     GithubActionsWorkflowState githubActionsWorkflowState;
+    GitlabCiPipelineState gitlabCiPipelineState;
     int lineNumber = 0;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
@@ -5265,6 +5427,9 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
         if (githubActionsWorkflow) {
             appendGithubActionsWorkflowAnchorsFromLine(resource, line, lineNumber, githubActionsWorkflowState);
+        }
+        if (gitlabCi) {
+            appendGitlabCiPipelineAnchorsFromLine(resource, line, lineNumber, gitlabCiPipelineState);
         }
         if (structured) {
             appendStructuredPlainTextAnchorsFromLine(resource, fileInfo, line, lineNumber, structuredPlainTextState);
