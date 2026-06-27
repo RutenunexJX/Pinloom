@@ -899,6 +899,16 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     verifyIndexedPackageTags(*iworkDocumentPackageResultIt);
     QVERIFY(repository.resourceRelations(iworkDocumentPackageResultIt->resource.id).isEmpty());
 
+    const QList<SearchResult> iworkSpreadsheetPackageResults = repository.search(SearchQuery{QStringLiteral("workbook.numbers")});
+    auto iworkSpreadsheetPackageResultIt = std::find_if(iworkSpreadsheetPackageResults.cbegin(), iworkSpreadsheetPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("workbook.numbers")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(iworkSpreadsheetPackageResultIt != iworkSpreadsheetPackageResults.cend());
+    verifyIndexedPackageTags(*iworkSpreadsheetPackageResultIt);
+    QVERIFY(repository.resourceRelations(iworkSpreadsheetPackageResultIt->resource.id).isEmpty());
+
     const QList<SearchResult> sketchPackageResults = repository.search(SearchQuery{QStringLiteral("design.sketch")});
     auto sketchPackageResultIt = std::find_if(sketchPackageResults.cbegin(), sketchPackageResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
