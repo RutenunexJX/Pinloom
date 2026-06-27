@@ -411,6 +411,7 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
     return QStringList{
         QStringLiteral("7z"),
         QStringLiteral("apk"),
+        QStringLiteral("br"),
         QStringLiteral("bz2"),
         QStringLiteral("cab"),
         QStringLiteral("cb7"),
