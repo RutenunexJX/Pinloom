@@ -18,7 +18,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 Dedicated readers are staged so each phase improves location extraction without expanding Pinloom into a knowledge-modeling system.
 
 1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors; document text-structure and tabular coverage as unified text beacon rules, not special readers.
-2. Engineering/design readers: keep generic SQLite table/column/URL/sample-value beacons. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources.
+2. Engineering/design readers: keep generic SQLite table/column/URL/sample-value beacons on the source database resource; SQLite URL values remain line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources.
 3. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
 4. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
 5. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.
@@ -61,7 +61,7 @@ Implemented:
 - XBEL bookmark XML indexing as individual URL resources with host/folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources with host aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the history database.
 - Firefox `places.sqlite` indexing as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the places database.
-- Generic SQLite database indexing with table, column, URL, and sample-value beacons on the source database resource.
+- Generic SQLite database indexing with table, column, URL, and sample-value beacons on the source database resource; URL values remain database line anchors rather than derived URL resources or inferred `links-to` relations.
 - OPML subscription/link list indexing as individual URL resources with host aliases, feed aliases, folder aliases, feed tags, URL fragment anchors, source line anchors, and `links-to` relations back to the OPML file.
 - RSS and Atom feed XML indexing as individual URL resources with feed aliases, category tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Sitemap XML indexing as individual URL resources with sitemap tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the source file.

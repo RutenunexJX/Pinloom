@@ -290,7 +290,7 @@ Reader boundary:
 Phases:
 
 1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
-2. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources.
+2. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place; SQLite URL values remain database line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources.
 3. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 4. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
 5. Experience and performance: add reader toggles, incremental indexing, cancellation, failure UI, jump fallback behavior, deduplication, and ranking/noise tuning.

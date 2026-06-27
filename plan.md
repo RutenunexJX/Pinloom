@@ -419,7 +419,7 @@ Phases:
 1. Existing reader consolidation.
    Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
 2. Engineering and design special readers.
-   Keep generic SQLite table, column, URL-field, and sample-value beacons. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources and are not expanded or text-scanned.
+   Keep generic SQLite table, column, URL-field, and sample-value beacons on the source database resource; URL values remain line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources and are not expanded or text-scanned.
 3. Scanned/OCR readers.
    Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
 4. Reader contract and quality layer.
@@ -430,7 +430,7 @@ Phases:
 Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
-- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps archive-like package containers (common compressed packages, compound and shorthand tar suffixes, legacy/platform-specific archives, installable package containers, browser/electron/mobile extension packages, and disk-image containers) plus document/design package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.
+- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done, with SQLite URL values kept as database line anchors rather than derived URL resources or inferred `links-to` relations. A shared path-only package-container guard keeps archive-like package containers (common compressed packages, compound and shorthand tar suffixes, legacy/platform-specific archives, installable package containers, browser/electron/mobile extension packages, and disk-image containers) plus document/design package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.
 - Phase 3: pending.
 - Phase 4: pending.
 - Phase 5: pending.

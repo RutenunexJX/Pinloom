@@ -5037,6 +5037,7 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
     QVERIFY(databaseIt->tags.contains(QStringLiteral("special-reader")));
     QVERIFY(databaseIt->aliases.contains(QStringLiteral("board_notes")));
     QVERIFY(databaseIt->aliases.contains(QStringLiteral("parts")));
+    QVERIFY(databaseIt->relations.isEmpty());
 
     auto hasLineAnchor = [](const Resource &resource, const QString &target) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
@@ -5063,6 +5064,10 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
         return resource.kind == ResourceKind::Url
             && resource.location.contains(QStringLiteral("pinloom/sqlite"));
     }));
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("fpga.example.com/parts"));
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -5071,6 +5076,7 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
 
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+    QVERIFY(repository.resourceRelations(databaseIt->id).isEmpty());
 
     const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Timing Closure")});
     QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
@@ -5091,6 +5097,9 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
     }));
 
     const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("sqlite#row")});
+    QVERIFY(std::none_of(urlResults.cbegin(), urlResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url;
+    }));
     QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("inventory.sqlite3")
@@ -5098,6 +5107,19 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target
                 == QLatin1String("sqlite url: board_notes.url -> https://docs.example.com/pinloom/sqlite#row");
+    }));
+
+    const QList<SearchResult> partUrlResults = repository.search(SearchQuery{QStringLiteral("xc7a35t")});
+    QVERIFY(std::none_of(partUrlResults.cbegin(), partUrlResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url;
+    }));
+    QVERIFY(std::any_of(partUrlResults.cbegin(), partUrlResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("inventory.sqlite3")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target
+                == QLatin1String("sqlite url: parts.doc_url -> https://fpga.example.com/parts/xc7a35t");
     }));
 }
 
