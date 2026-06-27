@@ -904,7 +904,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
-    writeFile(dir.filePath(QStringLiteral("library/dependencies.json")),
+    writeFile(dir.filePath(QStringLiteral("library/named-entries.json")),
               QByteArray("{\n"
                          "  \"dependencies\": {\n"
                          "    \"search-panel\": \"^1.0.0\",\n"
@@ -914,7 +914,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
                          "    \"preview-runner\": \"^5.0.0\"\n"
                          "  }\n"
                          "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/dependencies.toml")),
+    writeFile(dir.filePath(QStringLiteral("library/named-entries.toml")),
               QByteArray("[dependencies]\n"
                          "index-core = \"1\"\n"
                          "locator-ui = { version = \"1\", features = [\"panel\"] }\n"));
@@ -941,16 +941,16 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
         });
     };
 
-    const auto jsonDependenciesIt = findFile(QStringLiteral("dependencies.json"));
-    QVERIFY(jsonDependenciesIt != resources.cend());
-    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("search-panel"), 3));
-    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("locator-dock"), 4));
-    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("preview-runner"), 7));
+    const auto jsonNamedEntriesIt = findFile(QStringLiteral("named-entries.json"));
+    QVERIFY(jsonNamedEntriesIt != resources.cend());
+    QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("search-panel"), 3));
+    QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("locator-dock"), 4));
+    QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("preview-runner"), 7));
 
-    const auto tomlDependenciesIt = findFile(QStringLiteral("dependencies.toml"));
-    QVERIFY(tomlDependenciesIt != resources.cend());
-    QVERIFY(hasNamedEntry(*tomlDependenciesIt, QStringLiteral("index-core"), 2));
-    QVERIFY(hasNamedEntry(*tomlDependenciesIt, QStringLiteral("locator-ui"), 3));
+    const auto tomlNamedEntriesIt = findFile(QStringLiteral("named-entries.toml"));
+    QVERIFY(tomlNamedEntriesIt != resources.cend());
+    QVERIFY(hasNamedEntry(*tomlNamedEntriesIt, QStringLiteral("index-core"), 2));
+    QVERIFY(hasNamedEntry(*tomlNamedEntriesIt, QStringLiteral("locator-ui"), 3));
 
     const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
     QVERIFY(requirementsIt != resources.cend());
@@ -968,7 +968,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
 
     const QList<SearchResult> panelResults = repository.search(SearchQuery{QStringLiteral("search-panel")});
     QVERIFY(std::any_of(panelResults.cbegin(), panelResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("dependencies.json")
+        return result.resource.title == QLatin1String("named-entries.json")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("named entry: search-panel");
@@ -976,7 +976,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
 
     const QList<SearchResult> locatorResults = repository.search(SearchQuery{QStringLiteral("locator-ui")});
     QVERIFY(std::any_of(locatorResults.cbegin(), locatorResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("dependencies.toml")
+        return result.resource.title == QLatin1String("named-entries.toml")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("named entry: locator-ui");

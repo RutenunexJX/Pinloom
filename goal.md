@@ -175,7 +175,7 @@ Completed:
 - Keep directive-style build configuration line beacons for content-sniffed text jumps, with neutral `directive ...` labels rather than build-language semantics.
 - Keep rule-target and container-recipe line beacons for content-sniffed text jumps, with neutral `rule ...` and `container ...` labels rather than Make/Docker language support.
 - Keep CI configuration workflow/job/stage/step/uses/run/script/needs line beacons for jumps, with neutral `ci ...` labels rather than vendor-specific CI language support.
-- Keep JSON/TOML/requirements-style named-entry line beacons as text beacons, not package-manager or language dependency analysis.
+- Keep JSON/TOML/requirements-style named-entry line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Add compile_commands.json file-reference line anchors and `file-reference` relations to referenced file paths without treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.

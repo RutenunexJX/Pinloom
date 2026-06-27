@@ -272,7 +272,7 @@ Status:
 - Generic file indexing: done in MVP 3.
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
-- Text named-entry line beacons: kept as JSON/TOML/requirements-style line beacons, not package-manager or language dependency analysis.
+- Text named-entry line beacons: kept as JSON/TOML/requirements-style line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and explicit symbol-like marker beacons: done.
 - Directive-style build configuration line beacons layered after text content sniffing with neutral `directive ...` labels: done.
 - Rule-target and container-recipe line beacons layered after text content sniffing with neutral `rule ...` and `container ...` labels: done.

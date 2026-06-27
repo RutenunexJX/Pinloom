@@ -4682,7 +4682,7 @@ void appendTextNamedEntryBeaconsFromLine(Resource &resource,
     const QString suffix = fileInfo.suffix().toLower();
     if (suffix == QLatin1String("json")) {
         static const QRegularExpression sectionPattern(QStringLiteral("^\"([^\"]+)\"\\s*:\\s*\\{"));
-        static const QRegularExpression dependencyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:"));
+        static const QRegularExpression entryPattern(QStringLiteral("^\"([^\"]+)\"\\s*:"));
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
@@ -4694,10 +4694,10 @@ void appendTextNamedEntryBeaconsFromLine(Resource &resource,
                 state.inJsonNamedEntryMap = false;
                 return;
             }
-            const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
-            if (dependencyMatch.hasMatch()) {
+            const QRegularExpressionMatch entryMatch = entryPattern.match(trimmed);
+            if (entryMatch.hasMatch()) {
                 appendFileLineAnchor(resource,
-                                     QStringLiteral("named entry: %1").arg(dependencyMatch.captured(1).trimmed()),
+                                     QStringLiteral("named entry: %1").arg(entryMatch.captured(1).trimmed()),
                                      lineNumber);
             }
         }
@@ -4706,7 +4706,7 @@ void appendTextNamedEntryBeaconsFromLine(Resource &resource,
 
     if (suffix == QLatin1String("toml")) {
         static const QRegularExpression sectionPattern(QStringLiteral("^\\[([^\\]]+)\\]$"));
-        static const QRegularExpression dependencyPattern(QStringLiteral("^(?:\"([^\"]+)\"|([A-Za-z0-9_.-]+))\\s*="));
+        static const QRegularExpression entryPattern(QStringLiteral("^(?:\"([^\"]+)\"|([A-Za-z0-9_.-]+))\\s*="));
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
@@ -4714,13 +4714,13 @@ void appendTextNamedEntryBeaconsFromLine(Resource &resource,
             return;
         }
         if (state.inTomlNamedEntrySection) {
-            const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
-            if (dependencyMatch.hasMatch()) {
-                const QString dependency = dependencyMatch.captured(1).isEmpty()
-                    ? dependencyMatch.captured(2)
-                    : dependencyMatch.captured(1);
+            const QRegularExpressionMatch entryMatch = entryPattern.match(trimmed);
+            if (entryMatch.hasMatch()) {
+                const QString entry = entryMatch.captured(1).isEmpty()
+                    ? entryMatch.captured(2)
+                    : entryMatch.captured(1);
                 appendFileLineAnchor(resource,
-                                     QStringLiteral("named entry: %1").arg(dependency.trimmed()),
+                                     QStringLiteral("named entry: %1").arg(entry.trimmed()),
                                      lineNumber);
             }
         }
