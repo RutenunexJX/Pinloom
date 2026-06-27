@@ -23,7 +23,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 ## Long-Term Roadmap
 
 - ZeroSlack embedding boundary: make `pinloom_widgets` usable by standalone Pinloom and ZeroSlack without transferring ownership of core state to either host.
-- Obsidian-friendly indexing: parse frontmatter aliases, inline tags, wikilinks, and block references while keeping Markdown support useful outside Obsidian.
+- Obsidian-friendly indexing: extract frontmatter aliases, inline tags, wikilinks, and block-reference beacons while keeping Markdown support useful outside Obsidian.
 - PDF navigation: index PDF metadata and pages first, then add page and region jump targets.
 - Beacon/location indexing: index text files by paths, line beacons, user markers, URLs, warnings/errors, section-like lines, and project-relevant tags without language parsing.
 - Special-file reader roadmap: grow dedicated readers in phases for formats that are not simple text, while keeping every reader limited to beacon and location extraction.
@@ -146,8 +146,8 @@ Remaining follow-up:
 
 Completed:
 
-- Parse YAML frontmatter aliases and tags.
-- Parse inline `#tags`, `[[wikilinks]]`, and block references.
+- Extract YAML frontmatter aliases and tags.
+- Extract inline `#tags`, `[[wikilinks]]`, and block-reference beacons.
 - Extract searchable Markdown body content while excluding frontmatter metadata from body text.
 - Extract Markdown task checkbox lines as searchable file-line anchors.
 - Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.

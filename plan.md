@@ -63,7 +63,7 @@ Status:
 - `LibrarySource` interface: done
 - `IndexingService`: done
 - Explicit normal directory source: done
-- Markdown/Obsidian-specific parsing: deferred
+- Markdown/Obsidian-style beacon extraction: deferred to MVP 9
 - Tests: done
 - Build/test verification: done
 - Commit/push: release target is `origin/main`
@@ -216,9 +216,9 @@ Goal: make Obsidian vaults useful as library sources without making Pinloom an O
 
 Scope:
 
-- Parse YAML frontmatter aliases and tags.
-- Parse inline Markdown tags.
-- Parse wikilinks and block references.
+- Extract YAML frontmatter aliases and tags.
+- Extract inline Markdown tag beacons.
+- Extract wikilink and block-reference beacons.
 - Keep regular Markdown folders working the same way.
 - Add tests for plain Markdown, Obsidian-flavored Markdown, and mixed folders.
 
@@ -226,7 +226,7 @@ Status:
 
 - Markdown heading and block id extraction: done in MVP 6.
 - Frontmatter aliases/tags: done.
-- Inline tags, wikilinks, and block references: done.
+- Inline tags, wikilinks, and block-reference beacons: done.
 - Markdown body content extraction/search: done.
 - Markdown task checkbox line anchors/search: done.
 - Local relative Markdown link aliases/line anchors and indexed `links-to` relations: done.

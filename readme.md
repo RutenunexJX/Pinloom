@@ -40,7 +40,7 @@ Implemented:
 - Anchor-aware search results with optional matched anchors.
 - SQLite schema version 3 with anchor FTS search.
 - Markdown heading and block-id anchor extraction for `.md` and `.markdown` files.
-- Obsidian-friendly Markdown indexing for YAML frontmatter aliases/tags, inline tags, wikilinks, wikilink line anchors/relations, and block references.
+- Obsidian-friendly Markdown beacon extraction for YAML frontmatter aliases/tags, inline tags, wikilinks, wikilink line anchors/relations, and block-reference beacons.
 - Markdown body content extraction for searchable notes without indexing frontmatter metadata as body text.
 - Markdown task checkbox lines as searchable line anchors for direct jumps to actionable note items.
 - Local relative Markdown links and Obsidian wikilinks as searchable aliases, line anchors, and automatic `links-to` relations when the target is indexed.
@@ -203,7 +203,7 @@ Obsidian-Friendly Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for frontmatter aliases/tags, inline tags, wikilink aliases, wikilink line anchors/relations, Markdown body extraction, and block references (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for frontmatter aliases/tags, inline tags, wikilink aliases, wikilink line anchors/relations, Markdown body extraction, and block-reference beacons (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 PDF Navigation MVP validation:
 

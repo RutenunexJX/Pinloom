@@ -26,7 +26,7 @@ private slots:
     void extractsGitlabCiPipelineAnchors();
     void extractsTextDependencyLineBeacons();
     void extractsMarkdownHeadingAndBlockAnchors();
-    void extractsObsidianAliasesTagsAndWikilinks();
+    void extractsMarkdownAliasTagLinkBeacons();
     void extractsMarkdownBodyContent();
     void extractsLocalMarkdownLinkAnchors();
     void extractsMarkdownTaskLineAnchors();
@@ -988,7 +988,7 @@ void DirectorySourceTest::extractsMarkdownHeadingAndBlockAnchors()
     QCOMPARE(markdownIt->anchors.at(3).line, 5);
 }
 
-void DirectorySourceTest::extractsObsidianAliasesTagsAndWikilinks()
+void DirectorySourceTest::extractsMarkdownAliasTagLinkBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
