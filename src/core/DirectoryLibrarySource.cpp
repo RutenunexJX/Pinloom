@@ -477,7 +477,7 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         || completeSuffix.endsWith(QLatin1String(".tar.zst"));
 }
 
-bool isDocumentPackageContainerFile(const QFileInfo &fileInfo)
+bool isOfficeVisioPackageContainerFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -510,7 +510,7 @@ bool isDocumentPackageContainerFile(const QFileInfo &fileInfo)
 
 bool isPathOnlyPackageContainerFile(const QFileInfo &fileInfo)
 {
-    return isCompressedPackageFile(fileInfo) || isDocumentPackageContainerFile(fileInfo);
+    return isCompressedPackageFile(fileInfo) || isOfficeVisioPackageContainerFile(fileInfo);
 }
 
 bool isMhtmlFile(const QFileInfo &fileInfo)

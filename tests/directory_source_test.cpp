@@ -575,7 +575,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("module.jar"),
         QStringLiteral("site.war")
     };
-    const QStringList documentPackageFileNames{
+    const QStringList officeVisioPackageFileNames{
         QStringLiteral("document.docm"),
         QStringLiteral("document.docx"),
         QStringLiteral("template.dotm"),
@@ -598,7 +598,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("workbook.xltx")
     };
     QStringList packageFileNames = compressedPackageFileNames;
-    packageFileNames += documentPackageFileNames;
+    packageFileNames += officeVisioPackageFileNames;
     for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }

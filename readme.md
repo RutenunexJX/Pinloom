@@ -218,7 +218,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, path-only compressed and document package containers without scanned content, anchors, relations, or derived package-inside resources, TODO/FIXME/NOTE line anchors, URL/error/warning/section/explicit marker-alias beacons, directive-style text line beacons, rule-entry and neutral container-style block/input line beacons, neutral CI configuration text line beacons, file-reference manifest line anchors for compile_commands.json and `file-reference` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, path-only compressed and Office/Visio package containers without scanned content, anchors, relations, or derived package-inside resources, TODO/FIXME/NOTE line anchors, URL/error/warning/section/explicit marker-alias beacons, directive-style text line beacons, rule-entry and neutral container-style block/input line beacons, neutral CI configuration text line beacons, file-reference manifest line anchors for compile_commands.json and `file-reference` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 
