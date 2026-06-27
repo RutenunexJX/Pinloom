@@ -411,7 +411,7 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep compressed packages, compound tar suffixes, installable package containers, `.br` files, browser/electron/mobile extension packages, and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning or package-entry indexing.
+- Keep compressed packages, compound tar suffixes, legacy/platform-specific archives, installable package containers, `.br` files, browser/electron/mobile extension packages, disk-image containers, and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning or package-entry indexing.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
@@ -430,7 +430,7 @@ Phases:
 Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
-- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, browser/electron/mobile extension packages, and document/design package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.
+- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, legacy/platform-specific archives, installable package containers, browser/electron/mobile extension packages, disk-image containers, and document/design package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.
 - Phase 3: pending.
 - Phase 4: pending.
 - Phase 5: pending.
