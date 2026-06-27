@@ -240,8 +240,8 @@ Completed:
 - Extract searchable body text from text files.
 - Extract task checkbox lines as searchable file-line anchors.
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
-- Index inline external links as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
-- Index reference-style external links as derived URL resources with source line anchors and `links-to` relations back to the source text file.
+- Index inline external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
+- Index reference-style external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with source line anchors and `links-to` relations back to the source text file.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
 - Index MHTML/MHT web archives with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index local HTML outbound links as derived URL resources with source line anchors and `links-to` relations back to the source page.

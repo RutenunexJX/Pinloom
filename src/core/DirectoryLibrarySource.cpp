@@ -5844,6 +5844,29 @@ QList<Resource> textLinkUrlResourcesFromLinks(const QFileInfo &fileInfo, const Q
     return resources;
 }
 
+QStringList urlKeysFromTextLinkUrlBeacons(const QList<HtmlLink> &links)
+{
+    QStringList keys;
+    for (const HtmlLink &link : links) {
+        const QString key = link.url.toString(QUrl::FullyEncoded);
+        if (!keys.contains(key, Qt::CaseInsensitive)) {
+            keys.append(key);
+        }
+    }
+    return keys;
+}
+
+QList<TextUrlLink> textUrlLinksExcludingUrls(const QList<TextUrlLink> &links, const QStringList &excludedUrlKeys)
+{
+    QList<TextUrlLink> filtered;
+    for (const TextUrlLink &link : links) {
+        if (!excludedUrlKeys.contains(link.url.toString(QUrl::FullyEncoded), Qt::CaseInsensitive)) {
+            filtered.append(link);
+        }
+    }
+    return filtered;
+}
+
 QString urlLinkAnchorTarget(const HtmlLink &link)
 {
     const QString title = link.title.trimmed().isEmpty()
@@ -7254,7 +7277,14 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         || (primary.kind == ResourceKind::File && isFeedXmlCandidate(fileInfo))
         || (primary.kind == ResourceKind::File && fileInfo.suffix().compare(QStringLiteral("opml"), Qt::CaseInsensitive) == 0);
     if (primary.kind == ResourceKind::File && !specializedUrlResourceCandidate && isTextUrlResourceCandidate(fileInfo)) {
-        const QList<TextUrlLink> textLinks = textUrlLinksFromFile(fileInfo);
+        const QList<HtmlLink> textLinkUrlBeacons = textLinkUrlBeaconsFromFile(fileInfo);
+        const QList<Resource> textLinkUrlResources = textLinkUrlResourcesFromLinks(fileInfo, textLinkUrlBeacons);
+        appendTextLinkUrlSourceMetadata(primary, textLinkUrlBeacons, textLinkUrlResources);
+        derivedResources.append(textLinkUrlResources);
+
+        const QList<TextUrlLink> textLinks = textUrlLinksExcludingUrls(
+            textUrlLinksFromFile(fileInfo),
+            urlKeysFromTextLinkUrlBeacons(textLinkUrlBeacons));
         const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
         appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
         derivedResources.append(textResources);

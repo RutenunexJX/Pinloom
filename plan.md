@@ -231,6 +231,7 @@ Status:
 - Task checkbox line anchors/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
 - Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
+- Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
 - Tests: done.
 - Build/test verification: done.
 
@@ -365,8 +366,8 @@ Status:
 - Body text extraction/search from text files: done.
 - Task checkbox line anchors/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
-- Inline external link URL resources with source line anchors and `links-to` relations: done.
-- Reference-style external link URL resources with source line anchors and `links-to` relations: done.
+- Inline external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
+- Reference-style external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - MHTML/MHT web archive content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Local HTML outbound link URL resources with source line anchors and `links-to` relations: done.

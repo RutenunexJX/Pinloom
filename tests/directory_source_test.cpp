@@ -2894,7 +2894,10 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
               QByteArray("Pinloom Launch Notes - https://docs.example.com/pinloom/launch#overview\n"
                          "https://status.example.org/zeroslack\n"
                          "Duplicate: https://docs.example.com/pinloom/launch#overview\n"
-                         "Ignore local file://not-web\n"));
+                         "Ignore local file://not-web\n"
+                         "Read [Pinloom Portal](https://portal.example.com/pinloom#home)\n"
+                         "See [Host API][pinloom-host]\n"
+                         "[pinloom-host]: https://api.example.com/pinloom#v1\n"));
     writeFile(dir.filePath(QStringLiteral("library/links/jump-targets.opaque")),
               QByteArray("Opaque Jump Target - https://jump.example.net/pinloom#opaque\n"));
 
@@ -2950,6 +2953,24 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
     QVERIFY(statusIt != resources.cend());
     QCOMPARE(statusIt->title, QStringLiteral("status.example.org"));
 
+    auto portalIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://portal.example.com/pinloom#home");
+    });
+    QVERIFY(portalIt != resources.cend());
+    QCOMPARE(portalIt->title, QStringLiteral("Pinloom Portal"));
+    QVERIFY(portalIt->tags.contains(QStringLiteral("text-link")));
+    QVERIFY(!portalIt->tags.contains(QStringLiteral("web-link")));
+
+    auto hostApiIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://api.example.com/pinloom#v1");
+    });
+    QVERIFY(hostApiIt != resources.cend());
+    QCOMPARE(hostApiIt->title, QStringLiteral("Host API"));
+    QVERIFY(hostApiIt->tags.contains(QStringLiteral("text-link")));
+    QVERIFY(!hostApiIt->tags.contains(QStringLiteral("web-link")));
+
     auto opaqueFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("jump-targets.opaque");
@@ -2968,7 +2989,7 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
             && relation.note == QLatin1String("text line 1: url: Opaque Jump Target -> https://jump.example.net/pinloom#opaque");
     }));
 
-    QCOMPARE(fileIt->relations.size(), 2);
+    QCOMPARE(fileIt->relations.size(), 4);
     QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == fileIt->id
             && relation.targetResourceId == launchIt->id
@@ -2980,6 +3001,18 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
             && relation.targetResourceId == statusIt->id
             && relation.label == QLatin1String("links-to")
             && relation.note == QLatin1String("text line 2: url: status.example.org -> https://status.example.org/zeroslack");
+    }));
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == portalIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 5: url: Pinloom Portal -> https://portal.example.com/pinloom#home");
+    }));
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == fileIt->id
+            && relation.targetResourceId == hostApiIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 6: url: Host API -> https://api.example.com/pinloom#v1");
     }));
 
     SqliteLibraryRepository repository;
@@ -3005,7 +3038,7 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
     }));
 
     const QList<ResourceRelation> fileRelations = repository.resourceRelations(fileIt->id);
-    QCOMPARE(fileRelations.size(), 2);
+    QCOMPARE(fileRelations.size(), 4);
     QVERIFY(std::any_of(fileRelations.cbegin(), fileRelations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == fileIt->id
             && relation.targetResourceId == launchIt->id
@@ -3017,6 +3050,11 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
     QCOMPARE(launchRelations.size(), 1);
     QCOMPARE(launchRelations.first().sourceResourceId, fileIt->id);
     QCOMPARE(launchRelations.first().targetResourceId, launchIt->id);
+
+    const QList<ResourceRelation> hostApiRelations = repository.resourceRelations(hostApiIt->id);
+    QCOMPARE(hostApiRelations.size(), 1);
+    QCOMPARE(hostApiRelations.first().sourceResourceId, fileIt->id);
+    QCOMPARE(hostApiRelations.first().targetResourceId, hostApiIt->id);
 
     const QList<ResourceRelation> opaqueJumpRelations = repository.resourceRelations(opaqueJumpIt->id);
     QCOMPARE(opaqueJumpRelations.size(), 1);
@@ -3031,6 +3069,20 @@ void DirectorySourceTest::extractsContentSniffedTextUrlResources()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 1
             && result.matchedAnchor->target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
+    }));
+
+    const QList<SearchResult> hostApiResults = repository.search(SearchQuery{QStringLiteral("Host API")});
+    QVERIFY(std::any_of(hostApiResults.cbegin(), hostApiResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Host API");
+    }));
+    QVERIFY(std::any_of(hostApiResults.cbegin(), hostApiResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("research.urls")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 6
+            && result.matchedAnchor->target == QLatin1String("url: Host API -> https://api.example.com/pinloom#v1");
     }));
 }
 
