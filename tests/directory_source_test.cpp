@@ -889,25 +889,25 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     verifyIndexedPackageTags(*openDocumentPackageResultIt);
     QVERIFY(repository.resourceRelations(openDocumentPackageResultIt->resource.id).isEmpty());
 
-    const QList<SearchResult> iworkDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.pages")});
-    auto iworkDocumentPackageResultIt = std::find_if(iworkDocumentPackageResults.cbegin(), iworkDocumentPackageResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> pagesDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.pages")});
+    auto pagesDocumentPackageResultIt = std::find_if(pagesDocumentPackageResults.cbegin(), pagesDocumentPackageResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("document.pages")
             && !result.matchedAnchor.has_value();
     });
-    QVERIFY(iworkDocumentPackageResultIt != iworkDocumentPackageResults.cend());
-    verifyIndexedPackageTags(*iworkDocumentPackageResultIt);
-    QVERIFY(repository.resourceRelations(iworkDocumentPackageResultIt->resource.id).isEmpty());
+    QVERIFY(pagesDocumentPackageResultIt != pagesDocumentPackageResults.cend());
+    verifyIndexedPackageTags(*pagesDocumentPackageResultIt);
+    QVERIFY(repository.resourceRelations(pagesDocumentPackageResultIt->resource.id).isEmpty());
 
-    const QList<SearchResult> iworkSpreadsheetPackageResults = repository.search(SearchQuery{QStringLiteral("workbook.numbers")});
-    auto iworkSpreadsheetPackageResultIt = std::find_if(iworkSpreadsheetPackageResults.cbegin(), iworkSpreadsheetPackageResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> numbersSpreadsheetPackageResults = repository.search(SearchQuery{QStringLiteral("workbook.numbers")});
+    auto numbersSpreadsheetPackageResultIt = std::find_if(numbersSpreadsheetPackageResults.cbegin(), numbersSpreadsheetPackageResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("workbook.numbers")
             && !result.matchedAnchor.has_value();
     });
-    QVERIFY(iworkSpreadsheetPackageResultIt != iworkSpreadsheetPackageResults.cend());
-    verifyIndexedPackageTags(*iworkSpreadsheetPackageResultIt);
-    QVERIFY(repository.resourceRelations(iworkSpreadsheetPackageResultIt->resource.id).isEmpty());
+    QVERIFY(numbersSpreadsheetPackageResultIt != numbersSpreadsheetPackageResults.cend());
+    verifyIndexedPackageTags(*numbersSpreadsheetPackageResultIt);
+    QVERIFY(repository.resourceRelations(numbersSpreadsheetPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> sketchPackageResults = repository.search(SearchQuery{QStringLiteral("design.sketch")});
     auto sketchPackageResultIt = std::find_if(sketchPackageResults.cbegin(), sketchPackageResults.cend(), [](const SearchResult &result) {
