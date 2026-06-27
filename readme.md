@@ -40,7 +40,7 @@ Implemented:
 - Anchor-aware search results with optional matched anchors.
 - SQLite schema version 3 with anchor FTS search.
 - Heading and block-id line anchors for `.md`, `.markdown`, and content-sniffed text files.
-- Text-convention beacons for YAML-style frontmatter aliases/tags, inline tags, bracketed text links, bracket-link line anchors/relations, and block-reference beacons.
+- Text-convention beacons for YAML-style frontmatter aliases/tags in `.md/.markdown` and content-sniffed text files, inline tags, bracketed text links, bracket-link line anchors/relations, and block-reference beacons.
 - Searchable text body extraction without indexing frontmatter metadata as body text.
 - Task checkbox lines as searchable line anchors for direct jumps to actionable note items.
 - Local relative links and bracketed text links as searchable aliases, line anchors, and automatic `links-to` relations when the target is indexed.
@@ -203,7 +203,7 @@ Text Convention Beacon MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for frontmatter aliases/tags, inline tags, bracketed text-link aliases, bracket-link line anchors/relations, body text extraction from text files, and block-reference beacons (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for frontmatter aliases/tags in `.md/.markdown` and content-sniffed text files, inline tags, bracketed text-link aliases, bracket-link line anchors/relations, body text extraction from text files, and block-reference beacons (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 PDF Navigation MVP validation:
 

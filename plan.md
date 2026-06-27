@@ -216,7 +216,7 @@ Goal: make notes and other content-sniffed text files useful as library sources 
 
 Scope:
 
-- Extract YAML-style frontmatter aliases and tags as text beacons.
+- Extract YAML-style frontmatter aliases and tags as text beacons in `.md/.markdown` and content-sniffed text files.
 - Extract inline tag beacons.
 - Extract bracketed text-link and block-reference line beacons.
 - Keep `.md/.markdown` files and other content-sniffed text files on the same text-beacon model.
@@ -225,7 +225,7 @@ Scope:
 Status:
 
 - Heading and block-id line anchor extraction from text files: done in MVP 6 and extended to content-sniffed text.
-- Frontmatter aliases/tags: done.
+- Frontmatter aliases/tags in `.md/.markdown` and content-sniffed text files: done.
 - Inline tags, bracketed text links, and block-reference beacons: done.
 - Body text extraction/search from text files: done.
 - Task checkbox line anchors/search: done.

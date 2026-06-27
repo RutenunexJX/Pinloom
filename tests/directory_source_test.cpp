@@ -387,7 +387,12 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     QVERIFY(dir.mkpath(QStringLiteral("library")));
     QVERIFY(dir.mkpath(QStringLiteral("library/docs")));
     writeFile(dir.filePath(QStringLiteral("library/ops.log")),
-              QByteArray("# Operations\n"
+              QByteArray("---\n"
+                         "aliases:\n"
+                         "  - ops handoff alias\n"
+                         "tags: [plain-text, relay]\n"
+                         "---\n"
+                         "# Operations\n"
                          "ZeroSlack relay reconnect sequence\n"
                          "NOTE: Pinloom host handoff status\n"
                          "- [ ] Check [[Runbook|handoff note]] ^handoff-block\n"
@@ -409,39 +414,43 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     });
     QVERIFY(logIt != resources.cend());
     QVERIFY(logIt->content.contains(QStringLiteral("relay reconnect sequence")));
+    QVERIFY(!logIt->content.contains(QStringLiteral("ops handoff alias")));
+    QVERIFY(logIt->aliases.contains(QStringLiteral("ops handoff alias")));
     QVERIFY(logIt->aliases.contains(QStringLiteral("handoff note")));
     QVERIFY(logIt->aliases.contains(QStringLiteral("Runbook.md")));
     QVERIFY(logIt->aliases.contains(QStringLiteral("Spec PDF")));
     QVERIFY(logIt->aliases.contains(QStringLiteral("docs/spec.pdf")));
+    QVERIFY(logIt->tags.contains(QStringLiteral("plain-text")));
+    QVERIFY(logIt->tags.contains(QStringLiteral("relay")));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::MarkdownHeading
             && anchor.target == QLatin1String("Operations")
-            && anchor.line == 1;
+            && anchor.line == 6;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("NOTE: Pinloom host handoff status")
-            && anchor.line == 3;
+            && anchor.line == 8;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::MarkdownBlock
             && anchor.target == QLatin1String("handoff-block")
-            && anchor.line == 4;
+            && anchor.line == 9;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("bracket link: handoff note -> Runbook.md")
-            && anchor.line == 4;
+            && anchor.line == 9;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("Check handoff note")
-            && anchor.line == 4;
+            && anchor.line == 9;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("link: Spec PDF -> docs/spec.pdf")
-            && anchor.line == 5;
+            && anchor.line == 10;
     }));
     QVERIFY(std::any_of(logIt->relations.cbegin(), logIt->relations.cend(), [](const ResourceRelation &relation) {
         return relation.label == QLatin1String("links-to")
@@ -478,7 +487,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
         return result.resource.title == QLatin1String("ops.log")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->line == 3;
+            && result.matchedAnchor->line == 8;
     }));
 
     const QList<SearchResult> binaryResults = repository.search(SearchQuery{QStringLiteral("unsearchable-nul-token")});

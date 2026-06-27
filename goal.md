@@ -146,7 +146,7 @@ Remaining follow-up:
 
 Completed:
 
-- Extract YAML-style frontmatter aliases and tags as text beacons.
+- Extract YAML-style frontmatter aliases and tags as text beacons in `.md/.markdown` and content-sniffed text files.
 - Extract inline `#tags`, bracketed text links such as `[[...]]`, and block-reference beacons as line anchors.
 - Extract searchable body text while excluding frontmatter metadata from body text.
 - Extract task checkbox lines as searchable file-line anchors.
