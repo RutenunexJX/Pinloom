@@ -4110,7 +4110,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     static const QRegularExpression blockPattern(
         QStringLiteral("^(function|macro)\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression packagePattern(
+    static const QRegularExpression referencePattern(
         QStringLiteral("^find_package\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
 
@@ -4154,10 +4154,10 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
         return;
     }
 
-    const QRegularExpressionMatch packageMatch = packagePattern.match(trimmed);
-    if (packageMatch.hasMatch()) {
+    const QRegularExpressionMatch referenceMatch = referencePattern.match(trimmed);
+    if (referenceMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("directive reference: %1").arg(packageMatch.captured(1)),
+                             QStringLiteral("directive reference: %1").arg(referenceMatch.captured(1)),
                              lineNumber);
     }
 }
