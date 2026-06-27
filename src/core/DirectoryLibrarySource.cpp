@@ -51,12 +51,12 @@ struct HtmlLink {
     int lineNumber = -1;
 };
 
-struct MarkdownReferenceDefinition {
+struct ReferenceStyleTextLinkDefinition {
     QUrl url;
     int lineNumber = -1;
 };
 
-struct MarkdownReferenceUse {
+struct ReferenceStyleTextLinkUse {
     QString id;
     QString title;
     int lineNumber = -1;
@@ -237,7 +237,7 @@ struct SitemapLink {
 QString markdownPlainTextFromLine(QString line);
 void appendFileLineAnchor(Resource &resource, const QString &target, int line);
 
-QString normalizedMarkdownReferenceId(QString id)
+QString normalizedReferenceStyleTextLinkId(QString id)
 {
     id = markdownPlainTextFromLine(id).toLower().trimmed();
     id.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
@@ -5683,8 +5683,8 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
     const QRegularExpression referenceUsePattern(QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\[([^\\]]*)\\]"));
 
     QList<HtmlLink> links;
-    QHash<QString, MarkdownReferenceDefinition> referenceDefinitions;
-    QList<MarkdownReferenceUse> referenceUses;
+    QHash<QString, ReferenceStyleTextLinkDefinition> referenceStyleTextLinkDefinitions;
+    QList<ReferenceStyleTextLinkUse> referenceStyleTextLinkUses;
     QStringList seenUrls;
     auto appendLink = [&](const QString &rawUrl, const QString &rawTitle, int lineNumber) {
         const QUrl url = QUrl::fromUserInput(rawUrl.trimmed());
@@ -5741,11 +5741,12 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
                 : referenceDefinitionMatch.captured(2);
             const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(rawUrl));
             if (isIndexableWebUrl(url)) {
-                MarkdownReferenceDefinition definition;
+                ReferenceStyleTextLinkDefinition definition;
                 definition.url = url;
                 definition.lineNumber = lineNumber;
-                referenceDefinitions.insert(normalizedMarkdownReferenceId(referenceDefinitionMatch.captured(1)),
-                                            definition);
+                referenceStyleTextLinkDefinitions.insert(
+                    normalizedReferenceStyleTextLinkId(referenceDefinitionMatch.captured(1)),
+                    definition);
             }
             continue;
         }
@@ -5769,17 +5770,17 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
             const QString id = match.captured(2).trimmed().isEmpty()
                 ? title
                 : match.captured(2);
-            MarkdownReferenceUse use;
-            use.id = normalizedMarkdownReferenceId(id);
+            ReferenceStyleTextLinkUse use;
+            use.id = normalizedReferenceStyleTextLinkId(id);
             use.title = title;
             use.lineNumber = lineNumber;
-            referenceUses.append(use);
+            referenceStyleTextLinkUses.append(use);
         }
     }
 
-    for (const MarkdownReferenceUse &use : referenceUses) {
-        const auto definitionIt = referenceDefinitions.constFind(use.id);
-        if (definitionIt == referenceDefinitions.cend()) {
+    for (const ReferenceStyleTextLinkUse &use : referenceStyleTextLinkUses) {
+        const auto definitionIt = referenceStyleTextLinkDefinitions.constFind(use.id);
+        if (definitionIt == referenceStyleTextLinkDefinitions.cend()) {
             continue;
         }
         appendLink(definitionIt->url.toString(QUrl::FullyEncoded),
