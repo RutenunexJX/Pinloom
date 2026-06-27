@@ -422,6 +422,49 @@ bool hasTextShebang(const QFileInfo &fileInfo)
     return textInterpreterPattern.match(firstLine).hasMatch();
 }
 
+bool isCompressedPackageFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    const QString completeSuffix = fileInfo.completeSuffix().toLower();
+    return QStringList{
+        QStringLiteral("7z"),
+        QStringLiteral("apk"),
+        QStringLiteral("bz2"),
+        QStringLiteral("cab"),
+        QStringLiteral("cb7"),
+        QStringLiteral("cbr"),
+        QStringLiteral("cbz"),
+        QStringLiteral("ear"),
+        QStringLiteral("gz"),
+        QStringLiteral("ipa"),
+        QStringLiteral("jar"),
+        QStringLiteral("lz"),
+        QStringLiteral("lzma"),
+        QStringLiteral("lzo"),
+        QStringLiteral("rar"),
+        QStringLiteral("tar"),
+        QStringLiteral("tbz"),
+        QStringLiteral("tbz2"),
+        QStringLiteral("tgz"),
+        QStringLiteral("txz"),
+        QStringLiteral("war"),
+        QStringLiteral("xz"),
+        QStringLiteral("zip"),
+        QStringLiteral("zst")
+    }.contains(suffix)
+        || completeSuffix.endsWith(QLatin1String(".tar.br"))
+        || completeSuffix.endsWith(QLatin1String(".tar.bz2"))
+        || completeSuffix.endsWith(QLatin1String(".tar.gz"))
+        || completeSuffix.endsWith(QLatin1String(".tar.lz"))
+        || completeSuffix.endsWith(QLatin1String(".tar.lzma"))
+        || completeSuffix.endsWith(QLatin1String(".tar.xz"))
+        || completeSuffix.endsWith(QLatin1String(".tar.zst"));
+}
+
 bool isMhtmlFile(const QFileInfo &fileInfo)
 {
     const QString suffix = fileInfo.suffix().toLower();
@@ -457,6 +500,9 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 bool isPlainTextContentFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
+        return false;
+    }
+    if (isCompressedPackageFile(fileInfo)) {
         return false;
     }
 
@@ -7181,6 +7227,11 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     Resource primary = resourceFromFileInfo(fileInfo);
     QList<Resource> derivedResources;
     QList<Resource> browserBookmarkResources;
+
+    if (isCompressedPackageFile(fileInfo)) {
+        resources.append(primary);
+        return resources;
+    }
 
     const QString suffix = fileInfo.suffix().toLower();
     if (primary.kind == ResourceKind::Markdown) {

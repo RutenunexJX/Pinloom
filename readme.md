@@ -10,7 +10,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 
 - Text-like files are treated uniformly. Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same text beacon model.
 - Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and neutral symbol-like text. It does not build ASTs or claim programming-language support.
-- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages stay path-only and are not expanded.
+- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
 ## Special File Reader Phases
@@ -19,7 +19,7 @@ Dedicated readers are staged so each phase improves location extraction without 
 
 1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, structured text, and tabular readers as beacon/location readers.
 2. Office baseline readers: extract Word/docx paragraph, heading, table, comment, and link beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and link beacons; PowerPoint slide, title, body, notes, and link beacons.
-3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded.
+3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
 4. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
 5. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
 6. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.

@@ -449,27 +449,36 @@ void DirectorySourceTest::indexesCompressedPackagesAsPathOnlyFiles()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library/artifacts")));
-    writeFile(dir.filePath(QStringLiteral("library/artifacts/package.zip")),
-              QByteArray("PK\0\0hidden-entry.md\0Archive Guide", 31));
+    const QByteArray packageLikeText("#!/bin/sh\n"
+                                     "hidden-entry.md\n"
+                                     "Archive Guide\n"
+                                     "https://docs.example.com/archive/inside\n");
+    for (const QString &fileName : {QStringLiteral("package.zip"),
+                                    QStringLiteral("bundle.tar.gz"),
+                                    QStringLiteral("module.jar")}) {
+        writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
+    }
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto archiveIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::File
-            && resource.title == QLatin1String("package.zip");
-    });
-    QVERIFY(archiveIt != resources.cend());
-    QVERIFY(!archiveIt->tags.contains(QStringLiteral("archive")));
-    QVERIFY(!archiveIt->tags.contains(QStringLiteral("zip-archive")));
-    QVERIFY(!archiveIt->tags.contains(QStringLiteral("special-reader")));
-    QVERIFY(!archiveIt->tags.contains(QStringLiteral("archive-preview-limited")));
-    QVERIFY(std::none_of(archiveIt->anchors.cbegin(), archiveIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.target.contains(QStringLiteral("archive"), Qt::CaseInsensitive)
-            || anchor.target.contains(QStringLiteral("hidden-entry"), Qt::CaseInsensitive);
-    }));
+    for (const QString &fileName : {QStringLiteral("package.zip"),
+                                    QStringLiteral("bundle.tar.gz"),
+                                    QStringLiteral("module.jar")}) {
+        auto packageIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File
+                && resource.title == fileName;
+        });
+        QVERIFY(packageIt != resources.cend());
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("archive")));
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("zip-archive")));
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("archive-preview-limited")));
+        QVERIFY(packageIt->anchors.isEmpty());
+        QVERIFY(packageIt->content.isEmpty());
+    }
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -488,6 +497,10 @@ void DirectorySourceTest::indexesCompressedPackagesAsPathOnlyFiles()
 
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
     QVERIFY(internalResults.isEmpty());
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archive Guide")});
+    QVERIFY(contentResults.isEmpty());
+    const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("docs.example.com/archive/inside")});
+    QVERIFY(urlResults.isEmpty());
 }
 
 void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
