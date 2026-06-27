@@ -77,11 +77,9 @@ QString anchorTypeToString(AnchorType type)
     case AnchorType::FileLine:
         return QStringLiteral("file_line");
     case AnchorType::MarkdownHeading:
-        return QStringLiteral("markdown_heading");
-    case AnchorType::MarkdownBlock:
-        return QStringLiteral("markdown_block");
     case AnchorType::TextHeading:
         return QStringLiteral("text_heading");
+    case AnchorType::MarkdownBlock:
     case AnchorType::TextBlock:
         return QStringLiteral("text_block");
     case AnchorType::Marker:
@@ -105,16 +103,10 @@ AnchorType anchorTypeFromString(const QString &type)
     if (type == QLatin1String("file_line")) {
         return AnchorType::FileLine;
     }
-    if (type == QLatin1String("markdown_heading")) {
-        return AnchorType::MarkdownHeading;
-    }
-    if (type == QLatin1String("markdown_block")) {
-        return AnchorType::MarkdownBlock;
-    }
-    if (type == QLatin1String("text_heading")) {
+    if (type == QLatin1String("text_heading") || type == QLatin1String("markdown_heading")) {
         return AnchorType::TextHeading;
     }
-    if (type == QLatin1String("text_block")) {
+    if (type == QLatin1String("text_block") || type == QLatin1String("markdown_block")) {
         return AnchorType::TextBlock;
     }
     // Accept legacy symbol/code rows while new writes use neutral storage names.
@@ -312,6 +304,34 @@ QString anchorUsageKey(const Anchor &anchor)
 {
     return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
         .arg(anchorTypeToString(anchor.type),
+             anchor.target,
+             QString::number(anchor.line),
+             QString::number(anchor.page),
+             QString::number(anchor.region.x(), 'f', 2),
+             QString::number(anchor.region.y(), 'f', 2),
+             QString::number(anchor.region.width(), 'f', 2),
+             QString::number(anchor.region.height(), 'f', 2));
+}
+
+QString legacyAnchorTypeToString(AnchorType type)
+{
+    switch (type) {
+    case AnchorType::MarkdownHeading:
+    case AnchorType::TextHeading:
+        return QStringLiteral("markdown_heading");
+    case AnchorType::MarkdownBlock:
+    case AnchorType::TextBlock:
+        return QStringLiteral("markdown_block");
+    default:
+        return anchorTypeToString(type);
+    }
+}
+
+QString legacyAnchorUsageKey(Anchor anchor)
+{
+    const QString normalizedType = legacyAnchorTypeToString(anchor.type);
+    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
+        .arg(normalizedType,
              anchor.target,
              QString::number(anchor.line),
              QString::number(anchor.page),
@@ -1081,11 +1101,29 @@ std::optional<AnchorUsage> SqliteLibraryRepository::anchorUsage(const QString &r
         setLastError(query.lastError().text());
         return std::nullopt;
     }
-    if (!query.next()) {
+    if (query.next()) {
+        return hydrateAnchorUsage(query);
+    }
+
+    const QString legacyKey = legacyAnchorUsageKey(anchor);
+    if (legacyKey == anchorUsageKey(anchor)) {
         return std::nullopt;
     }
 
-    return hydrateAnchorUsage(query);
+    QSqlQuery legacyQuery(database_);
+    legacyQuery.prepare(QStringLiteral("SELECT resource_id, type, target, line, page, x, y, width, height, open_count, last_opened_at "
+                                       "FROM anchor_usage WHERE resource_id = ? AND anchor_key = ?"));
+    legacyQuery.addBindValue(resourceId);
+    legacyQuery.addBindValue(legacyKey);
+    if (!legacyQuery.exec()) {
+        setLastError(legacyQuery.lastError().text());
+        return std::nullopt;
+    }
+    if (!legacyQuery.next()) {
+        return std::nullopt;
+    }
+
+    return hydrateAnchorUsage(legacyQuery);
 }
 
 bool SqliteLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)

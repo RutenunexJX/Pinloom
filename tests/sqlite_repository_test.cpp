@@ -129,13 +129,14 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
 
     Resource resource;
     resource.id = QStringLiteral("design-doc");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("FPGA Bringup Plan");
-    resource.location = QStringLiteral("docs/bringup.md");
+    resource.location = QStringLiteral("docs/bringup.txt");
     resource.tags = {QStringLiteral("fpga"), QStringLiteral("uart")};
     resource.aliases = {QStringLiteral("serial notes"), QStringLiteral("board diary")};
     resource.anchors = {
-        Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing")},
+        Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing")},
+        Anchor{AnchorType::TextBlock, QStringLiteral("power-block"), 7},
         Anchor{AnchorType::FileLine, QStringLiteral("Debug checkpoint"), 42}
     };
 
@@ -145,8 +146,10 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(stored.has_value());
     QCOMPARE(stored->tags.size(), 2);
     QCOMPARE(stored->aliases.size(), 2);
-    QCOMPARE(stored->anchors.size(), 2);
-    QCOMPARE(stored->anchors.at(1).line, 42);
+    QCOMPARE(stored->anchors.size(), 3);
+    QCOMPARE(stored->anchors.at(0).type, AnchorType::TextHeading);
+    QCOMPARE(stored->anchors.at(1).type, AnchorType::TextBlock);
+    QCOMPARE(stored->anchors.at(2).line, 42);
 
     const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("bringup")});
     QCOMPARE(titleResults.size(), 1);
@@ -156,9 +159,10 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(aliasResults.size(), 1);
     QCOMPARE(aliasResults.first().resource.id, resource.id);
 
-    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("power")});
+    const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power sequencing")});
     QCOMPARE(anchorResults.size(), 1);
     QVERIFY(anchorResults.first().matchedAnchor.has_value());
+    QCOMPARE(anchorResults.first().matchedAnchor->type, AnchorType::TextHeading);
     QCOMPARE(anchorResults.first().matchedAnchor->target, QStringLiteral("Power sequencing"));
 
     const QList<SearchResult> lineResults = repository.search(SearchQuery{QStringLiteral("checkpoint")});
@@ -166,6 +170,11 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(lineResults.first().matchedAnchor.has_value());
     QCOMPARE(lineResults.first().matchedAnchor->type, AnchorType::FileLine);
     QCOMPARE(lineResults.first().matchedAnchor->line, 42);
+
+    const QList<SearchResult> blockResults = repository.search(SearchQuery{QStringLiteral("power-block")});
+    QCOMPARE(blockResults.size(), 1);
+    QVERIFY(blockResults.first().matchedAnchor.has_value());
+    QCOMPARE(blockResults.first().matchedAnchor->type, AnchorType::TextBlock);
 
     Resource textSnippet;
     textSnippet.id = QStringLiteral("text-snippet");
@@ -192,9 +201,29 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT kind FROM resources WHERE id = 'text-snippet'")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_snippet"));
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'design-doc' ORDER BY anchor_order")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_heading"));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_block"));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("file_line"));
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'text-snippet'")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("marker"));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO resources(id, kind, title, location) "
+        "VALUES ('legacy-text-anchors', 'file', 'Legacy Text Anchors', 'legacy/anchors.txt')")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
+        "VALUES ('legacy-text-anchors', 0, 'markdown_heading', 'Legacy Heading', 12)")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
+        "VALUES ('legacy-text-anchors', 1, 'markdown_block', 'legacy-block', 13)")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO anchor_usage(resource_id, anchor_key, type, target, line, x, y, width, height, open_count, last_opened_at) "
+        "VALUES ('legacy-text-anchors', 'markdown_heading|Legacy Heading|12|-1|0.00|0.00|0.00|0.00', "
+        "'markdown_heading', 'Legacy Heading', 12, 0, 0, 0, 0, 3, '2026-01-01T00:00:00Z')")));
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO resources(id, kind, title, location) "
         "VALUES ('legacy-neutral-snippet', 'code_snippet', 'Legacy Neutral Snippet', 'legacy/snippet.txt')")));
@@ -215,6 +244,21 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(legacySnippet->anchors.size(), 2);
     QCOMPARE(legacySnippet->anchors.first().type, AnchorType::Marker);
     QCOMPARE(legacySnippet->anchors.last().type, AnchorType::Marker);
+
+    const std::optional<Resource> legacyTextAnchors = repository.findResource(QStringLiteral("legacy-text-anchors"));
+    QVERIFY(legacyTextAnchors.has_value());
+    QCOMPARE(legacyTextAnchors->anchors.size(), 2);
+    QCOMPARE(legacyTextAnchors->anchors.first().type, AnchorType::TextHeading);
+    QCOMPARE(legacyTextAnchors->anchors.last().type, AnchorType::TextBlock);
+    Anchor legacyHeading;
+    legacyHeading.type = AnchorType::TextHeading;
+    legacyHeading.target = QStringLiteral("Legacy Heading");
+    legacyHeading.line = 12;
+    const std::optional<AnchorUsage> legacyHeadingUsage =
+        repository.anchorUsage(QStringLiteral("legacy-text-anchors"), legacyHeading);
+    QVERIFY(legacyHeadingUsage.has_value());
+    QCOMPARE(legacyHeadingUsage->anchor.type, AnchorType::TextHeading);
+    QCOMPARE(legacyHeadingUsage->openCount, 3);
 
     SearchQuery taggedQuery;
     taggedQuery.text = QStringLiteral("plan");
