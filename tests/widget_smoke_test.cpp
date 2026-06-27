@@ -1199,7 +1199,14 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 8}};
     QVERIFY(repository.upsertResource(resource));
 
-    PinloomPanel panel(repository);
+    int activationCount = 0;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &) {
+        ++activationCount;
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
     const PinloomOpenTarget directTarget = panel.openTargetForResourceId(resource.id);
     QCOMPARE(directTarget.resourceId, resource.id);
     QCOMPARE(directTarget.resourceKind, resource.kind);
@@ -1207,6 +1214,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(directTarget.location, resource.location);
     QCOMPARE(directTarget.resultRow, -1);
     QVERIFY(!directTarget.anchor.has_value());
+    QCOMPARE(activationCount, 0);
     QVERIFY(panel.openTargetForResourceId(QStringLiteral("missing")).resourceId.isEmpty());
     QVERIFY(panel.openTargetForResourceId(QString()).resourceId.isEmpty());
 
@@ -1221,6 +1229,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     panel.setSearchText(QStringLiteral("missing"));
     QVERIFY(panel.resultAt(0).resourceId.isEmpty());
     QVERIFY(panel.currentResults().isEmpty());
+    QCOMPARE(activationCount, 0);
 
     panel.setContextTags({QStringLiteral("zeroslack")});
     panel.setContextLocationPrefixes({QStringLiteral("E:/workspace/project")});
@@ -1248,6 +1257,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(rowTarget.anchor->target, QStringLiteral("Dock handoff"));
     QCOMPARE(rowTarget.anchor->line, 8);
     QVERIFY(panel.resultAt(1).resourceId.isEmpty());
+    QCOMPARE(activationCount, 0);
 
     const QList<PinloomOpenTarget> currentResults = panel.currentResults();
     QCOMPARE(currentResults.size(), 1);
@@ -1256,6 +1266,8 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(currentResults.first().matchSummary, rowTarget.matchSummary);
     QVERIFY(currentResults.first().anchor.has_value());
     QCOMPARE(currentResults.first().anchor->target, QStringLiteral("Dock handoff"));
+    QCOMPARE(currentResults.first().location, resource.location);
+    QCOMPARE(activationCount, 0);
 
     const PinloomOpenTarget target = panel.currentOpenTarget();
     QCOMPARE(target.resultRow, 0);
@@ -1272,6 +1284,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(static_cast<int>(target.anchor->type), static_cast<int>(AnchorType::TextHeading));
     QCOMPARE(target.anchor->target, QStringLiteral("Dock handoff"));
     QCOMPARE(target.anchor->line, 8);
+    QCOMPARE(activationCount, 0);
 }
 
 void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()

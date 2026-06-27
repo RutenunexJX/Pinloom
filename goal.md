@@ -110,7 +110,7 @@ Completed:
 - Keep `pinloom_core` host-neutral.
 - Expose `pinloom_widgets` APIs that let a host seed search text, focus the locator, and intercept selected result activation.
 - Let embedding hosts hide standalone management/editing chrome for compact dock/global-control embedding.
-- Let embedding hosts inspect the current selected open target and observe selection changes without triggering activation.
+- Let embedding hosts inspect path/location/anchor open-target payloads and observe selection changes without triggering activation.
 - Let embedding hosts inspect the current result target list without parsing Qt item text.
 - Let embedding hosts inspect related targets for the current selection without parsing UI text.
 - Let embedding hosts inspect result count, navigate result selection, and directly select results by row or resource id through API for command palette flows.
