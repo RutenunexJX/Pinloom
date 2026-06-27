@@ -336,7 +336,7 @@ QString normalizedPath(const QFileInfo &fileInfo)
     return QDir::cleanPath(fileInfo.absoluteFilePath());
 }
 
-bool isCMakeFile(const QFileInfo &fileInfo)
+bool hasDirectiveTextBeaconFormat(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
         && (fileInfo.fileName().compare(QStringLiteral("CMakeLists.txt"), Qt::CaseInsensitive) == 0
@@ -7563,7 +7563,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
     const bool workflowConfigText = isGithubActionsWorkflowFile(fileInfo);
     const bool pipelineConfigText = isGitlabCiFile(fileInfo);
-    const bool directiveText = isCMakeFile(fileInfo);
+    const bool directiveText = hasDirectiveTextBeaconFormat(fileInfo);
     const bool ruleEntryText = hasRuleEntryTextBeaconFormat(fileInfo);
     const bool containerText = hasContainerTextBeaconFormat(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);

@@ -2394,15 +2394,15 @@ void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
         });
     };
 
-    const auto cmakeListsIt = findFile(QStringLiteral("CMakeLists.txt"));
-    QVERIFY(cmakeListsIt != resources.cend());
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive entry: PinloomHost"), 2));
-    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("directive reference: Qt6"), 3));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive setting: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive entry: pinloom_core"), 5));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive entry: pinloom_app"), 6));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive entry: pinloom_docs"), 7));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive entry: pinloom_core_smoke_test"), 8));
+    const auto directiveTextIt = findFile(QStringLiteral("CMakeLists.txt"));
+    QVERIFY(directiveTextIt != resources.cend());
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: PinloomHost"), 2));
+    QVERIFY(hasLineAnchor(*directiveTextIt, QStringLiteral("directive reference: Qt6"), 3));
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive setting: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_core"), 5));
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_app"), 6));
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_docs"), 7));
+    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_core_smoke_test"), 8));
 
     const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
