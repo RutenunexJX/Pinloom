@@ -221,7 +221,7 @@ Manual Anchors And Relationships MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for related-resource persistence, indexed Markdown link relations, compact relationship summaries, host related-target inspection by selection and resource id, host relation editing, manual anchor/alias editing UI, and resource-id-based host manual editing (`pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for related-resource persistence, indexed text link relations from local link beacons, compact relationship summaries, host related-target inspection by selection and resource id, host relation editing, manual anchor/alias editing UI, and resource-id-based host manual editing (`pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Ranking And Recall MVP validation:
 

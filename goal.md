@@ -190,7 +190,7 @@ Remaining follow-up:
 Completed:
 
 - Persist related-resource links.
-- Persist indexed `links-to` relations discovered from local Markdown links.
+- Persist indexed `links-to` relations discovered from local text link beacons.
 - Surface relationships in compact result details without turning the main result list into a graph browser.
 - Treat manual relation labels as user-authored jump context, not inferred semantic relationships.
 - Expose current related targets through the host-facing panel API.

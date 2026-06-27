@@ -30,8 +30,8 @@ private slots:
     void extractsMarkdownBodyContent();
     void extractsLocalMarkdownLinkAnchors();
     void extractsMarkdownTaskLineAnchors();
-    void extractsMarkdownLinkResources();
-    void extractsMarkdownReferenceLinkResources();
+    void extractsInlineTextLinkUrlResources();
+    void extractsReferenceStyleTextLinkUrlResources();
     void extractsPdfTitleAndPageAnchors();
     void extractsPdfContentText();
     void extractsUtf16PdfContentText();
@@ -1316,7 +1316,7 @@ void DirectorySourceTest::extractsMarkdownTaskLineAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsMarkdownLinkResources()
+void DirectorySourceTest::extractsInlineTextLinkUrlResources()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -1439,7 +1439,7 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
     }));
 }
 
-void DirectorySourceTest::extractsMarkdownReferenceLinkResources()
+void DirectorySourceTest::extractsReferenceStyleTextLinkUrlResources()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());

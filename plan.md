@@ -297,7 +297,7 @@ Status:
 
 - Manual anchor resource kind exists in the model: done.
 - Related-resource persistence: done.
-- Indexed `links-to` relations from local Markdown links: done.
+- Indexed `links-to` relations from local text link beacons: done.
 - Compact relationship summary in result details: done.
 - Manual relation labels as user-authored jump context, not inferred semantic relationships: done.
 - Host-facing current related-target API: done.
