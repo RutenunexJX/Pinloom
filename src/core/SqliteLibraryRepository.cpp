@@ -26,7 +26,7 @@ QString resourceKindToString(ResourceKind kind)
     case ResourceKind::Pdf:
         return QStringLiteral("pdf");
     case ResourceKind::Markdown:
-        return QStringLiteral("markdown");
+        return QStringLiteral("file");
     case ResourceKind::TextSnippet:
         return QStringLiteral("text_snippet");
     case ResourceKind::Url:
@@ -43,7 +43,8 @@ QString resourceKindToString(ResourceKind kind)
 
 ResourceKind resourceKindFromString(const QString &kind)
 {
-    if (kind == QLatin1String("file")) {
+    // Accept legacy markdown rows while new writes use ordinary file resources.
+    if (kind == QLatin1String("file") || kind == QLatin1String("markdown")) {
         return ResourceKind::File;
     }
     if (kind == QLatin1String("folder")) {
@@ -51,9 +52,6 @@ ResourceKind resourceKindFromString(const QString &kind)
     }
     if (kind == QLatin1String("pdf")) {
         return ResourceKind::Pdf;
-    }
-    if (kind == QLatin1String("markdown")) {
-        return ResourceKind::Markdown;
     }
     // Accept legacy code_* rows while new writes use neutral storage names.
     if (kind == QLatin1String("text_snippet") || kind == QLatin1String("code_snippet")) {
@@ -423,7 +421,17 @@ bool matchesRequiredLocationPrefixes(const QString &location, const QStringList 
 
 bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &requiredKinds)
 {
-    return requiredKinds.isEmpty() || requiredKinds.contains(kind);
+    if (requiredKinds.isEmpty()) {
+        return true;
+    }
+
+    const ResourceKind normalizedKind =
+        kind == ResourceKind::Markdown ? ResourceKind::File : kind;
+    return std::any_of(requiredKinds.cbegin(), requiredKinds.cend(), [&](ResourceKind requiredKind) {
+        const ResourceKind normalizedRequiredKind =
+            requiredKind == ResourceKind::Markdown ? ResourceKind::File : requiredKind;
+        return normalizedRequiredKind == normalizedKind;
+    });
 }
 
 bool matchesContextRelationLabel(const ResourceRelation &relation, const QStringList &labels)

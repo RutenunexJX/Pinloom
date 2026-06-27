@@ -152,7 +152,7 @@ Completed:
 - Extract task checkbox lines as searchable file-line anchors.
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Extract bracketed text links as searchable file-line anchors and indexed `links-to` relations.
-- Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; any Markdown resource kind remains compatibility surface for existing stored or host-provided resources, not a new indexing branch.
+- Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; Markdown resource kind inputs and stored `markdown` rows are compatibility surface and normalize to ordinary file resources, not a new indexing branch.
 - Emit text heading/block anchors with neutral text anchor types; Markdown-named anchor inputs and `markdown_*` storage rows are compatibility surface and normalize to neutral text anchors on write/read.
 - Preserve the same text-beacon behavior for non-Obsidian text folders.
 - Add focused tests around mixed plain text and note-style text-convention inputs.

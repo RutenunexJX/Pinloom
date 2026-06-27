@@ -192,6 +192,23 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(storedSnippet->anchors.size(), 1);
     QCOMPARE(storedSnippet->anchors.first().type, AnchorType::Marker);
 
+    Resource legacyMarkdownInput;
+    legacyMarkdownInput.id = QStringLiteral("legacy-markdown-input");
+    legacyMarkdownInput.kind = ResourceKind::Markdown;
+    legacyMarkdownInput.title = QStringLiteral("Legacy Markdown Kind Input");
+    legacyMarkdownInput.location = QStringLiteral("notes/legacy.md");
+    legacyMarkdownInput.anchors = {
+        Anchor{AnchorType::MarkdownHeading, QStringLiteral("Legacy Heading"), 5}
+    };
+    QVERIFY2(repository.upsertResource(legacyMarkdownInput), qPrintable(repository.lastError()));
+
+    const std::optional<Resource> storedLegacyMarkdownInput =
+        repository.findResource(legacyMarkdownInput.id);
+    QVERIFY(storedLegacyMarkdownInput.has_value());
+    QCOMPARE(storedLegacyMarkdownInput->kind, ResourceKind::File);
+    QCOMPARE(storedLegacyMarkdownInput->anchors.size(), 1);
+    QCOMPARE(storedLegacyMarkdownInput->anchors.first().type, AnchorType::TextHeading);
+
     const QString rawConnectionName =
         QStringLiteral("pinloom_raw_kind_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
     QSqlDatabase rawDatabase = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), rawConnectionName);
@@ -201,6 +218,9 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT kind FROM resources WHERE id = 'text-snippet'")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_snippet"));
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT kind FROM resources WHERE id = 'legacy-markdown-input'")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("file"));
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'design-doc' ORDER BY anchor_order")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_heading"));
@@ -233,10 +253,18 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
         "VALUES ('legacy-neutral-snippet', 1, 'symbol_like', 'legacy_marker', 10)")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO resources(id, kind, title, location) "
+        "VALUES ('legacy-markdown-row', 'markdown', 'Legacy Markdown Row', 'legacy/row.md')")));
     rawQuery = QSqlQuery();
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
     QSqlDatabase::removeDatabase(rawConnectionName);
+
+    const std::optional<Resource> legacyMarkdownRow =
+        repository.findResource(QStringLiteral("legacy-markdown-row"));
+    QVERIFY(legacyMarkdownRow.has_value());
+    QCOMPARE(legacyMarkdownRow->kind, ResourceKind::File);
 
     const std::optional<Resource> legacySnippet = repository.findResource(QStringLiteral("legacy-neutral-snippet"));
     QVERIFY(legacySnippet.has_value());
@@ -496,10 +524,10 @@ void SqliteRepositoryTest::filtersByRequiredResourceKinds()
 
     Resource note;
     note.id = QStringLiteral("note");
-    note.kind = ResourceKind::Markdown;
+    note.kind = ResourceKind::File;
     note.title = QStringLiteral("UART Note");
     note.location = QStringLiteral("note.md");
-    note.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 4}};
+    note.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 4}};
     QVERIFY2(repository.upsertResource(note), qPrintable(repository.lastError()));
 
     Resource link;
@@ -520,12 +548,17 @@ void SqliteRepositoryTest::filtersByRequiredResourceKinds()
 
     SearchQuery anchorQuery;
     anchorQuery.text = QStringLiteral("Dock handoff");
-    anchorQuery.requiredKinds = {ResourceKind::Markdown};
+    anchorQuery.requiredKinds = {ResourceKind::File};
 
     const QList<SearchResult> anchorResults = repository.search(anchorQuery);
     QCOMPARE(anchorResults.size(), 1);
     QCOMPARE(anchorResults.first().resource.id, note.id);
     QVERIFY(anchorResults.first().matchedAnchor.has_value());
+
+    anchorQuery.requiredKinds = {ResourceKind::Markdown};
+    const QList<SearchResult> legacyKindAliasResults = repository.search(anchorQuery);
+    QCOMPARE(legacyKindAliasResults.size(), 1);
+    QCOMPARE(legacyKindAliasResults.first().resource.id, note.id);
 }
 
 void SqliteRepositoryTest::ranksContextSignalsWithinMatchType()
@@ -826,6 +859,7 @@ void SqliteRepositoryTest::upgradesVersionOneDatabase()
     const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
     QVERIFY(legacy.has_value());
     QCOMPARE(legacy->title, QStringLiteral("Legacy Note"));
+    QCOMPARE(legacy->kind, ResourceKind::File);
 
     LibraryRoot root = makeLibraryRootForPath(dir.path());
     QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
@@ -850,6 +884,7 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     QCOMPARE(repository.libraryRoots().first().pinned, true);
     const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
     QVERIFY(legacy.has_value());
+    QCOMPARE(legacy->kind, ResourceKind::File);
 
     Resource resource;
     resource.id = QStringLiteral("anchored");
