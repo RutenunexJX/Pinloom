@@ -64,6 +64,7 @@ private slots:
     void extractsBrowserHistorySqliteLinks();
     void extractsFirefoxPlacesSqliteLinks();
     void extractsGenericSqliteBeaconMetadata();
+    void extractsZipArchiveEntryBeacons();
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
@@ -274,6 +275,88 @@ static void writeGenericSqliteDatabase(const QString &path)
         database.close();
     }
     QSqlDatabase::removeDatabase(connectionName);
+}
+
+static void appendLittleEndian16(QByteArray &bytes, quint16 value)
+{
+    bytes.append(static_cast<char>(value & 0xff));
+    bytes.append(static_cast<char>((value >> 8) & 0xff));
+}
+
+static void appendLittleEndian32(QByteArray &bytes, quint32 value)
+{
+    bytes.append(static_cast<char>(value & 0xff));
+    bytes.append(static_cast<char>((value >> 8) & 0xff));
+    bytes.append(static_cast<char>((value >> 16) & 0xff));
+    bytes.append(static_cast<char>((value >> 24) & 0xff));
+}
+
+static void writeZipArchive(const QString &path)
+{
+    struct Entry {
+        QString path;
+        QByteArray content;
+        quint32 localHeaderOffset = 0;
+    };
+
+    QList<Entry> entries;
+    entries.append(Entry{QStringLiteral("docs/readme.md"), QByteArray("# Archive Guide\n")});
+    entries.append(Entry{QStringLiteral("META-INF/MANIFEST.MF"), QByteArray("Manifest-Version: 1.0\n")});
+    entries.append(Entry{QStringLiteral("src/top.sv"), QByteArray("module top; endmodule\n")});
+
+    QByteArray bytes;
+    for (Entry &entry : entries) {
+        entry.localHeaderOffset = static_cast<quint32>(bytes.size());
+        const QByteArray name = entry.path.toUtf8();
+        appendLittleEndian32(bytes, 0x04034b50);
+        appendLittleEndian16(bytes, 20);
+        appendLittleEndian16(bytes, 0x0800);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian32(bytes, 0);
+        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian16(bytes, static_cast<quint16>(name.size()));
+        appendLittleEndian16(bytes, 0);
+        bytes.append(name);
+        bytes.append(entry.content);
+    }
+
+    const quint32 centralDirectoryOffset = static_cast<quint32>(bytes.size());
+    for (const Entry &entry : entries) {
+        const QByteArray name = entry.path.toUtf8();
+        appendLittleEndian32(bytes, 0x02014b50);
+        appendLittleEndian16(bytes, 20);
+        appendLittleEndian16(bytes, 20);
+        appendLittleEndian16(bytes, 0x0800);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian32(bytes, 0);
+        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian16(bytes, static_cast<quint16>(name.size()));
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, 0);
+        appendLittleEndian32(bytes, 0);
+        appendLittleEndian32(bytes, entry.localHeaderOffset);
+        bytes.append(name);
+    }
+
+    const quint32 centralDirectorySize = static_cast<quint32>(bytes.size()) - centralDirectoryOffset;
+    appendLittleEndian32(bytes, 0x06054b50);
+    appendLittleEndian16(bytes, 0);
+    appendLittleEndian16(bytes, 0);
+    appendLittleEndian16(bytes, static_cast<quint16>(entries.size()));
+    appendLittleEndian16(bytes, static_cast<quint16>(entries.size()));
+    appendLittleEndian32(bytes, centralDirectorySize);
+    appendLittleEndian32(bytes, centralDirectoryOffset);
+    appendLittleEndian16(bytes, 0);
+
+    writeFile(path, bytes);
 }
 
 static QByteArray ascii85Encode(const QByteArray &content)
@@ -4592,6 +4675,77 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target
                 == QLatin1String("sqlite url: board_notes.url -> https://docs.example.com/pinloom/sqlite#row");
+    }));
+}
+
+void DirectorySourceTest::extractsZipArchiveEntryBeacons()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/artifacts")));
+    const QString archivePath = dir.filePath(QStringLiteral("library/artifacts/package.zip"));
+    writeZipArchive(archivePath);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto archiveIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("package.zip");
+    });
+    QVERIFY(archiveIt != resources.cend());
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("archive")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("zip-archive")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("package")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("readme.md")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("MANIFEST.MF")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("top.sv")));
+
+    auto hasLineAnchor = [](const Resource &resource, const QString &target) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == 1;
+        });
+    };
+
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entries: 3")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: docs/readme.md")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: META-INF/MANIFEST.MF")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive manifest: META-INF/MANIFEST.MF")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: src/top.sv")));
+
+    QCOMPARE(resources.size(), 3);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> topResults = repository.search(SearchQuery{QStringLiteral("top.sv")});
+    QVERIFY(std::any_of(topResults.cbegin(), topResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("package.zip")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("archive entry: src/top.sv");
+    }));
+
+    const QList<SearchResult> manifestResults = repository.search(SearchQuery{QStringLiteral("MANIFEST")});
+    QVERIFY(std::any_of(manifestResults.cbegin(), manifestResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("package.zip")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("archive manifest: META-INF/MANIFEST.MF");
     }));
 }
 
