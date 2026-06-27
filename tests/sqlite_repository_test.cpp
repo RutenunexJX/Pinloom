@@ -197,16 +197,16 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("symbol_like"));
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO resources(id, kind, title, location) "
-        "VALUES ('legacy-code-snippet', 'code_snippet', 'Legacy Snippet', 'legacy/snippet.txt')")));
+        "VALUES ('legacy-neutral-snippet', 'code_snippet', 'Legacy Neutral Snippet', 'legacy/snippet.txt')")));
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
-        "VALUES ('legacy-code-snippet', 0, 'code_symbol', 'legacy_symbol', 9)")));
+        "VALUES ('legacy-neutral-snippet', 0, 'code_symbol', 'legacy_symbol', 9)")));
     rawQuery = QSqlQuery();
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
     QSqlDatabase::removeDatabase(rawConnectionName);
 
-    const std::optional<Resource> legacySnippet = repository.findResource(QStringLiteral("legacy-code-snippet"));
+    const std::optional<Resource> legacySnippet = repository.findResource(QStringLiteral("legacy-neutral-snippet"));
     QVERIFY(legacySnippet.has_value());
     QCOMPARE(legacySnippet->kind, ResourceKind::TextSnippet);
     QCOMPARE(legacySnippet->anchors.size(), 1);

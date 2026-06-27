@@ -55,6 +55,7 @@ ResourceKind resourceKindFromString(const QString &kind)
     if (kind == QLatin1String("markdown")) {
         return ResourceKind::Markdown;
     }
+    // Accept legacy code_* rows while new writes use neutral storage names.
     if (kind == QLatin1String("text_snippet") || kind == QLatin1String("code_snippet")) {
         return ResourceKind::TextSnippet;
     }
@@ -106,6 +107,7 @@ AnchorType anchorTypeFromString(const QString &type)
     if (type == QLatin1String("markdown_block")) {
         return AnchorType::MarkdownBlock;
     }
+    // Accept legacy code_* rows while new writes use neutral storage names.
     if (type == QLatin1String("symbol_like") || type == QLatin1String("code_symbol")) {
         return AnchorType::SymbolLike;
     }

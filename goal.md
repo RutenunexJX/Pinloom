@@ -178,7 +178,7 @@ Completed:
 - Keep JSON/TOML/requirements-style named-entry line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Add compile_commands.json file-reference line anchors and `file-reference` relations to referenced file paths without treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
-- Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.
+- Use neutral model/storage names for text snippets and symbol-like anchors while retaining read-only legacy `code_*` database compatibility.
 - Rank exact beacon and filename matches ahead of broad path matches.
 
 Remaining follow-up:
