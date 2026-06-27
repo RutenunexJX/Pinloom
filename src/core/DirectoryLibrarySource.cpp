@@ -4232,13 +4232,13 @@ struct TextStructureBeaconState {
 };
 
 struct WorkflowConfigBeaconState {
-    bool inJobs = false;
-    QString currentJob;
+    bool inBlocksSection = false;
+    QString currentBlock;
     bool inSteps = false;
 };
 
 struct PipelineConfigBeaconState {
-    QString currentJob;
+    QString currentBlock;
     QString currentListKey;
 };
 
@@ -4303,32 +4303,32 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
                     appendBeaconLineAnchor(resource, QStringLiteral("ci workflow: %1").arg(workflowName), lineNumber);
                 }
             }
-            state.inJobs = key == QLatin1String("jobs");
-            state.currentJob.clear();
+            state.inBlocksSection = key == QLatin1String("jobs");
+            state.currentBlock.clear();
             state.inSteps = false;
         }
         return;
     }
 
-    if (!state.inJobs) {
+    if (!state.inBlocksSection) {
         return;
     }
 
     if (indent == 2) {
-        const QRegularExpressionMatch jobMatch = keyPattern.match(trimmed);
-        if (jobMatch.hasMatch()) {
-            state.currentJob = jobMatch.captured(1).trimmed();
+        const QRegularExpressionMatch blockMatch = keyPattern.match(trimmed);
+        if (blockMatch.hasMatch()) {
+            state.currentBlock = blockMatch.captured(1).trimmed();
             state.inSteps = false;
-            if (!state.currentJob.isEmpty()) {
+            if (!state.currentBlock.isEmpty()) {
                 appendBeaconLineAnchor(resource,
-                                       QStringLiteral("ci block: %1").arg(state.currentJob),
+                                       QStringLiteral("ci block: %1").arg(state.currentBlock),
                                        lineNumber);
             }
         }
         return;
     }
 
-    if (state.currentJob.isEmpty()) {
+    if (state.currentBlock.isEmpty()) {
         return;
     }
 
@@ -4341,10 +4341,10 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
                 return;
             }
             if (key == QLatin1String("name")) {
-                const QString jobName = cleanedYamlScalar(keyMatch.captured(2));
-                if (!jobName.isEmpty()) {
+                const QString blockLabel = cleanedYamlScalar(keyMatch.captured(2));
+                if (!blockLabel.isEmpty()) {
                     appendFileLineAnchor(resource,
-                                         QStringLiteral("ci label: %1").arg(jobName),
+                                         QStringLiteral("ci label: %1").arg(blockLabel),
                                          lineNumber);
                 }
             }
@@ -4411,27 +4411,27 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
     if (indent == 0) {
         const QRegularExpressionMatch keyMatch = keyPattern.match(trimmed);
         if (!keyMatch.hasMatch()) {
-            state.currentJob.clear();
+            state.currentBlock.clear();
             state.currentListKey.clear();
             return;
         }
 
         const QString key = keyMatch.captured(1).trimmed();
         if (key == QLatin1String("stages")) {
-            state.currentJob.clear();
+            state.currentBlock.clear();
             state.currentListKey = key;
             return;
         }
 
         state.currentListKey.clear();
         if (isGitlabCiReservedTopLevelKey(key)) {
-            state.currentJob.clear();
+            state.currentBlock.clear();
             return;
         }
 
-        state.currentJob = key;
-        if (!state.currentJob.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("ci block: %1").arg(state.currentJob), lineNumber);
+        state.currentBlock = key;
+        if (!state.currentBlock.isEmpty()) {
+            appendBeaconLineAnchor(resource, QStringLiteral("ci block: %1").arg(state.currentBlock), lineNumber);
         }
         return;
     }
@@ -4447,7 +4447,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
         return;
     }
 
-    if (state.currentJob.isEmpty()) {
+    if (state.currentBlock.isEmpty()) {
         return;
     }
 
