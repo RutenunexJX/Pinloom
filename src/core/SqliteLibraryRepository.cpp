@@ -1,5 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 
+#include "pinloom/core/LegacyCompatibility.h"
 #include "pinloom/core/Schema.h"
 
 #include <QDateTime>
@@ -18,15 +19,13 @@ namespace {
 
 QString resourceKindToString(ResourceKind kind)
 {
-    switch (kind) {
+    switch (normalizedResourceKind(kind)) {
     case ResourceKind::File:
         return QStringLiteral("file");
     case ResourceKind::Folder:
         return QStringLiteral("folder");
     case ResourceKind::Pdf:
         return QStringLiteral("pdf");
-    case ResourceKind::Markdown:
-        return QStringLiteral("file");
     case ResourceKind::TextSnippet:
         return QStringLiteral("text_snippet");
     case ResourceKind::Url:
@@ -35,6 +34,7 @@ QString resourceKindToString(ResourceKind kind)
         return QStringLiteral("note");
     case ResourceKind::ManualAnchor:
         return QStringLiteral("manual_anchor");
+    case ResourceKind::Markdown:
     case ResourceKind::Unknown:
         break;
     }
@@ -71,13 +71,11 @@ ResourceKind resourceKindFromString(const QString &kind)
 
 QString anchorTypeToString(AnchorType type)
 {
-    switch (type) {
+    switch (normalizedAnchorType(type)) {
     case AnchorType::FileLine:
         return QStringLiteral("file_line");
-    case AnchorType::MarkdownHeading:
     case AnchorType::TextHeading:
         return QStringLiteral("text_heading");
-    case AnchorType::MarkdownBlock:
     case AnchorType::TextBlock:
         return QStringLiteral("text_block");
     case AnchorType::Marker:
@@ -90,6 +88,8 @@ QString anchorTypeToString(AnchorType type)
         return QStringLiteral("url_fragment");
     case AnchorType::Manual:
         return QStringLiteral("manual");
+    case AnchorType::MarkdownHeading:
+    case AnchorType::MarkdownBlock:
     case AnchorType::None:
         break;
     }
@@ -280,10 +280,8 @@ bool shouldIndexAnchorTarget(const Anchor &anchor)
         return false;
     }
 
-    switch (anchor.type) {
+    switch (normalizedAnchorType(anchor.type)) {
     case AnchorType::FileLine:
-    case AnchorType::MarkdownHeading:
-    case AnchorType::MarkdownBlock:
     case AnchorType::TextHeading:
     case AnchorType::TextBlock:
     case AnchorType::Marker:
@@ -292,6 +290,8 @@ bool shouldIndexAnchorTarget(const Anchor &anchor)
     case AnchorType::UrlFragment:
     case AnchorType::Manual:
         return true;
+    case AnchorType::MarkdownHeading:
+    case AnchorType::MarkdownBlock:
     case AnchorType::None:
         break;
     }
@@ -421,17 +421,7 @@ bool matchesRequiredLocationPrefixes(const QString &location, const QStringList 
 
 bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &requiredKinds)
 {
-    if (requiredKinds.isEmpty()) {
-        return true;
-    }
-
-    const ResourceKind normalizedKind =
-        kind == ResourceKind::Markdown ? ResourceKind::File : kind;
-    return std::any_of(requiredKinds.cbegin(), requiredKinds.cend(), [&](ResourceKind requiredKind) {
-        const ResourceKind normalizedRequiredKind =
-            requiredKind == ResourceKind::Markdown ? ResourceKind::File : requiredKind;
-        return normalizedRequiredKind == normalizedKind;
-    });
+    return resourceKindMatchesFilter(kind, requiredKinds);
 }
 
 bool matchesContextRelationLabel(const ResourceRelation &relation, const QStringList &labels)

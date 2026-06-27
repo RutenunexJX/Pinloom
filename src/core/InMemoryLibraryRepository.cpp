@@ -1,5 +1,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 
+#include "pinloom/core/LegacyCompatibility.h"
+
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
@@ -47,35 +49,6 @@ SearchResult anchorResult(const Resource &resource, const Anchor &anchor, const 
                         exactMatchScoreAdjustment(anchor.target, needle),
                         QStringLiteral("anchor"),
                         anchor};
-}
-
-AnchorType normalizedAnchorType(AnchorType type)
-{
-    switch (type) {
-    case AnchorType::MarkdownHeading:
-        return AnchorType::TextHeading;
-    case AnchorType::MarkdownBlock:
-        return AnchorType::TextBlock;
-    default:
-        return type;
-    }
-}
-
-Anchor normalizedAnchor(Anchor anchor)
-{
-    anchor.type = normalizedAnchorType(anchor.type);
-    return anchor;
-}
-
-Resource normalizedResource(Resource resource)
-{
-    if (resource.kind == ResourceKind::Markdown) {
-        resource.kind = ResourceKind::File;
-    }
-    for (Anchor &anchor : resource.anchors) {
-        anchor = normalizedAnchor(anchor);
-    }
-    return resource;
 }
 
 QString anchorTypeKey(AnchorType type)
@@ -179,17 +152,7 @@ bool matchesRequiredLocationPrefixes(const QString &location, const QStringList 
 
 bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &requiredKinds)
 {
-    if (requiredKinds.isEmpty()) {
-        return true;
-    }
-
-    const ResourceKind normalizedKind =
-        kind == ResourceKind::Markdown ? ResourceKind::File : kind;
-    return std::any_of(requiredKinds.cbegin(), requiredKinds.cend(), [&](ResourceKind requiredKind) {
-        const ResourceKind normalizedRequiredKind =
-            requiredKind == ResourceKind::Markdown ? ResourceKind::File : requiredKind;
-        return normalizedRequiredKind == normalizedKind;
-    });
+    return resourceKindMatchesFilter(kind, requiredKinds);
 }
 
 bool matchesContextRelationLabel(const ResourceRelation &relation, const QStringList &labels)

@@ -234,6 +234,7 @@ Status:
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
 - Directory scans emit `.md/.markdown` as ordinary file resources; legacy Markdown kind inputs and stored `markdown` rows normalize to ordinary file resources: done.
 - Directory scans emit text heading/block anchors through neutral text anchor types and `text_heading`/`text_block` storage names; SQLite and in-memory repositories normalize legacy Markdown-named anchor inputs and stored rows to neutral text anchors: done.
+- Shared legacy compatibility helpers now own Markdown-named resource and anchor normalization for both SQLite and in-memory repositories: done.
 - SQLite and in-memory repository smoke coverage uses neutral file/text fixtures; Markdown-named inputs remain only in explicit legacy compatibility coverage: done.
 - Tests: done.
 - Build/test verification: done.
@@ -285,6 +286,7 @@ Status:
 - File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done.
 - Neutral model/storage names for text snippets and marker anchors: done, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Neutral text heading/block model and storage names: done, with legacy Markdown-named anchor inputs and stored rows normalized to neutral text anchors.
+- Shared repository compatibility helpers keep legacy Markdown kind/filter/anchor inputs as aliases for ordinary file and neutral text anchors, preventing a separate Markdown repository path from reappearing.
 - Language-specific symbol/test/import parsing across programming languages and script types: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 

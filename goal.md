@@ -154,6 +154,7 @@ Completed:
 - Extract bracketed text links as searchable file-line anchors and indexed `links-to` relations.
 - Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; Markdown resource kind inputs and stored `markdown` rows are compatibility surface and normalize to ordinary file resources, not a new indexing branch.
 - Emit text heading/block anchors with neutral text anchor types; SQLite and in-memory repositories normalize Markdown-named anchor inputs and `markdown_*` storage rows to neutral text anchors on write/read.
+- Keep Markdown-named resource and anchor compatibility centralized in one shared normalization layer so repository implementations cannot drift back toward a format-specific branch.
 - Keep SQLite and in-memory repository coverage on neutral file/text fixtures, with Markdown-named resource and anchor inputs reserved for explicit legacy compatibility tests.
 - Preserve the same text-beacon behavior for non-Obsidian text folders.
 - Add focused tests around mixed plain text and note-style text-convention inputs.
@@ -184,6 +185,7 @@ Completed:
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and marker anchors while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
 - Use neutral text heading/block anchor model and storage names for new directory indexing while normalizing legacy Markdown-named anchor inputs and stored rows.
+- Centralize legacy Markdown resource/anchor aliases behind shared compatibility helpers, preserving old input/database readability while keeping new writes on ordinary file and neutral text-anchor names.
 - Rank exact beacon and filename matches ahead of broad path matches.
 
 Remaining follow-up:
