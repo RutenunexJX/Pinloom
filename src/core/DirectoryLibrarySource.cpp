@@ -3110,7 +3110,7 @@ EmailMessageMetadata emailMessageMetadataFromFile(const QFileInfo &fileInfo)
     return emailMessageMetadataFromText(QString::fromUtf8(bytes));
 }
 
-QList<TextUrlLink> robotsSitemapLinksFromFile(const QFileInfo &fileInfo)
+QList<TextUrlLink> robotsSitemapLineLinksFromFile(const QFileInfo &fileInfo)
 {
     if (!isRobotsTxtCandidate(fileInfo)) {
         return {};
@@ -6496,7 +6496,7 @@ QList<Resource> textUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList
     return resources;
 }
 
-QList<Resource> robotsSitemapResourcesFromLinks(const QFileInfo &fileInfo, const QList<TextUrlLink> &links)
+QList<Resource> robotsSitemapLineResourcesFromLinks(const QFileInfo &fileInfo, const QList<TextUrlLink> &links)
 {
     QList<Resource> resources;
     for (const TextUrlLink &link : links) {
@@ -6630,9 +6630,9 @@ void appendPlainTextUrlSourceMetadata(Resource &sourceResource,
     }
 }
 
-void appendRobotsSitemapSourceMetadata(Resource &sourceResource,
-                                       const QList<TextUrlLink> &links,
-                                       const QList<Resource> &urlResources)
+void appendRobotsSitemapLineSourceMetadata(Resource &sourceResource,
+                                           const QList<TextUrlLink> &links,
+                                           const QList<Resource> &urlResources)
 {
     if (!links.isEmpty()) {
         appendUnique(sourceResource.tags, QStringLiteral("robots"));
@@ -7403,9 +7403,9 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     }
     const bool robotsTxtCandidate = primary.kind == ResourceKind::File && isRobotsTxtCandidate(fileInfo);
     if (robotsTxtCandidate) {
-        const QList<TextUrlLink> robotsLinks = robotsSitemapLinksFromFile(fileInfo);
-        const QList<Resource> robotsResources = robotsSitemapResourcesFromLinks(fileInfo, robotsLinks);
-        appendRobotsSitemapSourceMetadata(primary, robotsLinks, robotsResources);
+        const QList<TextUrlLink> robotsLinks = robotsSitemapLineLinksFromFile(fileInfo);
+        const QList<Resource> robotsResources = robotsSitemapLineResourcesFromLinks(fileInfo, robotsLinks);
+        appendRobotsSitemapLineSourceMetadata(primary, robotsLinks, robotsResources);
         derivedResources.append(robotsResources);
     }
     const bool tabularCandidate = primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value();

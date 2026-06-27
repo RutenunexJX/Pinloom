@@ -68,7 +68,7 @@ private slots:
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
-    void extractsRobotsTxtSitemapLinks();
+    void extractsRobotsTxtSitemapLineLinks();
     void fetchesRemoteWebShortcutContent();
     void indexRootFetchesRemoteWebShortcutContent();
     void indexesDirectoryResourcesIdempotently();
@@ -5499,7 +5499,7 @@ void DirectorySourceTest::extractsSitemapXmlLinks()
     QCOMPARE(sitemapIndexRelations.first().targetResourceId, indexIt->id);
 }
 
-void DirectorySourceTest::extractsRobotsTxtSitemapLinks()
+void DirectorySourceTest::extractsRobotsTxtSitemapLineLinks()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -5530,6 +5530,10 @@ void DirectorySourceTest::extractsRobotsTxtSitemapLinks()
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("url: pinloom.xml -> https://docs.example.com/sitemaps/pinloom.xml")
             && anchor.line == 3;
+    }));
+    QVERIFY(std::none_of(robotsIt->anchors.cbegin(), robotsIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.contains(QStringLiteral("Disallow"))
+            || anchor.target.contains(QStringLiteral("private"));
     }));
 
     auto sitemapIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {

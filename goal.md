@@ -261,7 +261,7 @@ Completed:
 - Index OPML subscription/link lists as individual URL resources with searchable host/feed/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the OPML file.
 - Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Index sitemap XML URLs as individual URL resources with searchable sitemap tags, fragment anchors, source line anchors, and `links-to` relations back to the source file.
-- Index `robots.txt` Sitemap directives as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
+- Index `robots.txt` Sitemap lines as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
 - Index HAR/http archive entries as individual URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file.
 - Index WARC response records as individual URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
 - Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
