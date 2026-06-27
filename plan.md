@@ -388,8 +388,8 @@ Status:
 - RSS and Atom feed XML entry indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - Sitemap XML URL indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - robots.txt Sitemap line indexing as individual URL resources with source line anchors and `links-to` relations: done.
-- HAR/http archive entry indexing as individual URL resources: done.
-- WARC response record indexing as individual URL resources with extracted HTML content, source line anchors, and `links-to` relations: done.
+- HAR/http capture entry URL resource indexing: done.
+- WARC response URL resource indexing with extracted HTML content, source line anchors, and `links-to` relations: done.
 - iCalendar event URL indexing with event/time/location anchors and `links-to` relations: done.
 - Email `.eml` message indexing with header/content search, body URL resources, source line anchors, and `links-to` relations: done.
 - Bare URL indexing across `.md/.markdown` and content-sniffed text files as individual URL resources with source line anchors and `links-to` relations: done.

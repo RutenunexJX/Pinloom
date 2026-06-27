@@ -262,8 +262,8 @@ Completed:
 - Index RSS and Atom feed XML entries as individual URL resources with searchable feed aliases, category tags, fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Index sitemap XML URLs as individual URL resources with searchable sitemap tags, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index `robots.txt` Sitemap lines as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
-- Index HAR/http archive entries as individual URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file.
-- Index WARC response records as individual URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
+- Index HAR/http capture entry URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file.
+- Index WARC response URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
 - Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
 - Index email `.eml` message files with subject/from/to/date line anchors, searchable message content, body URL resources, fragment anchors, and `links-to` relations back to the source message.
 - Index bare URLs found in `.md/.markdown` and small content-sniffed text files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.

@@ -53,8 +53,8 @@ private slots:
     void extractsEmailMessageUrlResources();
     void extractsIcalendarEventUrlResources();
     void extractsJsonUrlResources();
-    void extractsHarEntryLinks();
-    void extractsWarcResponseLinks();
+    void extractsHarEntryUrlResources();
+    void extractsWarcResponseUrlResources();
     void extractsConfigTextUrlBeacons();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
@@ -3711,7 +3711,7 @@ void DirectorySourceTest::extractsJsonUrlResources()
     QCOMPARE(hostRelations.first().targetResourceId, hostIt->id);
 }
 
-void DirectorySourceTest::extractsHarEntryLinks()
+void DirectorySourceTest::extractsHarEntryUrlResources()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -3847,7 +3847,7 @@ void DirectorySourceTest::extractsHarEntryLinks()
     }));
 }
 
-void DirectorySourceTest::extractsWarcResponseLinks()
+void DirectorySourceTest::extractsWarcResponseUrlResources()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());

@@ -122,7 +122,7 @@ struct CalendarEvent {
     QList<CalendarUrlReference> urls;
 };
 
-struct HarEntryLink {
+struct HarEntryUrlTarget {
     QUrl url;
     QString title;
     QString pageRef;
@@ -134,7 +134,7 @@ struct HarEntryLink {
     QDateTime startedAt;
 };
 
-struct WarcResponseLink {
+struct WarcResponseUrlTarget {
     QUrl url;
     QString html;
     int recordIndex = -1;
@@ -5696,7 +5696,7 @@ QString titleForHarEntry(const QUrl &url, const QString &method, const QString &
         : QStringLiteral("%1 %2").arg(normalizedMethod, target);
 }
 
-QList<HarEntryLink> harEntryLinksFromFile(const QFileInfo &fileInfo)
+QList<HarEntryUrlTarget> harEntryUrlTargetsFromFile(const QFileInfo &fileInfo)
 {
     if (!isHarFileCandidate(fileInfo)) {
         return {};
@@ -5734,7 +5734,7 @@ QList<HarEntryLink> harEntryLinksFromFile(const QFileInfo &fileInfo)
         }
     }
 
-    QList<HarEntryLink> links;
+    QList<HarEntryUrlTarget> targets;
     QStringList seenUrls;
     const QJsonArray entries = logObject.value(QStringLiteral("entries")).toArray();
     for (const QJsonValue &entryValue : entries) {
@@ -5755,100 +5755,100 @@ QList<HarEntryLink> harEntryLinksFromFile(const QFileInfo &fileInfo)
         const QJsonObject response = entry.value(QStringLiteral("response")).toObject();
         const QJsonObject content = response.value(QStringLiteral("content")).toObject();
 
-        HarEntryLink link;
-        link.url = url;
-        link.pageRef = entry.value(QStringLiteral("pageref")).toString().trimmed();
-        link.pageTitle = pageTitlesById.value(link.pageRef);
-        link.method = request.value(QStringLiteral("method")).toString().trimmed().toUpper();
-        link.status = response.value(QStringLiteral("status")).toInt(-1);
-        link.mimeType = content.value(QStringLiteral("mimeType")).toString().trimmed();
-        link.startedAt = dateTimeFromHarString(entry.value(QStringLiteral("startedDateTime")).toString());
-        link.lineNumber = lineNumberForJsonUrl(text, rawUrl);
-        link.title = titleForHarEntry(url, link.method, link.pageTitle);
-        links.append(link);
+        HarEntryUrlTarget target;
+        target.url = url;
+        target.pageRef = entry.value(QStringLiteral("pageref")).toString().trimmed();
+        target.pageTitle = pageTitlesById.value(target.pageRef);
+        target.method = request.value(QStringLiteral("method")).toString().trimmed().toUpper();
+        target.status = response.value(QStringLiteral("status")).toInt(-1);
+        target.mimeType = content.value(QStringLiteral("mimeType")).toString().trimmed();
+        target.startedAt = dateTimeFromHarString(entry.value(QStringLiteral("startedDateTime")).toString());
+        target.lineNumber = lineNumberForJsonUrl(text, rawUrl);
+        target.title = titleForHarEntry(url, target.method, target.pageTitle);
+        targets.append(target);
     }
 
-    return links;
+    return targets;
 }
 
-QList<Resource> harUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<HarEntryLink> &links)
+QList<Resource> harUrlResourcesFromTargets(const QFileInfo &fileInfo, const QList<HarEntryUrlTarget> &targets)
 {
     QList<Resource> resources;
-    for (const HarEntryLink &link : links) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+    for (const HarEntryUrlTarget &target : targets) {
+        const QString urlKey = target.url.toString(QUrl::FullyEncoded);
         Resource resource;
         resource.id = QStringLiteral("har-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
         resource.kind = ResourceKind::Url;
-        resource.title = link.title;
+        resource.title = target.title;
         resource.location = urlKey;
-        resource.updatedAt = link.startedAt.isValid() ? link.startedAt : fileInfo.lastModified().toUTC();
-        appendWebUrlMetadata(resource, link.url);
+        resource.updatedAt = target.startedAt.isValid() ? target.startedAt : fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, target.url);
         appendUnique(resource.tags, QStringLiteral("har"));
         appendUnique(resource.tags, QStringLiteral("web-archive"));
-        if (!link.method.isEmpty()) {
-            appendUnique(resource.tags, QStringLiteral("http-%1").arg(link.method.toLower()));
-            appendUnique(resource.aliases, link.method);
+        if (!target.method.isEmpty()) {
+            appendUnique(resource.tags, QStringLiteral("http-%1").arg(target.method.toLower()));
+            appendUnique(resource.aliases, target.method);
         }
-        if (link.status > 0) {
-            appendUnique(resource.tags, QStringLiteral("http-%1").arg(link.status));
-            appendUnique(resource.aliases, QStringLiteral("status %1").arg(link.status));
+        if (target.status > 0) {
+            appendUnique(resource.tags, QStringLiteral("http-%1").arg(target.status));
+            appendUnique(resource.aliases, QStringLiteral("status %1").arg(target.status));
         }
         appendUnique(resource.aliases, fileInfo.completeBaseName());
-        appendUnique(resource.aliases, link.pageRef);
-        appendUnique(resource.aliases, link.pageTitle);
-        appendUnique(resource.aliases, link.mimeType);
+        appendUnique(resource.aliases, target.pageRef);
+        appendUnique(resource.aliases, target.pageTitle);
+        appendUnique(resource.aliases, target.mimeType);
         resource.content = QStringList{
-            link.method,
-            link.status > 0 ? QStringLiteral("status %1").arg(link.status) : QString(),
-            link.pageRef,
-            link.pageTitle,
-            link.mimeType,
-            link.url.toDisplayString()
+            target.method,
+            target.status > 0 ? QStringLiteral("status %1").arg(target.status) : QString(),
+            target.pageRef,
+            target.pageTitle,
+            target.mimeType,
+            target.url.toDisplayString()
         }.join(QLatin1Char(' ')).trimmed();
         resources.append(resource);
     }
     return resources;
 }
 
-QString harUrlLineAnchorTarget(const HarEntryLink &link)
+QString harUrlLineAnchorTarget(const HarEntryUrlTarget &target)
 {
-    const QString title = link.title.trimmed().isEmpty()
-        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
-        : link.title.trimmed();
-    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+    const QString title = target.title.trimmed().isEmpty()
+        ? (target.url.host().isEmpty() ? target.url.toDisplayString() : target.url.host())
+        : target.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, target.url.toString(QUrl::FullyEncoded));
 }
 
 void appendHarSourceMetadata(Resource &sourceResource,
-                             const QList<HarEntryLink> &links,
+                             const QList<HarEntryUrlTarget> &targets,
                              const QList<Resource> &urlResources)
 {
-    const int count = std::min(links.size(), urlResources.size());
+    const int count = std::min(targets.size(), urlResources.size());
     for (int i = 0; i < count; ++i) {
-        const HarEntryLink &link = links.at(i);
+        const HarEntryUrlTarget &target = targets.at(i);
         const Resource &urlResource = urlResources.at(i);
-        const QString anchorTarget = harUrlLineAnchorTarget(link);
-        if (link.lineNumber > 0) {
-            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        const QString anchorTarget = harUrlLineAnchorTarget(target);
+        if (target.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, target.lineNumber);
         }
 
         QStringList details;
-        if (!link.method.isEmpty()) {
-            details.append(link.method);
+        if (!target.method.isEmpty()) {
+            details.append(target.method);
         }
-        if (link.status > 0) {
-            details.append(QStringLiteral("status %1").arg(link.status));
+        if (target.status > 0) {
+            details.append(QStringLiteral("status %1").arg(target.status));
         }
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
         relation.targetResourceId = urlResource.id;
         relation.label = QStringLiteral("links-to");
-        if (link.lineNumber > 0 && !details.isEmpty()) {
+        if (target.lineNumber > 0 && !details.isEmpty()) {
             relation.note = QStringLiteral("har line %1 %2: %3")
-                                .arg(link.lineNumber)
+                                .arg(target.lineNumber)
                                 .arg(details.join(QLatin1Char(' ')), anchorTarget);
-        } else if (link.lineNumber > 0) {
-            relation.note = QStringLiteral("har line %1: %2").arg(link.lineNumber).arg(anchorTarget);
+        } else if (target.lineNumber > 0) {
+            relation.note = QStringLiteral("har line %1: %2").arg(target.lineNumber).arg(anchorTarget);
         } else if (!details.isEmpty()) {
             relation.note = QStringLiteral("har %1: %2").arg(details.join(QLatin1Char(' ')), anchorTarget);
         } else {
@@ -6357,7 +6357,7 @@ QString htmlFromWarcResponsePayload(const QString &payload)
     return body;
 }
 
-QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
+QList<WarcResponseUrlTarget> warcResponseUrlTargetsFromFile(const QFileInfo &fileInfo)
 {
     if (!isWarcFileCandidate(fileInfo)) {
         return {};
@@ -6374,7 +6374,7 @@ QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
     }
 
     const QString text = QString::fromLatin1(bytes);
-    QList<WarcResponseLink> links;
+    QList<WarcResponseUrlTarget> targets;
     QStringList seenUrls;
     int cursor = 0;
     int recordIndex = 0;
@@ -6429,23 +6429,23 @@ QList<WarcResponseLink> warcResponseLinksFromFile(const QFileInfo &fileInfo)
         }
 
         seenUrls.append(urlKey);
-        links.append(WarcResponseLink{url, html, recordIndex, currentLineNumber});
+        targets.append(WarcResponseUrlTarget{url, html, recordIndex, currentLineNumber});
     }
-    return links;
+    return targets;
 }
 
-QList<Resource> warcUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<WarcResponseLink> &links)
+QList<Resource> warcUrlResourcesFromTargets(const QFileInfo &fileInfo, const QList<WarcResponseUrlTarget> &targets)
 {
     QList<Resource> resources;
-    for (const WarcResponseLink &link : links) {
-        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+    for (const WarcResponseUrlTarget &target : targets) {
+        const QString urlKey = target.url.toString(QUrl::FullyEncoded);
         Resource resource;
         resource.id = QStringLiteral("warc-url:%1:%2").arg(normalizedPath(fileInfo), urlKey);
         resource.kind = ResourceKind::Url;
-        resource.title = link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host();
+        resource.title = target.url.host().isEmpty() ? target.url.toDisplayString() : target.url.host();
         resource.location = urlKey;
         resource.updatedAt = fileInfo.lastModified().toUTC();
-        applyHtmlDocumentMetadata(resource, link.html, resource.title, link.url);
+        applyHtmlDocumentMetadata(resource, target.html, resource.title, target.url);
         appendUnique(resource.tags, QStringLiteral("warc"));
         appendUnique(resource.tags, QStringLiteral("web-archive"));
         appendUnique(resource.aliases, fileInfo.completeBaseName());
@@ -6455,31 +6455,31 @@ QList<Resource> warcUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList
 }
 
 void appendWarcSourceMetadata(Resource &sourceResource,
-                              const QList<WarcResponseLink> &links,
+                              const QList<WarcResponseUrlTarget> &targets,
                               const QList<Resource> &urlResources)
 {
     appendUnique(sourceResource.tags, QStringLiteral("warc"));
     appendUnique(sourceResource.tags, QStringLiteral("web-archive"));
 
-    const int count = std::min(links.size(), urlResources.size());
+    const int count = std::min(targets.size(), urlResources.size());
     for (int i = 0; i < count; ++i) {
-        const WarcResponseLink &link = links.at(i);
+        const WarcResponseUrlTarget &target = targets.at(i);
         const Resource &urlResource = urlResources.at(i);
         HtmlLink htmlLink;
-        htmlLink.url = link.url;
+        htmlLink.url = target.url;
         htmlLink.title = urlResource.title;
         const QString anchorTarget = urlLinkAnchorTarget(htmlLink);
-        if (link.lineNumber > 0) {
-            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        if (target.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, target.lineNumber);
         }
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
         relation.targetResourceId = urlResource.id;
         relation.label = QStringLiteral("links-to");
-        relation.note = link.lineNumber > 0
-            ? QStringLiteral("warc line %1 record %2: %3").arg(link.lineNumber).arg(link.recordIndex).arg(anchorTarget)
-            : QStringLiteral("warc record %1: %2").arg(link.recordIndex).arg(anchorTarget);
+        relation.note = target.lineNumber > 0
+            ? QStringLiteral("warc line %1 record %2: %3").arg(target.lineNumber).arg(target.recordIndex).arg(anchorTarget)
+            : QStringLiteral("warc record %1: %2").arg(target.recordIndex).arg(anchorTarget);
         sourceResource.relations.append(relation);
     }
 }
@@ -7466,15 +7466,15 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(jsonResources);
     }
     if (primary.kind == ResourceKind::File && isHarFileCandidate(fileInfo)) {
-        const QList<HarEntryLink> harLinks = harEntryLinksFromFile(fileInfo);
-        const QList<Resource> harResources = harUrlResourcesFromLinks(fileInfo, harLinks);
-        appendHarSourceMetadata(primary, harLinks, harResources);
+        const QList<HarEntryUrlTarget> harTargets = harEntryUrlTargetsFromFile(fileInfo);
+        const QList<Resource> harResources = harUrlResourcesFromTargets(fileInfo, harTargets);
+        appendHarSourceMetadata(primary, harTargets, harResources);
         derivedResources.append(harResources);
     }
     if (primary.kind == ResourceKind::File && isWarcFileCandidate(fileInfo)) {
-        const QList<WarcResponseLink> warcLinks = warcResponseLinksFromFile(fileInfo);
-        const QList<Resource> warcResources = warcUrlResourcesFromLinks(fileInfo, warcLinks);
-        appendWarcSourceMetadata(primary, warcLinks, warcResources);
+        const QList<WarcResponseUrlTarget> warcTargets = warcResponseUrlTargetsFromFile(fileInfo);
+        const QList<Resource> warcResources = warcUrlResourcesFromTargets(fileInfo, warcTargets);
+        appendWarcSourceMetadata(primary, warcTargets, warcResources);
         derivedResources.append(warcResources);
     }
     if (primary.kind == ResourceKind::Pdf) {
