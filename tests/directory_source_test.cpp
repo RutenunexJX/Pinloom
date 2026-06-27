@@ -621,8 +621,11 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("volume.z01")
     };
     const QStringList documentDesignPackageFileNames{
+        QStringLiteral("document.doc"),
+        QStringLiteral("document.docb"),
         QStringLiteral("document.docm"),
         QStringLiteral("document.docx"),
+        QStringLiteral("template.dot"),
         QStringLiteral("template.dotm"),
         QStringLiteral("template.dotx"),
         QStringLiteral("book.epub"),
@@ -639,20 +642,33 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("database.odb"),
         QStringLiteral("document.xps"),
         QStringLiteral("document.oxps"),
+        QStringLiteral("slides.pot"),
         QStringLiteral("slides.potm"),
         QStringLiteral("slides.potx"),
+        QStringLiteral("addin.ppa"),
+        QStringLiteral("addin.ppam"),
+        QStringLiteral("show.pps"),
         QStringLiteral("show.ppsm"),
         QStringLiteral("show.ppsx"),
+        QStringLiteral("slides.ppt"),
         QStringLiteral("slides.pptm"),
         QStringLiteral("slides.pptx"),
+        QStringLiteral("diagram.vsd"),
         QStringLiteral("diagram.vsdm"),
         QStringLiteral("diagram.vsdx"),
+        QStringLiteral("stencil.vss"),
         QStringLiteral("stencil.vssm"),
         QStringLiteral("stencil.vssx"),
+        QStringLiteral("template.vst"),
         QStringLiteral("template.vstm"),
         QStringLiteral("template.vstx"),
+        QStringLiteral("addin.xla"),
+        QStringLiteral("addin.xlam"),
+        QStringLiteral("workbook.xls"),
+        QStringLiteral("workbook.xlsb"),
         QStringLiteral("workbook.xlsm"),
         QStringLiteral("workbook.xlsx"),
+        QStringLiteral("workbook.xlt"),
         QStringLiteral("workbook.xltm"),
         QStringLiteral("workbook.xltx")
     };
@@ -740,6 +756,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(documentPackageResultIt != documentPackageResults.cend());
     verifyIndexedPackageTags(*documentPackageResultIt);
     QVERIFY(repository.resourceRelations(documentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> legacyDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.doc")});
+    auto legacyDocumentPackageResultIt = std::find_if(legacyDocumentPackageResults.cbegin(), legacyDocumentPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("document.doc")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(legacyDocumentPackageResultIt != legacyDocumentPackageResults.cend());
+    verifyIndexedPackageTags(*legacyDocumentPackageResultIt);
+    QVERIFY(repository.resourceRelations(legacyDocumentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> legacyWorkbookPackageResults = repository.search(SearchQuery{QStringLiteral("workbook.xls")});
+    auto legacyWorkbookPackageResultIt = std::find_if(legacyWorkbookPackageResults.cbegin(), legacyWorkbookPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("workbook.xls")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(legacyWorkbookPackageResultIt != legacyWorkbookPackageResults.cend());
+    verifyIndexedPackageTags(*legacyWorkbookPackageResultIt);
+    QVERIFY(repository.resourceRelations(legacyWorkbookPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> openDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.odt")});
     auto openDocumentPackageResultIt = std::find_if(openDocumentPackageResults.cbegin(), openDocumentPackageResults.cend(), [](const SearchResult &result) {
