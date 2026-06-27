@@ -481,6 +481,8 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
                 && resource.title == fileName;
         });
         QVERIFY(packageIt != resources.cend());
+        QVERIFY(packageIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(packageIt->tags.contains(QStringLiteral("package-container")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("archive")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("zip-archive")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("special-reader")));

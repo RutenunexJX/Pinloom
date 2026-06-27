@@ -425,7 +425,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until dedicated readers exist.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until dedicated readers exist, and tags them `path-only`/`package-container`.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

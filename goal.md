@@ -291,4 +291,4 @@ Phases:
 
 Current boundary enforcement:
 
-- A shared path-only package-container guard keeps compressed packages and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until a dedicated reader can emit real positions.
+- A shared path-only package-container guard keeps compressed packages and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until a dedicated reader can emit real positions; these resources are tagged `path-only` and `package-container`.

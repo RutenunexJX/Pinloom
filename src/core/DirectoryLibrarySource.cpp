@@ -7344,6 +7344,11 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         resource.title = resource.location;
     }
     resource.updatedAt = fileInfo.lastModified().toUTC();
+    if (isPathOnlyPackageContainerFile(fileInfo)) {
+        appendUnique(resource.tags, QStringLiteral("path-only"));
+        appendUnique(resource.tags, QStringLiteral("package-container"));
+        return resource;
+    }
     if (resource.kind == ResourceKind::Markdown) {
         applyMarkdownMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Pdf) {
