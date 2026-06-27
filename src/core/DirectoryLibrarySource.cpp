@@ -5784,7 +5784,7 @@ QList<Resource> harUrlResourcesFromTargets(const QFileInfo &fileInfo, const QLis
         resource.updatedAt = target.startedAt.isValid() ? target.startedAt : fileInfo.lastModified().toUTC();
         appendWebUrlMetadata(resource, target.url);
         appendUnique(resource.tags, QStringLiteral("har"));
-        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        appendUnique(resource.tags, QStringLiteral("web-capture"));
         if (!target.method.isEmpty()) {
             appendUnique(resource.tags, QStringLiteral("http-%1").arg(target.method.toLower()));
             appendUnique(resource.aliases, target.method);
@@ -6072,7 +6072,7 @@ QList<Resource> htmlLinkResourcesFromLinks(const QFileInfo &fileInfo, const QLis
         appendWebUrlMetadata(resource, link.url);
         appendUnique(resource.tags, QStringLiteral("html-link"));
         if (isMhtmlFile(fileInfo)) {
-            appendUnique(resource.tags, QStringLiteral("web-archive-link"));
+            appendUnique(resource.tags, QStringLiteral("web-capture-url"));
         }
         resources.append(resource);
     }
@@ -6447,7 +6447,7 @@ QList<Resource> warcUrlResourcesFromTargets(const QFileInfo &fileInfo, const QLi
         resource.updatedAt = fileInfo.lastModified().toUTC();
         applyHtmlDocumentMetadata(resource, target.html, resource.title, target.url);
         appendUnique(resource.tags, QStringLiteral("warc"));
-        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        appendUnique(resource.tags, QStringLiteral("web-capture"));
         appendUnique(resource.aliases, fileInfo.completeBaseName());
         resources.append(resource);
     }
@@ -6459,7 +6459,7 @@ void appendWarcSourceMetadata(Resource &sourceResource,
                               const QList<Resource> &urlResources)
 {
     appendUnique(sourceResource.tags, QStringLiteral("warc"));
-    appendUnique(sourceResource.tags, QStringLiteral("web-archive"));
+    appendUnique(sourceResource.tags, QStringLiteral("web-capture"));
 
     const int count = std::min(targets.size(), urlResources.size());
     for (int i = 0; i < count; ++i) {
@@ -7659,7 +7659,7 @@ void DirectoryLibrarySource::applyHtmlMetadata(Resource &resource, const QFileIn
     }
     applyHtmlDocumentMetadata(resource, html.value(), fileInfo.fileName(), std::nullopt);
     if (isMhtmlFile(fileInfo)) {
-        appendUnique(resource.tags, QStringLiteral("web-archive"));
+        appendUnique(resource.tags, QStringLiteral("web-capture"));
         appendUnique(resource.aliases, fileInfo.completeBaseName());
     }
 }

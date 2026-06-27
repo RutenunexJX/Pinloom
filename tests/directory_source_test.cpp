@@ -664,6 +664,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QVERIFY(packageIt->tags.contains(QStringLiteral("package-container")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("archive")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("zip-archive")));
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("web-capture")));
+        QVERIFY(!packageIt->tags.contains(QStringLiteral("web-capture-url")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("special-reader")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("archive-preview-limited")));
         QVERIFY(packageIt->anchors.isEmpty());
@@ -3782,7 +3784,8 @@ void DirectorySourceTest::extractsHarEntryUrlResources()
     QVERIFY(pageIt != resources.cend());
     QVERIFY(pageIt->tags.contains(QStringLiteral("web")));
     QVERIFY(pageIt->tags.contains(QStringLiteral("har")));
-    QVERIFY(pageIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web-capture")));
+    QVERIFY(!pageIt->tags.contains(QStringLiteral("web-archive")));
     QVERIFY(pageIt->tags.contains(QStringLiteral("http-get")));
     QVERIFY(pageIt->tags.contains(QStringLiteral("http-200")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("docs.example.com")));
@@ -3890,7 +3893,8 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
     });
     QVERIFY(warcIt != resources.cend());
     QVERIFY(warcIt->tags.contains(QStringLiteral("warc")));
-    QVERIFY(warcIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(warcIt->tags.contains(QStringLiteral("web-capture")));
+    QVERIFY(!warcIt->tags.contains(QStringLiteral("web-archive")));
 
     auto pageIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -3900,7 +3904,8 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
     QVERIFY(pageIt != resources.cend());
     QVERIFY(pageIt->tags.contains(QStringLiteral("web")));
     QVERIFY(pageIt->tags.contains(QStringLiteral("warc")));
-    QVERIFY(pageIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(pageIt->tags.contains(QStringLiteral("web-capture")));
+    QVERIFY(!pageIt->tags.contains(QStringLiteral("web-archive")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("docs.example.com")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("session")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/warc")));
@@ -4351,7 +4356,8 @@ void DirectorySourceTest::extractsMhtmlPageContent()
     QVERIFY(archiveIt != resources.cend());
     QVERIFY(archiveIt->location.endsWith(QStringLiteral("archive.mhtml")));
     QVERIFY(archiveIt->tags.contains(QStringLiteral("web")));
-    QVERIFY(archiveIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("web-capture")));
+    QVERIFY(!archiveIt->tags.contains(QStringLiteral("web-archive")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("archive")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("docs.example.com")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/archive")));
@@ -4368,7 +4374,8 @@ void DirectorySourceTest::extractsMhtmlPageContent()
     });
     QVERIFY(playbookIt != resources.cend());
     QVERIFY(playbookIt->tags.contains(QStringLiteral("html-link")));
-    QVERIFY(playbookIt->tags.contains(QStringLiteral("web-archive-link")));
+    QVERIFY(playbookIt->tags.contains(QStringLiteral("web-capture-url")));
+    QVERIFY(!playbookIt->tags.contains(QStringLiteral("web-archive-link")));
     QVERIFY(playbookIt->aliases.contains(QStringLiteral("docs.example.com")));
     QVERIFY(std::any_of(playbookIt->anchors.cbegin(), playbookIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("dock");

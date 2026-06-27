@@ -376,7 +376,7 @@ Status:
 - Inline external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Reference-style external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
-- MHTML/MHT web archive content extraction/search, canonical URL aliases, and heading fragment anchors: done.
+- MHTML/MHT web capture content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Local HTML outbound link URL resources with source line anchors and `links-to` relations: done.
 - MHTML/MHT outbound link URL resources with `links-to` relations: done.
 - Browser bookmark export HTML indexing as individual URL resources with source line anchors and `links-to` relations: done.
@@ -400,7 +400,7 @@ Status:
 - Small content-sniffed text content indexing with TODO/FIXME/NOTE, text-structure key/section/path, explicit JSON/TOML named-entry containers, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
-- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
+- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http captures, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
 - Richer language parsing: not pursued; future work should improve generic text beacons and special-file readers instead.
 
 ## MVP 15: Special-File Reader Phases

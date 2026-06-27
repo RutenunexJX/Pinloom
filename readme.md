@@ -55,7 +55,7 @@ Implemented:
 - URL fragment anchors for indexed web shortcuts.
 - Standalone fallback opening preserves matched URL fragment anchors for web pages and local HTML pages.
 - Local `.html` and `.htm` page indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, source line anchors, and `links-to` relations back to the source page.
-- Local `.mhtml` and `.mht` web archive indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, and `links-to` relations back to the archive.
+- Local `.mhtml` and `.mht` web capture indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, and `links-to` relations back to the capture file.
 - Browser bookmark export HTML indexing as individual URL resources with host aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the export file.
 - Chromium/Edge-style Bookmarks JSON indexing as individual URL resources with host aliases, folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the Bookmarks file.
 - XBEL bookmark XML indexing as individual URL resources with host/folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.
@@ -111,14 +111,14 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http captures, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
 
 - Full ZeroSlack dock/global-control integration.
 - Special-file reader phase 1 consolidation and reader contract cleanup.
-- Fuller PDF text extraction for remaining unsupported filters/encodings, OCR, and broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Fuller PDF text extraction for remaining unsupported filters/encodings, OCR, and broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http captures, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 
 ## Embedding Contract
 

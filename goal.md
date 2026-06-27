@@ -250,9 +250,9 @@ Completed:
 - Index inline external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
 - Index reference-style external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with source line anchors and `links-to` relations back to the source text file.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
-- Index MHTML/MHT web archives with searchable HTML content, canonical URL aliases, and heading fragment anchors.
+- Index MHTML/MHT web captures with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index local HTML outbound links as derived URL resources with source line anchors and `links-to` relations back to the source page.
-- Index MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source archive.
+- Index MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source capture file.
 - Index browser bookmark export HTML as individual URL resources with searchable host aliases, fragment anchors, source line anchors, and `links-to` relations back to the export file.
 - Index Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the Bookmarks file.
 - Index XBEL bookmark XML as individual URL resources with searchable host/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.
@@ -276,7 +276,7 @@ Completed:
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http captures, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Improve generic text beacon extraction and special-file readers without pursuing richer language parsing.
 
 ### Special-File Reader Roadmap
