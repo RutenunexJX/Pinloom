@@ -178,6 +178,7 @@ Completed:
 - Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
 - Add compile_commands.json line anchors and `compiles` relations from compilation databases to indexed source files.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path.
+- Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.
 - Rank exact beacon and filename matches ahead of broad path matches.
 
 Remaining follow-up:

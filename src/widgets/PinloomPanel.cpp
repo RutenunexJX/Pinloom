@@ -48,7 +48,7 @@ QString anchorLabel(const Anchor &anchor)
         return QStringLiteral("Heading");
     case AnchorType::MarkdownBlock:
         return QStringLiteral("Block");
-    case AnchorType::CodeSymbol:
+    case AnchorType::SymbolLike:
         return QStringLiteral("Symbol");
     case AnchorType::PdfPage:
         return QStringLiteral("Page");
@@ -70,8 +70,8 @@ QString resourceKindLabel(ResourceKind kind)
         return QStringLiteral("PDF");
     case ResourceKind::Markdown:
         return QStringLiteral("Markdown");
-    case ResourceKind::CodeSnippet:
-        return QStringLiteral("Code");
+    case ResourceKind::TextSnippet:
+        return QStringLiteral("Text");
     case ResourceKind::Url:
         return QStringLiteral("URL");
     case ResourceKind::Note:

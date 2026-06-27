@@ -278,6 +278,7 @@ Status:
 - GitHub Actions workflow/job/step/action/run beacons: done.
 - GitLab CI stage/job/needs/script beacons: done.
 - compile_commands.json line anchors and `compiles` relations: done.
+- Neutral model/storage names for text snippets and symbol-like anchors: done, with legacy `code_*` database read compatibility.
 - Language-specific symbol/test/import parsing for Rust, Go, Java, C#, JS/TS, C/C++, shell, PowerShell, batch, and shebang scripts: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 

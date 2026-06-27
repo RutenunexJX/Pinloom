@@ -27,8 +27,8 @@ QString resourceKindToString(ResourceKind kind)
         return QStringLiteral("pdf");
     case ResourceKind::Markdown:
         return QStringLiteral("markdown");
-    case ResourceKind::CodeSnippet:
-        return QStringLiteral("code_snippet");
+    case ResourceKind::TextSnippet:
+        return QStringLiteral("text_snippet");
     case ResourceKind::Url:
         return QStringLiteral("url");
     case ResourceKind::Note:
@@ -55,8 +55,8 @@ ResourceKind resourceKindFromString(const QString &kind)
     if (kind == QLatin1String("markdown")) {
         return ResourceKind::Markdown;
     }
-    if (kind == QLatin1String("code_snippet")) {
-        return ResourceKind::CodeSnippet;
+    if (kind == QLatin1String("text_snippet") || kind == QLatin1String("code_snippet")) {
+        return ResourceKind::TextSnippet;
     }
     if (kind == QLatin1String("url")) {
         return ResourceKind::Url;
@@ -79,8 +79,8 @@ QString anchorTypeToString(AnchorType type)
         return QStringLiteral("markdown_heading");
     case AnchorType::MarkdownBlock:
         return QStringLiteral("markdown_block");
-    case AnchorType::CodeSymbol:
-        return QStringLiteral("code_symbol");
+    case AnchorType::SymbolLike:
+        return QStringLiteral("symbol_like");
     case AnchorType::PdfPage:
         return QStringLiteral("pdf_page");
     case AnchorType::PdfRegion:
@@ -106,8 +106,8 @@ AnchorType anchorTypeFromString(const QString &type)
     if (type == QLatin1String("markdown_block")) {
         return AnchorType::MarkdownBlock;
     }
-    if (type == QLatin1String("code_symbol")) {
-        return AnchorType::CodeSymbol;
+    if (type == QLatin1String("symbol_like") || type == QLatin1String("code_symbol")) {
+        return AnchorType::SymbolLike;
     }
     if (type == QLatin1String("pdf_page")) {
         return AnchorType::PdfPage;
@@ -280,7 +280,7 @@ bool shouldIndexAnchorTarget(const Anchor &anchor)
     case AnchorType::FileLine:
     case AnchorType::MarkdownHeading:
     case AnchorType::MarkdownBlock:
-    case AnchorType::CodeSymbol:
+    case AnchorType::SymbolLike:
     case AnchorType::PdfPage:
     case AnchorType::PdfRegion:
     case AnchorType::UrlFragment:

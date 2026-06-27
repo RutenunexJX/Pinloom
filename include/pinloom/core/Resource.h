@@ -15,7 +15,7 @@ enum class ResourceKind {
     Folder,
     Pdf,
     Markdown,
-    CodeSnippet,
+    TextSnippet,
     Url,
     Note,
     ManualAnchor

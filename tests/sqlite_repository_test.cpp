@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+#include <QVariant>
 #include <algorithm>
 #include <optional>
 
@@ -165,6 +166,51 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(lineResults.first().matchedAnchor.has_value());
     QCOMPARE(lineResults.first().matchedAnchor->type, AnchorType::FileLine);
     QCOMPARE(lineResults.first().matchedAnchor->line, 42);
+
+    Resource textSnippet;
+    textSnippet.id = QStringLiteral("text-snippet");
+    textSnippet.kind = ResourceKind::TextSnippet;
+    textSnippet.title = QStringLiteral("Neutral Text Beacon");
+    textSnippet.location = QStringLiteral("snippets/beacon.txt");
+    textSnippet.anchors = {
+        Anchor{AnchorType::SymbolLike, QStringLiteral("symbol-like: neutral_beacon"), 3}
+    };
+    QVERIFY2(repository.upsertResource(textSnippet), qPrintable(repository.lastError()));
+
+    const std::optional<Resource> storedSnippet = repository.findResource(textSnippet.id);
+    QVERIFY(storedSnippet.has_value());
+    QCOMPARE(storedSnippet->kind, ResourceKind::TextSnippet);
+    QCOMPARE(storedSnippet->anchors.size(), 1);
+    QCOMPARE(storedSnippet->anchors.first().type, AnchorType::SymbolLike);
+
+    const QString rawConnectionName =
+        QStringLiteral("pinloom_raw_kind_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase rawDatabase = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), rawConnectionName);
+    rawDatabase.setDatabaseName(dir.filePath(QStringLiteral("pinloom.sqlite3")));
+    QVERIFY(rawDatabase.open());
+    QSqlQuery rawQuery(rawDatabase);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT kind FROM resources WHERE id = 'text-snippet'")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_snippet"));
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'text-snippet'")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("symbol_like"));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO resources(id, kind, title, location) "
+        "VALUES ('legacy-code-snippet', 'code_snippet', 'Legacy Snippet', 'legacy/snippet.txt')")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
+        "VALUES ('legacy-code-snippet', 0, 'code_symbol', 'legacy_symbol', 9)")));
+    rawQuery = QSqlQuery();
+    rawDatabase.close();
+    rawDatabase = QSqlDatabase();
+    QSqlDatabase::removeDatabase(rawConnectionName);
+
+    const std::optional<Resource> legacySnippet = repository.findResource(QStringLiteral("legacy-code-snippet"));
+    QVERIFY(legacySnippet.has_value());
+    QCOMPARE(legacySnippet->kind, ResourceKind::TextSnippet);
+    QCOMPARE(legacySnippet->anchors.size(), 1);
+    QCOMPARE(legacySnippet->anchors.first().type, AnchorType::SymbolLike);
 
     SearchQuery taggedQuery;
     taggedQuery.text = QStringLiteral("plan");
