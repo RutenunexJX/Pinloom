@@ -742,7 +742,7 @@ QString resourceIdForLinkedPath(const QFileInfo &sourceFileInfo, const QString &
     return QStringLiteral("file:%1").arg(normalizedPath(targetInfo));
 }
 
-void appendLocalMarkdownLinks(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
+void appendLocalTextLinkAnchors(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
 {
     static const QRegularExpression linkPattern(QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\(([^\\)]+)\\)"));
     QRegularExpressionMatchIterator matches = linkPattern.globalMatch(line);
@@ -7414,7 +7414,7 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
         appendInlineTags(resource.tags, line);
         appendWikilinksAsAliases(resource.aliases, line);
         appendLocalWikilinks(resource, fileInfo, line, lineNumber);
-        appendLocalMarkdownLinks(resource, fileInfo, line, lineNumber);
+        appendLocalTextLinkAnchors(resource, fileInfo, line, lineNumber);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
 

@@ -28,7 +28,7 @@ private slots:
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsMarkdownAliasTagLinkBeacons();
     void extractsMarkdownBodyContent();
-    void extractsLocalMarkdownLinkAnchors();
+    void extractsLocalTextLinkAnchors();
     void extractsMarkdownTaskLineAnchors();
     void extractsInlineTextLinkUrlResources();
     void extractsReferenceStyleTextLinkUrlResources();
@@ -1171,7 +1171,7 @@ void DirectorySourceTest::extractsMarkdownBodyContent()
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
 }
 
-void DirectorySourceTest::extractsLocalMarkdownLinkAnchors()
+void DirectorySourceTest::extractsLocalTextLinkAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
