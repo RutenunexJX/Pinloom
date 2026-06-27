@@ -661,6 +661,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("database.odb"),
         QStringLiteral("document.xps"),
         QStringLiteral("document.oxps"),
+        QStringLiteral("document.pages"),
+        QStringLiteral("workbook.numbers"),
         QStringLiteral("slides.pot"),
         QStringLiteral("slides.potm"),
         QStringLiteral("slides.potx"),
@@ -672,6 +674,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("slides.ppt"),
         QStringLiteral("slides.pptm"),
         QStringLiteral("slides.pptx"),
+        QStringLiteral("design.sketch"),
         QStringLiteral("diagram.vsd"),
         QStringLiteral("diagram.vsdm"),
         QStringLiteral("diagram.vsdx"),
@@ -883,7 +886,28 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
             && !result.matchedAnchor.has_value();
     });
     QVERIFY(openDocumentPackageResultIt != openDocumentPackageResults.cend());
+    verifyIndexedPackageTags(*openDocumentPackageResultIt);
     QVERIFY(repository.resourceRelations(openDocumentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> iworkDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.pages")});
+    auto iworkDocumentPackageResultIt = std::find_if(iworkDocumentPackageResults.cbegin(), iworkDocumentPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("document.pages")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(iworkDocumentPackageResultIt != iworkDocumentPackageResults.cend());
+    verifyIndexedPackageTags(*iworkDocumentPackageResultIt);
+    QVERIFY(repository.resourceRelations(iworkDocumentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> sketchPackageResults = repository.search(SearchQuery{QStringLiteral("design.sketch")});
+    auto sketchPackageResultIt = std::find_if(sketchPackageResults.cbegin(), sketchPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("design.sketch")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(sketchPackageResultIt != sketchPackageResults.cend());
+    verifyIndexedPackageTags(*sketchPackageResultIt);
+    QVERIFY(repository.resourceRelations(sketchPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> electronPackageResults = repository.search(SearchQuery{QStringLiteral("app.asar")});
     auto electronPackageResultIt = std::find_if(electronPackageResults.cbegin(), electronPackageResults.cend(), [](const SearchResult &result) {
@@ -902,6 +926,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
             && !result.matchedAnchor.has_value();
     });
     QVERIFY(visioPackageResultIt != visioPackageResults.cend());
+    verifyIndexedPackageTags(*visioPackageResultIt);
     QVERIFY(repository.resourceRelations(visioPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
