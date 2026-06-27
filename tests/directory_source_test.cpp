@@ -2256,7 +2256,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     const auto handoffTextIt = findFile(QStringLiteral("handoff.txt"));
     QVERIFY(handoffTextIt != resources.cend());
     QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("marker: host dock handoff"), 1));
-    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("symbol-like: jump target"), 2));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("marker: jump target"), 2));
     QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("section: Build Handoff"), 4));
     QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("warning: WARNING: route timing changed"), 5));
     QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("url: https://docs.example.com/pinloom/jump"), 6));
@@ -2264,16 +2264,16 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
 
     const auto logIt = findFile(QStringLiteral("review.log"));
     QVERIFY(logIt != resources.cend());
-    QVERIFY(hasLineAnchor(*logIt, QStringLiteral("symbol-like: route log"), 1));
+    QVERIFY(hasLineAnchor(*logIt, QStringLiteral("marker: route log"), 1));
     QVERIFY(hasLineAnchor(*logIt, QStringLiteral("error: ERROR: missing reset"), 2));
 
     const auto configIt = findFile(QStringLiteral("flow.cfg"));
     QVERIFY(configIt != resources.cend());
-    QVERIFY(hasLineAnchor(*configIt, QStringLiteral("symbol-like: launch dock"), 1));
+    QVERIFY(hasLineAnchor(*configIt, QStringLiteral("marker: launch dock"), 1));
 
     const auto handoffIt = findFile(QStringLiteral("handoff"));
     QVERIFY(handoffIt != resources.cend());
-    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("symbol-like: handoff_entry"), 2));
+    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("marker: handoff_entry"), 2));
     QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("TODO: no-extension text without interpreter allowlist"), 3));
 
     const auto pinsIt = findFile(QStringLiteral("pins.txt"));
@@ -2282,7 +2282,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
 
     const auto opaqueIt = findFile(QStringLiteral("notes.opaque"));
     QVERIFY(opaqueIt != resources.cend());
-    QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("symbol-like: opaque_payload"), 1));
+    QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("marker: opaque_payload"), 1));
     QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("TODO: index unknown suffix text"), 2));
     QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("url: https://docs.example.com/pinloom/opaque"), 3));
 
@@ -2306,7 +2306,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
             && result.resource.title == QLatin1String("handoff.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("symbol-like: jump target");
+            && result.matchedAnchor->target == QLatin1String("marker: jump target");
     }));
 
     const QList<SearchResult> warningResults = repository.search(SearchQuery{QStringLiteral("route timing")});

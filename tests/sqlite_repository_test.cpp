@@ -173,7 +173,7 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     textSnippet.title = QStringLiteral("Neutral Text Beacon");
     textSnippet.location = QStringLiteral("snippets/beacon.txt");
     textSnippet.anchors = {
-        Anchor{AnchorType::SymbolLike, QStringLiteral("symbol-like: neutral_beacon"), 3}
+        Anchor{AnchorType::SymbolLike, QStringLiteral("marker: neutral_beacon"), 3}
     };
     QVERIFY2(repository.upsertResource(textSnippet), qPrintable(repository.lastError()));
 

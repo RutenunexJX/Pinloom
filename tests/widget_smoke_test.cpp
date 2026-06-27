@@ -26,7 +26,7 @@ private slots:
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDisplaysAnchorAwareResults();
-    void panelDisplaysSymbolLikeAnchorsAsMarkers();
+    void panelDisplaysMarkerAnchors();
     void panelDisplaysBeaconLineResults();
     void panelDisplaysFileLineResults();
     void panelDisplaysPdfPageResults();
@@ -393,7 +393,7 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
 }
 
-void WidgetSmokeTest::panelDisplaysSymbolLikeAnchorsAsMarkers()
+void WidgetSmokeTest::panelDisplaysMarkerAnchors()
 {
     InMemoryLibraryRepository repository;
 
@@ -402,7 +402,7 @@ void WidgetSmokeTest::panelDisplaysSymbolLikeAnchorsAsMarkers()
     resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("marker-notes.txt");
     resource.location = QStringLiteral("marker-notes.txt");
-    resource.anchors = {Anchor{AnchorType::SymbolLike, QStringLiteral("symbol-like: handoff_marker"), 9}};
+    resource.anchors = {Anchor{AnchorType::SymbolLike, QStringLiteral("marker: handoff_marker"), 9}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -413,7 +413,7 @@ void WidgetSmokeTest::panelDisplaysSymbolLikeAnchorsAsMarkers()
 
     searchEdit->setText(QStringLiteral("handoff_marker"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Marker] symbol-like: handoff_marker - line 9")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Marker] marker: handoff_marker - line 9")));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Marker")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 9);
 }
@@ -427,7 +427,7 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
     resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("beacon-notes.txt");
     resource.location = QStringLiteral("beacon-notes.txt");
-    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("symbol-like: jump target"), 12}};
+    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("marker: jump target"), 12}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -438,7 +438,7 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
 
     searchEdit->setText(QStringLiteral("jump target"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] symbol-like: jump target - line 12")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] marker: jump target - line 12")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 12);
 }
 

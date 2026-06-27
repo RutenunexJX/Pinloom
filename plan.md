@@ -262,7 +262,7 @@ Goal: make engineering text trees searchable by beacons and jump targets, not on
 Scope:
 
 - Treat all small content-sniffed text files uniformly as text, regardless of extension, through the same beacon/location model.
-- Extract neutral line beacons: TODO/FIXME/NOTE, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker text.
+- Extract neutral line beacons: TODO/FIXME/NOTE, URLs, errors/warnings, section-like lines, user markers, and explicit marker aliases.
 - Keep special file readers only where the file format needs one, and keep their purpose limited to beacon/location extraction.
 - Keep ZeroSlack integration limited to paths, line/column locations, display text, beacons, and jump targets.
 - Rank exact beacon and filename matches ahead of path matches.
@@ -273,7 +273,7 @@ Status:
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
 - Text named-entry line beacons: kept as JSON/TOML/requirements-style line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
-- Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and explicit symbol-like marker beacons surfaced as markers rather than code symbols: done.
+- Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and explicit marker-alias beacons surfaced as markers rather than code symbols: done.
 - Directive-style build configuration line beacons layered after text content sniffing with neutral `directive ...` labels: done.
 - Rule-target and container-recipe line beacons layered after text content sniffing with neutral `rule ...` and `container ...` labels: done.
 - CI configuration workflow/job/stage/step/uses/run/script/needs line beacons with neutral `ci ...` labels: done.

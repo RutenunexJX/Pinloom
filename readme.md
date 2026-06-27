@@ -9,7 +9,7 @@ It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian va
 Pinloom is a beacon/location indexer and jump layer. It is not a code intelligence engine, a multilingual IDE, or a language semantic analyzer.
 
 - Small files whose content sniffs as text are treated uniformly regardless of extension and feed the same text beacon model.
-- Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and explicit symbol-like marker text. Symbol-like anchors are surfaced as markers, not code symbols. It does not build ASTs or claim programming-language support.
+- Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and explicit marker aliases. Marker anchors are surfaced as markers, not code symbols. It does not build ASTs or claim programming-language support.
 - Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web capture formats such as MHTML/HAR/WARC, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/br/bz2/xz/zst/7z/rar, app/archive packages, and compound tar packages are never expanded or text-scanned; they remain ordinary path-only file targets. Office/Visio package containers stay path-only until a document reader can emit real document positions.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
@@ -76,7 +76,7 @@ Implemented:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small content-sniffed text, config, and tabular files, including TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, JSON/TOML/requirements-style named-entry line beacons, and CSV/TSV column anchors.
-- Unified text beacon indexing for small content-sniffed text files, without language extension or shebang interpreter allowlists, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and explicit symbol-like marker line anchors.
+- Unified text beacon indexing for small content-sniffed text files, without language extension or shebang interpreter allowlists, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and explicit marker-alias line anchors.
 - Text named-entry line beacons use neutral `named entry ...` labels for JSON/TOML/requirements-style lines, not package-manager or programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with read-only legacy `code_*` database compatibility.
 - Shared path-only package-container guard: compressed packages remain permanent path-only file targets, while Office/Visio package files stay path-only until document readers can emit real positions. Guarded files carry `path-only` and `package-container` tags.
@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, directive-style build configuration line beacons, rule-target and container-recipe line beacons, neutral CI configuration line beacons, compile_commands.json file-reference line anchors and `file-reference` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit marker-alias beacons, directive-style build configuration line beacons, rule-target and container-recipe line beacons, neutral CI configuration line beacons, compile_commands.json file-reference line anchors and `file-reference` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 
