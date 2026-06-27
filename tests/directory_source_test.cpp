@@ -451,15 +451,27 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
     QVERIFY(dir.mkpath(QStringLiteral("library/artifacts")));
     const QByteArray packageLikeText("#!/bin/sh\n"
                                      "hidden-entry.md\n"
-                                     "Archive Guide\n"
-                                     "https://docs.example.com/archive/inside\n");
-    for (const QString &fileName : {QStringLiteral("package.zip"),
-                                    QStringLiteral("bundle.tar.gz"),
-                                    QStringLiteral("module.jar"),
-                                    QStringLiteral("document.docx"),
-                                    QStringLiteral("workbook.xlsx"),
-                                    QStringLiteral("slides.pptx"),
-                                    QStringLiteral("diagram.vsdx")}) {
+                                     "Hidden Package Guide\n"
+                                     "https://docs.example.com/package/inside\n");
+    const QStringList packageFileNames{
+        QStringLiteral("package.zip"),
+        QStringLiteral("bundle.tar"),
+        QStringLiteral("bundle.tar.gz"),
+        QStringLiteral("bundle.tar.bz2"),
+        QStringLiteral("bundle.tar.xz"),
+        QStringLiteral("bundle.tgz"),
+        QStringLiteral("bundle.tbz2"),
+        QStringLiteral("bundle.txz"),
+        QStringLiteral("payload.7z"),
+        QStringLiteral("dump.rar"),
+        QStringLiteral("snapshot.zst"),
+        QStringLiteral("module.jar"),
+        QStringLiteral("document.docx"),
+        QStringLiteral("workbook.xlsx"),
+        QStringLiteral("slides.pptx"),
+        QStringLiteral("diagram.vsdx")
+    };
+    for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }
 
@@ -467,15 +479,9 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
     QString error;
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
-    QCOMPARE(resources.size(), 9);
+    QCOMPARE(resources.size(), packageFileNames.size() + 2);
 
-    for (const QString &fileName : {QStringLiteral("package.zip"),
-                                    QStringLiteral("bundle.tar.gz"),
-                                    QStringLiteral("module.jar"),
-                                    QStringLiteral("document.docx"),
-                                    QStringLiteral("workbook.xlsx"),
-                                    QStringLiteral("slides.pptx"),
-                                    QStringLiteral("diagram.vsdx")}) {
+    for (const QString &fileName : packageFileNames) {
         auto packageIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
             return resource.kind == ResourceKind::File
                 && resource.title == fileName;
@@ -508,9 +514,9 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
 
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
     QVERIFY(internalResults.isEmpty());
-    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archive Guide")});
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Hidden Package Guide")});
     QVERIFY(contentResults.isEmpty());
-    const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("docs.example.com/archive/inside")});
+    const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("docs.example.com/package/inside")});
     QVERIFY(urlResults.isEmpty());
 }
 

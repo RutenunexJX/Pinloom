@@ -403,7 +403,7 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep compressed packages as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only until document readers can emit real document positions.
+- Keep compressed packages, including compound tar packages, as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only until document readers can emit real document positions.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
