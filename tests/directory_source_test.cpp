@@ -584,6 +584,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("router.opk"),
         QStringLiteral("desktop.appx"),
         QStringLiteral("desktop.appxbundle"),
+        QStringLiteral("desktop.eappx"),
+        QStringLiteral("desktop.eappxbundle"),
         QStringLiteral("installer.cab"),
         QStringLiteral("installer.deb"),
         QStringLiteral("installer.dmg"),
@@ -591,6 +593,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("installer.msi"),
         QStringLiteral("installer.msix"),
         QStringLiteral("installer.msixbundle"),
+        QStringLiteral("installer.emsix"),
+        QStringLiteral("installer.emsixbundle"),
         QStringLiteral("installer.msm"),
         QStringLiteral("installer.msp"),
         QStringLiteral("installer.msu"),
@@ -773,6 +777,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(windowsUpdateResultIt != windowsUpdateResults.cend());
     verifyIndexedPackageTags(*windowsUpdateResultIt);
     QVERIFY(repository.resourceRelations(windowsUpdateResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> windowsAppPackageResults = repository.search(SearchQuery{QStringLiteral("desktop.eappx")});
+    auto windowsAppPackageResultIt = std::find_if(windowsAppPackageResults.cbegin(), windowsAppPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("desktop.eappx")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(windowsAppPackageResultIt != windowsAppPackageResults.cend());
+    verifyIndexedPackageTags(*windowsAppPackageResultIt);
+    QVERIFY(repository.resourceRelations(windowsAppPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> windowsMsixPackageResults = repository.search(SearchQuery{QStringLiteral("installer.emsix")});
+    auto windowsMsixPackageResultIt = std::find_if(windowsMsixPackageResults.cbegin(), windowsMsixPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("installer.emsix")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(windowsMsixPackageResultIt != windowsMsixPackageResults.cend());
+    verifyIndexedPackageTags(*windowsMsixPackageResultIt);
+    QVERIFY(repository.resourceRelations(windowsMsixPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> embeddedPackageResults = repository.search(SearchQuery{QStringLiteral("router.ipk")});
     auto embeddedPackageResultIt = std::find_if(embeddedPackageResults.cbegin(), embeddedPackageResults.cend(), [](const SearchResult &result) {
