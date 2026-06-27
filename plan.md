@@ -280,7 +280,7 @@ Status:
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
 - Text named-entry line beacons: kept only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` beacons surfaced as markers rather than code symbols: done.
-- Config-style text line beacons layered after text content sniffing with neutral `config entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than target/test/function/macro semantics: done.
+- Config-style text line beacons layered after text content sniffing with neutral `config entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than build-command or call-kind semantics: done.
 - Rule-entry and container-style text line beacons layered after text content sniffing with neutral `rule ...` and `config block/input ...` labels and format-trigger naming, without target or instruction semantics: done.
 - Workflow/pipeline configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `config ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
 - File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done, with command strings left as ordinary file text rather than file-reference beacon details.

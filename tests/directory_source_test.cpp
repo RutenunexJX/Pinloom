@@ -2643,11 +2643,19 @@ void DirectorySourceTest::extractsNeutralConfigStyleTextBeaconAnchors()
     QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_app"), 6));
     QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_docs"), 7));
     QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_core_smoke_test"), 8));
+    QVERIFY(std::none_of(configTextIt->anchors.cbegin(), configTextIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("target:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("test:"), Qt::CaseInsensitive);
+    }));
 
     const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
     QVERIFY(hasBeacon(*helpersIt, QStringLiteral("config block: pinloom_add_widget_test"), 1));
     QVERIFY(hasBeacon(*helpersIt, QStringLiteral("config block: pinloom_copy_runtime"), 3));
+    QVERIFY(std::none_of(helpersIt->anchors.cbegin(), helpersIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("function:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("macro:"), Qt::CaseInsensitive);
+    }));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
