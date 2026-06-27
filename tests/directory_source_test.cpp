@@ -2193,6 +2193,12 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     writeFile(dir.filePath(QStringLiteral("library/src/pins.xdc")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
+    writeFile(dir.filePath(QStringLiteral("library/notes.opaque")),
+              QByteArray("SYMBOL: opaque_payload\n"
+                         "TODO: index unknown suffix text\n"
+                         "https://docs.example.com/pinloom/opaque\n"));
+    writeFile(dir.filePath(QStringLiteral("library/raw.opaque")),
+              QByteArray("TODO: hidden\0binary", 19));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -2234,6 +2240,18 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(xdcIt != resources.cend());
     QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("NOTE: board pin review"), 1));
 
+    const auto opaqueIt = findFile(QStringLiteral("notes.opaque"));
+    QVERIFY(opaqueIt != resources.cend());
+    QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("symbol-like: opaque_payload"), 1));
+    QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("TODO: index unknown suffix text"), 2));
+    QVERIFY(hasLineAnchor(*opaqueIt, QStringLiteral("url: https://docs.example.com/pinloom/opaque"), 3));
+
+    const auto rawIt = findFile(QStringLiteral("raw.opaque"));
+    QVERIFY(rawIt != resources.cend());
+    QVERIFY(std::none_of(rawIt->anchors.cbegin(), rawIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.contains(QStringLiteral("hidden"));
+    }));
+
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
              qPrintable(repository.lastError()));
@@ -2256,6 +2274,18 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
         return result.resource.title == QLatin1String("pinloom.cpp")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("warning: WARNING: route timing changed");
+    }));
+
+    const QList<SearchResult> opaqueResults = repository.search(SearchQuery{QStringLiteral("unknown suffix")});
+    QVERIFY(std::any_of(opaqueResults.cbegin(), opaqueResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("notes.opaque")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("TODO: index unknown suffix text");
+    }));
+
+    const QList<SearchResult> hiddenResults = repository.search(SearchQuery{QStringLiteral("hidden")});
+    QVERIFY(std::none_of(hiddenResults.cbegin(), hiddenResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("raw.opaque");
     }));
 }
 

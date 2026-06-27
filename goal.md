@@ -12,7 +12,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - Embeddable UI: reusable widgets must later fit into ZeroSlack as a dock/global-control panel.
 - Core independence: `pinloom_core` must not depend on ZeroSlack UI or app-specific host behavior.
 - Source neutrality: Obsidian vaults, normal folders, PDFs, text files, notes, and manual anchors are all library sources.
-- Unified text treatment: Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and other text-like files are indexed as text, not as language-specific resources.
+- Unified text treatment: small files whose content sniffs as text are indexed as text, regardless of extension, not as language-specific resources.
 - No language semantics: Pinloom extracts searchable beacons and locations only; it does not build ASTs, infer program meaning, or claim support for programming languages.
 - Special readers only for special files: PDF, Office documents, Visio, SQLite databases, scanned/OCR material, and web/archive capture formats may have dedicated readers, but their job is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned. Office/Visio package containers stay path-only until a dedicated reader can emit real document positions.
 - ZeroSlack boundary: when embedded in ZeroSlack, Pinloom provides paths, lines, columns when available, display text, beacons, and jump targets; ZeroSlack owns HDL editing, display, and jump execution.
@@ -170,7 +170,7 @@ Completed:
 
 Completed:
 
-- Treat text-like files as normal file resources with searchable content instead of code-language resources.
+- Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources.
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker lines.
 - Keep CMake project/target/package/option/function/macro/test beacons for build-file jumps.
 - Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for build/container jumps.

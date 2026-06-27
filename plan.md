@@ -261,7 +261,7 @@ Goal: make engineering text trees searchable by beacons and jump targets, not on
 
 Scope:
 
-- Treat all text-like files uniformly as text: HDL, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same beacon/location model.
+- Treat all small content-sniffed text files uniformly as text, regardless of extension, through the same beacon/location model.
 - Extract neutral line beacons: TODO/FIXME/NOTE, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker text.
 - Keep special file readers only where the file format needs one, and keep their purpose limited to beacon/location extraction.
 - Keep ZeroSlack integration limited to paths, line/column locations, display text, beacons, and jump targets.
@@ -271,7 +271,7 @@ Status:
 
 - Generic file indexing: done in MVP 3.
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
-- General text content indexing for text-like, log, config, manifest, and plain-text files: done.
+- General text content indexing for small files that sniff as text: done.
 - Package manifest dependency anchors: kept as JSON/TOML/requirements-style line beacons, not language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and explicit symbol-like marker beacons: done.
 - CMake project/target/package/option/function/macro/test beacons: done.

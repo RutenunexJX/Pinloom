@@ -549,63 +549,29 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         return true;
     }
 
-    const QString suffix = fileInfo.suffix().toLower();
-    return QStringList{
-        QStringLiteral("bat"),
-        QStringLiteral("bash"),
-        QStringLiteral("c"),
-        QStringLiteral("cc"),
-        QStringLiteral("cmd"),
-        QStringLiteral("cmake"),
-        QStringLiteral("conf"),
-        QStringLiteral("cfg"),
-        QStringLiteral("cpp"),
-        QStringLiteral("cs"),
-        QStringLiteral("csv"),
-        QStringLiteral("cxx"),
-        QStringLiteral("dockerfile"),
-        QStringLiteral("fish"),
-        QStringLiteral("go"),
-        QStringLiteral("h"),
-        QStringLiteral("hh"),
-        QStringLiteral("hpp"),
-        QStringLiteral("hxx"),
-        QStringLiteral("ini"),
-        QStringLiteral("java"),
-        QStringLiteral("js"),
-        QStringLiteral("json"),
-        QStringLiteral("jsonl"),
-        QStringLiteral("jsx"),
-        QStringLiteral("links"),
-        QStringLiteral("list"),
-        QStringLiteral("log"),
-        QStringLiteral("mak"),
-        QStringLiteral("mk"),
-        QStringLiteral("mod"),
-        QStringLiteral("ps1"),
-        QStringLiteral("psm1"),
-        QStringLiteral("py"),
-        QStringLiteral("qml"),
-        QStringLiteral("rs"),
-        QStringLiteral("sdc"),
-        QStringLiteral("sh"),
-        QStringLiteral("sv"),
-        QStringLiteral("svh"),
-        QStringLiteral("tcl"),
-        QStringLiteral("txt"),
-        QStringLiteral("text"),
-        QStringLiteral("tsv"),
-        QStringLiteral("ts"),
-        QStringLiteral("tsx"),
-        QStringLiteral("toml"),
-        QStringLiteral("urls"),
-        QStringLiteral("v"),
-        QStringLiteral("vh"),
-        QStringLiteral("xdc"),
-        QStringLiteral("yaml"),
-        QStringLiteral("yml"),
-        QStringLiteral("zsh")
-    }.contains(suffix);
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    const QByteArray sample = file.read(8192);
+    if (sample.contains('\0')) {
+        return false;
+    }
+
+    int controlBytes = 0;
+    for (const char byte : sample) {
+        const uchar value = static_cast<uchar>(byte);
+        if (value < 0x20
+            && value != '\n'
+            && value != '\r'
+            && value != '\t'
+            && value != '\f') {
+            ++controlBytes;
+        }
+    }
+
+    return sample.isEmpty() || controlBytes * 20 <= sample.size();
 }
 
 bool isStructuredPlainTextFile(const QFileInfo &fileInfo)
