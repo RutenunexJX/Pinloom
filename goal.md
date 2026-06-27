@@ -14,7 +14,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - Source neutrality: Obsidian vaults, normal folders, PDFs, text files, notes, and manual anchors are all library sources.
 - Unified text treatment: Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and other text-like files are indexed as text, not as language-specific resources.
 - No language semantics: Pinloom extracts searchable beacons and locations only; it does not build ASTs, infer program meaning, or claim support for programming languages.
-- Special readers only for special files: PDF, Office documents, Visio, SQLite databases, binary archives, scanned/OCR material, and web/archive formats may have dedicated readers, but their job is still beacon and location extraction.
+- Special readers only for special files: PDF, Office documents, Visio, SQLite databases, scanned/OCR material, and web/archive capture formats may have dedicated readers, but their job is still beacon and location extraction. Compressed packages stay path-only and are not expanded.
 - ZeroSlack boundary: when embedded in ZeroSlack, Pinloom provides paths, lines, columns when available, display text, beacons, and jump targets; ZeroSlack owns HDL editing, display, and jump execution.
 - Obsidian friendliness: markdown tags, aliases, headings, wikilinks, and block ids should be indexed without making Pinloom an Obsidian add-on.
 - Precise anchors: search results should be able to land on PDF pages/regions, file lines, markdown headings/blocks, URLs, and manual targets.
@@ -282,7 +282,7 @@ Phases:
 
 1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, JSON/YAML/TOML/INI, and CSV/TSV readers described and tested as beacon/location readers.
 2. Office baseline readers: add Word/docx paragraphs/headings/tables/comments/links, Excel/xlsx sheets/cells/headers/formulas/error values/named ranges, and PowerPoint slide/title/body/notes/link beacons.
-3. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons and ZIP archive file-list/manifest/stored text-preview/preview-diagnostic beacons are in place; add Visio/vsdx page/shape/text/link beacons and compressed archive text extraction next.
+3. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place; add Visio/vsdx page/shape/text/link beacons next. Compressed packages remain ordinary path-only file resources and are not a reader target.
 4. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 5. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
 6. Experience and performance: add reader toggles, incremental indexing, cancellation, failure UI, jump fallback behavior, deduplication, and ranking/noise tuning.

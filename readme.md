@@ -10,7 +10,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 
 - Text-like files are treated uniformly. Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same text beacon model.
 - Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and neutral symbol-like text. It does not build ASTs or claim programming-language support.
-- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, binary archives, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction.
+- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages stay path-only and are not expanded.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
 ## Special File Reader Phases
@@ -19,7 +19,7 @@ Dedicated readers are staged so each phase improves location extraction without 
 
 1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, structured text, and tabular readers as beacon/location readers.
 2. Office baseline readers: extract Word/docx paragraph, heading, table, comment, and link beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and link beacons; PowerPoint slide, title, body, notes, and link beacons.
-3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons; archive file-list, manifest, text-preview, and preview-diagnostic beacons.
+3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded.
 4. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
 5. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
 6. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.
@@ -62,7 +62,6 @@ Implemented:
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources with host aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the history database.
 - Firefox `places.sqlite` indexing as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the places database.
 - Generic SQLite database indexing with table, column, URL, and sample-value beacons on the source database resource.
-- ZIP archive indexing with file-list, manifest, stored text-preview, and preview-diagnostic beacons on the source archive resource.
 - OPML subscription/link list indexing as individual URL resources with host aliases, feed aliases, folder aliases, feed tags, URL fragment anchors, source line anchors, and `links-to` relations back to the OPML file.
 - RSS and Atom feed XML indexing as individual URL resources with feed aliases, category tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Sitemap XML indexing as individual URL resources with sitemap tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the source file.
@@ -105,7 +104,7 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; Office baseline readers; Visio/vsdx, generic SQLite, and archive readers; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; Office baseline readers; Visio/vsdx readers; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
