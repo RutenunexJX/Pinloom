@@ -604,7 +604,15 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("installer.esd"),
         QStringLiteral("installer.xip"),
         QStringLiteral("installer.xar"),
+        QStringLiteral("appliance.ova"),
+        QStringLiteral("disk.img"),
         QStringLiteral("disk.iso"),
+        QStringLiteral("disk.qcow"),
+        QStringLiteral("disk.qcow2"),
+        QStringLiteral("disk.vdi"),
+        QStringLiteral("disk.vhd"),
+        QStringLiteral("disk.vhdx"),
+        QStringLiteral("disk.vmdk"),
         QStringLiteral("disk.wim"),
         QStringLiteral("disk.swm"),
         QStringLiteral("comic.cb7"),
@@ -797,6 +805,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(windowsMsixPackageResultIt != windowsMsixPackageResults.cend());
     verifyIndexedPackageTags(*windowsMsixPackageResultIt);
     QVERIFY(repository.resourceRelations(windowsMsixPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> virtualDiskResults = repository.search(SearchQuery{QStringLiteral("disk.vhdx")});
+    auto virtualDiskResultIt = std::find_if(virtualDiskResults.cbegin(), virtualDiskResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("disk.vhdx")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(virtualDiskResultIt != virtualDiskResults.cend());
+    verifyIndexedPackageTags(*virtualDiskResultIt);
+    QVERIFY(repository.resourceRelations(virtualDiskResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> appliancePackageResults = repository.search(SearchQuery{QStringLiteral("appliance.ova")});
+    auto appliancePackageResultIt = std::find_if(appliancePackageResults.cbegin(), appliancePackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("appliance.ova")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(appliancePackageResultIt != appliancePackageResults.cend());
+    verifyIndexedPackageTags(*appliancePackageResultIt);
+    QVERIFY(repository.resourceRelations(appliancePackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> embeddedPackageResults = repository.search(SearchQuery{QStringLiteral("router.ipk")});
     auto embeddedPackageResultIt = std::find_if(embeddedPackageResults.cbegin(), embeddedPackageResults.cend(), [](const SearchResult &result) {
