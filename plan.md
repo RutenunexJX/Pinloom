@@ -409,7 +409,7 @@ Scope:
 Phases:
 
 1. Existing reader consolidation.
-   Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, text-structure beacons, and tabular beacons as beacon/location extractors. Make naming, documentation, and tests reflect that boundary.
+   Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
 2. Office baseline readers.
    Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons.
 3. Engineering and design special readers.

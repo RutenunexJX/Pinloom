@@ -7221,7 +7221,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(robotsResources);
     }
     const bool tabularCandidate = primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value();
-    const bool dedicatedUrlReaderCandidate =
+    const bool specializedUrlResourceCandidate =
         robotsTxtCandidate
         || emailCandidate
         || tabularCandidate
@@ -7233,7 +7233,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         || (primary.kind == ResourceKind::File && isXbelBookmarkCandidate(fileInfo))
         || (primary.kind == ResourceKind::File && isFeedXmlCandidate(fileInfo))
         || (primary.kind == ResourceKind::File && fileInfo.suffix().compare(QStringLiteral("opml"), Qt::CaseInsensitive) == 0);
-    if (primary.kind == ResourceKind::File && !dedicatedUrlReaderCandidate && isTextUrlResourceCandidate(fileInfo)) {
+    if (primary.kind == ResourceKind::File && !specializedUrlResourceCandidate && isTextUrlResourceCandidate(fileInfo)) {
         const QList<TextUrlLink> textLinks = textUrlLinksFromFile(fileInfo);
         const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
         appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);

@@ -282,7 +282,7 @@ Reader boundary:
 
 Phases:
 
-1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, JSON/YAML/TOML/INI, and CSV/TSV readers described and tested as beacon/location readers.
+1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
 2. Office baseline readers: add Word/docx paragraphs/headings/tables/comments/links, Excel/xlsx sheets/cells/headers/formulas/error values/named ranges, and PowerPoint slide/title/body/notes/link beacons.
 3. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place; add Visio/vsdx page/shape/text/link beacons next. Compressed packages remain ordinary path-only file resources and are not a reader target.
 4. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.

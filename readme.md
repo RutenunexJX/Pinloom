@@ -17,7 +17,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 
 Dedicated readers are staged so each phase improves location extraction without expanding Pinloom into a knowledge-modeling system.
 
-1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, text-structure beacons, and tabular beacons as beacon/location extractors.
+1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors; document text-structure and tabular coverage as unified text beacon rules, not special readers.
 2. Office baseline readers: extract Word/docx paragraph, heading, table, comment, and link beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and link beacons; PowerPoint slide, title, body, notes, and link beacons.
 3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
 4. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
