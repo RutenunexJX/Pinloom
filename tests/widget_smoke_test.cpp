@@ -95,6 +95,8 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
 
     searchEdit->setText(QStringLiteral("README"));
     QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Text]")));
+    QVERIFY(!results->item(0)->text().contains(QStringLiteral("[Markdown]")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
     QVERIFY(results->item(0)->toolTip().contains(resource.location));
 }

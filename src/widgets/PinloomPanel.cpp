@@ -69,7 +69,7 @@ QString resourceKindLabel(ResourceKind kind)
     case ResourceKind::Pdf:
         return QStringLiteral("PDF");
     case ResourceKind::Markdown:
-        return QStringLiteral("Markdown");
+        return QStringLiteral("Text");
     case ResourceKind::TextSnippet:
         return QStringLiteral("Text");
     case ResourceKind::Url:

@@ -341,7 +341,7 @@ Goal: close the gap between the reusable Pinloom layer and the real host/source 
 Scope:
 
 - Wire Pinloom into the actual ZeroSlack dock/global-control host.
-- Extend source coverage beyond normal files, Markdown, PDFs, and current special readers.
+- Extend source coverage beyond normal text files, PDFs, and current special readers.
 - Add more precise jumps where the current model already has anchor types.
 - Keep standalone behavior working while embedded behavior gains host context.
 

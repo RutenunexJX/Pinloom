@@ -61,7 +61,7 @@ Completed:
 
 - Source/indexing abstractions that produce resources without depending on UI.
 - Explicit normal-directory source for user-selected roots.
-- Directory indexing for folders, markdown files, PDFs, and generic files.
+- Directory indexing for folders, text files, PDFs, and generic files.
 - Idempotent indexing through stable file-location resource ids.
 - Directory source tests proving root-scoped scanning and repeated indexing behavior.
 
