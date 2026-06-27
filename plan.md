@@ -404,7 +404,7 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep compressed packages, including app/archive packages, `.br` files, and compound tar packages, as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only unless explicit document readers can emit user-facing document positions without exposing package-entry paths.
+- Keep compressed packages, compound tar suffixes, installable package containers, and `.br` files as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only unless explicit document readers can emit user-facing document positions without exposing package-entry paths.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
@@ -426,7 +426,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only unless document readers can emit real document positions without exposing package-entry paths. The guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only unless document readers can emit real document positions without exposing package-entry paths. The guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

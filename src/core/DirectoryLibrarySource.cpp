@@ -410,36 +410,69 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
     const QString completeSuffix = fileInfo.completeSuffix().toLower();
     return QStringList{
         QStringLiteral("7z"),
+        QStringLiteral("ace"),
+        QStringLiteral("alz"),
         QStringLiteral("apk"),
+        QStringLiteral("appx"),
+        QStringLiteral("appxbundle"),
+        QStringLiteral("ar"),
+        QStringLiteral("arc"),
+        QStringLiteral("arj"),
         QStringLiteral("br"),
         QStringLiteral("bz2"),
         QStringLiteral("cab"),
         QStringLiteral("cb7"),
         QStringLiteral("cbr"),
         QStringLiteral("cbz"),
+        QStringLiteral("cpio"),
+        QStringLiteral("crate"),
+        QStringLiteral("crx"),
+        QStringLiteral("deb"),
+        QStringLiteral("dmg"),
         QStringLiteral("ear"),
+        QStringLiteral("gem"),
         QStringLiteral("gz"),
         QStringLiteral("ipa"),
+        QStringLiteral("iso"),
         QStringLiteral("jar"),
         QStringLiteral("lz"),
+        QStringLiteral("lz4"),
         QStringLiteral("lzma"),
+        QStringLiteral("lzh"),
+        QStringLiteral("lha"),
         QStringLiteral("lzo"),
+        QStringLiteral("msix"),
+        QStringLiteral("msixbundle"),
+        QStringLiteral("nupkg"),
+        QStringLiteral("rpm"),
         QStringLiteral("rar"),
         QStringLiteral("tar"),
+        QStringLiteral("taz"),
         QStringLiteral("tbz"),
         QStringLiteral("tbz2"),
         QStringLiteral("tgz"),
+        QStringLiteral("tlz"),
+        QStringLiteral("tlzma"),
         QStringLiteral("txz"),
+        QStringLiteral("vsix"),
         QStringLiteral("war"),
+        QStringLiteral("whl"),
+        QStringLiteral("xar"),
         QStringLiteral("xz"),
+        QStringLiteral("z"),
         QStringLiteral("zip"),
+        QStringLiteral("zipx"),
+        QStringLiteral("zoo"),
         QStringLiteral("zst")
     }.contains(suffix)
         || completeSuffix.endsWith(QLatin1String(".tar.br"))
         || completeSuffix.endsWith(QLatin1String(".tar.bz2"))
         || completeSuffix.endsWith(QLatin1String(".tar.gz"))
         || completeSuffix.endsWith(QLatin1String(".tar.lz"))
+        || completeSuffix.endsWith(QLatin1String(".tar.lz4"))
         || completeSuffix.endsWith(QLatin1String(".tar.lzma"))
+        || completeSuffix.endsWith(QLatin1String(".tar.lzo"))
+        || completeSuffix.endsWith(QLatin1String(".tar.z"))
         || completeSuffix.endsWith(QLatin1String(".tar.xz"))
         || completeSuffix.endsWith(QLatin1String(".tar.zst"));
 }
