@@ -55,7 +55,7 @@ Implemented:
 - URL fragment anchors for indexed web shortcuts.
 - Standalone fallback opening preserves matched URL fragment anchors for web pages and local HTML pages.
 - Local `.html` and `.htm` page indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, source line anchors, and `links-to` relations back to the source page.
-- Local `.mhtml` and `.mht` web capture indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, and `links-to` relations back to the capture file.
+- Local `.mhtml` and `.mht` web capture reader indexing with title, canonical URL aliases, heading fragment anchors, extracted searchable content, outbound URL resources, and `links-to` relations back to the capture file.
 - Browser bookmark export HTML indexing as individual URL resources with host aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the export file.
 - Chromium/Edge-style Bookmarks JSON indexing as individual URL resources with host aliases, folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the Bookmarks file.
 - XBEL bookmark XML indexing as individual URL resources with host/folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.

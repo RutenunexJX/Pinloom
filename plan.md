@@ -376,7 +376,7 @@ Status:
 - Inline external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Reference-style external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
-- MHTML/MHT web capture content extraction/search, canonical URL aliases, and heading fragment anchors: done.
+- MHTML/MHT web capture reader content extraction/search, canonical URL aliases, and heading fragment anchors: done.
 - Local HTML outbound link URL resources with source line anchors and `links-to` relations: done.
 - MHTML/MHT outbound link URL resources with `links-to` relations: done.
 - Browser bookmark export HTML indexing as individual URL resources with source line anchors and `links-to` relations: done.

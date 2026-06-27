@@ -250,7 +250,7 @@ Completed:
 - Index inline external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
 - Index reference-style external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with source line anchors and `links-to` relations back to the source text file.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
-- Index MHTML/MHT web captures with searchable HTML content, canonical URL aliases, and heading fragment anchors.
+- Index MHTML/MHT web capture reader outputs with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index local HTML outbound links as derived URL resources with source line anchors and `links-to` relations back to the source page.
 - Index MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source capture file.
 - Index browser bookmark export HTML as individual URL resources with searchable host aliases, fragment anchors, source line anchors, and `links-to` relations back to the export file.

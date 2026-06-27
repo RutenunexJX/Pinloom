@@ -2779,7 +2779,7 @@ QString decodedMimeBody(const QString &headers, const QString &body)
     return QString::fromUtf8(bodyBytes);
 }
 
-QString htmlFromMhtmlArchive(const QByteArray &bytes)
+QString htmlFromMhtmlCapture(const QByteArray &bytes)
 {
     const QString document = QString::fromLatin1(bytes);
     int rootSeparatorLength = 0;
@@ -2829,7 +2829,7 @@ std::optional<QString> htmlDocumentFromFile(const QFileInfo &fileInfo)
 
     const QByteArray bytes = file.readAll();
     const QString html = isMhtmlFile(fileInfo)
-        ? htmlFromMhtmlArchive(bytes)
+        ? htmlFromMhtmlCapture(bytes)
         : QString::fromUtf8(bytes);
     if (html.isEmpty()) {
         return std::nullopt;

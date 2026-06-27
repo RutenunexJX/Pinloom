@@ -58,7 +58,7 @@ private slots:
     void extractsConfigTextUrlBeacons();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
-    void extractsMhtmlPageContent();
+    void extractsMhtmlWebCaptureContent();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
     void extractsXbelBookmarkLinks();
@@ -4318,7 +4318,7 @@ void DirectorySourceTest::extractsHtmlPageContent()
     }));
 }
 
-void DirectorySourceTest::extractsMhtmlPageContent()
+void DirectorySourceTest::extractsMhtmlWebCaptureContent()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
