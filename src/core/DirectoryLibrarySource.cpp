@@ -4630,12 +4630,12 @@ void appendTextStructureAnchorsFromLine(Resource &resource,
     }
 }
 
-struct ManifestDependencyState {
+struct TextDependencyBeaconState {
     bool inJsonDependencyMap = false;
     bool inTomlDependencySection = false;
 };
 
-bool isJsonManifestDependencyMap(const QString &name)
+bool isJsonDependencyBeaconMap(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("devDependencies")
@@ -4643,7 +4643,7 @@ bool isJsonManifestDependencyMap(const QString &name)
         || name == QLatin1String("optionalDependencies");
 }
 
-bool isTomlManifestDependencySection(const QString &name)
+bool isTomlDependencyBeaconSection(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("dev-dependencies")
@@ -4659,11 +4659,11 @@ bool isRequirementsFile(const QFileInfo &fileInfo)
         && fileInfo.completeBaseName().startsWith(QStringLiteral("requirements"), Qt::CaseInsensitive);
 }
 
-void appendManifestDependencyAnchorsFromLine(Resource &resource,
-                                             const QFileInfo &fileInfo,
-                                             const QString &line,
-                                             int lineNumber,
-                                             ManifestDependencyState &state)
+void appendTextDependencyBeaconsFromLine(Resource &resource,
+                                         const QFileInfo &fileInfo,
+                                         const QString &line,
+                                         int lineNumber,
+                                         TextDependencyBeaconState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4677,7 +4677,7 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inJsonDependencyMap = isJsonManifestDependencyMap(sectionMatch.captured(1));
+            state.inJsonDependencyMap = isJsonDependencyBeaconMap(sectionMatch.captured(1));
             return;
         }
         if (state.inJsonDependencyMap) {
@@ -4701,7 +4701,7 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inTomlDependencySection = isTomlManifestDependencySection(sectionMatch.captured(1));
+            state.inTomlDependencySection = isTomlDependencyBeaconSection(sectionMatch.captured(1));
             return;
         }
         if (state.inTomlDependencySection) {
@@ -7583,7 +7583,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool dockerfile = isDockerfile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
-    ManifestDependencyState manifestDependencyState;
+    TextDependencyBeaconState textDependencyBeaconState;
     TextStructureBeaconState textStructureState;
     GithubActionsWorkflowState githubActionsWorkflowState;
     GitlabCiPipelineState gitlabCiPipelineState;
@@ -7594,7 +7594,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         contentLines.append(line);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
-        appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
+        appendTextDependencyBeaconsFromLine(resource, fileInfo, line, lineNumber, textDependencyBeaconState);
         if (cmakeFile) {
             appendCMakeAnchorsFromLine(resource, line, lineNumber);
         }

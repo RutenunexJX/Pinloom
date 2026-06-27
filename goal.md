@@ -176,7 +176,7 @@ Completed:
 - Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for content-sniffed build/container jumps.
 - Keep GitHub Actions workflow/job/step/action/run line beacons for CI jumps.
 - Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
-- Keep JSON/TOML/requirements-style dependency anchors as manifest-file line beacons, not language dependency analysis.
+- Keep JSON/TOML/requirements-style dependency line beacons as text beacons, not package-manager or language dependency analysis.
 - Add compile_commands.json line anchors and `build-input` relations from build databases to referenced file paths.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path.
 - Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.
@@ -264,7 +264,7 @@ Completed:
 - Index JSON/JSONL URL strings as individual URL resources with path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index YAML/TOML/INI/config URL strings as individual URL resources with fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
-- Index small plain-text, log, config, manifest, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, config key/section/path anchors, JSON/TOML/requirements-style dependency anchors, and CSV/TSV column anchors.
+- Index small content-sniffed text, config, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, JSON/TOML/requirements-style dependency line beacons, and CSV/TSV column anchors.
 
 Remaining:
 

@@ -24,7 +24,7 @@ private slots:
     void extractsTextStructureLineBeacons();
     void extractsGithubActionsWorkflowAnchors();
     void extractsGitlabCiPipelineAnchors();
-    void extractsPackageManifestDependencyLineAnchors();
+    void extractsTextDependencyLineBeacons();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsObsidianAliasesTagsAndWikilinks();
     void extractsMarkdownBodyContent();
@@ -870,14 +870,14 @@ void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
+void DirectorySourceTest::extractsTextDependencyLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
-    writeFile(dir.filePath(QStringLiteral("library/manifest.json")),
+    writeFile(dir.filePath(QStringLiteral("library/dependencies.json")),
               QByteArray("{\n"
                          "  \"dependencies\": {\n"
                          "    \"search-panel\": \"^1.0.0\",\n"
@@ -887,7 +887,7 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
                          "    \"preview-runner\": \"^5.0.0\"\n"
                          "  }\n"
                          "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/manifest.toml")),
+    writeFile(dir.filePath(QStringLiteral("library/dependencies.toml")),
               QByteArray("[dependencies]\n"
                          "index-core = \"1\"\n"
                          "locator-ui = { version = \"1\", features = [\"panel\"] }\n"));
@@ -914,16 +914,16 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
         });
     };
 
-    const auto jsonManifestIt = findFile(QStringLiteral("manifest.json"));
-    QVERIFY(jsonManifestIt != resources.cend());
-    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("search-panel"), 3));
-    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("locator-dock"), 4));
-    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("preview-runner"), 7));
+    const auto jsonDependenciesIt = findFile(QStringLiteral("dependencies.json"));
+    QVERIFY(jsonDependenciesIt != resources.cend());
+    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("search-panel"), 3));
+    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("locator-dock"), 4));
+    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("preview-runner"), 7));
 
-    const auto tomlManifestIt = findFile(QStringLiteral("manifest.toml"));
-    QVERIFY(tomlManifestIt != resources.cend());
-    QVERIFY(hasDependency(*tomlManifestIt, QStringLiteral("index-core"), 2));
-    QVERIFY(hasDependency(*tomlManifestIt, QStringLiteral("locator-ui"), 3));
+    const auto tomlDependenciesIt = findFile(QStringLiteral("dependencies.toml"));
+    QVERIFY(tomlDependenciesIt != resources.cend());
+    QVERIFY(hasDependency(*tomlDependenciesIt, QStringLiteral("index-core"), 2));
+    QVERIFY(hasDependency(*tomlDependenciesIt, QStringLiteral("locator-ui"), 3));
 
     const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
     QVERIFY(requirementsIt != resources.cend());
@@ -941,7 +941,7 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
 
     const QList<SearchResult> panelResults = repository.search(SearchQuery{QStringLiteral("search-panel")});
     QVERIFY(std::any_of(panelResults.cbegin(), panelResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("manifest.json")
+        return result.resource.title == QLatin1String("dependencies.json")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("dependency: search-panel");
@@ -949,7 +949,7 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
 
     const QList<SearchResult> locatorResults = repository.search(SearchQuery{QStringLiteral("locator-ui")});
     QVERIFY(std::any_of(locatorResults.cbegin(), locatorResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("manifest.toml")
+        return result.resource.title == QLatin1String("dependencies.toml")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("dependency: locator-ui");
