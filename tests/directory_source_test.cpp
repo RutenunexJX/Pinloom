@@ -2417,16 +2417,16 @@ void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> targetResults = repository.search(SearchQuery{QStringLiteral("pinloom_core")});
-    QVERIFY(std::any_of(targetResults.cbegin(), targetResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> entryResults = repository.search(SearchQuery{QStringLiteral("pinloom_core")});
+    QVERIFY(std::any_of(entryResults.cbegin(), entryResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("directive entry: pinloom_core");
     }));
 
-    const QList<SearchResult> packageResults = repository.search(SearchQuery{QStringLiteral("Qt6")});
-    QVERIFY(std::any_of(packageResults.cbegin(), packageResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> referenceResults = repository.search(SearchQuery{QStringLiteral("Qt6")});
+    QVERIFY(std::any_of(referenceResults.cbegin(), referenceResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine

@@ -4095,16 +4095,16 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
         return;
     }
 
-    static const QRegularExpression targetPattern(
+    static const QRegularExpression entryPattern(
         QStringLiteral("^(?:qt_)?add_(?:executable|library|custom_target)\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression testPattern(
+    static const QRegularExpression namedEntryPattern(
         QStringLiteral("^add_test\\s*\\(\\s*(?:NAME\\s+)?([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression projectPattern(
+    static const QRegularExpression projectEntryPattern(
         QStringLiteral("^project\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression optionPattern(
+    static const QRegularExpression settingPattern(
         QStringLiteral("^option\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression blockPattern(
@@ -4114,34 +4114,34 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
         QStringLiteral("^find_package\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
 
-    const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
-    if (targetMatch.hasMatch()) {
+    const QRegularExpressionMatch entryMatch = entryPattern.match(trimmed);
+    if (entryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(targetMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(entryMatch.captured(1)),
                                lineNumber);
         return;
     }
 
-    const QRegularExpressionMatch testMatch = testPattern.match(trimmed);
-    if (testMatch.hasMatch()) {
+    const QRegularExpressionMatch namedEntryMatch = namedEntryPattern.match(trimmed);
+    if (namedEntryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(testMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(namedEntryMatch.captured(1)),
                                lineNumber);
         return;
     }
 
-    const QRegularExpressionMatch projectMatch = projectPattern.match(trimmed);
-    if (projectMatch.hasMatch()) {
+    const QRegularExpressionMatch projectEntryMatch = projectEntryPattern.match(trimmed);
+    if (projectEntryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(projectMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(projectEntryMatch.captured(1)),
                                lineNumber);
         return;
     }
 
-    const QRegularExpressionMatch optionMatch = optionPattern.match(trimmed);
-    if (optionMatch.hasMatch()) {
+    const QRegularExpressionMatch settingMatch = settingPattern.match(trimmed);
+    if (settingMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive setting: %1").arg(optionMatch.captured(1)),
+                               QStringLiteral("directive setting: %1").arg(settingMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4173,17 +4173,17 @@ void appendRuleTextBeaconsFromLine(Resource &resource, const QString &line, int 
         return;
     }
 
-    static const QRegularExpression targetPattern(
+    static const QRegularExpression entryPattern(
         QStringLiteral("^([^:#=]+?)\\s*:(?![=:])"));
-    const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
-    if (!targetMatch.hasMatch()) {
+    const QRegularExpressionMatch entryMatch = entryPattern.match(trimmed);
+    if (!entryMatch.hasMatch()) {
         return;
     }
 
-    const QStringList targets = targetMatch.captured(1).split(QRegularExpression(QStringLiteral("\\s+")),
-                                                              Qt::SkipEmptyParts);
-    for (const QString &target : targets) {
-        const QString normalized = target.trimmed();
+    const QStringList entries = entryMatch.captured(1).split(QRegularExpression(QStringLiteral("\\s+")),
+                                                             Qt::SkipEmptyParts);
+    for (const QString &entry : entries) {
+        const QString normalized = entry.trimmed();
         if (!normalized.isEmpty() && !normalized.startsWith(QLatin1Char('.'))) {
             appendBeaconLineAnchor(resource, QStringLiteral("rule entry: %1").arg(normalized), lineNumber);
         }
