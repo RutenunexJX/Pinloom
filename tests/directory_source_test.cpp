@@ -2792,7 +2792,7 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
               QStringLiteral("[\n"
                              "  {\n"
                              "    \"directory\": \"%1\",\n"
-                             "    \"command\": \"indexer --input inputs/beacon-input.txt --output build/beacon-output.loc\",\n"
+                             "    \"command\": \"ignored-command-only-token --not-a-beacon\",\n"
                              "    \"file\": \"inputs/beacon-input.txt\",\n"
                              "    \"output\": \"build/beacon-output.loc\"\n"
                              "  }\n"
@@ -2824,6 +2824,9 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
             && anchor.target == anchorTarget
             && anchor.line == 5;
     }));
+    QVERIFY(std::none_of(referenceManifestIt->anchors.cbegin(), referenceManifestIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.contains(QStringLiteral("ignored-command-only-token"));
+    }));
 
     QCOMPARE(referenceManifestIt->relations.size(), 1);
     QCOMPARE(referenceManifestIt->relations.first().sourceResourceId, referenceManifestIt->id);
@@ -2831,6 +2834,7 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
     QCOMPARE(referenceManifestIt->relations.first().label, QStringLiteral("file-reference"));
     QCOMPARE(referenceManifestIt->relations.first().note,
              QStringLiteral("file reference line 5: %1").arg(anchorTarget));
+    QVERIFY(!referenceManifestIt->relations.first().note.contains(QStringLiteral("ignored-command-only-token")));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),

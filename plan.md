@@ -283,7 +283,7 @@ Status:
 - Config-style text line beacons layered after text content sniffing with neutral `config entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than target/test/function/macro semantics: done.
 - Rule-entry and container-style text line beacons layered after text content sniffing with neutral `rule ...` and `config block/input ...` labels and format-trigger naming, without target or instruction semantics: done.
 - Workflow/pipeline configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `config ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
-- File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done.
+- File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done, with command strings left as ordinary file text rather than file-reference beacon details.
 - Neutral model/storage names for text snippets and marker anchors: done, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Neutral text heading/block model and storage names: done, with legacy Markdown-named anchor inputs and stored rows normalized to neutral text anchors.
 - Shared repository compatibility helpers keep legacy Markdown kind/filter/anchor inputs as aliases for ordinary file and neutral text anchors, preventing a separate Markdown repository path from reappearing.

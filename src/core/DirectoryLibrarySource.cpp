@@ -148,9 +148,9 @@ struct PdfUriLink {
 };
 
 struct FileReferenceEntry {
-    QString inputPath;
+    QString referencedPath;
     QString displayPath;
-    QString output;
+    QString detail;
     int lineNumber = -1;
 };
 
@@ -5344,13 +5344,13 @@ QString absoluteReferencedFilePath(const QFileInfo &referenceManifestFile,
     return QDir::cleanPath(QFileInfo(QDir(basePath).filePath(trimmedPath)).absoluteFilePath());
 }
 
-QString displayReferencedFilePath(const QFileInfo &referenceManifestFile, const QString &inputPath)
+QString displayReferencedFilePath(const QFileInfo &referenceManifestFile, const QString &referencedPath)
 {
-    const QString relativePath = QDir(referenceManifestFile.absolutePath()).relativeFilePath(inputPath);
+    const QString relativePath = QDir(referenceManifestFile.absolutePath()).relativeFilePath(referencedPath);
     if (!relativePath.isEmpty()) {
         return QDir::cleanPath(relativePath);
     }
-    return QFileInfo(inputPath).fileName();
+    return QFileInfo(referencedPath).fileName();
 }
 
 QList<FileReferenceEntry> fileReferenceEntriesFromManifestFile(const QFileInfo &fileInfo)
@@ -5385,18 +5385,18 @@ QList<FileReferenceEntry> fileReferenceEntriesFromManifestFile(const QFileInfo &
         }
 
         FileReferenceEntry entry;
-        entry.inputPath = absoluteReferencedFilePath(fileInfo,
-                                                     object.value(QStringLiteral("directory")).toString(),
-                                                     rawInputPath);
-        if (entry.inputPath.isEmpty()) {
+        entry.referencedPath = absoluteReferencedFilePath(fileInfo,
+                                                          object.value(QStringLiteral("directory")).toString(),
+                                                          rawInputPath);
+        if (entry.referencedPath.isEmpty()) {
             continue;
         }
 
-        entry.output = object.value(QStringLiteral("output")).toString().trimmed();
-        entry.displayPath = displayReferencedFilePath(fileInfo, entry.inputPath);
+        entry.detail = object.value(QStringLiteral("output")).toString().trimmed();
+        entry.displayPath = displayReferencedFilePath(fileInfo, entry.referencedPath);
         entry.lineNumber = lineNumberForJsonPropertyValue(text, QStringLiteral("file"), rawInputPath);
 
-        const QString key = QStringLiteral("%1|%2").arg(entry.inputPath, entry.output);
+        const QString key = QStringLiteral("%1|%2").arg(entry.referencedPath, entry.detail);
         if (seenKeys.contains(key, Qt::CaseInsensitive)) {
             continue;
         }
@@ -5410,11 +5410,11 @@ QList<FileReferenceEntry> fileReferenceEntriesFromManifestFile(const QFileInfo &
 QString fileReferenceAnchorTarget(const FileReferenceEntry &entry)
 {
     const QString display = entry.displayPath.trimmed().isEmpty()
-        ? QFileInfo(entry.inputPath).fileName()
+        ? QFileInfo(entry.referencedPath).fileName()
         : entry.displayPath.trimmed();
-    return entry.output.trimmed().isEmpty()
+    return entry.detail.trimmed().isEmpty()
         ? QStringLiteral("file reference: %1").arg(display)
-        : QStringLiteral("file reference: %1 -> %2").arg(display, entry.output.trimmed());
+        : QStringLiteral("file reference: %1 -> %2").arg(display, entry.detail.trimmed());
 }
 
 void appendFileReferenceMetadata(Resource &sourceResource, const QList<FileReferenceEntry> &entries)
@@ -5427,7 +5427,7 @@ void appendFileReferenceMetadata(Resource &sourceResource, const QList<FileRefer
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
-        relation.targetResourceId = QStringLiteral("file:%1").arg(entry.inputPath);
+        relation.targetResourceId = QStringLiteral("file:%1").arg(entry.referencedPath);
         relation.label = QStringLiteral("file-reference");
         relation.note = entry.lineNumber > 0
             ? QStringLiteral("file reference line %1: %2").arg(entry.lineNumber).arg(anchorTarget)

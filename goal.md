@@ -181,7 +181,7 @@ Completed:
 - Keep rule-entry and container-style text line beacons for content-sniffed jumps, with neutral `rule ...` and `config block/input ...` labels and format-trigger naming rather than tool/platform interpretation, target semantics, or instruction semantics.
 - Keep workflow/pipeline configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `config ...` labels plus format-trigger and block/label implementation state naming rather than vendor-specific CI platform interpretation.
 - Keep explicit JSON/TOML named-entry container line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
-- Add file-reference manifest line anchors for compile_commands.json and `file-reference` relations to referenced file paths without treating the file as build semantics.
+- Add file-reference manifest line anchors for compile_commands.json and `file-reference` relations to referenced file paths without using command strings as beacon details or treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and marker anchors while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
 - Use neutral text heading/block anchor model and storage names for new directory indexing while normalizing legacy Markdown-named anchor inputs and stored rows.
