@@ -3459,6 +3459,8 @@ QList<XbelBookmarkLink> deduplicatedXbelBookmarkLinks(const QList<XbelBookmarkLi
     return deduplicated;
 }
 
+bool hasSqliteHeader(const QFileInfo &fileInfo);
+
 bool isBrowserHistorySqliteCandidate(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 128 * 1024 * 1024) {
@@ -3466,17 +3468,19 @@ bool isBrowserHistorySqliteCandidate(const QFileInfo &fileInfo)
     }
 
     const QString fileName = fileInfo.fileName().toLower();
-    return fileName == QLatin1String("history")
-        || fileName == QLatin1String("history.db")
-        || fileName == QLatin1String("history.sqlite")
-        || fileName == QLatin1String("history.sqlite3");
+    return (fileName == QLatin1String("history")
+            || fileName == QLatin1String("history.db")
+            || fileName == QLatin1String("history.sqlite")
+            || fileName == QLatin1String("history.sqlite3"))
+        && hasSqliteHeader(fileInfo);
 }
 
 bool isFirefoxPlacesSqliteCandidate(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
         && fileInfo.size() <= 128 * 1024 * 1024
-        && fileInfo.fileName().compare(QStringLiteral("places.sqlite"), Qt::CaseInsensitive) == 0;
+        && fileInfo.fileName().compare(QStringLiteral("places.sqlite"), Qt::CaseInsensitive) == 0
+        && hasSqliteHeader(fileInfo);
 }
 
 bool hasSqliteHeader(const QFileInfo &fileInfo)

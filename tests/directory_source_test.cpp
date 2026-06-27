@@ -64,6 +64,7 @@ private slots:
     void extractsXbelBookmarkLinks();
     void extractsBrowserHistorySqliteLinks();
     void extractsFirefoxPlacesSqliteLinks();
+    void keepsNonSqliteBrowserDatabaseNamesAsUnifiedText();
     void extractsGenericSqliteBeaconMetadata();
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
@@ -5458,6 +5459,97 @@ void DirectorySourceTest::extractsFirefoxPlacesSqliteLinks()
     QCOMPARE(entryRelations.size(), 1);
     QCOMPARE(entryRelations.first().sourceResourceId, placesIt->id);
     QCOMPARE(entryRelations.first().targetResourceId, entryIt->id);
+}
+
+void DirectorySourceTest::keepsNonSqliteBrowserDatabaseNamesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/profile")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/firefox")));
+    writeFile(dir.filePath(QStringLiteral("library/profile/History")),
+              QByteArray("NOTE: browser History text remains unified text\n"
+                         "ANCHOR: history_text_anchor\n"));
+    writeFile(dir.filePath(QStringLiteral("library/profile/history.db")),
+              QByteArray("NOTE: browser history db text remains unified text\n"
+                         "ANCHOR: history_db_text_anchor\n"));
+    writeFile(dir.filePath(QStringLiteral("library/firefox/places.sqlite")),
+              QByteArray("NOTE: Firefox places text remains unified text\n"
+                         "ANCHOR: places_text_anchor\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine && anchor.target == target;
+        });
+    };
+
+    struct ExpectedTextFile {
+        QString title;
+        QString noteAnchor;
+        QString markerAnchor;
+    };
+    const QList<ExpectedTextFile> expectedFiles{
+        {QStringLiteral("History"),
+         QStringLiteral("NOTE: browser History text remains unified text"),
+         QStringLiteral("marker: history_text_anchor")},
+        {QStringLiteral("history.db"),
+         QStringLiteral("NOTE: browser history db text remains unified text"),
+         QStringLiteral("marker: history_db_text_anchor")},
+        {QStringLiteral("places.sqlite"),
+         QStringLiteral("NOTE: Firefox places text remains unified text"),
+         QStringLiteral("marker: places_text_anchor")}
+    };
+
+    for (const ExpectedTextFile &expected : expectedFiles) {
+        const auto fileIt = findFile(expected.title);
+        QVERIFY(fileIt != resources.cend());
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("sqlite")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("sqlite-database")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+        QVERIFY(fileIt->relations.isEmpty());
+        QVERIFY(hasLineAnchor(*fileIt, expected.noteAnchor));
+        QVERIFY(hasLineAnchor(*fileIt, expected.markerAnchor));
+    }
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.tags.contains(QStringLiteral("browser-history"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    for (const ExpectedTextFile &expected : expectedFiles) {
+        const QList<SearchResult> markerResults = repository.search(SearchQuery{expected.markerAnchor});
+        QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::File
+                && result.resource.title == expected.title
+                && !result.resource.tags.contains(QStringLiteral("sqlite-database"))
+                && !result.resource.tags.contains(QStringLiteral("special-reader"))
+                && result.matchedAnchor.has_value()
+                && result.matchedAnchor->type == AnchorType::FileLine
+                && result.matchedAnchor->target == expected.markerAnchor;
+        }));
+    }
 }
 
 void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
