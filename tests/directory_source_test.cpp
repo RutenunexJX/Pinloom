@@ -2177,20 +2177,19 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
     writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
               QByteArray("// ANCHOR: host dock handoff\n"
-                         "class JumpController {\n"
-                         "};\n"
+                         "// SYMBOL: JumpController\n"
+                         "handoff = planned\n"
                          "[Build Handoff]\n"
                          "WARNING: route timing changed\n"
                          "https://docs.example.com/pinloom/jump\n"
                          "TODO: wire ZeroSlack jump\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/rtl/top.sv")),
-              QByteArray("module beacon_top;\n"
+              QByteArray("// SYMBOL: beacon_top\n"
                          "// ERROR: missing reset\n"
-                         "endmodule\n"));
+                         "status: reviewed\n"));
     writeFile(dir.filePath(QStringLiteral("library/scripts/flow.tcl")),
-              QByteArray("proc launch_dock {} {\n"
-                         "  puts ready\n"
-                         "}\n"));
+              QByteArray("# SYMBOL: launch_dock\n"
+                         "status: ready\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/pins.xdc")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
@@ -2467,8 +2466,8 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     QVERIFY(dir.mkpath(QStringLiteral("library/build")));
     QVERIFY(dir.mkpath(QStringLiteral("library/src")));
     writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
-              QByteArray("class JumpController {};\n"
-                         "int main() { return 0; }\n"));
+              QByteArray("JumpController build input\n"
+                         "ready\n"));
 
     QString libraryPath = QDir::cleanPath(dir.filePath(QStringLiteral("library")));
     writeFile(dir.filePath(QStringLiteral("library/build/compile_commands.json")),

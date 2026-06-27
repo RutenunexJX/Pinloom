@@ -9,7 +9,7 @@ It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian va
 Pinloom is a beacon/location indexer and jump layer. It is not a code intelligence engine, a multilingual IDE, or a language semantic analyzer.
 
 - Text-like files are treated uniformly. Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same text beacon model.
-- Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and neutral symbol-like text. It does not build ASTs or claim programming-language support.
+- Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and explicit symbol-like marker text. It does not build ASTs or claim programming-language support.
 - Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned. Office/Visio package containers stay path-only until a dedicated reader can emit real document positions.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
@@ -76,7 +76,7 @@ Implemented:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, JSON/TOML/requirements-style dependency anchors, and CSV/TSV column anchors.
-- Unified text beacon indexing for text-like, log, config, manifest, and plain-text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and simple symbol-like line anchors.
+- Unified text beacon indexing for text-like, log, config, manifest, and plain-text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and explicit symbol-like marker line anchors.
 - Package manifest dependency anchors are JSON/TOML/requirements-style line beacons, not programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard for compressed and Office/Visio package files before any dedicated reader exists.
@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for unified text file classification, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/simple symbol-like beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for unified text file classification, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 

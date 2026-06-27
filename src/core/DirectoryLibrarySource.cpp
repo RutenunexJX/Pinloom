@@ -4166,14 +4166,17 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
                                lineNumber);
     }
 
-    static const QRegularExpression symbolLikePattern(
-        QStringLiteral("^(?:class|struct|module|interface|package|task|function|def|proc)\\s+(?:automatic\\s+)?([A-Za-z_][A-Za-z0-9_$:.-]*)\\b"),
+    static const QRegularExpression explicitSymbolLikePattern(
+        QStringLiteral("^\\s*(?://+|#+|;+|--+|/\\*)?\\s*(?:SYMBOL|SYMBOL-LIKE)\\b\\s*:?[\\s-]*(.+?)\\s*(?:\\*/)?\\s*$"),
         QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch symbolLikeMatch = symbolLikePattern.match(trimmed);
+    const QRegularExpressionMatch symbolLikeMatch = explicitSymbolLikePattern.match(line);
     if (symbolLikeMatch.hasMatch()) {
-        appendBeaconLineAnchor(resource,
-                               QStringLiteral("symbol-like: %1").arg(symbolLikeMatch.captured(1).trimmed()),
-                               lineNumber);
+        const QString symbolLike = symbolLikeMatch.captured(1).trimmed();
+        if (!symbolLike.isEmpty()) {
+            appendBeaconLineAnchor(resource,
+                                   QStringLiteral("symbol-like: %1").arg(symbolLike),
+                                   lineNumber);
+        }
     }
 }
 
