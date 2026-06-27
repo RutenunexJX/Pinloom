@@ -178,7 +178,7 @@ Completed:
 - Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
 - Keep JSON/TOML/requirements-style dependency line beacons as text beacons, not package-manager or language dependency analysis.
 - Add compile_commands.json line anchors and `build-input` relations from build databases to referenced file paths.
-- Remove automatic code classification and language-specific symbol/test/import parsing from the product path.
+- Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.
 - Rank exact beacon and filename matches ahead of broad path matches.
 

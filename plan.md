@@ -280,7 +280,7 @@ Status:
 - GitLab CI stage/job/needs/script beacons: done.
 - compile_commands.json build-input line anchors and `build-input` relations: done.
 - Neutral model/storage names for text snippets and symbol-like anchors: done, with legacy `code_*` database read compatibility.
-- Language-specific symbol/test/import parsing for Rust, Go, Java, C#, JS/TS, C/C++, shell, PowerShell, batch, and shebang scripts: no longer pursued under the product boundary.
+- Language-specific symbol/test/import parsing across programming languages and script types: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 
 ## MVP 12: Manual Anchors And Relationships
