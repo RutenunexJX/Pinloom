@@ -49,7 +49,7 @@ private slots:
     void extractsCompileCommandBuildInputBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
-    void extractsPlainTextUrlListResources();
+    void extractsContentSniffedTextUrlResources();
     void extractsEmailMessageUrlResources();
     void extractsIcalendarEventUrlResources();
     void extractsJsonUrlResources();
@@ -2800,7 +2800,7 @@ void DirectorySourceTest::extractsWebShortcutResources()
     }));
 }
 
-void DirectorySourceTest::extractsPlainTextUrlListResources()
+void DirectorySourceTest::extractsContentSniffedTextUrlResources()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2812,6 +2812,8 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
                          "https://status.example.org/zeroslack\n"
                          "Duplicate: https://docs.example.com/pinloom/launch#overview\n"
                          "Ignore local file://not-web\n"));
+    writeFile(dir.filePath(QStringLiteral("library/links/jump-targets.opaque")),
+              QByteArray("Opaque Jump Target - https://jump.example.net/pinloom#opaque\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -2864,6 +2866,25 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
     });
     QVERIFY(statusIt != resources.cend());
     QCOMPARE(statusIt->title, QStringLiteral("status.example.org"));
+
+    auto opaqueFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("jump-targets.opaque");
+    });
+    QVERIFY(opaqueFileIt != resources.cend());
+    auto opaqueJumpIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://jump.example.net/pinloom#opaque");
+    });
+    QVERIFY(opaqueJumpIt != resources.cend());
+    QCOMPARE(opaqueJumpIt->title, QStringLiteral("Opaque Jump Target"));
+    QVERIFY(std::any_of(opaqueFileIt->relations.cbegin(), opaqueFileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == opaqueFileIt->id
+            && relation.targetResourceId == opaqueJumpIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 1: url: Opaque Jump Target -> https://jump.example.net/pinloom#opaque");
+    }));
+
     QCOMPARE(fileIt->relations.size(), 2);
     QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == fileIt->id
@@ -2913,6 +2934,11 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
     QCOMPARE(launchRelations.size(), 1);
     QCOMPARE(launchRelations.first().sourceResourceId, fileIt->id);
     QCOMPARE(launchRelations.first().targetResourceId, launchIt->id);
+
+    const QList<ResourceRelation> opaqueJumpRelations = repository.resourceRelations(opaqueJumpIt->id);
+    QCOMPARE(opaqueJumpRelations.size(), 1);
+    QCOMPARE(opaqueJumpRelations.first().sourceResourceId, opaqueFileIt->id);
+    QCOMPARE(opaqueJumpRelations.first().targetResourceId, opaqueJumpIt->id);
 
     const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Launch Notes")});
     QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {

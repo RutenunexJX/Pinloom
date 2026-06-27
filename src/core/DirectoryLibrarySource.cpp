@@ -578,27 +578,9 @@ std::optional<QChar> tabularDelimiterForFile(const QFileInfo &fileInfo)
     return std::nullopt;
 }
 
-bool isPlainTextUrlListCandidate(const QFileInfo &fileInfo)
+bool isTextUrlResourceCandidate(const QFileInfo &fileInfo)
 {
-    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
-        return false;
-    }
-
-    const QString suffix = fileInfo.suffix().toLower();
-    return QStringList{
-        QStringLiteral("txt"),
-        QStringLiteral("text"),
-        QStringLiteral("log"),
-        QStringLiteral("list"),
-        QStringLiteral("links"),
-        QStringLiteral("urls"),
-        QStringLiteral("yaml"),
-        QStringLiteral("yml"),
-        QStringLiteral("toml"),
-        QStringLiteral("ini"),
-        QStringLiteral("cfg"),
-        QStringLiteral("conf")
-    }.contains(suffix);
+    return isPlainTextContentFile(fileInfo);
 }
 
 bool isRobotsTxtCandidate(const QFileInfo &fileInfo)
@@ -7230,7 +7212,8 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         appendSitemapXmlSourceMetadata(primary, sitemapLinks, sitemapResources);
         derivedResources.append(sitemapResources);
     }
-    if (primary.kind == ResourceKind::File && isEmailFileCandidate(fileInfo)) {
+    const bool emailCandidate = primary.kind == ResourceKind::File && isEmailFileCandidate(fileInfo);
+    if (emailCandidate) {
         const EmailMessageMetadata metadata = emailMessageMetadataFromFile(fileInfo);
         const QList<Resource> emailResources = emailUrlResourcesFromLinks(fileInfo, metadata);
         appendEmailSourceMetadata(primary, metadata, emailResources);
@@ -7243,13 +7226,26 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         appendRobotsSitemapSourceMetadata(primary, robotsLinks, robotsResources);
         derivedResources.append(robotsResources);
     }
-    if (primary.kind == ResourceKind::File && !robotsTxtCandidate && isPlainTextUrlListCandidate(fileInfo)) {
+    const bool tabularCandidate = primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value();
+    const bool dedicatedUrlReaderCandidate =
+        robotsTxtCandidate
+        || emailCandidate
+        || tabularCandidate
+        || (primary.kind == ResourceKind::File && isIcalendarFileCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isBrowserBookmarkJsonCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isJsonUrlCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isHarFileCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isWarcFileCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isXbelBookmarkCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isFeedXmlCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && fileInfo.suffix().compare(QStringLiteral("opml"), Qt::CaseInsensitive) == 0);
+    if (primary.kind == ResourceKind::File && !dedicatedUrlReaderCandidate && isTextUrlResourceCandidate(fileInfo)) {
         const QList<TextUrlLink> textLinks = textUrlLinksFromFile(fileInfo);
         const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
         appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
         derivedResources.append(textResources);
     }
-    if (primary.kind == ResourceKind::File && tabularDelimiterForFile(fileInfo).has_value()) {
+    if (tabularCandidate) {
         const QList<TabularUrlLink> tabularLinks = tabularUrlLinksFromFile(fileInfo);
         const QList<Resource> tabularResources = tabularUrlResourcesFromLinks(fileInfo, tabularLinks);
         appendTabularUrlSourceMetadata(primary, tabularLinks, tabularResources);

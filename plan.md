@@ -384,7 +384,7 @@ Status:
 - WARC response record indexing as individual URL resources with extracted HTML content, source line anchors, and `links-to` relations: done.
 - iCalendar event URL indexing with event/time/location anchors and `links-to` relations: done.
 - Email `.eml` message indexing with header/content search, body URL resources, source line anchors, and `links-to` relations: done.
-- Plain-text URL list indexing as individual URL resources with source line anchors and `links-to` relations: done.
+- Content-sniffed text URL indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - JSON/JSONL URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - YAML/TOML/INI/config URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
@@ -392,7 +392,7 @@ Status:
 - Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
-- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
+- Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
 - Richer source-code parsing: not pursued; future work should improve generic text beacons and special-file readers instead.
 
 ## MVP 15: Special-File Reader Phases

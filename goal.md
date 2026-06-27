@@ -259,7 +259,7 @@ Completed:
 - Index WARC response records as individual URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
 - Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
 - Index email `.eml` message files with subject/from/to/date line anchors, searchable message content, body URL resources, fragment anchors, and `links-to` relations back to the source message.
-- Index plain-text URL list files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source list.
+- Index URLs found in small content-sniffed text files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index CSV/TSV URL columns as individual URL resources with host aliases, table aliases, category/tag aliases, fragment anchors, source row anchors, and `links-to` relations back to the source table.
 - Index JSON/JSONL URL strings as individual URL resources with path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index YAML/TOML/INI/config URL strings as individual URL resources with fragment anchors, source line anchors, and `links-to` relations back to the source file.
@@ -269,7 +269,7 @@ Completed:
 Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
-- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Improve generic text beacon extraction and special-file readers without pursuing richer source-code parsing.
 
 ### Special-File Reader Roadmap
