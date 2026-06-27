@@ -46,7 +46,7 @@ private slots:
     void extractsUnifiedTextBeaconAnchors();
     void extractsDirectiveTextBeaconAnchors();
     void extractsRuleAndContainerTextBeaconAnchors();
-    void extractsCompileCommandBuildInputBeacons();
+    void extractsCompileCommandFileReferenceBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
     void extractsContentSniffedTextUrlResources();
@@ -2534,7 +2534,7 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
+void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2543,7 +2543,7 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     QVERIFY(dir.mkpath(QStringLiteral("library/build")));
     QVERIFY(dir.mkpath(QStringLiteral("library/inputs")));
     writeFile(dir.filePath(QStringLiteral("library/inputs/beacon-input.txt")),
-              QByteArray("jump target build input\n"
+              QByteArray("jump target referenced file\n"
                          "ready\n"));
 
     QString libraryPath = QDir::cleanPath(dir.filePath(QStringLiteral("library")));
@@ -2577,7 +2577,7 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     QVERIFY(inputFileIt != resources.cend());
 
     const QString anchorTarget =
-        QStringLiteral("build input: ../inputs/beacon-input.txt -> build/beacon-output.loc");
+        QStringLiteral("file reference: ../inputs/beacon-input.txt -> build/beacon-output.loc");
     QVERIFY(std::any_of(compileDbIt->anchors.cbegin(), compileDbIt->anchors.cend(), [&](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == anchorTarget
@@ -2587,9 +2587,9 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     QCOMPARE(compileDbIt->relations.size(), 1);
     QCOMPARE(compileDbIt->relations.first().sourceResourceId, compileDbIt->id);
     QCOMPARE(compileDbIt->relations.first().targetResourceId, inputFileIt->id);
-    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("build-input"));
+    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("file-reference"));
     QCOMPARE(compileDbIt->relations.first().note,
-             QStringLiteral("build input line 5: %1").arg(anchorTarget));
+             QStringLiteral("file reference line 5: %1").arg(anchorTarget));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2614,7 +2614,7 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("beacon-input.txt")
-            && result.matchedContextRelationLabel == QLatin1String("build-input");
+            && result.matchedContextRelationLabel == QLatin1String("file-reference");
     }));
 
     const QList<ResourceRelation> inputFileRelations = repository.resourceRelations(inputFileIt->id);

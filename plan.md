@@ -277,7 +277,7 @@ Status:
 - Directive-style build configuration line beacons layered after text content sniffing with neutral `directive ...` labels: done.
 - Rule-target and container-recipe line beacons layered after text content sniffing with neutral `rule ...` and `container ...` labels: done.
 - CI configuration workflow/job/stage/step/uses/run/script/needs line beacons with neutral `ci ...` labels: done.
-- compile_commands.json build-input line anchors and `build-input` relations: done.
+- compile_commands.json file-reference line anchors and `file-reference` relations: done.
 - Neutral model/storage names for text snippets and symbol-like anchors: done, with legacy `code_*` database read compatibility.
 - Language-specific symbol/test/import parsing across programming languages and script types: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.

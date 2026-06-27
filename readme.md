@@ -80,7 +80,7 @@ Implemented:
 - Text named-entry line beacons are JSON/TOML/requirements-style line beacons, not package-manager or programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard: compressed packages remain permanent path-only file targets, while Office/Visio package files stay path-only until document readers can emit real positions. Guarded files carry `path-only` and `package-container` tags.
-- Build/config text beacons layered after text content sniffing for directive-style lines, rule targets, container recipe stages/base/copy lines, CI configuration workflow/job/stage/step/uses/run/script/needs lines, and compile_commands.json build-input line anchors with `build-input` relations to referenced file paths. These are line-pattern beacons for jumps, not build-language, container-language, or CI-language support.
+- Build/config text beacons layered after text content sniffing for directive-style lines, rule targets, container recipe stages/base/copy lines, CI configuration workflow/job/stage/step/uses/run/script/needs lines, and compile_commands.json file-reference line anchors with `file-reference` relations to referenced file paths. These are line-pattern beacons for jumps, not build-language, container-language, or CI-language support.
 - Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
 - Locator UI and host-facing API for creating manual aliases and anchors on selected resources or explicit resource ids.
@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, directive-style build configuration line beacons, rule-target and container-recipe line beacons, neutral CI configuration line beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, directive-style build configuration line beacons, rule-target and container-recipe line beacons, neutral CI configuration line beacons, compile_commands.json file-reference line anchors and `file-reference` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 
