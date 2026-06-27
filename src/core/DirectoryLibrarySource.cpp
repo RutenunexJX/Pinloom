@@ -4322,7 +4322,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
             state.inSteps = false;
             if (!state.currentJob.isEmpty()) {
                 appendBeaconLineAnchor(resource,
-                                       QStringLiteral("ci job: %1").arg(state.currentJob),
+                                       QStringLiteral("ci block: %1").arg(state.currentJob),
                                        lineNumber);
             }
         }
@@ -4345,7 +4345,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
                 const QString jobName = cleanedYamlScalar(keyMatch.captured(2));
                 if (!jobName.isEmpty()) {
                     appendFileLineAnchor(resource,
-                                         QStringLiteral("ci job name: %1").arg(jobName),
+                                         QStringLiteral("ci label: %1").arg(jobName),
                                          lineNumber);
                 }
             }
@@ -4432,7 +4432,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
 
         state.currentJob = key;
         if (!state.currentJob.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("ci job: %1").arg(state.currentJob), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("ci block: %1").arg(state.currentJob), lineNumber);
         }
         return;
     }
@@ -4462,7 +4462,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
         const QString key = keyMatch.captured(1).trimmed();
         const QString value = cleanedYamlScalar(keyMatch.captured(2));
         if (key == QLatin1String("stage") && !value.isEmpty()) {
-            appendFileLineAnchor(resource, QStringLiteral("ci job stage: %1").arg(value), lineNumber);
+            appendFileLineAnchor(resource, QStringLiteral("ci stage: %1").arg(value), lineNumber);
             state.currentListKey.clear();
             return;
         }
