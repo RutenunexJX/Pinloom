@@ -266,7 +266,7 @@ Goal: make engineering text trees searchable by beacons and jump targets, not on
 
 Scope:
 
-- Treat all small content-sniffed text files uniformly as text, regardless of extension, including HDL/C++/JavaScript/script-looking suffixes, through the same beacon/location model.
+- Treat all small content-sniffed text files uniformly as text, regardless of extension, including HDL/C++/JavaScript/Tcl/XDC/script-looking suffixes, through the same beacon/location model.
 - Extract neutral line beacons: TODO/FIXME/NOTE, URLs, errors/warnings, section-like lines, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases.
 - Keep special file readers only where the file format needs one, and keep their purpose limited to beacon/location extraction.
 - Keep ZeroSlack integration limited to paths, line/column locations, display text, beacons, and jump targets.

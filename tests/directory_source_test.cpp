@@ -2517,6 +2517,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library/rtl")));
     QVERIFY(dir.mkpath(QStringLiteral("library/src")));
     QVERIFY(dir.mkpath(QStringLiteral("library/web")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/eda")));
     writeFile(dir.filePath(QStringLiteral("library/text/handoff.txt")),
               QByteArray("// ANCHOR: host dock handoff\n"
                          "MARKER: jump target\n"
@@ -2555,6 +2556,17 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
                          "function boot() { return value; }\n"
                          "// NOTE: js suffix remains plain text\n"
                          "// ANCHOR: js_plain_text_anchor\n"));
+    writeFile(dir.filePath(QStringLiteral("library/eda/flow.tcl")),
+              QByteArray("proc launch_flow {} {\n"
+                         "    puts \"plain text\"\n"
+                         "# TODO: tcl suffix remains plain text\n"
+                         "# MARKER: tcl_plain_text_anchor\n"
+                         "}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/eda/pins.xdc")),
+              QByteArray("set_property PACKAGE_PIN A1 [get_ports clk]\n"
+                         "create_clock -period 10.000 [get_ports clk]\n"
+                         "# NOTE: xdc suffix remains plain text\n"
+                         "# ANCHOR: xdc_plain_text_anchor\n"));
     writeFile(dir.filePath(QStringLiteral("library/config/pins.txt")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
@@ -2652,6 +2664,35 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
             || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
     }));
 
+    const auto tclIt = findFile(QStringLiteral("flow.tcl"));
+    QVERIFY(tclIt != resources.cend());
+    QVERIFY(hasLineAnchor(*tclIt, QStringLiteral("TODO: tcl suffix remains plain text"), 3));
+    QVERIFY(hasLineAnchor(*tclIt, QStringLiteral("marker: tcl_plain_text_anchor"), 4));
+    QVERIFY(!tclIt->tags.contains(QStringLiteral("tcl")));
+    QVERIFY(!tclIt->tags.contains(QStringLiteral("script")));
+    QVERIFY(!tclIt->tags.contains(QStringLiteral("eda")));
+    QVERIFY(std::none_of(tclIt->anchors.cbegin(), tclIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("proc:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("command:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("script:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
+    }));
+
+    const auto xdcIt = findFile(QStringLiteral("pins.xdc"));
+    QVERIFY(xdcIt != resources.cend());
+    QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("NOTE: xdc suffix remains plain text"), 3));
+    QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("marker: xdc_plain_text_anchor"), 4));
+    QVERIFY(!xdcIt->tags.contains(QStringLiteral("xdc")));
+    QVERIFY(!xdcIt->tags.contains(QStringLiteral("constraints")));
+    QVERIFY(!xdcIt->tags.contains(QStringLiteral("eda")));
+    QVERIFY(std::none_of(xdcIt->anchors.cbegin(), xdcIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("constraint:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("property:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("clock:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("pin:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
+    }));
+
     const auto pinsIt = findFile(QStringLiteral("pins.txt"));
     QVERIFY(pinsIt != resources.cend());
     QVERIFY(hasLineAnchor(*pinsIt, QStringLiteral("NOTE: board pin review"), 1));
@@ -2743,6 +2784,26 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
             && !result.resource.tags.contains(QStringLiteral("js"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("NOTE: js suffix remains plain text");
+    }));
+
+    const QList<SearchResult> tclResults = repository.search(SearchQuery{QStringLiteral("tcl suffix")});
+    QVERIFY(std::any_of(tclResults.cbegin(), tclResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("flow.tcl")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("tcl"))
+            && !result.resource.tags.contains(QStringLiteral("eda"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("TODO: tcl suffix remains plain text");
+    }));
+
+    const QList<SearchResult> xdcResults = repository.search(SearchQuery{QStringLiteral("xdc suffix")});
+    QVERIFY(std::any_of(xdcResults.cbegin(), xdcResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("pins.xdc")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("xdc"))
+            && !result.resource.tags.contains(QStringLiteral("constraints"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("NOTE: xdc suffix remains plain text");
     }));
 
     const QList<SearchResult> hiddenResults = repository.search(SearchQuery{QStringLiteral("hidden")});
