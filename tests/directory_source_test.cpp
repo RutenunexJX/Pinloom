@@ -1383,6 +1383,7 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
                          "Read [ZeroSlack Dock Guide](https://docs.example.com/zeroslack/dock#handoff).\n"
                          "![Logo](https://cdn.example.com/logo.png)\n"
                          "<https://status.example.com/system>\n"
+                         "Raw status dashboard https://raw.example.com/zeroslack#health\n"
                          "```text\n"
                          "[Ignored Link](https://ignored.example.com/fenced)\n"
                          "```\n"));
@@ -1427,7 +1428,15 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
     });
     QVERIFY(statusIt != resources.cend());
     QCOMPARE(statusIt->location, QStringLiteral("https://status.example.com/system"));
-    QCOMPARE(markdownIt->relations.size(), 2);
+    auto rawIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://raw.example.com/zeroslack#health");
+    });
+    QVERIFY(rawIt != resources.cend());
+    QCOMPARE(rawIt->title, QStringLiteral("Raw status dashboard"));
+    QVERIFY(rawIt->tags.contains(QStringLiteral("web-link")));
+    QVERIFY(!rawIt->tags.contains(QStringLiteral("text-link")));
+    QCOMPARE(markdownIt->relations.size(), 3);
     QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == guideIt->id
@@ -1439,6 +1448,12 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
             && relation.targetResourceId == statusIt->id
             && relation.label == QLatin1String("links-to")
             && relation.note == QLatin1String("text line 7: url: status.example.com -> https://status.example.com/system");
+    }));
+    QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == rawIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 8: url: Raw status dashboard -> https://raw.example.com/zeroslack#health");
     }));
 
     QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
@@ -1467,18 +1482,29 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
     }));
 
     const QList<ResourceRelation> markdownRelations = repository.resourceRelations(markdownIt->id);
-    QCOMPARE(markdownRelations.size(), 2);
+    QCOMPARE(markdownRelations.size(), 3);
     QVERIFY(std::any_of(markdownRelations.cbegin(), markdownRelations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == guideIt->id
             && relation.label == QLatin1String("links-to")
             && relation.note == QLatin1String("text line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
     }));
+    QVERIFY(std::any_of(markdownRelations.cbegin(), markdownRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == markdownIt->id
+            && relation.targetResourceId == rawIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("text line 8: url: Raw status dashboard -> https://raw.example.com/zeroslack#health");
+    }));
 
     const QList<ResourceRelation> guideRelations = repository.resourceRelations(guideIt->id);
     QCOMPARE(guideRelations.size(), 1);
     QCOMPARE(guideRelations.first().sourceResourceId, markdownIt->id);
     QCOMPARE(guideRelations.first().targetResourceId, guideIt->id);
+
+    const QList<ResourceRelation> rawRelations = repository.resourceRelations(rawIt->id);
+    QCOMPARE(rawRelations.size(), 1);
+    QCOMPARE(rawRelations.first().sourceResourceId, markdownIt->id);
+    QCOMPARE(rawRelations.first().targetResourceId, rawIt->id);
 
     const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack Dock Guide")});
     QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {

@@ -2772,13 +2772,45 @@ QList<TextUrlLink> textUrlLinksFromDocument(const QString &text)
     QList<TextUrlLink> links;
     QStringList seenUrls;
     static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
+    static const QRegularExpression referenceDefinitionPattern(
+        QStringLiteral("^\\s{0,3}\\[[^\\]]+\\]:\\s*(?:<[^>]+>|[^\\s]+)(?:\\s+.*)?$"));
 
     int lineNumber = 0;
+    bool inFrontmatter = false;
+    bool inFence = false;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
         ++lineNumber;
+        const QString trimmed = line.trimmed();
+
+        if (lineNumber == 1 && trimmed == QLatin1String("---")) {
+            inFrontmatter = true;
+            continue;
+        }
+        if (inFrontmatter) {
+            if (trimmed == QLatin1String("---")) {
+                inFrontmatter = false;
+            }
+            continue;
+        }
+
+        if (trimmed.startsWith(QLatin1String("```")) || trimmed.startsWith(QLatin1String("~~~"))) {
+            inFence = !inFence;
+            continue;
+        }
+        if (inFence) {
+            continue;
+        }
+        if (referenceDefinitionPattern.match(line).hasMatch()) {
+            continue;
+        }
+
         QRegularExpressionMatchIterator matches = urlPattern.globalMatch(line);
         while (matches.hasNext()) {
             const QRegularExpressionMatch match = matches.next();
+            if (match.capturedStart() >= 2
+                && line.mid(match.capturedStart() - 2, 2) == QLatin1String("](")) {
+                continue;
+            }
             const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(match.captured(0)));
             if (!isIndexableWebUrl(url)) {
                 continue;
@@ -7208,6 +7240,13 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> textLinkUrlResources = textLinkUrlResourcesFromLinks(fileInfo, textLinkUrlBeacons);
         appendTextLinkUrlSourceMetadata(primary, textLinkUrlBeacons, textLinkUrlResources);
         derivedResources.append(textLinkUrlResources);
+
+        const QList<TextUrlLink> textLinks = textUrlLinksExcludingUrls(
+            textUrlLinksFromFile(fileInfo),
+            urlKeysFromTextLinkUrlBeacons(textLinkUrlBeacons));
+        const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
+        appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
+        derivedResources.append(textResources);
     } else if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo))) {
         const QList<HtmlLink> bookmarkLinks = bookmarkLinksFromHtmlFile(fileInfo);

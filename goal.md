@@ -259,7 +259,7 @@ Completed:
 - Index WARC response records as individual URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file.
 - Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
 - Index email `.eml` message files with subject/from/to/date line anchors, searchable message content, body URL resources, fragment anchors, and `links-to` relations back to the source message.
-- Index URLs found in small content-sniffed text files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
+- Index bare URLs found in `.md/.markdown` and small content-sniffed text files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index CSV/TSV URL columns as individual URL resources with host aliases, table aliases, category/tag aliases, fragment anchors, source row anchors, and `links-to` relations back to the source table.
 - Index JSON/JSONL URL strings as individual URL resources with path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index YAML/TOML/INI/config URL strings as individual URL resources with fragment anchors, source line anchors, and `links-to` relations back to the source file.

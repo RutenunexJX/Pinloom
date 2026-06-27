@@ -385,7 +385,7 @@ Status:
 - WARC response record indexing as individual URL resources with extracted HTML content, source line anchors, and `links-to` relations: done.
 - iCalendar event URL indexing with event/time/location anchors and `links-to` relations: done.
 - Email `.eml` message indexing with header/content search, body URL resources, source line anchors, and `links-to` relations: done.
-- Content-sniffed text URL indexing as individual URL resources with source line anchors and `links-to` relations: done.
+- Bare URL indexing across `.md/.markdown` and content-sniffed text files as individual URL resources with source line anchors and `links-to` relations: done.
 - JSON/JSONL URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - YAML/TOML/INI/config URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
