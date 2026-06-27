@@ -4719,6 +4719,9 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: META-INF/MANIFEST.MF")));
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive manifest: META-INF/MANIFEST.MF")));
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: src/top.sv")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive text: docs/readme.md: # Archive Guide")));
+    QVERIFY(hasLineAnchor(*archiveIt,
+                          QStringLiteral("archive text: META-INF/MANIFEST.MF: Manifest-Version: 1.0")));
 
     QCOMPARE(resources.size(), 3);
 
@@ -4746,6 +4749,15 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("archive manifest: META-INF/MANIFEST.MF");
+    }));
+
+    const QList<SearchResult> previewResults = repository.search(SearchQuery{QStringLiteral("Archive Guide")});
+    QVERIFY(std::any_of(previewResults.cbegin(), previewResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("package.zip")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("archive text: docs/readme.md: # Archive Guide");
     }));
 }
 

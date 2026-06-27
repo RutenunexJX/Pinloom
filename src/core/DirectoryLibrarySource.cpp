@@ -200,8 +200,11 @@ struct GenericSqliteColumn {
 struct ZipArchiveEntry {
     QString path;
     bool directory = false;
+    quint16 flags = 0;
+    quint16 compressionMethod = 0;
     quint32 compressedSize = 0;
     quint32 uncompressedSize = 0;
+    quint32 localHeaderOffset = 0;
 };
 
 struct FirefoxBookmarkNode {
@@ -3516,11 +3519,14 @@ QList<ZipArchiveEntry> zipArchiveEntriesFromFile(const QFileInfo &fileInfo)
             break;
         }
 
+        const quint16 flags = littleEndianUInt16(bytes, cursor + 8);
+        const quint16 compressionMethod = littleEndianUInt16(bytes, cursor + 10);
         const quint32 compressedSize = littleEndianUInt32(bytes, cursor + 20);
         const quint32 uncompressedSize = littleEndianUInt32(bytes, cursor + 24);
         const int fileNameLength = littleEndianUInt16(bytes, cursor + 28);
         const int extraLength = littleEndianUInt16(bytes, cursor + 30);
         const int commentLength = littleEndianUInt16(bytes, cursor + 32);
+        const quint32 localHeaderOffset = littleEndianUInt32(bytes, cursor + 42);
         const qint64 nextCursor = static_cast<qint64>(cursor) + 46 + fileNameLength + extraLength + commentLength;
         if (fileNameLength <= 0 || nextCursor > bytes.size()) {
             break;
@@ -3534,8 +3540,11 @@ QList<ZipArchiveEntry> zipArchiveEntriesFromFile(const QFileInfo &fileInfo)
             ZipArchiveEntry entry;
             entry.path = path;
             entry.directory = path.endsWith(QLatin1Char('/'));
+            entry.flags = flags;
+            entry.compressionMethod = compressionMethod;
             entry.compressedSize = compressedSize;
             entry.uncompressedSize = uncompressedSize;
+            entry.localHeaderOffset = localHeaderOffset;
             entries.append(entry);
         }
 
@@ -3563,12 +3572,111 @@ bool isArchiveManifestEntry(const ZipArchiveEntry &entry)
         || path.endsWith(QLatin1String("/manifest.mf"));
 }
 
+bool isArchiveTextPreviewEntry(const ZipArchiveEntry &entry)
+{
+    if (entry.directory
+        || entry.compressionMethod != 0
+        || (entry.flags & 0x0001) != 0
+        || entry.uncompressedSize == 0
+        || entry.uncompressedSize > 16 * 1024
+        || entry.compressedSize != entry.uncompressedSize) {
+        return false;
+    }
+
+    if (isArchiveManifestEntry(entry)) {
+        return true;
+    }
+
+    const QString suffix = QFileInfo(entry.path).suffix().toLower();
+    return QStringList{
+        QStringLiteral("cfg"),
+        QStringLiteral("conf"),
+        QStringLiteral("csv"),
+        QStringLiteral("html"),
+        QStringLiteral("htm"),
+        QStringLiteral("ini"),
+        QStringLiteral("json"),
+        QStringLiteral("jsonl"),
+        QStringLiteral("log"),
+        QStringLiteral("md"),
+        QStringLiteral("text"),
+        QStringLiteral("toml"),
+        QStringLiteral("tsv"),
+        QStringLiteral("txt"),
+        QStringLiteral("xml"),
+        QStringLiteral("yaml"),
+        QStringLiteral("yml")
+    }.contains(suffix);
+}
+
+QByteArray zipStoredEntryContent(const QByteArray &bytes, const ZipArchiveEntry &entry)
+{
+    const qint64 localHeaderOffset = entry.localHeaderOffset;
+    if (localHeaderOffset + 30 > bytes.size()
+        || littleEndianUInt32(bytes, static_cast<int>(localHeaderOffset)) != 0x04034b50) {
+        return {};
+    }
+
+    const int headerOffset = static_cast<int>(localHeaderOffset);
+    const int fileNameLength = littleEndianUInt16(bytes, headerOffset + 26);
+    const int extraLength = littleEndianUInt16(bytes, headerOffset + 28);
+    const qint64 dataOffset = localHeaderOffset + 30 + fileNameLength + extraLength;
+    const qint64 dataEnd = dataOffset + entry.uncompressedSize;
+    if (dataOffset < 0 || dataEnd > bytes.size()) {
+        return {};
+    }
+
+    return bytes.mid(static_cast<int>(dataOffset), static_cast<int>(entry.uncompressedSize));
+}
+
+void appendArchiveTextPreviewAnchors(Resource &resource,
+                                     const QByteArray &archiveBytes,
+                                     const ZipArchiveEntry &entry,
+                                     QStringList &contentParts,
+                                     int &previewAnchorCount)
+{
+    if (!isArchiveTextPreviewEntry(entry) || previewAnchorCount >= 24) {
+        return;
+    }
+
+    const QByteArray content = zipStoredEntryContent(archiveBytes, entry);
+    if (content.isEmpty() || content.contains('\0')) {
+        return;
+    }
+
+    int lineCount = 0;
+    const QString text = QString::fromUtf8(content);
+    for (QString line : text.split(QLatin1Char('\n'))) {
+        if (previewAnchorCount >= 24 || lineCount >= 4) {
+            break;
+        }
+
+        line = collapsedWhitespace(line.remove(QLatin1Char('\r')));
+        if (line.isEmpty()) {
+            continue;
+        }
+        if (line.size() > 120) {
+            line = line.left(117) + QStringLiteral("...");
+        }
+
+        appendFileLineAnchor(resource,
+                             QStringLiteral("archive text: %1: %2").arg(entry.path, line),
+                             1);
+        contentParts.append(line);
+        ++lineCount;
+        ++previewAnchorCount;
+    }
+}
+
 void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
 {
     const QList<ZipArchiveEntry> entries = zipArchiveEntriesFromFile(fileInfo);
     if (entries.isEmpty()) {
         return;
     }
+
+    QFile file(fileInfo.absoluteFilePath());
+    const QByteArray archiveBytes = file.open(QIODevice::ReadOnly) ? file.readAll() : QByteArray();
 
     appendUnique(resource.tags, QStringLiteral("archive"));
     appendUnique(resource.tags, QStringLiteral("zip-archive"));
@@ -3577,6 +3685,7 @@ void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
     appendFileLineAnchor(resource, QStringLiteral("archive entries: %1").arg(entries.size()), 1);
 
     QStringList contentParts;
+    int previewAnchorCount = 0;
     for (const ZipArchiveEntry &entry : entries) {
         contentParts.append(entry.path);
         const QString leafName = zipArchiveEntryLeafName(entry.path);
@@ -3593,6 +3702,12 @@ void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
                                  QStringLiteral("archive manifest: %1").arg(entry.path),
                                  1);
         }
+
+        appendArchiveTextPreviewAnchors(resource,
+                                        archiveBytes,
+                                        entry,
+                                        contentParts,
+                                        previewAnchorCount);
     }
 
     if (!contentParts.isEmpty()) {
