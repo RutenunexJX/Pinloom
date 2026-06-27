@@ -580,6 +580,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("mobile.apk"),
         QStringLiteral("module.aar"),
         QStringLiteral("module.jmod"),
+        QStringLiteral("router.ipk"),
+        QStringLiteral("router.opk"),
         QStringLiteral("desktop.appx"),
         QStringLiteral("desktop.appxbundle"),
         QStringLiteral("installer.cab"),
@@ -594,6 +596,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("installer.msu"),
         QStringLiteral("installer.pkg"),
         QStringLiteral("installer.rpm"),
+        QStringLiteral("installer.udeb"),
         QStringLiteral("installer.esd"),
         QStringLiteral("installer.xip"),
         QStringLiteral("installer.xar"),
@@ -770,6 +773,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(windowsUpdateResultIt != windowsUpdateResults.cend());
     verifyIndexedPackageTags(*windowsUpdateResultIt);
     QVERIFY(repository.resourceRelations(windowsUpdateResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> embeddedPackageResults = repository.search(SearchQuery{QStringLiteral("router.ipk")});
+    auto embeddedPackageResultIt = std::find_if(embeddedPackageResults.cbegin(), embeddedPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("router.ipk")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(embeddedPackageResultIt != embeddedPackageResults.cend());
+    verifyIndexedPackageTags(*embeddedPackageResultIt);
+    QVERIFY(repository.resourceRelations(embeddedPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> microDebResults = repository.search(SearchQuery{QStringLiteral("installer.udeb")});
+    auto microDebResultIt = std::find_if(microDebResults.cbegin(), microDebResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("installer.udeb")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(microDebResultIt != microDebResults.cend());
+    verifyIndexedPackageTags(*microDebResultIt);
+    QVERIFY(repository.resourceRelations(microDebResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> documentPackageResults = repository.search(SearchQuery{QStringLiteral("document.docx")});
     auto documentPackageResultIt = std::find_if(documentPackageResults.cbegin(), documentPackageResults.cend(), [](const SearchResult &result) {
