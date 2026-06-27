@@ -542,8 +542,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         return false;
     }
 
-    if (fileInfo.fileName().compare(QStringLiteral("go.mod"), Qt::CaseInsensitive) == 0
-        || isCMakeFile(fileInfo)
+    if (isCMakeFile(fileInfo)
         || isMakefile(fileInfo)
         || isDockerfile(fileInfo)
         || hasTextShebang(fileInfo)) {
@@ -582,6 +581,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         QStringLiteral("log"),
         QStringLiteral("mak"),
         QStringLiteral("mk"),
+        QStringLiteral("mod"),
         QStringLiteral("ps1"),
         QStringLiteral("psm1"),
         QStringLiteral("py"),
@@ -4711,7 +4711,6 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource,
 struct ManifestDependencyState {
     bool inJsonDependencyMap = false;
     bool inTomlDependencySection = false;
-    bool inModuleRequirementBlock = false;
 };
 
 bool isJsonManifestDependencyMap(const QString &name)
@@ -4744,13 +4743,13 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
                                              int lineNumber,
                                              ManifestDependencyState &state)
 {
-    const QString fileName = fileInfo.fileName().toLower();
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
         return;
     }
 
-    if (fileName == QLatin1String("package.json")) {
+    const QString suffix = fileInfo.suffix().toLower();
+    if (suffix == QLatin1String("json")) {
         static const QRegularExpression sectionPattern(QStringLiteral("^\"([^\"]+)\"\\s*:\\s*\\{"));
         static const QRegularExpression dependencyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:"));
 
@@ -4774,7 +4773,7 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
         return;
     }
 
-    if (fileName == QLatin1String("cargo.toml")) {
+    if (suffix == QLatin1String("toml")) {
         static const QRegularExpression sectionPattern(QStringLiteral("^\\[([^\\]]+)\\]$"));
         static const QRegularExpression dependencyPattern(QStringLiteral("^(?:\"([^\"]+)\"|([A-Za-z0-9_.-]+))\\s*="));
 
@@ -4793,37 +4792,6 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
                                      QStringLiteral("dependency: %1").arg(dependency.trimmed()),
                                      lineNumber);
             }
-        }
-        return;
-    }
-
-    if (fileName == QLatin1String("go.mod")) {
-        static const QRegularExpression singleRequirePattern(QStringLiteral("^require\\s+([^\\s]+)\\s+v\\S+"));
-        static const QRegularExpression blockDependencyPattern(QStringLiteral("^([^\\s]+)\\s+v\\S+"));
-
-        if (trimmed == QLatin1String("require (")) {
-            state.inModuleRequirementBlock = true;
-            return;
-        }
-        if (state.inModuleRequirementBlock) {
-            if (trimmed.startsWith(QLatin1Char(')'))) {
-                state.inModuleRequirementBlock = false;
-                return;
-            }
-            const QRegularExpressionMatch dependencyMatch = blockDependencyPattern.match(trimmed);
-            if (dependencyMatch.hasMatch()) {
-                appendFileLineAnchor(resource,
-                                     QStringLiteral("dependency: %1").arg(dependencyMatch.captured(1).trimmed()),
-                                     lineNumber);
-            }
-            return;
-        }
-
-        const QRegularExpressionMatch requireMatch = singleRequirePattern.match(trimmed);
-        if (requireMatch.hasMatch()) {
-            appendFileLineAnchor(resource,
-                                 QStringLiteral("dependency: %1").arg(requireMatch.captured(1).trimmed()),
-                                 lineNumber);
         }
         return;
     }

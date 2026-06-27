@@ -75,9 +75,9 @@ Implemented:
 - JSON/JSONL URL string indexing as individual URL resources with host/path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
-- Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
+- Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, JSON/TOML/requirements-style dependency anchors, and CSV/TSV column anchors.
 - Unified text beacon indexing for text-like, log, config, manifest, and plain-text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and simple symbol-like line anchors.
-- Package manifest dependency anchors are manifest-file line beacons, not programming-language dependency analysis.
+- Package manifest dependency anchors are JSON/TOML/requirements-style line beacons, not programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard for compressed and Office/Visio package files before any dedicated reader exists.
 - Build/config beacons for CMake project/target/package/test lines, Makefile targets, Dockerfile stage/base/copy lines, GitHub Actions workflow/job/step/action/run lines, GitLab CI stage/job/needs/script lines, and compile_commands.json build-input line anchors with `build-input` relations to referenced file paths.

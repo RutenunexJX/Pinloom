@@ -875,30 +875,23 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
-    writeFile(dir.filePath(QStringLiteral("library/package.json")),
+    writeFile(dir.filePath(QStringLiteral("library/manifest.json")),
               QByteArray("{\n"
                          "  \"dependencies\": {\n"
-                         "    \"react\": \"^18.2.0\",\n"
-                         "    \"@zeroslack/dock\": \"workspace:*\"\n"
+                         "    \"search-panel\": \"^1.0.0\",\n"
+                         "    \"locator-dock\": \"workspace:*\"\n"
                          "  },\n"
                          "  \"devDependencies\": {\n"
-                         "    \"vite\": \"^5.0.0\"\n"
+                         "    \"preview-runner\": \"^5.0.0\"\n"
                          "  }\n"
                          "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/Cargo.toml")),
+    writeFile(dir.filePath(QStringLiteral("library/manifest.toml")),
               QByteArray("[dependencies]\n"
-                         "serde = \"1\"\n"
-                         "tokio = { version = \"1\", features = [\"rt\"] }\n"));
-    writeFile(dir.filePath(QStringLiteral("library/go.mod")),
-              QByteArray("module example.com/pinloom\n"
-                         "require (\n"
-                         "    github.com/pkg/errors v0.9.1\n"
-                         "    golang.org/x/net v0.22.0\n"
-                         ")\n"
-                         "require github.com/stretchr/testify v1.8.4\n"));
+                         "index-core = \"1\"\n"
+                         "locator-ui = { version = \"1\", features = [\"panel\"] }\n"));
     writeFile(dir.filePath(QStringLiteral("library/requirements-dev.txt")),
               QByteArray("pinloom-sdk>=1.2\n"
-                         "PySide6==6.10.2\n"
+                         "desktop-shell==6.10.2\n"
                          "-r base.txt\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
@@ -919,27 +912,21 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
         });
     };
 
-    const auto packageIt = findFile(QStringLiteral("package.json"));
-    QVERIFY(packageIt != resources.cend());
-    QVERIFY(hasDependency(*packageIt, QStringLiteral("react"), 3));
-    QVERIFY(hasDependency(*packageIt, QStringLiteral("@zeroslack/dock"), 4));
-    QVERIFY(hasDependency(*packageIt, QStringLiteral("vite"), 7));
+    const auto jsonManifestIt = findFile(QStringLiteral("manifest.json"));
+    QVERIFY(jsonManifestIt != resources.cend());
+    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("search-panel"), 3));
+    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("locator-dock"), 4));
+    QVERIFY(hasDependency(*jsonManifestIt, QStringLiteral("preview-runner"), 7));
 
-    const auto cargoIt = findFile(QStringLiteral("Cargo.toml"));
-    QVERIFY(cargoIt != resources.cend());
-    QVERIFY(hasDependency(*cargoIt, QStringLiteral("serde"), 2));
-    QVERIFY(hasDependency(*cargoIt, QStringLiteral("tokio"), 3));
-
-    const auto goIt = findFile(QStringLiteral("go.mod"));
-    QVERIFY(goIt != resources.cend());
-    QVERIFY(hasDependency(*goIt, QStringLiteral("github.com/pkg/errors"), 3));
-    QVERIFY(hasDependency(*goIt, QStringLiteral("golang.org/x/net"), 4));
-    QVERIFY(hasDependency(*goIt, QStringLiteral("github.com/stretchr/testify"), 6));
+    const auto tomlManifestIt = findFile(QStringLiteral("manifest.toml"));
+    QVERIFY(tomlManifestIt != resources.cend());
+    QVERIFY(hasDependency(*tomlManifestIt, QStringLiteral("index-core"), 2));
+    QVERIFY(hasDependency(*tomlManifestIt, QStringLiteral("locator-ui"), 3));
 
     const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
     QVERIFY(requirementsIt != resources.cend());
     QVERIFY(hasDependency(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
-    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("PySide6"), 2));
+    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("desktop-shell"), 2));
     QVERIFY(!hasDependency(*requirementsIt, QStringLiteral("base.txt"), 3));
 
     SqliteLibraryRepository repository;
@@ -950,28 +937,20 @@ void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> reactResults = repository.search(SearchQuery{QStringLiteral("react")});
-    QVERIFY(std::any_of(reactResults.cbegin(), reactResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("package.json")
+    const QList<SearchResult> panelResults = repository.search(SearchQuery{QStringLiteral("search-panel")});
+    QVERIFY(std::any_of(panelResults.cbegin(), panelResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("manifest.json")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: react");
+            && result.matchedAnchor->target == QLatin1String("dependency: search-panel");
     }));
 
-    const QList<SearchResult> tokioResults = repository.search(SearchQuery{QStringLiteral("tokio")});
-    QVERIFY(std::any_of(tokioResults.cbegin(), tokioResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("Cargo.toml")
+    const QList<SearchResult> locatorResults = repository.search(SearchQuery{QStringLiteral("locator-ui")});
+    QVERIFY(std::any_of(locatorResults.cbegin(), locatorResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("manifest.toml")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: tokio");
-    }));
-
-    const QList<SearchResult> goResults = repository.search(SearchQuery{QStringLiteral("testify")});
-    QVERIFY(std::any_of(goResults.cbegin(), goResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("go.mod")
-            && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: github.com/stretchr/testify");
+            && result.matchedAnchor->target == QLatin1String("dependency: locator-ui");
     }));
 }
 

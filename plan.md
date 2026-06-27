@@ -272,7 +272,7 @@ Status:
 - Generic file indexing: done in MVP 3.
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
 - General text content indexing for text-like, log, config, manifest, and plain-text files: done.
-- Package manifest dependency anchors: kept as manifest-file line beacons, not language dependency analysis.
+- Package manifest dependency anchors: kept as JSON/TOML/requirements-style line beacons, not language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and simple symbol-like beacons: done.
 - CMake project/target/package/option/function/macro/test beacons: done.
 - Makefile target beacons and Dockerfile stage/base/copy beacons: done.
