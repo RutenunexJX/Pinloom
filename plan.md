@@ -272,7 +272,7 @@ Status:
 - Generic file indexing: done in MVP 3.
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
-- Text named-entry line beacons: kept as JSON/TOML/requirements-style line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
+- Text named-entry line beacons: kept only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` beacons surfaced as markers rather than code symbols: done.
 - Directive-style build configuration line beacons layered after text content sniffing with neutral `directive ...` labels: done.
 - Rule-target and container-recipe line beacons layered after text content sniffing with neutral `rule ...` and `container ...` labels: done.
@@ -389,7 +389,7 @@ Status:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
-- Small content-sniffed text content indexing with TODO/FIXME/NOTE, text-structure key/section/path, JSON/TOML/requirements-style named-entry, and CSV/TSV column line anchors: done.
+- Small content-sniffed text content indexing with TODO/FIXME/NOTE, text-structure key/section/path, explicit JSON/TOML named-entry containers, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.

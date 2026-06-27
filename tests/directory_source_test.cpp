@@ -913,16 +913,19 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
     QVERIFY(dir.mkpath(QStringLiteral("library")));
     writeFile(dir.filePath(QStringLiteral("library/named-entries.json")),
               QByteArray("{\n"
-                         "  \"dependencies\": {\n"
-                         "    \"search-panel\": \"^1.0.0\",\n"
-                         "    \"locator-dock\": \"workspace:*\"\n"
+                         "  \"entries\": {\n"
+                         "    \"search-panel\": \"dock\",\n"
+                         "    \"locator-dock\": \"panel\"\n"
                          "  },\n"
-                         "  \"devDependencies\": {\n"
-                         "    \"preview-runner\": \"^5.0.0\"\n"
+                         "  \"beacons\": {\n"
+                         "    \"preview-runner\": \"smoke\"\n"
+                         "  },\n"
+                         "  \"dependencies\": {\n"
+                         "    \"language-package\": \"ignored\"\n"
                          "  }\n"
                          "}\n"));
     writeFile(dir.filePath(QStringLiteral("library/named-entries.toml")),
-              QByteArray("[dependencies]\n"
+              QByteArray("[entries]\n"
                          "index-core = \"1\"\n"
                          "locator-ui = { version = \"1\", features = [\"panel\"] }\n"));
     writeFile(dir.filePath(QStringLiteral("library/requirements-dev.txt")),
@@ -953,6 +956,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
     QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("search-panel"), 3));
     QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("locator-dock"), 4));
     QVERIFY(hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("preview-runner"), 7));
+    QVERIFY(!hasNamedEntry(*jsonNamedEntriesIt, QStringLiteral("language-package"), 10));
 
     const auto tomlNamedEntriesIt = findFile(QStringLiteral("named-entries.toml"));
     QVERIFY(tomlNamedEntriesIt != resources.cend());
@@ -961,8 +965,8 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
 
     const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
     QVERIFY(requirementsIt != resources.cend());
-    QVERIFY(hasNamedEntry(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
-    QVERIFY(hasNamedEntry(*requirementsIt, QStringLiteral("desktop-shell"), 2));
+    QVERIFY(!hasNamedEntry(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
+    QVERIFY(!hasNamedEntry(*requirementsIt, QStringLiteral("desktop-shell"), 2));
     QVERIFY(!hasNamedEntry(*requirementsIt, QStringLiteral("base.txt"), 3));
 
     SqliteLibraryRepository repository;

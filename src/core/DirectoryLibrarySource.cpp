@@ -4634,26 +4634,28 @@ struct TextNamedEntryBeaconState {
 
 bool isJsonNamedEntryMap(const QString &name)
 {
-    return name == QLatin1String("dependencies")
-        || name == QLatin1String("devDependencies")
-        || name == QLatin1String("peerDependencies")
-        || name == QLatin1String("optionalDependencies");
+    const QString normalized = name.toLower().replace(QLatin1Char('-'), QString())
+                                   .replace(QLatin1Char('_'), QString());
+    return normalized == QLatin1String("entries")
+        || normalized == QLatin1String("items")
+        || normalized == QLatin1String("markers")
+        || normalized == QLatin1String("beacons")
+        || normalized == QLatin1String("anchors")
+        || normalized == QLatin1String("namedentries")
+        || normalized == QLatin1String("nameditems");
 }
 
 bool isTomlNamedEntrySection(const QString &name)
 {
-    return name == QLatin1String("dependencies")
-        || name == QLatin1String("dev-dependencies")
-        || name == QLatin1String("build-dependencies")
-        || name.endsWith(QLatin1String(".dependencies"))
-        || name.endsWith(QLatin1String(".dev-dependencies"))
-        || name.endsWith(QLatin1String(".build-dependencies"));
-}
-
-bool isRequirementsFile(const QFileInfo &fileInfo)
-{
-    return fileInfo.suffix().compare(QStringLiteral("txt"), Qt::CaseInsensitive) == 0
-        && fileInfo.completeBaseName().startsWith(QStringLiteral("requirements"), Qt::CaseInsensitive);
+    const QString sectionName = name.section(QLatin1Char('.'), -1).toLower().replace(QLatin1Char('-'), QString())
+                                    .replace(QLatin1Char('_'), QString());
+    return sectionName == QLatin1String("entries")
+        || sectionName == QLatin1String("items")
+        || sectionName == QLatin1String("markers")
+        || sectionName == QLatin1String("beacons")
+        || sectionName == QLatin1String("anchors")
+        || sectionName == QLatin1String("namedentries")
+        || sectionName == QLatin1String("nameditems");
 }
 
 void appendTextNamedEntryBeaconsFromLine(Resource &resource,
@@ -4715,18 +4717,6 @@ void appendTextNamedEntryBeaconsFromLine(Resource &resource,
         return;
     }
 
-    if (isRequirementsFile(fileInfo)) {
-        static const QRegularExpression requirementPattern(QStringLiteral("^([A-Za-z0-9_.-]+)(?:\\[[^\\]]+\\])?\\s*(?:[<>=!~]=|===|@|;|$)"));
-        if (trimmed.startsWith(QLatin1Char('-'))) {
-            return;
-        }
-        const QRegularExpressionMatch requirementMatch = requirementPattern.match(trimmed);
-        if (requirementMatch.hasMatch()) {
-            appendFileLineAnchor(resource,
-                                 QStringLiteral("named entry: %1").arg(requirementMatch.captured(1).trimmed()),
-                                 lineNumber);
-        }
-    }
 }
 
 QString normalizedDelimitedCell(QString cell)

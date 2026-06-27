@@ -175,7 +175,7 @@ Completed:
 - Keep directive-style build configuration line beacons for content-sniffed text jumps, with neutral `directive ...` labels rather than build-language semantics.
 - Keep rule-target and container-recipe line beacons for content-sniffed text jumps, with neutral `rule ...` and `container ...` labels rather than Make/Docker language support.
 - Keep CI configuration workflow/job/stage/step/uses/run/script/needs line beacons for jumps, with neutral `ci ...` labels rather than vendor-specific CI language support.
-- Keep JSON/TOML/requirements-style named-entry line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
+- Keep explicit JSON/TOML named-entry container line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Add compile_commands.json file-reference line anchors and `file-reference` relations to referenced file paths without treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and marker anchors while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
@@ -264,7 +264,7 @@ Completed:
 - Index JSON/JSONL URL strings as individual URL resources with path aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index YAML/TOML/INI/config URL strings as individual URL resources with fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optionally fetch remote HTML for indexed web shortcuts and reuse the same title, content, canonical URL, and heading-anchor extraction.
-- Index small content-sniffed text, config, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, JSON/TOML/requirements-style named-entry line beacons, and CSV/TSV column anchors.
+- Index small content-sniffed text, config, and tabular files as searchable File content with TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, explicit JSON/TOML named-entry container line beacons, and CSV/TSV column anchors.
 
 Remaining:
 
