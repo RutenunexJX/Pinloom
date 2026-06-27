@@ -2746,6 +2746,12 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
                 && anchor.line == line;
         });
     };
+    auto hasAnchorWithPrefix = [](const Resource &resource, const QString &prefix) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target.startsWith(prefix, Qt::CaseInsensitive);
+        });
+    };
 
     const auto makefileIt = findFile(QStringLiteral("Makefile"));
     QVERIFY(makefileIt != resources.cend());
@@ -2753,10 +2759,12 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
     QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule entry: build"), 2));
     QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule entry: clean"), 4));
     QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("rule entry: .PHONY"), 1));
+    QVERIFY(!hasAnchorWithPrefix(*makefileIt, QStringLiteral("target:")));
 
     const auto rulesIt = findFile(QStringLiteral("rules.mk"));
     QVERIFY(rulesIt != resources.cend());
     QVERIFY(hasBeacon(*rulesIt, QStringLiteral("rule entry: pinloom-docs"), 1));
+    QVERIFY(!hasAnchorWithPrefix(*rulesIt, QStringLiteral("target:")));
 
     const auto containerIt = findFile(QStringLiteral("Dockerfile"));
     QVERIFY(containerIt != resources.cend());
@@ -2765,14 +2773,20 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
     QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("config input: src/"), 2));
     QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("config input: assets.tar.gz"), 3));
     QVERIFY(hasBeacon(*containerIt, QStringLiteral("config block: runtime"), 4));
+    QVERIFY(!hasAnchorWithPrefix(*containerIt, QStringLiteral("from:")));
+    QVERIFY(!hasAnchorWithPrefix(*containerIt, QStringLiteral("copy:")));
+    QVERIFY(!hasAnchorWithPrefix(*containerIt, QStringLiteral("add:")));
+    QVERIFY(!hasAnchorWithPrefix(*containerIt, QStringLiteral("instruction:")));
 
     const auto containerDevIt = findFile(QStringLiteral("Dockerfile.dev"));
     QVERIFY(containerDevIt != resources.cend());
     QVERIFY(hasLineAnchor(*containerDevIt, QStringLiteral("config input: ubuntu:24.04"), 1));
+    QVERIFY(!hasAnchorWithPrefix(*containerDevIt, QStringLiteral("from:")));
 
     const auto containerSuffixIt = findFile(QStringLiteral("app.dockerfile"));
     QVERIFY(containerSuffixIt != resources.cend());
     QVERIFY(hasBeacon(*containerSuffixIt, QStringLiteral("config block: tools"), 1));
+    QVERIFY(!hasAnchorWithPrefix(*containerSuffixIt, QStringLiteral("from:")));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
