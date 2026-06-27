@@ -219,7 +219,7 @@ Scope:
 - Extract YAML-style frontmatter aliases and tags as text beacons in `.md/.markdown` and content-sniffed text files.
 - Extract inline tag beacons.
 - Extract bracketed text-link and block-reference line beacons.
-- Keep `.md/.markdown` files and other content-sniffed text files on the same text-beacon model.
+- Keep `.md/.markdown` files and other content-sniffed text files on the same text-beacon model and ordinary file resource path.
 - Add tests for plain text files, note-style text conventions, and mixed folders.
 
 Status:
@@ -232,6 +232,7 @@ Status:
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
 - Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
+- Directory scans emit `.md/.markdown` as ordinary file resources; the legacy Markdown kind remains only for stored/API compatibility: done.
 - Tests: done.
 - Build/test verification: done.
 
@@ -272,6 +273,7 @@ Status:
 
 - Generic file indexing: done in MVP 3.
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
+- Format-specific Markdown resource emission from directory scans: removed; note-style text files now stay on ordinary file resources.
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
 - Text named-entry line beacons: kept only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` beacons surfaced as markers rather than code symbols: done.

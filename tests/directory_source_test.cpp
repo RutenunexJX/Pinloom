@@ -371,7 +371,10 @@ void DirectorySourceTest::scansOnlyExplicitRoot()
     }
 
     QVERIFY(std::any_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("notes.md");
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("notes.md");
+    }));
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Markdown;
     }));
     QVERIFY(std::any_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Pdf && resource.title == QLatin1String("design.pdf");
@@ -1094,7 +1097,7 @@ void DirectorySourceTest::extractsTextHeadingAndBlockAnchors()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown;
+        return resource.kind == ResourceKind::File;
     });
     QVERIFY(markdownIt != resources.cend());
     QCOMPARE(markdownIt->anchors.size(), 4);
@@ -1138,7 +1141,7 @@ void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("notes.md");
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("notes.md");
     });
     QVERIFY(markdownIt != resources.cend());
 
@@ -1232,7 +1235,7 @@ void DirectorySourceTest::extractsTextConventionBodyContent()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown;
+        return resource.kind == ResourceKind::File;
     });
     QVERIFY(markdownIt != resources.cend());
     QVERIFY(markdownIt->content.contains(QStringLiteral("calibration envelope")));
@@ -1251,7 +1254,7 @@ void DirectorySourceTest::extractsTextConventionBodyContent()
 
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("calibration envelope")});
     QCOMPARE(contentResults.size(), 1);
-    QCOMPARE(contentResults.first().resource.kind, ResourceKind::Markdown);
+    QCOMPARE(contentResults.first().resource.kind, ResourceKind::File);
     QCOMPARE(contentResults.first().matchedField, QStringLiteral("content"));
 }
 
@@ -1281,7 +1284,7 @@ void DirectorySourceTest::extractsLocalTextLinkAnchors()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("runbook.md");
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("runbook.md");
     });
     QVERIFY(markdownIt != resources.cend());
     QVERIFY(markdownIt->aliases.contains(QStringLiteral("Spec PDF")));
@@ -1369,7 +1372,7 @@ void DirectorySourceTest::extractsTextTaskLineAnchors()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown && resource.title == QLatin1String("tasks.md");
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("tasks.md");
     });
     QVERIFY(markdownIt != resources.cend());
     QVERIFY(markdownIt->content.contains(QStringLiteral("Verify timing closure fpga")));
@@ -1426,7 +1429,7 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown
+        return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("runbook.md");
     });
     QVERIFY(markdownIt != resources.cend());
@@ -1540,7 +1543,7 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
 
     const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack Dock Guide")});
     QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
-        return result.resource.kind == ResourceKind::Markdown
+        return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("runbook.md")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
@@ -1569,7 +1572,7 @@ void DirectorySourceTest::extractsReferenceStyleTextLinkUrlResources()
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
     auto markdownIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Markdown
+        return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("runbook.md");
     });
     QVERIFY(markdownIt != resources.cend());
@@ -1621,7 +1624,7 @@ void DirectorySourceTest::extractsReferenceStyleTextLinkUrlResources()
 
     const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Host API")});
     QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
-        return result.resource.kind == ResourceKind::Markdown
+        return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("runbook.md")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine

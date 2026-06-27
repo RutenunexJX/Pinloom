@@ -526,9 +526,6 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
     }
 
     const QString suffix = fileInfo.suffix().toLower();
-    if (suffix == QLatin1String("md") || suffix == QLatin1String("markdown")) {
-        return ResourceKind::Markdown;
-    }
     if (suffix == QLatin1String("pdf")) {
         return ResourceKind::Pdf;
     }
@@ -7321,19 +7318,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     }
 
     const QString suffix = fileInfo.suffix().toLower();
-    if (primary.kind == ResourceKind::Markdown) {
-        const QList<HtmlLink> textLinkUrlBeacons = textLinkUrlBeaconsFromFile(fileInfo);
-        const QList<Resource> textLinkUrlResources = textLinkUrlResourcesFromLinks(fileInfo, textLinkUrlBeacons);
-        appendTextLinkUrlSourceMetadata(primary, textLinkUrlBeacons, textLinkUrlResources);
-        derivedResources.append(textLinkUrlResources);
-
-        const QList<TextUrlLink> textLinks = textUrlLinksExcludingUrls(
-            textUrlLinksFromFile(fileInfo),
-            urlKeysFromTextLinkUrlBeacons(textLinkUrlBeacons));
-        const QList<Resource> textResources = textUrlResourcesFromLinks(fileInfo, textLinks);
-        appendPlainTextUrlSourceMetadata(primary, textLinks, textResources);
-        derivedResources.append(textResources);
-    } else if (primary.kind == ResourceKind::Url
+    if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo))) {
         const QList<HtmlLink> bookmarkLinks = bookmarkLinksFromHtmlFile(fileInfo);
         const QList<Resource> bookmarkResources = bookmarkResourcesFromLinks(fileInfo, bookmarkLinks);
@@ -7491,9 +7476,7 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         appendUnique(resource.tags, QStringLiteral("package-container"));
         return resource;
     }
-    if (resource.kind == ResourceKind::Markdown) {
-        applyTextConventionMetadata(resource, fileInfo);
-    } else if (resource.kind == ResourceKind::Pdf) {
+    if (resource.kind == ResourceKind::Pdf) {
         applyPdfMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Url) {
         const QString suffix = fileInfo.suffix().toLower();
@@ -7533,37 +7516,6 @@ QList<Resource> DirectoryLibrarySource::feedResourcesFromXmlFile(const QFileInfo
 QList<Resource> DirectoryLibrarySource::sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const
 {
     return sitemapResourcesFromLinks(fileInfo, deduplicatedSitemapLinks(sitemapLinksFromXmlFile(fileInfo)));
-}
-
-void DirectoryLibrarySource::applyTextConventionMetadata(Resource &resource, const QFileInfo &fileInfo) const
-{
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return;
-    }
-
-    int lineNumber = 0;
-    TextFrontmatterState frontmatterState;
-    QStringList contentLines;
-    while (!file.atEnd()) {
-        ++lineNumber;
-        const QString line = QString::fromUtf8(file.readLine()).trimmed();
-
-        if (consumeTextFrontmatterLine(resource, line, lineNumber, frontmatterState)) {
-            continue;
-        }
-
-        const QString contentLine = normalizedPlainTextFromLine(line);
-        if (!contentLine.isEmpty()) {
-            contentLines.append(contentLine);
-        }
-
-        appendTextConventionLineMetadata(resource, fileInfo, line, lineNumber);
-        appendActionLineAnchorsFromLine(resource, line, lineNumber);
-        appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
-    }
-
-    resource.content = collapsedWhitespace(contentLines.join(QLatin1Char(' ')));
 }
 
 void DirectoryLibrarySource::applyPdfMetadata(Resource &resource, const QFileInfo &fileInfo) const
@@ -7703,7 +7655,10 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
             continue;
         }
 
-        contentLines.append(line);
+        const QString contentLine = normalizedPlainTextFromLine(line);
+        if (!contentLine.isEmpty()) {
+            contentLines.append(contentLine);
+        }
         appendTextConventionLineMetadata(resource, fileInfo, line, lineNumber);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);

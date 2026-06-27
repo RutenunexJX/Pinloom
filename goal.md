@@ -152,6 +152,7 @@ Completed:
 - Extract task checkbox lines as searchable file-line anchors.
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Extract bracketed text links as searchable file-line anchors and indexed `links-to` relations.
+- Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; any Markdown resource kind remains compatibility surface for existing stored or host-provided resources, not a new indexing branch.
 - Preserve the same text-beacon behavior for non-Obsidian text folders.
 - Add focused tests around mixed plain text and note-style text-convention inputs.
 
@@ -171,6 +172,7 @@ Completed:
 Completed:
 
 - Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources, extension lists, or shebang interpreter allowlists.
+- Keep note-style text extensions on the same normal file resource path rather than emitting format-specific resource kinds from directory scans.
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases, with marker anchors surfaced as markers rather than code symbols.
 - Keep directive-style text line beacons for content-sniffed jumps, with neutral `directive entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than build-system target/test/function/macro semantics.
 - Keep rule-entry and container-style text line beacons for content-sniffed jumps, with neutral `rule ...` and `container block/input ...` labels and format-trigger naming rather than tool/platform interpretation, target semantics, or instruction semantics.

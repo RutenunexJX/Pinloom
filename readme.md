@@ -8,7 +8,7 @@ It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian va
 
 Pinloom is a beacon/location indexer and jump layer. It is not a code intelligence engine, a multilingual IDE, or a language semantic analyzer.
 
-- Small files whose content sniffs as text are treated uniformly regardless of extension and feed the same text beacon model.
+- Small files whose content sniffs as text are treated uniformly regardless of extension and feed the same text beacon model. Directory indexing keeps `.md/.markdown` on the ordinary file resource path; the legacy Markdown resource kind is compatibility surface only.
 - Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases. Marker anchors are surfaced as markers, not code symbols. It does not build ASTs or claim programming-language support.
 - Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web capture formats such as MHTML/HAR/WARC, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages and installable package containers such as zip/zipx/jar/tar/tgz/tbz/txz/gz/br/bz2/xz/zst/lz/lzma/lz4/lzo/7z/rar/cab/arj/iso/apk/ipa/ear/war/deb/rpm/appx/msix/vsix/nupkg/whl/gem/crate are never expanded or text-scanned; they remain ordinary path-only file targets and do not emit package-inside anchors, relations, derived resources, or searchable content. Office/Visio package containers stay path-only unless an explicit document reader can emit user-facing document positions without exposing package-internal paths.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
@@ -34,6 +34,7 @@ Implemented:
 - Persistent resources, tags, aliases, anchors, and FTS5 metadata search.
 - `LibrarySource` and `IndexingService` abstractions.
 - `DirectoryLibrarySource` for explicit normal-directory indexing.
+- Directory indexing emits `.md/.markdown` as ordinary file resources on the unified text path, not as a separate Markdown indexing branch.
 - Persistent library root management in SQLite with schema version 2.
 - Saved root CRUD in `ILibraryRepository`, `InMemoryLibraryRepository`, and `SqliteLibraryRepository`.
 - `IndexingService` refresh/rebuild support for saved enabled roots.
@@ -77,6 +78,7 @@ Implemented:
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small content-sniffed text, config, and tabular files, including TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, explicit JSON/TOML named-entry container line beacons, and CSV/TSV column anchors.
 - Unified text beacon indexing for small content-sniffed text files, without language extension or shebang interpreter allowlists, including TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` line anchors.
+- `.md/.markdown` directory-scan resources use the same ordinary file kind and text URL/beacon pipeline as other content-sniffed text files; legacy Markdown storage/API names remain readable for compatibility.
 - Text named-entry line beacons use neutral `named entry ...` labels only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers, not package-manager or programming-language dependency analysis.
 - Neutral text snippet and marker anchor model/storage names, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Shared path-only package-container guard: common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package files remain path-only unless document readers can emit real positions without exposing package-entry paths. Guarded files carry `path-only` and `package-container` tags and are validated to have no scanned content, anchors, relations, or derived package-inside resources.
