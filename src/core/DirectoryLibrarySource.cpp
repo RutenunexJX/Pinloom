@@ -7561,8 +7561,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
 
     const QString text = QString::fromUtf8(bytes);
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
-    const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
-    const bool gitlabCi = isGitlabCiFile(fileInfo);
+    const bool workflowConfigText = isGithubActionsWorkflowFile(fileInfo);
+    const bool pipelineConfigText = isGitlabCiFile(fileInfo);
     const bool directiveText = isCMakeFile(fileInfo);
     const bool ruleTextFile = isMakefile(fileInfo);
     const bool containerRecipeText = isDockerfile(fileInfo);
@@ -7589,10 +7589,10 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         if (containerRecipeText) {
             appendContainerRecipeBeaconsFromLine(resource, line, lineNumber);
         }
-        if (githubActionsWorkflow) {
+        if (workflowConfigText) {
             appendWorkflowConfigBeaconsFromLine(resource, line, lineNumber, workflowConfigBeaconState);
         }
-        if (gitlabCi) {
+        if (pipelineConfigText) {
             appendPipelineConfigBeaconsFromLine(resource, line, lineNumber, pipelineConfigBeaconState);
         }
         if (textStructureBeacons) {

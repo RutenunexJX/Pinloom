@@ -22,8 +22,8 @@ private slots:
     void indexesPlainTextFileContent();
     void indexesCompressedAndDocumentPackageContainersAsPathOnlyFiles();
     void extractsTextStructureLineBeacons();
-    void extractsWorkflowConfigLineBeacons();
-    void extractsPipelineConfigLineBeacons();
+    void extractsNeutralWorkflowConfigLineBeacons();
+    void extractsNeutralPipelineConfigLineBeacons();
     void extractsTextNamedEntryLineBeacons();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsMarkdownAliasTagLinkBeacons();
@@ -685,7 +685,7 @@ void DirectorySourceTest::extractsTextStructureLineBeacons()
     }));
 }
 
-void DirectorySourceTest::extractsWorkflowConfigLineBeacons()
+void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -798,7 +798,7 @@ void DirectorySourceTest::extractsWorkflowConfigLineBeacons()
     }));
 }
 
-void DirectorySourceTest::extractsPipelineConfigLineBeacons()
+void DirectorySourceTest::extractsNeutralPipelineConfigLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
