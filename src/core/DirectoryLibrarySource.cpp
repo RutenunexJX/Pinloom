@@ -804,8 +804,8 @@ void appendLocalBracketedTextLinkAnchors(Resource &resource, const QFileInfo &fi
         appendUnique(resource.aliases, normalizedFragment);
 
         QString anchorTarget = label.isEmpty()
-            ? QStringLiteral("wikilink: %1").arg(targetPath)
-            : QStringLiteral("wikilink: %1 -> %2").arg(label, targetPath);
+            ? QStringLiteral("bracket link: %1").arg(targetPath)
+            : QStringLiteral("bracket link: %1 -> %2").arg(label, targetPath);
         if (!normalizedFragment.isEmpty()) {
             anchorTarget.append(QStringLiteral("#%1").arg(normalizedFragment));
         }
@@ -820,6 +820,40 @@ void appendLocalBracketedTextLinkAnchors(Resource &resource, const QFileInfo &fi
             relation.note = anchorTarget;
             resource.relations.append(relation);
         }
+    }
+}
+
+void appendTextConventionLineMetadata(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
+{
+    appendInlineTags(resource.tags, line);
+    appendBracketedTextLinksAsAliases(resource.aliases, line);
+    appendLocalBracketedTextLinkAnchors(resource, fileInfo, line, lineNumber);
+    appendLocalTextLinkAnchors(resource, fileInfo, line, lineNumber);
+
+    static const QRegularExpression headingPattern(QStringLiteral("^(#{1,6})\\s+(.+?)\\s*#*\\s*$"));
+    const QRegularExpressionMatch headingMatch = headingPattern.match(line);
+    if (headingMatch.hasMatch()) {
+        Anchor anchor;
+        anchor.type = AnchorType::MarkdownHeading;
+        anchor.target = headingMatch.captured(2).trimmed();
+        anchor.line = lineNumber;
+        resource.anchors.append(anchor);
+    }
+
+    static const QRegularExpression blockPattern(QStringLiteral("(?:^|\\s)\\^([A-Za-z0-9_-]+)\\s*$"));
+    const QRegularExpressionMatch blockMatch = blockPattern.match(line);
+    if (blockMatch.hasMatch()) {
+        Anchor anchor;
+        anchor.type = AnchorType::MarkdownBlock;
+        anchor.target = blockMatch.captured(1).trimmed();
+        anchor.line = lineNumber;
+        resource.anchors.append(anchor);
+    }
+
+    static const QRegularExpression taskPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+(.+?)\\s*$"));
+    const QRegularExpressionMatch taskMatch = taskPattern.match(line);
+    if (taskMatch.hasMatch()) {
+        appendFileLineAnchor(resource, normalizedPlainTextFromLine(taskMatch.captured(1)), lineNumber);
     }
 }
 
@@ -7353,10 +7387,6 @@ void DirectoryLibrarySource::applyTextConventionMetadata(Resource &resource, con
         return;
     }
 
-    const QRegularExpression headingPattern(QStringLiteral("^(#{1,6})\\s+(.+?)\\s*#*\\s*$"));
-    const QRegularExpression blockPattern(QStringLiteral("(?:^|\\s)\\^([A-Za-z0-9_-]+)\\s*$"));
-    const QRegularExpression taskPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+(.+?)\\s*$"));
-
     int lineNumber = 0;
     bool inFrontmatter = false;
     QString activeFrontmatterList;
@@ -7411,35 +7441,9 @@ void DirectoryLibrarySource::applyTextConventionMetadata(Resource &resource, con
             contentLines.append(contentLine);
         }
 
-        appendInlineTags(resource.tags, line);
-        appendBracketedTextLinksAsAliases(resource.aliases, line);
-        appendLocalBracketedTextLinkAnchors(resource, fileInfo, line, lineNumber);
-        appendLocalTextLinkAnchors(resource, fileInfo, line, lineNumber);
+        appendTextConventionLineMetadata(resource, fileInfo, line, lineNumber);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
-
-        const QRegularExpressionMatch headingMatch = headingPattern.match(line);
-        if (headingMatch.hasMatch()) {
-            Anchor anchor;
-            anchor.type = AnchorType::MarkdownHeading;
-            anchor.target = headingMatch.captured(2).trimmed();
-            anchor.line = lineNumber;
-            resource.anchors.append(anchor);
-        }
-
-        const QRegularExpressionMatch blockMatch = blockPattern.match(line);
-        if (blockMatch.hasMatch()) {
-            Anchor anchor;
-            anchor.type = AnchorType::MarkdownBlock;
-            anchor.target = blockMatch.captured(1).trimmed();
-            anchor.line = lineNumber;
-            resource.anchors.append(anchor);
-        }
-
-        const QRegularExpressionMatch taskMatch = taskPattern.match(line);
-        if (taskMatch.hasMatch()) {
-            appendFileLineAnchor(resource, normalizedPlainTextFromLine(taskMatch.captured(1)), lineNumber);
-        }
     }
 
     resource.content = collapsedWhitespace(contentLines.join(QLatin1Char(' ')));
@@ -7578,6 +7582,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     for (const QString &line : text.split(QLatin1Char('\n'))) {
         ++lineNumber;
         contentLines.append(line);
+        appendTextConventionLineMetadata(resource, fileInfo, line, lineNumber);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendTextNamedEntryBeaconsFromLine(resource, fileInfo, line, lineNumber, textNamedEntryBeaconState);

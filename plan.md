@@ -55,7 +55,7 @@ Scope:
 
 - Define `LibrarySource` interfaces.
 - Add normal folder/file indexing.
-- Add text beacon extraction for Markdown/Obsidian conventions such as tags, aliases, headings, wikilinks, and block ids.
+- Add text beacon extraction for text conventions such as tags, aliases, headings, bracketed text links, and block ids.
 - Keep Obsidian as one source adapter, not a core assumption.
 
 Status:
@@ -63,7 +63,7 @@ Status:
 - `LibrarySource` interface: done
 - `IndexingService`: done
 - Explicit normal directory source: done
-- Markdown/Obsidian text beacon extraction: deferred to MVP 9
+- Text-convention beacon extraction: deferred to MVP 9
 - Tests: done
 - Build/test verification: done
 - Commit/push: release target is `origin/main`
@@ -210,27 +210,27 @@ Status:
 - Tests: done.
 - Build/test verification: done.
 
-## MVP 9: Markdown/Obsidian Text Beacons
+## MVP 9: Text Convention Beacons
 
-Goal: make Obsidian vaults useful as library sources by extracting text beacons, without making Pinloom an Obsidian add-on or Markdown language layer.
+Goal: make notes and other content-sniffed text files useful as library sources by extracting text beacons, without making Pinloom an Obsidian add-on or Markdown language layer.
 
 Scope:
 
 - Extract YAML-style frontmatter aliases and tags as text beacons.
 - Extract inline tag beacons.
-- Extract wikilink and block-reference line beacons.
-- Keep regular Markdown folders on the same text-beacon model.
-- Add tests for plain Markdown text files, Obsidian-flavored text conventions, and mixed folders.
+- Extract bracketed text-link and block-reference line beacons.
+- Keep `.md/.markdown` files and other content-sniffed text files on the same text-beacon model.
+- Add tests for plain text files, note-style text conventions, and mixed folders.
 
 Status:
 
-- Heading and block-id line anchor extraction from Markdown text files: done in MVP 6.
+- Heading and block-id line anchor extraction from text files: done in MVP 6 and extended to content-sniffed text.
 - Frontmatter aliases/tags: done.
-- Inline tags, wikilinks, and block-reference beacons: done.
-- Body text extraction/search from Markdown text files: done.
+- Inline tags, bracketed text links, and block-reference beacons: done.
+- Body text extraction/search from text files: done.
 - Task checkbox line anchors/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
-- Obsidian wikilink aliases/line anchors and indexed `links-to` relations: done.
+- Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
 - Tests: done.
 - Build/test verification: done.
 
@@ -362,7 +362,7 @@ Status:
 - Ordered PDF stream filter chains for supported filters: done.
 - UTF-16 BOM PDF title/content string decoding: done.
 - Basic PDF ToUnicode CMap decoding for font-encoded content streams: done.
-- Body text extraction/search from Markdown text files: done.
+- Body text extraction/search from text files: done.
 - Task checkbox line anchors/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
 - Inline external link URL resources with source line anchors and `links-to` relations: done.

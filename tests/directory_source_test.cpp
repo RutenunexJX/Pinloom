@@ -385,9 +385,13 @@ void DirectorySourceTest::indexesPlainTextFileContent()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/docs")));
     writeFile(dir.filePath(QStringLiteral("library/ops.log")),
-              QByteArray("ZeroSlack relay reconnect sequence\n"
-                         "NOTE: Pinloom host handoff status\n"));
+              QByteArray("# Operations\n"
+                         "ZeroSlack relay reconnect sequence\n"
+                         "NOTE: Pinloom host handoff status\n"
+                         "- [ ] Check [[Runbook|handoff note]] ^handoff-block\n"
+                         "Open [Spec PDF](docs/spec.pdf#page=2)\n"));
 
     QByteArray binaryLike;
     binaryLike.append("visible ");
@@ -405,10 +409,49 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     });
     QVERIFY(logIt != resources.cend());
     QVERIFY(logIt->content.contains(QStringLiteral("relay reconnect sequence")));
+    QVERIFY(logIt->aliases.contains(QStringLiteral("handoff note")));
+    QVERIFY(logIt->aliases.contains(QStringLiteral("Runbook.md")));
+    QVERIFY(logIt->aliases.contains(QStringLiteral("Spec PDF")));
+    QVERIFY(logIt->aliases.contains(QStringLiteral("docs/spec.pdf")));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::MarkdownHeading
+            && anchor.target == QLatin1String("Operations")
+            && anchor.line == 1;
+    }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("NOTE: Pinloom host handoff status")
-            && anchor.line == 2;
+            && anchor.line == 3;
+    }));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::MarkdownBlock
+            && anchor.target == QLatin1String("handoff-block")
+            && anchor.line == 4;
+    }));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("bracket link: handoff note -> Runbook.md")
+            && anchor.line == 4;
+    }));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("Check handoff note")
+            && anchor.line == 4;
+    }));
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("link: Spec PDF -> docs/spec.pdf")
+            && anchor.line == 5;
+    }));
+    QVERIFY(std::any_of(logIt->relations.cbegin(), logIt->relations.cend(), [](const ResourceRelation &relation) {
+        return relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("Runbook.md"))
+            && relation.note == QLatin1String("bracket link: handoff note -> Runbook.md");
+    }));
+    QVERIFY(std::any_of(logIt->relations.cbegin(), logIt->relations.cend(), [](const ResourceRelation &relation) {
+        return relation.label == QLatin1String("links-to")
+            && relation.targetResourceId.endsWith(QStringLiteral("docs/spec.pdf"))
+            && relation.note == QLatin1String("link: Spec PDF -> docs/spec.pdf");
     }));
 
     auto binaryIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
@@ -435,7 +478,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
         return result.resource.title == QLatin1String("ops.log")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->line == 2;
+            && result.matchedAnchor->line == 3;
     }));
 
     const QList<SearchResult> binaryResults = repository.search(SearchQuery{QStringLiteral("unsearchable-nul-token")});
@@ -1071,24 +1114,24 @@ void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()
     QVERIFY(markdownIt->tags.contains(QStringLiteral("lab/debug")));
     QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
-            && anchor.target == QLatin1String("wikilink: Link Target -> Link Target.md")
+            && anchor.target == QLatin1String("bracket link: Link Target -> Link Target.md")
             && anchor.line == 8;
     }));
     QVERIFY(std::any_of(markdownIt->anchors.cbegin(), markdownIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
-            && anchor.target == QLatin1String("wikilink: display -> deep/note.md#power-block")
+            && anchor.target == QLatin1String("bracket link: display -> deep/note.md#power-block")
             && anchor.line == 8;
     }));
     QCOMPARE(markdownIt->relations.size(), 2);
     QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [](const ResourceRelation &relation) {
         return relation.label == QLatin1String("links-to")
             && relation.targetResourceId.endsWith(QStringLiteral("Link Target.md"))
-            && relation.note == QLatin1String("wikilink: Link Target -> Link Target.md");
+            && relation.note == QLatin1String("bracket link: Link Target -> Link Target.md");
     }));
     QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [](const ResourceRelation &relation) {
         return relation.label == QLatin1String("links-to")
             && relation.targetResourceId.endsWith(QStringLiteral("deep/note.md"))
-            && relation.note == QLatin1String("wikilink: display -> deep/note.md#power-block");
+            && relation.note == QLatin1String("bracket link: display -> deep/note.md#power-block");
     }));
 
     SqliteLibraryRepository repository;
@@ -1105,7 +1148,7 @@ void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()
         return result.resource.title == QLatin1String("notes.md")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("wikilink: Link Target -> Link Target.md");
+            && result.matchedAnchor->target == QLatin1String("bracket link: Link Target -> Link Target.md");
     }));
 
     const QList<ResourceRelation> relations = repository.resourceRelations(markdownIt->id);
@@ -1117,12 +1160,12 @@ void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()
         return relation.targetResourceId.endsWith(QStringLiteral("deep/note.md"));
     }));
 
-    const QList<SearchResult> wikilinkResults = repository.search(SearchQuery{QStringLiteral("power-block")});
-    QVERIFY(std::any_of(wikilinkResults.cbegin(), wikilinkResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> bracketedTextLinkResults = repository.search(SearchQuery{QStringLiteral("power-block")});
+    QVERIFY(std::any_of(bracketedTextLinkResults.cbegin(), bracketedTextLinkResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("notes.md")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("wikilink: display -> deep/note.md#power-block");
+            && result.matchedAnchor->target == QLatin1String("bracket link: display -> deep/note.md#power-block");
     }));
 }
 
