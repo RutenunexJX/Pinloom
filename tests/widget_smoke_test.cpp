@@ -1141,8 +1141,8 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("(active build edge)")));
 
-    panel.setContextRelationLabels({QStringLiteral("compiles")});
-    QCOMPARE(panel.contextRelationLabels(), QStringList{QStringLiteral("compiles")});
+    panel.setContextRelationLabels({QStringLiteral("build-input")});
+    QCOMPARE(panel.contextRelationLabels(), QStringList{QStringLiteral("build-input")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
 
     panel.setContextRelationLabels({QStringLiteral("supports")});

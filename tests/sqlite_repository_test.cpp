@@ -569,7 +569,7 @@ void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
     QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
     QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active build edge"));
 
-    query.contextRelationLabels = {QStringLiteral("compiles")};
+    query.contextRelationLabels = {QStringLiteral("build-input")};
     results = repository.search(query);
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, generic.id);

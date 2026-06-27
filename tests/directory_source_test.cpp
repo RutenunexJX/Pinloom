@@ -46,7 +46,7 @@ private slots:
     void extractsUnifiedTextBeaconAnchors();
     void extractsBuildFileBeaconAnchors();
     void extractsMakeAndDockerBeaconAnchors();
-    void extractsCompileCommandsRelations();
+    void extractsCompileCommandBuildInputBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
@@ -2479,7 +2479,7 @@ void DirectorySourceTest::extractsMakeAndDockerBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsCompileCommandsRelations()
+void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2515,14 +2515,14 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
     });
     QVERIFY(compileDbIt != resources.cend());
 
-    auto sourceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+    auto inputFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("pinloom.cpp");
     });
-    QVERIFY(sourceIt != resources.cend());
+    QVERIFY(inputFileIt != resources.cend());
 
     const QString anchorTarget =
-        QStringLiteral("compile: ../src/pinloom.cpp -> CMakeFiles/pinloom.dir/src/pinloom.cpp.obj");
+        QStringLiteral("build input: ../src/pinloom.cpp -> CMakeFiles/pinloom.dir/src/pinloom.cpp.obj");
     QVERIFY(std::any_of(compileDbIt->anchors.cbegin(), compileDbIt->anchors.cend(), [&](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == anchorTarget
@@ -2531,10 +2531,10 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
 
     QCOMPARE(compileDbIt->relations.size(), 1);
     QCOMPARE(compileDbIt->relations.first().sourceResourceId, compileDbIt->id);
-    QCOMPARE(compileDbIt->relations.first().targetResourceId, sourceIt->id);
-    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("compiles"));
+    QCOMPARE(compileDbIt->relations.first().targetResourceId, inputFileIt->id);
+    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("build-input"));
     QCOMPARE(compileDbIt->relations.first().note,
-             QStringLiteral("compile_commands line 5: %1").arg(anchorTarget));
+             QStringLiteral("build input line 5: %1").arg(anchorTarget));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2559,13 +2559,13 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
     QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("pinloom.cpp")
-            && result.matchedContextRelationLabel == QLatin1String("compiles");
+            && result.matchedContextRelationLabel == QLatin1String("build-input");
     }));
 
-    const QList<ResourceRelation> sourceRelations = repository.resourceRelations(sourceIt->id);
-    QCOMPARE(sourceRelations.size(), 1);
-    QCOMPARE(sourceRelations.first().sourceResourceId, compileDbIt->id);
-    QCOMPARE(sourceRelations.first().targetResourceId, sourceIt->id);
+    const QList<ResourceRelation> inputFileRelations = repository.resourceRelations(inputFileIt->id);
+    QCOMPARE(inputFileRelations.size(), 1);
+    QCOMPARE(inputFileRelations.first().sourceResourceId, compileDbIt->id);
+    QCOMPARE(inputFileRelations.first().targetResourceId, inputFileIt->id);
 }
 
 void DirectorySourceTest::extractsTextActionLineAnchors()

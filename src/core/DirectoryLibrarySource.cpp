@@ -147,8 +147,8 @@ struct PdfUriLink {
     int page = -1;
 };
 
-struct CompileCommandEntry {
-    QString sourcePath;
+struct BuildInputEntry {
+    QString inputPath;
     QString displayPath;
     QString output;
     int lineNumber = -1;
@@ -5265,9 +5265,9 @@ int lineNumberForJsonPropertyValue(const QString &text, const QString &propertyN
     return lineNumberForTextValue(text, value);
 }
 
-QString absoluteCompileCommandPath(const QFileInfo &compileCommandsFile,
-                                   const QString &directory,
-                                   const QString &path)
+QString absoluteBuildInputPath(const QFileInfo &compileCommandsFile,
+                               const QString &directory,
+                               const QString &path)
 {
     const QString trimmedPath = path.trimmed();
     if (trimmedPath.isEmpty()) {
@@ -5285,16 +5285,16 @@ QString absoluteCompileCommandPath(const QFileInfo &compileCommandsFile,
     return QDir::cleanPath(QFileInfo(QDir(basePath).filePath(trimmedPath)).absoluteFilePath());
 }
 
-QString displayCompileCommandPath(const QFileInfo &compileCommandsFile, const QString &sourcePath)
+QString displayBuildInputPath(const QFileInfo &compileCommandsFile, const QString &inputPath)
 {
-    const QString relativePath = QDir(compileCommandsFile.absolutePath()).relativeFilePath(sourcePath);
+    const QString relativePath = QDir(compileCommandsFile.absolutePath()).relativeFilePath(inputPath);
     if (!relativePath.isEmpty()) {
         return QDir::cleanPath(relativePath);
     }
-    return QFileInfo(sourcePath).fileName();
+    return QFileInfo(inputPath).fileName();
 }
 
-QList<CompileCommandEntry> compileCommandEntriesFromFile(const QFileInfo &fileInfo)
+QList<BuildInputEntry> buildInputEntriesFromCompileCommandsFile(const QFileInfo &fileInfo)
 {
     if (!isCompileCommandsFile(fileInfo)) {
         return {};
@@ -5316,28 +5316,28 @@ QList<CompileCommandEntry> compileCommandEntriesFromFile(const QFileInfo &fileIn
     }
 
     const QString text = QString::fromUtf8(bytes);
-    QList<CompileCommandEntry> entries;
+    QList<BuildInputEntry> entries;
     QStringList seenKeys;
     for (const QJsonValue &value : document.array()) {
         const QJsonObject object = value.toObject();
-        const QString rawSourcePath = object.value(QStringLiteral("file")).toString().trimmed();
-        if (rawSourcePath.isEmpty()) {
+        const QString rawInputPath = object.value(QStringLiteral("file")).toString().trimmed();
+        if (rawInputPath.isEmpty()) {
             continue;
         }
 
-        CompileCommandEntry entry;
-        entry.sourcePath = absoluteCompileCommandPath(fileInfo,
-                                                      object.value(QStringLiteral("directory")).toString(),
-                                                      rawSourcePath);
-        if (entry.sourcePath.isEmpty()) {
+        BuildInputEntry entry;
+        entry.inputPath = absoluteBuildInputPath(fileInfo,
+                                                 object.value(QStringLiteral("directory")).toString(),
+                                                 rawInputPath);
+        if (entry.inputPath.isEmpty()) {
             continue;
         }
 
         entry.output = object.value(QStringLiteral("output")).toString().trimmed();
-        entry.displayPath = displayCompileCommandPath(fileInfo, entry.sourcePath);
-        entry.lineNumber = lineNumberForJsonPropertyValue(text, QStringLiteral("file"), rawSourcePath);
+        entry.displayPath = displayBuildInputPath(fileInfo, entry.inputPath);
+        entry.lineNumber = lineNumberForJsonPropertyValue(text, QStringLiteral("file"), rawInputPath);
 
-        const QString key = QStringLiteral("%1|%2").arg(entry.sourcePath, entry.output);
+        const QString key = QStringLiteral("%1|%2").arg(entry.inputPath, entry.output);
         if (seenKeys.contains(key, Qt::CaseInsensitive)) {
             continue;
         }
@@ -5348,30 +5348,30 @@ QList<CompileCommandEntry> compileCommandEntriesFromFile(const QFileInfo &fileIn
     return entries;
 }
 
-QString compileCommandAnchorTarget(const CompileCommandEntry &entry)
+QString buildInputAnchorTarget(const BuildInputEntry &entry)
 {
     const QString display = entry.displayPath.trimmed().isEmpty()
-        ? QFileInfo(entry.sourcePath).fileName()
+        ? QFileInfo(entry.inputPath).fileName()
         : entry.displayPath.trimmed();
     return entry.output.trimmed().isEmpty()
-        ? QStringLiteral("compile: %1").arg(display)
-        : QStringLiteral("compile: %1 -> %2").arg(display, entry.output.trimmed());
+        ? QStringLiteral("build input: %1").arg(display)
+        : QStringLiteral("build input: %1 -> %2").arg(display, entry.output.trimmed());
 }
 
-void appendCompileCommandMetadata(Resource &sourceResource, const QList<CompileCommandEntry> &entries)
+void appendBuildInputMetadata(Resource &sourceResource, const QList<BuildInputEntry> &entries)
 {
-    for (const CompileCommandEntry &entry : entries) {
-        const QString anchorTarget = compileCommandAnchorTarget(entry);
+    for (const BuildInputEntry &entry : entries) {
+        const QString anchorTarget = buildInputAnchorTarget(entry);
         if (entry.lineNumber > 0) {
             appendFileLineAnchor(sourceResource, anchorTarget, entry.lineNumber);
         }
 
         ResourceRelation relation;
         relation.sourceResourceId = sourceResource.id;
-        relation.targetResourceId = QStringLiteral("file:%1").arg(entry.sourcePath);
-        relation.label = QStringLiteral("compiles");
+        relation.targetResourceId = QStringLiteral("file:%1").arg(entry.inputPath);
+        relation.label = QStringLiteral("build-input");
         relation.note = entry.lineNumber > 0
-            ? QStringLiteral("compile_commands line %1: %2").arg(entry.lineNumber).arg(anchorTarget)
+            ? QStringLiteral("build input line %1: %2").arg(entry.lineNumber).arg(anchorTarget)
             : anchorTarget;
         sourceResource.relations.append(relation);
     }
@@ -7342,7 +7342,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         derivedResources.append(tabularResources);
     }
     if (primary.kind == ResourceKind::File && isCompileCommandsFile(fileInfo)) {
-        appendCompileCommandMetadata(primary, compileCommandEntriesFromFile(fileInfo));
+        appendBuildInputMetadata(primary, buildInputEntriesFromCompileCommandsFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isIcalendarFileCandidate(fileInfo)) {
         const QList<CalendarEvent> calendarEvents = calendarEventsFromFile(fileInfo);

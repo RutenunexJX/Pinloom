@@ -80,7 +80,7 @@ Implemented:
 - Package manifest dependency anchors are manifest-file line beacons, not programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard for compressed and Office/Visio package files before any dedicated reader exists.
-- Build/config beacons for CMake project/target/package/test lines, Makefile targets, Dockerfile stage/base/copy lines, GitHub Actions workflow/job/step/action/run lines, GitLab CI stage/job/needs/script lines, and compile_commands.json line anchors with `compiles` relations.
+- Build/config beacons for CMake project/target/package/test lines, Makefile targets, Dockerfile stage/base/copy lines, GitHub Actions workflow/job/step/action/run lines, GitLab CI stage/job/needs/script lines, and compile_commands.json build-input line anchors with `build-input` relations to referenced file paths.
 - Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
 - Locator UI and host-facing API for creating manual aliases and anchors on selected resources or explicit resource ids.
@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for unified text file classification, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/simple symbol-like beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json line anchors and `compiles` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for unified text file classification, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/simple symbol-like beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 
