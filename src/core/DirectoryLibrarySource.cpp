@@ -5666,7 +5666,7 @@ void appendHarSourceMetadata(Resource &sourceResource,
     }
 }
 
-QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
+QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
 {
     QFile file(fileInfo.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -5790,7 +5790,7 @@ QList<HtmlLink> markdownExternalLinksFromFile(const QFileInfo &fileInfo)
     return links;
 }
 
-QList<Resource> markdownLinkResourcesFromLinks(const QFileInfo &fileInfo, const QList<HtmlLink> &links)
+QList<Resource> textLinkUrlResourcesFromLinks(const QFileInfo &fileInfo, const QList<HtmlLink> &links)
 {
     QList<Resource> resources;
     for (const HtmlLink &link : links) {
@@ -5817,7 +5817,7 @@ QString urlLinkAnchorTarget(const HtmlLink &link)
     return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
 }
 
-void appendMarkdownUrlSourceMetadata(Resource &sourceResource,
+void appendTextLinkUrlSourceMetadata(Resource &sourceResource,
                                      const QList<HtmlLink> &links,
                                      const QList<Resource> &urlResources)
 {
@@ -7146,10 +7146,10 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
 
     const QString suffix = fileInfo.suffix().toLower();
     if (primary.kind == ResourceKind::Markdown) {
-        const QList<HtmlLink> markdownLinks = markdownExternalLinksFromFile(fileInfo);
-        const QList<Resource> markdownResources = markdownLinkResourcesFromLinks(fileInfo, markdownLinks);
-        appendMarkdownUrlSourceMetadata(primary, markdownLinks, markdownResources);
-        derivedResources.append(markdownResources);
+        const QList<HtmlLink> textLinkUrlBeacons = textLinkUrlBeaconsFromFile(fileInfo);
+        const QList<Resource> textLinkUrlResources = textLinkUrlResourcesFromLinks(fileInfo, textLinkUrlBeacons);
+        appendTextLinkUrlSourceMetadata(primary, textLinkUrlBeacons, textLinkUrlResources);
+        derivedResources.append(textLinkUrlResources);
     } else if (primary.kind == ResourceKind::Url
         && (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo))) {
         const QList<HtmlLink> bookmarkLinks = bookmarkLinksFromHtmlFile(fileInfo);
