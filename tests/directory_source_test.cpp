@@ -526,6 +526,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("bundle.tar.lzo"),
         QStringLiteral("bundle.tar.z"),
         QStringLiteral("bundle.tar.xz"),
+        QStringLiteral("bundle.tar.xz.001"),
         QStringLiteral("bundle.tar.zst"),
         QStringLiteral("bundle.tar.zstd"),
         QStringLiteral("bundle.taz"),
@@ -566,8 +567,12 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("single.lzo"),
         QStringLiteral("single.xz"),
         QStringLiteral("payload.7z"),
+        QStringLiteral("payload.7z.001"),
+        QStringLiteral("payload.7z.002"),
         QStringLiteral("payload.cpio"),
         QStringLiteral("dump.rar"),
+        QStringLiteral("dump.rar.001"),
+        QStringLiteral("dump.r00"),
         QStringLiteral("dump.zoo"),
         QStringLiteral("snapshot.zst"),
         QStringLiteral("snapshot.zstd"),
@@ -610,7 +615,10 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("plugin.hpi"),
         QStringLiteral("plugin.jpi"),
         QStringLiteral("runtime.swc"),
-        QStringLiteral("site.war")
+        QStringLiteral("site.war"),
+        QStringLiteral("volume.zip.001"),
+        QStringLiteral("volume.zipx.001"),
+        QStringLiteral("volume.z01")
     };
     const QStringList documentDesignPackageFileNames{
         QStringLiteral("document.docm"),
@@ -702,6 +710,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(packageResultIt != packageResults.cend());
     verifyIndexedPackageTags(*packageResultIt);
     QVERIFY(repository.resourceRelations(packageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> splitArchiveResults = repository.search(SearchQuery{QStringLiteral("payload.7z.001")});
+    auto splitArchiveResultIt = std::find_if(splitArchiveResults.cbegin(), splitArchiveResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("payload.7z.001")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(splitArchiveResultIt != splitArchiveResults.cend());
+    verifyIndexedPackageTags(*splitArchiveResultIt);
+    QVERIFY(repository.resourceRelations(splitArchiveResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> zipVolumeResults = repository.search(SearchQuery{QStringLiteral("volume.z01")});
+    auto zipVolumeResultIt = std::find_if(zipVolumeResults.cbegin(), zipVolumeResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("volume.z01")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(zipVolumeResultIt != zipVolumeResults.cend());
+    verifyIndexedPackageTags(*zipVolumeResultIt);
+    QVERIFY(repository.resourceRelations(zipVolumeResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> documentPackageResults = repository.search(SearchQuery{QStringLiteral("document.docx")});
     auto documentPackageResultIt = std::find_if(documentPackageResults.cbegin(), documentPackageResults.cend(), [](const SearchResult &result) {

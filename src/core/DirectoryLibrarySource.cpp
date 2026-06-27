@@ -400,6 +400,40 @@ bool hasPipelineConfigTextBeaconFormat(const QFileInfo &fileInfo)
         || fileName.compare(QStringLiteral(".gitlab-ci.yaml"), Qt::CaseInsensitive) == 0;
 }
 
+bool isArchiveSplitPackageContainerSuffix(const QString &suffix, const QString &completeSuffix)
+{
+    static const QRegularExpression zipOrRarVolumeSuffix(QStringLiteral("^[zr]\\d{2}$"));
+    if (zipOrRarVolumeSuffix.match(suffix).hasMatch()) {
+        return true;
+    }
+
+    static const QRegularExpression numberedPartPattern(QStringLiteral("\\.\\d{2,4}$"));
+    const QRegularExpressionMatch numberedPartMatch = numberedPartPattern.match(completeSuffix);
+    if (!numberedPartMatch.hasMatch()) {
+        return false;
+    }
+
+    const QString baseSuffix = completeSuffix.left(numberedPartMatch.capturedStart());
+    return QStringList{
+        QStringLiteral("7z"),
+        QStringLiteral("rar"),
+        QStringLiteral("tar"),
+        QStringLiteral("tar.br"),
+        QStringLiteral("tar.bz2"),
+        QStringLiteral("tar.gz"),
+        QStringLiteral("tar.lz"),
+        QStringLiteral("tar.lz4"),
+        QStringLiteral("tar.lzma"),
+        QStringLiteral("tar.lzo"),
+        QStringLiteral("tar.xz"),
+        QStringLiteral("tar.z"),
+        QStringLiteral("tar.zst"),
+        QStringLiteral("tar.zstd"),
+        QStringLiteral("zip"),
+        QStringLiteral("zipx")
+    }.contains(baseSuffix);
+}
+
 bool isArchiveLikePackageContainerFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
@@ -499,6 +533,7 @@ bool isArchiveLikePackageContainerFile(const QFileInfo &fileInfo)
         QStringLiteral("zst"),
         QStringLiteral("zstd")
     }.contains(suffix)
+        || isArchiveSplitPackageContainerSuffix(suffix, completeSuffix)
         || completeSuffix.endsWith(QLatin1String(".tar.br"))
         || completeSuffix.endsWith(QLatin1String(".tar.bz2"))
         || completeSuffix.endsWith(QLatin1String(".tar.gz"))
