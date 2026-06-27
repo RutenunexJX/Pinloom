@@ -1294,7 +1294,7 @@ void DirectorySourceTest::extractsMarkdownLinkResources()
                          "![Logo](https://cdn.example.com/logo.png)\n"
                          "<https://status.example.com/system>\n"
                          "```text\n"
-                         "[Code Link](https://ignored.example.com/code)\n"
+                         "[Ignored Link](https://ignored.example.com/fenced)\n"
                          "```\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
@@ -2175,28 +2175,30 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(temp.isValid());
 
     QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/src/rtl")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/text")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/logs")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/config")));
     QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
-    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
+    writeFile(dir.filePath(QStringLiteral("library/text/handoff.txt")),
               QByteArray("// ANCHOR: host dock handoff\n"
-                         "// SYMBOL: JumpController\n"
+                         "SYMBOL-LIKE: jump target\n"
                          "handoff = planned\n"
                          "[Build Handoff]\n"
                          "WARNING: route timing changed\n"
                          "https://docs.example.com/pinloom/jump\n"
                          "TODO: wire ZeroSlack jump\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/rtl/top.sv")),
-              QByteArray("// SYMBOL: beacon_top\n"
-                         "// ERROR: missing reset\n"
+    writeFile(dir.filePath(QStringLiteral("library/logs/review.log")),
+              QByteArray("SYMBOL: route log\n"
+                         "ERROR: missing reset\n"
                          "status: reviewed\n"));
-    writeFile(dir.filePath(QStringLiteral("library/scripts/flow.tcl")),
-              QByteArray("# SYMBOL: launch_dock\n"
+    writeFile(dir.filePath(QStringLiteral("library/config/flow.cfg")),
+              QByteArray("; SYMBOL: launch dock\n"
                          "status: ready\n"));
     writeFile(dir.filePath(QStringLiteral("library/scripts/handoff")),
               QByteArray("#!/usr/bin/env custom-runner\n"
                          "SYMBOL: handoff_entry\n"
-                         "TODO: script-like text without interpreter allowlist\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/pins.xdc")),
+                         "TODO: no-extension text without interpreter allowlist\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/pins.txt")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
     writeFile(dir.filePath(QStringLiteral("library/notes.opaque")),
@@ -2224,32 +2226,32 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
         });
     };
 
-    const auto cppIt = findFile(QStringLiteral("pinloom.cpp"));
-    QVERIFY(cppIt != resources.cend());
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("marker: host dock handoff"), 1));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("symbol-like: JumpController"), 2));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("section: Build Handoff"), 4));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("warning: WARNING: route timing changed"), 5));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("url: https://docs.example.com/pinloom/jump"), 6));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("TODO: wire ZeroSlack jump"), 7));
+    const auto handoffTextIt = findFile(QStringLiteral("handoff.txt"));
+    QVERIFY(handoffTextIt != resources.cend());
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("marker: host dock handoff"), 1));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("symbol-like: jump target"), 2));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("section: Build Handoff"), 4));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("warning: WARNING: route timing changed"), 5));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("url: https://docs.example.com/pinloom/jump"), 6));
+    QVERIFY(hasLineAnchor(*handoffTextIt, QStringLiteral("TODO: wire ZeroSlack jump"), 7));
 
-    const auto svIt = findFile(QStringLiteral("top.sv"));
-    QVERIFY(svIt != resources.cend());
-    QVERIFY(hasLineAnchor(*svIt, QStringLiteral("symbol-like: beacon_top"), 1));
-    QVERIFY(hasLineAnchor(*svIt, QStringLiteral("error: // ERROR: missing reset"), 2));
+    const auto logIt = findFile(QStringLiteral("review.log"));
+    QVERIFY(logIt != resources.cend());
+    QVERIFY(hasLineAnchor(*logIt, QStringLiteral("symbol-like: route log"), 1));
+    QVERIFY(hasLineAnchor(*logIt, QStringLiteral("error: ERROR: missing reset"), 2));
 
-    const auto tclIt = findFile(QStringLiteral("flow.tcl"));
-    QVERIFY(tclIt != resources.cend());
-    QVERIFY(hasLineAnchor(*tclIt, QStringLiteral("symbol-like: launch_dock"), 1));
+    const auto configIt = findFile(QStringLiteral("flow.cfg"));
+    QVERIFY(configIt != resources.cend());
+    QVERIFY(hasLineAnchor(*configIt, QStringLiteral("symbol-like: launch dock"), 1));
 
     const auto handoffIt = findFile(QStringLiteral("handoff"));
     QVERIFY(handoffIt != resources.cend());
     QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("symbol-like: handoff_entry"), 2));
-    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("TODO: script-like text without interpreter allowlist"), 3));
+    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("TODO: no-extension text without interpreter allowlist"), 3));
 
-    const auto xdcIt = findFile(QStringLiteral("pins.xdc"));
-    QVERIFY(xdcIt != resources.cend());
-    QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("NOTE: board pin review"), 1));
+    const auto pinsIt = findFile(QStringLiteral("pins.txt"));
+    QVERIFY(pinsIt != resources.cend());
+    QVERIFY(hasLineAnchor(*pinsIt, QStringLiteral("NOTE: board pin review"), 1));
 
     const auto opaqueIt = findFile(QStringLiteral("notes.opaque"));
     QVERIFY(opaqueIt != resources.cend());
@@ -2271,18 +2273,18 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> beaconResults = repository.search(SearchQuery{QStringLiteral("JumpController")});
+    const QList<SearchResult> beaconResults = repository.search(SearchQuery{QStringLiteral("jump target")});
     QVERIFY(std::any_of(beaconResults.cbegin(), beaconResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
-            && result.resource.title == QLatin1String("pinloom.cpp")
+            && result.resource.title == QLatin1String("handoff.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("symbol-like: JumpController");
+            && result.matchedAnchor->target == QLatin1String("symbol-like: jump target");
     }));
 
     const QList<SearchResult> warningResults = repository.search(SearchQuery{QStringLiteral("route timing")});
     QVERIFY(std::any_of(warningResults.cbegin(), warningResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("pinloom.cpp")
+        return result.resource.title == QLatin1String("handoff.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("warning: WARNING: route timing changed");
     }));
@@ -2298,7 +2300,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(std::any_of(handoffResults.cbegin(), handoffResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("handoff")
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->target == QLatin1String("TODO: script-like text without interpreter allowlist");
+            && result.matchedAnchor->target == QLatin1String("TODO: no-extension text without interpreter allowlist");
     }));
 
     const QList<SearchResult> hiddenResults = repository.search(SearchQuery{QStringLiteral("hidden")});
@@ -2512,9 +2514,9 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library/build")));
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
-    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
-              QByteArray("JumpController build input\n"
+    QVERIFY(dir.mkpath(QStringLiteral("library/inputs")));
+    writeFile(dir.filePath(QStringLiteral("library/inputs/beacon-input.txt")),
+              QByteArray("jump target build input\n"
                          "ready\n"));
 
     QString libraryPath = QDir::cleanPath(dir.filePath(QStringLiteral("library")));
@@ -2522,9 +2524,9 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
               QStringLiteral("[\n"
                              "  {\n"
                              "    \"directory\": \"%1\",\n"
-                             "    \"command\": \"g++ -c src/pinloom.cpp -o CMakeFiles/pinloom.dir/src/pinloom.cpp.obj\",\n"
-                             "    \"file\": \"src/pinloom.cpp\",\n"
-                             "    \"output\": \"CMakeFiles/pinloom.dir/src/pinloom.cpp.obj\"\n"
+                             "    \"command\": \"indexer --input inputs/beacon-input.txt --output build/beacon-output.loc\",\n"
+                             "    \"file\": \"inputs/beacon-input.txt\",\n"
+                             "    \"output\": \"build/beacon-output.loc\"\n"
                              "  }\n"
                              "]\n")
                   .arg(libraryPath.replace(QLatin1Char('\\'), QLatin1Char('/')))
@@ -2543,12 +2545,12 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
 
     auto inputFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File
-            && resource.title == QLatin1String("pinloom.cpp");
+            && resource.title == QLatin1String("beacon-input.txt");
     });
     QVERIFY(inputFileIt != resources.cend());
 
     const QString anchorTarget =
-        QStringLiteral("build input: ../src/pinloom.cpp -> CMakeFiles/pinloom.dir/src/pinloom.cpp.obj");
+        QStringLiteral("build input: ../inputs/beacon-input.txt -> build/beacon-output.loc");
     QVERIFY(std::any_of(compileDbIt->anchors.cbegin(), compileDbIt->anchors.cend(), [&](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == anchorTarget
@@ -2570,7 +2572,7 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> outputResults = repository.search(SearchQuery{QStringLiteral("pinloom.cpp.obj")});
+    const QList<SearchResult> outputResults = repository.search(SearchQuery{QStringLiteral("beacon-output")});
     QVERIFY(std::any_of(outputResults.cbegin(), outputResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("compile_commands.json")
@@ -2579,12 +2581,12 @@ void DirectorySourceTest::extractsCompileCommandBuildInputBeacons()
             && result.matchedAnchor->line == 5;
     }));
 
-    SearchQuery query{QStringLiteral("JumpController")};
+    SearchQuery query{QStringLiteral("jump target")};
     query.contextResourceIds = {compileDbIt->id};
     const QList<SearchResult> contextResults = repository.search(query);
     QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
-            && result.resource.title == QLatin1String("pinloom.cpp")
+            && result.resource.title == QLatin1String("beacon-input.txt")
             && result.matchedContextRelationLabel == QLatin1String("build-input");
     }));
 

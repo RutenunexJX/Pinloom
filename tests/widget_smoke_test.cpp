@@ -399,9 +399,9 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
     Resource resource;
     resource.id = QStringLiteral("text-beacon");
     resource.kind = ResourceKind::File;
-    resource.title = QStringLiteral("pinloom.cpp");
-    resource.location = QStringLiteral("pinloom.cpp");
-    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("symbol-like: JumpController"), 12}};
+    resource.title = QStringLiteral("beacon-notes.txt");
+    resource.location = QStringLiteral("beacon-notes.txt");
+    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("symbol-like: jump target"), 12}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -410,9 +410,9 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
     QVERIFY(searchEdit);
     QVERIFY(results);
 
-    searchEdit->setText(QStringLiteral("JumpController"));
+    searchEdit->setText(QStringLiteral("jump target"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] symbol-like: JumpController - line 12")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] symbol-like: jump target - line 12")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 12);
 }
 
@@ -421,10 +421,10 @@ void WidgetSmokeTest::panelDisplaysFileLineResults()
     InMemoryLibraryRepository repository;
 
     Resource resource;
-    resource.id = QStringLiteral("code-note");
+    resource.id = QStringLiteral("line-note");
     resource.kind = ResourceKind::File;
-    resource.title = QStringLiteral("PinloomPanel.cpp");
-    resource.location = QStringLiteral("PinloomPanel.cpp");
+    resource.title = QStringLiteral("dock-notes.txt");
+    resource.location = QStringLiteral("dock-notes.txt");
     resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("TODO: wire ZeroSlack dock"), 27}};
     QVERIFY(repository.upsertResource(resource));
 

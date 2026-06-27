@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for content-sniffed unified text file classification, unknown-extension and no-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, content-sniffed CMake project/target/package/test beacons, content-sniffed Makefile target beacons, content-sniffed Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for content-sniffed unified text file classification, neutral text/log/config/no-extension beacon fixtures, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, content-sniffed CMake project/target/package/test beacons, content-sniffed Makefile target beacons, content-sniffed Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 

@@ -270,7 +270,7 @@ Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
 - Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
-- Improve generic text beacon extraction and special-file readers without pursuing richer source-code parsing.
+- Improve generic text beacon extraction and special-file readers without pursuing richer language parsing.
 
 ### Special-File Reader Roadmap
 

@@ -4086,7 +4086,7 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
     }
 
     static const QRegularExpression explicitSymbolLikePattern(
-        QStringLiteral("^\\s*(?://+|#+|;+|--+|/\\*)?\\s*(?:SYMBOL|SYMBOL-LIKE)\\b\\s*:?[\\s-]*(.+?)\\s*(?:\\*/)?\\s*$"),
+        QStringLiteral("^\\s*(?://+|#+|;+|--+|/\\*)?\\s*(?:SYMBOL-LIKE|SYMBOL)\\b\\s*:?[\\s-]*(.+?)\\s*(?:\\*/)?\\s*$"),
         QRegularExpression::CaseInsensitiveOption);
     const QRegularExpressionMatch symbolLikeMatch = explicitSymbolLikePattern.match(line);
     if (symbolLikeMatch.hasMatch()) {
