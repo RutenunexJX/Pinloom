@@ -5409,7 +5409,11 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library/db")));
     const QString databasePath = dir.filePath(QStringLiteral("library/db/inventory.sqlite3"));
+    const QString alternateDatabasePath = dir.filePath(QStringLiteral("library/db/inventory.db"));
     writeGenericSqliteDatabase(databasePath);
+    writeGenericSqliteDatabase(alternateDatabasePath);
+    writeFile(dir.filePath(QStringLiteral("library/db/notes.db")),
+              QByteArray("NOTE: non-sqlite db suffix remains text\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -5427,6 +5431,17 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
     QVERIFY(databaseIt->aliases.contains(QStringLiteral("board_notes")));
     QVERIFY(databaseIt->aliases.contains(QStringLiteral("parts")));
     QVERIFY(databaseIt->relations.isEmpty());
+
+    auto databaseDbIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("inventory.db");
+    });
+    QVERIFY(databaseDbIt != resources.cend());
+    QVERIFY(databaseDbIt->tags.contains(QStringLiteral("sqlite")));
+    QVERIFY(databaseDbIt->tags.contains(QStringLiteral("sqlite-database")));
+    QVERIFY(databaseDbIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(databaseDbIt->aliases.contains(QStringLiteral("board_notes")));
+    QVERIFY(databaseDbIt->relations.isEmpty());
 
     auto hasLineAnchor = [](const Resource &resource, const QString &target) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
@@ -5448,6 +5463,21 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
                           QStringLiteral("sqlite sample: board_notes.title = Timing Closure")));
     QVERIFY(hasLineAnchor(*databaseIt,
                           QStringLiteral("sqlite sample: parts.description = PCIe endpoint guide")));
+    QVERIFY(hasLineAnchor(*databaseDbIt, QStringLiteral("sqlite table: board_notes")));
+    QVERIFY(hasLineAnchor(*databaseDbIt,
+                          QStringLiteral("sqlite sample: board_notes.title = Timing Closure")));
+
+    auto textDbIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("notes.db");
+    });
+    QVERIFY(textDbIt != resources.cend());
+    QVERIFY(!textDbIt->tags.contains(QStringLiteral("sqlite")));
+    QVERIFY(!textDbIt->tags.contains(QStringLiteral("sqlite-database")));
+    QVERIFY(!textDbIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(!textDbIt->tags.contains(QStringLiteral("path-only")));
+    QVERIFY(!textDbIt->tags.contains(QStringLiteral("package-container")));
+    QVERIFY(hasLineAnchor(*textDbIt, QStringLiteral("NOTE: non-sqlite db suffix remains text")));
 
     QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::Url
@@ -5509,6 +5539,24 @@ void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target
                 == QLatin1String("sqlite url: parts.doc_url -> https://fpga.example.com/parts/xc7a35t");
+    }));
+
+    const QList<SearchResult> databaseDbResults = repository.search(SearchQuery{QStringLiteral("inventory.db")});
+    QVERIFY(std::any_of(databaseDbResults.cbegin(), databaseDbResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("inventory.db")
+            && result.resource.tags.contains(QStringLiteral("sqlite-database"))
+            && result.resource.tags.contains(QStringLiteral("special-reader"));
+    }));
+
+    const QList<SearchResult> textDbResults = repository.search(SearchQuery{QStringLiteral("non-sqlite db suffix")});
+    QVERIFY(std::any_of(textDbResults.cbegin(), textDbResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("notes.db")
+            && !result.resource.tags.contains(QStringLiteral("sqlite-database"))
+            && !result.resource.tags.contains(QStringLiteral("special-reader"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("NOTE: non-sqlite db suffix remains text");
     }));
 }
 
