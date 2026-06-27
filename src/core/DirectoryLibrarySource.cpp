@@ -4107,7 +4107,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     static const QRegularExpression optionPattern(
         QStringLiteral("^option\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression functionPattern(
+    static const QRegularExpression blockPattern(
         QStringLiteral("^(function|macro)\\s*\\(\\s*([A-Za-z0-9_.:+-]+)\\b"),
         QRegularExpression::CaseInsensitiveOption);
     static const QRegularExpression packagePattern(
@@ -4146,11 +4146,10 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
         return;
     }
 
-    const QRegularExpressionMatch functionMatch = functionPattern.match(trimmed);
-    if (functionMatch.hasMatch()) {
+    const QRegularExpressionMatch blockMatch = blockPattern.match(trimmed);
+    if (blockMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive %1: %2")
-                                   .arg(functionMatch.captured(1).toLower(), functionMatch.captured(2)),
+                               QStringLiteral("directive block: %1").arg(blockMatch.captured(2)),
                                lineNumber);
         return;
     }

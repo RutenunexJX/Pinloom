@@ -2406,8 +2406,8 @@ void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
 
     const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive function: pinloom_add_widget_test"), 1));
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive macro: pinloom_copy_runtime"), 3));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive block: pinloom_add_widget_test"), 1));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive block: pinloom_copy_runtime"), 3));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
