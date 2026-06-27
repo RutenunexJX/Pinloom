@@ -336,7 +336,7 @@ QString normalizedPath(const QFileInfo &fileInfo)
     return QDir::cleanPath(fileInfo.absoluteFilePath());
 }
 
-bool hasDirectiveTextBeaconFormat(const QFileInfo &fileInfo)
+bool hasConfigStyleTextBeaconFormat(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
         && (fileInfo.fileName().compare(QStringLiteral("CMakeLists.txt"), Qt::CaseInsensitive) == 0
@@ -4272,7 +4272,7 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
 
 }
 
-void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendConfigStyleTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4301,7 +4301,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch entryMatch = entryPattern.match(trimmed);
     if (entryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(entryMatch.captured(1)),
+                               QStringLiteral("config entry: %1").arg(entryMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4309,7 +4309,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch namedEntryMatch = namedEntryPattern.match(trimmed);
     if (namedEntryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(namedEntryMatch.captured(1)),
+                               QStringLiteral("config entry: %1").arg(namedEntryMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4317,7 +4317,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch projectEntryMatch = projectEntryPattern.match(trimmed);
     if (projectEntryMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive entry: %1").arg(projectEntryMatch.captured(1)),
+                               QStringLiteral("config entry: %1").arg(projectEntryMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4325,7 +4325,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch settingMatch = settingPattern.match(trimmed);
     if (settingMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive setting: %1").arg(settingMatch.captured(1)),
+                               QStringLiteral("config setting: %1").arg(settingMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4333,7 +4333,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch blockMatch = blockPattern.match(trimmed);
     if (blockMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive block: %1").arg(blockMatch.captured(2)),
+                               QStringLiteral("config block: %1").arg(blockMatch.captured(2)),
                                lineNumber);
         return;
     }
@@ -4341,7 +4341,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     const QRegularExpressionMatch referenceMatch = referencePattern.match(trimmed);
     if (referenceMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("directive reference: %1").arg(referenceMatch.captured(1)),
+                             QStringLiteral("config reference: %1").arg(referenceMatch.captured(1)),
                              lineNumber);
     }
 }
@@ -7672,7 +7672,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
     const bool workflowConfigText = hasWorkflowConfigTextBeaconFormat(fileInfo);
     const bool pipelineConfigText = hasPipelineConfigTextBeaconFormat(fileInfo);
-    const bool directiveText = hasDirectiveTextBeaconFormat(fileInfo);
+    const bool configStyleText = hasConfigStyleTextBeaconFormat(fileInfo);
     const bool ruleEntryText = hasRuleEntryTextBeaconFormat(fileInfo);
     const bool containerText = hasContainerTextBeaconFormat(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
@@ -7698,8 +7698,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendTextNamedEntryBeaconsFromLine(resource, fileInfo, line, lineNumber, textNamedEntryBeaconState);
-        if (directiveText) {
-            appendDirectiveTextBeaconsFromLine(resource, line, lineNumber);
+        if (configStyleText) {
+            appendConfigStyleTextBeaconsFromLine(resource, line, lineNumber);
         }
         if (ruleEntryText) {
             appendRuleEntryTextBeaconsFromLine(resource, line, lineNumber);

@@ -44,7 +44,7 @@ private slots:
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsUnifiedTextBeaconAnchors();
-    void extractsNeutralDirectiveTextBeaconAnchors();
+    void extractsNeutralConfigStyleTextBeaconAnchors();
     void extractsRuleAndContainerTextBeaconAnchors();
     void extractsFileReferenceManifestBeacons();
     void extractsTextActionLineAnchors();
@@ -2577,7 +2577,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
+void DirectorySourceTest::extractsNeutralConfigStyleTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2624,20 +2624,20 @@ void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
         });
     };
 
-    const auto directiveTextIt = findFile(QStringLiteral("CMakeLists.txt"));
-    QVERIFY(directiveTextIt != resources.cend());
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: PinloomHost"), 2));
-    QVERIFY(hasLineAnchor(*directiveTextIt, QStringLiteral("directive reference: Qt6"), 3));
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive setting: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_core"), 5));
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_app"), 6));
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_docs"), 7));
-    QVERIFY(hasBeacon(*directiveTextIt, QStringLiteral("directive entry: pinloom_core_smoke_test"), 8));
+    const auto configTextIt = findFile(QStringLiteral("CMakeLists.txt"));
+    QVERIFY(configTextIt != resources.cend());
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: PinloomHost"), 2));
+    QVERIFY(hasLineAnchor(*configTextIt, QStringLiteral("config reference: Qt6"), 3));
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config setting: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_core"), 5));
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_app"), 6));
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_docs"), 7));
+    QVERIFY(hasBeacon(*configTextIt, QStringLiteral("config entry: pinloom_core_smoke_test"), 8));
 
     const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive block: pinloom_add_widget_test"), 1));
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive block: pinloom_copy_runtime"), 3));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("config block: pinloom_add_widget_test"), 1));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("config block: pinloom_copy_runtime"), 3));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2652,7 +2652,7 @@ void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("directive entry: pinloom_core");
+            && result.matchedAnchor->target == QLatin1String("config entry: pinloom_core");
     }));
 
     const QList<SearchResult> referenceResults = repository.search(SearchQuery{QStringLiteral("Qt6")});
@@ -2660,7 +2660,7 @@ void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("directive reference: Qt6");
+            && result.matchedAnchor->target == QLatin1String("config reference: Qt6");
     }));
 }
 
