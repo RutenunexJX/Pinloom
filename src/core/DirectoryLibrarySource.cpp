@@ -4117,7 +4117,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
     if (targetMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive target: %1").arg(targetMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(targetMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4125,7 +4125,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     const QRegularExpressionMatch testMatch = testPattern.match(trimmed);
     if (testMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive test: %1").arg(testMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(testMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4133,7 +4133,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     const QRegularExpressionMatch projectMatch = projectPattern.match(trimmed);
     if (projectMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive project: %1").arg(projectMatch.captured(1)),
+                               QStringLiteral("directive entry: %1").arg(projectMatch.captured(1)),
                                lineNumber);
         return;
     }
@@ -4141,7 +4141,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     const QRegularExpressionMatch optionMatch = optionPattern.match(trimmed);
     if (optionMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("directive option: %1").arg(optionMatch.captured(1)),
+                               QStringLiteral("directive setting: %1").arg(optionMatch.captured(1)),
                                lineNumber);
         return;
     }
