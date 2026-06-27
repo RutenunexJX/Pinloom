@@ -153,6 +153,7 @@ Completed:
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Extract bracketed text links as searchable file-line anchors and indexed `links-to` relations.
 - Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; any Markdown resource kind remains compatibility surface for existing stored or host-provided resources, not a new indexing branch.
+- Emit text heading/block anchors with neutral text anchor types; Markdown-named anchor types and `markdown_*` storage rows are compatibility surface only.
 - Preserve the same text-beacon behavior for non-Obsidian text folders.
 - Add focused tests around mixed plain text and note-style text-convention inputs.
 
@@ -181,6 +182,7 @@ Completed:
 - Add file-reference manifest line anchors for compile_commands.json and `file-reference` relations to referenced file paths without treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
 - Use neutral model/storage names for text snippets and marker anchors while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
+- Use neutral text heading/block anchor model and storage names for new directory indexing while retaining legacy Markdown-named anchor compatibility.
 - Rank exact beacon and filename matches ahead of broad path matches.
 
 Remaining follow-up:

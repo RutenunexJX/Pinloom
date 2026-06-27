@@ -917,7 +917,7 @@ void appendTextConventionLineMetadata(Resource &resource, const QFileInfo &fileI
     const QRegularExpressionMatch headingMatch = headingPattern.match(line);
     if (headingMatch.hasMatch()) {
         Anchor anchor;
-        anchor.type = AnchorType::MarkdownHeading;
+        anchor.type = AnchorType::TextHeading;
         anchor.target = headingMatch.captured(2).trimmed();
         anchor.line = lineNumber;
         resource.anchors.append(anchor);
@@ -927,7 +927,7 @@ void appendTextConventionLineMetadata(Resource &resource, const QFileInfo &fileI
     const QRegularExpressionMatch blockMatch = blockPattern.match(line);
     if (blockMatch.hasMatch()) {
         Anchor anchor;
-        anchor.type = AnchorType::MarkdownBlock;
+        anchor.type = AnchorType::TextBlock;
         anchor.target = blockMatch.captured(1).trimmed();
         anchor.line = lineNumber;
         resource.anchors.append(anchor);

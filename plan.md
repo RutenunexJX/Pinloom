@@ -233,6 +233,7 @@ Status:
 - Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
 - Directory scans emit `.md/.markdown` as ordinary file resources; the legacy Markdown kind remains only for stored/API compatibility: done.
+- Directory scans emit text heading/block anchors through neutral text anchor types and `text_heading`/`text_block` storage names; legacy Markdown-named anchor types remain readable for compatibility: done.
 - Tests: done.
 - Build/test verification: done.
 
@@ -282,6 +283,7 @@ Status:
 - CI configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `ci ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
 - File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done.
 - Neutral model/storage names for text snippets and marker anchors: done, with read-only legacy `symbol_like`/`code_*` database compatibility.
+- Neutral text heading/block model and storage names: done, with legacy Markdown-named anchor compatibility.
 - Language-specific symbol/test/import parsing across programming languages and script types: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 

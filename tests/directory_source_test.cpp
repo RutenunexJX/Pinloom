@@ -426,7 +426,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     QVERIFY(logIt->tags.contains(QStringLiteral("plain-text")));
     QVERIFY(logIt->tags.contains(QStringLiteral("relay")));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::MarkdownHeading
+        return anchor.type == AnchorType::TextHeading
             && anchor.target == QLatin1String("Operations")
             && anchor.line == 6;
     }));
@@ -436,7 +436,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
             && anchor.line == 8;
     }));
     QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::MarkdownBlock
+        return anchor.type == AnchorType::TextBlock
             && anchor.target == QLatin1String("handoff-block")
             && anchor.line == 9;
     }));
@@ -1101,16 +1101,40 @@ void DirectorySourceTest::extractsTextHeadingAndBlockAnchors()
     });
     QVERIFY(markdownIt != resources.cend());
     QCOMPARE(markdownIt->anchors.size(), 4);
-    QCOMPARE(markdownIt->anchors.at(0).type, AnchorType::MarkdownHeading);
+    QCOMPARE(markdownIt->anchors.at(0).type, AnchorType::TextHeading);
     QCOMPARE(markdownIt->anchors.at(0).target, QStringLiteral("Top"));
     QCOMPARE(markdownIt->anchors.at(0).line, 1);
     QCOMPARE(markdownIt->anchors.at(1).target, QStringLiteral("Power sequencing"));
     QCOMPARE(markdownIt->anchors.at(1).line, 3);
-    QCOMPARE(markdownIt->anchors.at(2).type, AnchorType::MarkdownBlock);
+    QCOMPARE(markdownIt->anchors.at(2).type, AnchorType::TextBlock);
     QCOMPARE(markdownIt->anchors.at(2).target, QStringLiteral("power-block"));
     QCOMPARE(markdownIt->anchors.at(2).line, 4);
     QCOMPARE(markdownIt->anchors.at(3).target, QStringLiteral("standalone"));
     QCOMPARE(markdownIt->anchors.at(3).line, 5);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> headingResults = repository.search(SearchQuery{QStringLiteral("Power sequencing")});
+    QVERIFY(std::any_of(headingResults.cbegin(), headingResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("notes.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::TextHeading
+            && result.matchedAnchor->target == QLatin1String("Power sequencing");
+    }));
+
+    const QList<SearchResult> blockResults = repository.search(SearchQuery{QStringLiteral("power-block")});
+    QVERIFY(std::any_of(blockResults.cbegin(), blockResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("notes.md")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::TextBlock
+            && result.matchedAnchor->target == QLatin1String("power-block");
+    }));
 }
 
 void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()

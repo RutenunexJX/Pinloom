@@ -14,7 +14,9 @@ enum class AnchorType {
     PdfPage,
     PdfRegion,
     UrlFragment,
-    Manual
+    Manual,
+    TextHeading,
+    TextBlock
 };
 
 struct Anchor {

@@ -40,7 +40,7 @@ Implemented:
 - `IndexingService` refresh/rebuild support for saved enabled roots.
 - Anchor-aware search results with optional matched anchors.
 - SQLite schema version 3 with anchor FTS search.
-- Heading and block-id line anchors for `.md`, `.markdown`, and content-sniffed text files.
+- Heading and block-id line anchors for `.md`, `.markdown`, and content-sniffed text files, emitted as neutral text heading/block anchors.
 - Text-convention beacons for YAML-style frontmatter aliases/tags in `.md/.markdown` and content-sniffed text files, inline tags, bracketed text links, bracket-link line anchors/relations, and block-reference beacons.
 - Searchable text body extraction without indexing frontmatter metadata as body text.
 - Task checkbox lines as searchable line anchors for direct jumps to actionable note items.
@@ -78,7 +78,8 @@ Implemented:
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small content-sniffed text, config, and tabular files, including TODO/FIXME/NOTE line anchors, text-structure key/section/path anchors, explicit JSON/TOML named-entry container line beacons, and CSV/TSV column anchors.
 - Unified text beacon indexing for small content-sniffed text files, without language extension or shebang interpreter allowlists, including TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` line anchors.
-- `.md/.markdown` directory-scan resources use the same ordinary file kind and text URL/beacon pipeline as other content-sniffed text files; legacy Markdown storage/API names remain readable for compatibility.
+- `.md/.markdown` directory-scan resources use the same ordinary file kind and text URL/beacon pipeline as other content-sniffed text files; legacy Markdown resource and anchor storage/API names remain readable for compatibility.
+- Text heading/block anchors use neutral `TextHeading`/`TextBlock` model values and `text_heading`/`text_block` storage names for new directory indexing.
 - Text named-entry line beacons use neutral `named entry ...` labels only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers, not package-manager or programming-language dependency analysis.
 - Neutral text snippet and marker anchor model/storage names, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Shared path-only package-container guard: common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package files remain path-only unless document readers can emit real positions without exposing package-entry paths. Guarded files carry `path-only` and `package-container` tags and are validated to have no scanned content, anchors, relations, or derived package-inside resources.

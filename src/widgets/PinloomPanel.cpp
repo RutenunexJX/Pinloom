@@ -45,8 +45,10 @@ QString anchorLabel(const Anchor &anchor)
     case AnchorType::FileLine:
         return QStringLiteral("Line");
     case AnchorType::MarkdownHeading:
+    case AnchorType::TextHeading:
         return QStringLiteral("Heading");
     case AnchorType::MarkdownBlock:
+    case AnchorType::TextBlock:
         return QStringLiteral("Block");
     case AnchorType::Marker:
         return QStringLiteral("Marker");
