@@ -20,7 +20,7 @@ class DirectorySourceTest : public QObject {
 private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
-    void indexesCompressedPackagesAsPathOnlyFiles();
+    void indexesPackageContainersAsPathOnlyFiles();
     void extractsStructuredPlainTextLineAnchors();
     void extractsGithubActionsWorkflowAnchors();
     void extractsGitlabCiPipelineAnchors();
@@ -442,7 +442,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     QVERIFY(binaryResults.isEmpty());
 }
 
-void DirectorySourceTest::indexesCompressedPackagesAsPathOnlyFiles()
+void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -455,7 +455,11 @@ void DirectorySourceTest::indexesCompressedPackagesAsPathOnlyFiles()
                                      "https://docs.example.com/archive/inside\n");
     for (const QString &fileName : {QStringLiteral("package.zip"),
                                     QStringLiteral("bundle.tar.gz"),
-                                    QStringLiteral("module.jar")}) {
+                                    QStringLiteral("module.jar"),
+                                    QStringLiteral("document.docx"),
+                                    QStringLiteral("workbook.xlsx"),
+                                    QStringLiteral("slides.pptx"),
+                                    QStringLiteral("diagram.vsdx")}) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }
 
@@ -466,7 +470,11 @@ void DirectorySourceTest::indexesCompressedPackagesAsPathOnlyFiles()
 
     for (const QString &fileName : {QStringLiteral("package.zip"),
                                     QStringLiteral("bundle.tar.gz"),
-                                    QStringLiteral("module.jar")}) {
+                                    QStringLiteral("module.jar"),
+                                    QStringLiteral("document.docx"),
+                                    QStringLiteral("workbook.xlsx"),
+                                    QStringLiteral("slides.pptx"),
+                                    QStringLiteral("diagram.vsdx")}) {
         auto packageIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
             return resource.kind == ResourceKind::File
                 && resource.title == fileName;

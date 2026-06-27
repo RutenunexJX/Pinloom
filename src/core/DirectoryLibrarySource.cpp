@@ -465,6 +465,37 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         || completeSuffix.endsWith(QLatin1String(".tar.zst"));
 }
 
+bool isDocumentPackageContainerFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    return QStringList{
+        QStringLiteral("docm"),
+        QStringLiteral("docx"),
+        QStringLiteral("dotm"),
+        QStringLiteral("dotx"),
+        QStringLiteral("potm"),
+        QStringLiteral("potx"),
+        QStringLiteral("ppsm"),
+        QStringLiteral("ppsx"),
+        QStringLiteral("pptm"),
+        QStringLiteral("pptx"),
+        QStringLiteral("vsdm"),
+        QStringLiteral("vsdx"),
+        QStringLiteral("vssm"),
+        QStringLiteral("vssx"),
+        QStringLiteral("vstm"),
+        QStringLiteral("vstx"),
+        QStringLiteral("xlsm"),
+        QStringLiteral("xlsx"),
+        QStringLiteral("xltm"),
+        QStringLiteral("xltx")
+    }.contains(suffix);
+}
+
 bool isMhtmlFile(const QFileInfo &fileInfo)
 {
     const QString suffix = fileInfo.suffix().toLower();
@@ -502,7 +533,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
         return false;
     }
-    if (isCompressedPackageFile(fileInfo)) {
+    if (isCompressedPackageFile(fileInfo) || isDocumentPackageContainerFile(fileInfo)) {
         return false;
     }
 

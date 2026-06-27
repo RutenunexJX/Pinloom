@@ -401,6 +401,7 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
+- Keep package containers path-only before their dedicated readers exist; do not let them fall through to generic text scanning.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
@@ -422,7 +423,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. Compressed package expansion/text scanning was removed and is not pursued.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. Compressed package expansion/text scanning was removed and is not pursued; Office/Visio package containers are guarded from generic text scanning until dedicated readers exist.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

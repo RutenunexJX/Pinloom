@@ -10,7 +10,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 
 - Text-like files are treated uniformly. Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same text beacon model.
 - Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and neutral symbol-like text. It does not build ASTs or claim programming-language support.
-- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned.
+- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned. Office/Visio package containers stay path-only until a dedicated reader can emit real document positions.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
 ## Special File Reader Phases
