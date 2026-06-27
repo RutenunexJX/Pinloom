@@ -3872,7 +3872,7 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
                          "<link rel=\"canonical\" href=\"https://docs.example.com/pinloom/warc\">\r\n"
                          "</head><body>\r\n"
                          "<h1 id=\"snapshot\">Captured Snapshot</h1>\r\n"
-                         "<p>Archived WARC response for source refinement.</p>\r\n"
+                         "<p>Captured WARC response for source refinement.</p>\r\n"
                          "</body></html>\r\n"
                          "\r\n"
                          "WARC/1.0\r\n"
@@ -3910,7 +3910,7 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
     QVERIFY(pageIt->aliases.contains(QStringLiteral("session")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/warc")));
     QVERIFY(pageIt->aliases.contains(QStringLiteral("Captured Snapshot")));
-    QVERIFY(pageIt->content.contains(QStringLiteral("Archived WARC response")));
+    QVERIFY(pageIt->content.contains(QStringLiteral("Captured WARC response")));
     QVERIFY(std::any_of(pageIt->anchors.cbegin(), pageIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
     }));
@@ -3955,7 +3955,7 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
                 == QLatin1String("url: Pinloom WARC Capture -> https://docs.example.com/pinloom/warc#snapshot");
     }));
 
-    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archived WARC response")});
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Captured WARC response")});
     QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::Url
             && result.resource.title == QLatin1String("Pinloom WARC Capture")
@@ -4325,22 +4325,22 @@ void DirectorySourceTest::extractsMhtmlPageContent()
 
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library/pages")));
-    writeFile(dir.filePath(QStringLiteral("library/pages/archive.mhtml")),
+    writeFile(dir.filePath(QStringLiteral("library/pages/capture.mhtml")),
               QByteArray("MIME-Version: 1.0\r\n"
                          "Content-Type: multipart/related; boundary=\"----=_PinloomBoundary\"\r\n"
                          "\r\n"
                          "------=_PinloomBoundary\r\n"
                          "Content-Type: text/html; charset=\"utf-8\"\r\n"
                          "Content-Transfer-Encoding: quoted-printable\r\n"
-                         "Content-Location: https://docs.example.com/archive\r\n"
+                         "Content-Location: https://docs.example.com/capture\r\n"
                          "\r\n"
                          "<!doctype html>\r\n"
                          "<html><head>\r\n"
-                         "<title>Pinloom Web Archive</title>\r\n"
-                         "<link rel=3D\"canonical\" href=3D\"https://docs.example.com/pinloom/archive\">\r\n"
+                         "<title>Pinloom Web Capture</title>\r\n"
+                         "<link rel=3D\"canonical\" href=3D\"https://docs.example.com/pinloom/capture\">\r\n"
                          "</head><body>\r\n"
                          "<h2 id=3D\"snapshot\">Saved Snapshot</h2>\r\n"
-                         "<p>Archived launch reference for ZeroSlack embedding.</p>\r\n"
+                         "<p>Captured launch reference for ZeroSlack embedding.</p>\r\n"
                          "<a href=3D\"https://docs.example.com/pinloom/host#dock\">Host Playbook</a>\r\n"
                          "</body></html>\r\n"
                          "------=_PinloomBoundary--\r\n"));
@@ -4350,20 +4350,20 @@ void DirectorySourceTest::extractsMhtmlPageContent()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto archiveIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::Url && resource.title == QLatin1String("Pinloom Web Archive");
+    auto captureIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url && resource.title == QLatin1String("Pinloom Web Capture");
     });
-    QVERIFY(archiveIt != resources.cend());
-    QVERIFY(archiveIt->location.endsWith(QStringLiteral("archive.mhtml")));
-    QVERIFY(archiveIt->tags.contains(QStringLiteral("web")));
-    QVERIFY(archiveIt->tags.contains(QStringLiteral("web-capture")));
-    QVERIFY(!archiveIt->tags.contains(QStringLiteral("web-archive")));
-    QVERIFY(archiveIt->aliases.contains(QStringLiteral("archive")));
-    QVERIFY(archiveIt->aliases.contains(QStringLiteral("docs.example.com")));
-    QVERIFY(archiveIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/archive")));
-    QVERIFY(archiveIt->aliases.contains(QStringLiteral("Saved Snapshot")));
-    QVERIFY(archiveIt->content.contains(QStringLiteral("Archived launch reference")));
-    QVERIFY(std::any_of(archiveIt->anchors.cbegin(), archiveIt->anchors.cend(), [](const Anchor &anchor) {
+    QVERIFY(captureIt != resources.cend());
+    QVERIFY(captureIt->location.endsWith(QStringLiteral("capture.mhtml")));
+    QVERIFY(captureIt->tags.contains(QStringLiteral("web")));
+    QVERIFY(captureIt->tags.contains(QStringLiteral("web-capture")));
+    QVERIFY(!captureIt->tags.contains(QStringLiteral("web-archive")));
+    QVERIFY(captureIt->aliases.contains(QStringLiteral("capture")));
+    QVERIFY(captureIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(captureIt->aliases.contains(QStringLiteral("https://docs.example.com/pinloom/capture")));
+    QVERIFY(captureIt->aliases.contains(QStringLiteral("Saved Snapshot")));
+    QVERIFY(captureIt->content.contains(QStringLiteral("Captured launch reference")));
+    QVERIFY(std::any_of(captureIt->anchors.cbegin(), captureIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("snapshot");
     }));
 
@@ -4380,8 +4380,8 @@ void DirectorySourceTest::extractsMhtmlPageContent()
     QVERIFY(std::any_of(playbookIt->anchors.cbegin(), playbookIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("dock");
     }));
-    QVERIFY(std::any_of(archiveIt->relations.cbegin(), archiveIt->relations.cend(), [&](const ResourceRelation &relation) {
-        return relation.sourceResourceId == archiveIt->id
+    QVERIFY(std::any_of(captureIt->relations.cbegin(), captureIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == captureIt->id
             && relation.targetResourceId == playbookIt->id
             && relation.label == QLatin1String("links-to")
             && relation.note == QLatin1String("html link: url: Host Playbook -> https://docs.example.com/pinloom/host#dock");
@@ -4395,14 +4395,14 @@ void DirectorySourceTest::extractsMhtmlPageContent()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Archived launch reference")});
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Captured launch reference")});
     QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::Url
-            && result.resource.title == QLatin1String("Pinloom Web Archive")
+            && result.resource.title == QLatin1String("Pinloom Web Capture")
             && result.matchedField == QLatin1String("content");
     }));
 
-    const QList<ResourceRelation> relations = repository.resourceRelations(archiveIt->id);
+    const QList<ResourceRelation> relations = repository.resourceRelations(captureIt->id);
     QVERIFY(std::any_of(relations.cbegin(), relations.cend(), [&](const ResourceRelation &relation) {
         return relation.targetResourceId == playbookIt->id
             && relation.label == QLatin1String("links-to");
