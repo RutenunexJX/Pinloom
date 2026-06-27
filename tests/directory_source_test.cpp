@@ -2208,28 +2208,28 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
     writeFile(dir.filePath(QStringLiteral("library/text/handoff.txt")),
               QByteArray("// ANCHOR: host dock handoff\n"
-                         "SYMBOL-LIKE: jump target\n"
+                         "MARKER: jump target\n"
                          "handoff = planned\n"
                          "[Build Handoff]\n"
                          "WARNING: route timing changed\n"
                          "https://docs.example.com/pinloom/jump\n"
                          "TODO: wire ZeroSlack jump\n"));
     writeFile(dir.filePath(QStringLiteral("library/logs/review.log")),
-              QByteArray("SYMBOL: route log\n"
+              QByteArray("BOOKMARK: route log\n"
                          "ERROR: missing reset\n"
                          "status: reviewed\n"));
     writeFile(dir.filePath(QStringLiteral("library/config/flow.cfg")),
-              QByteArray("; SYMBOL: launch dock\n"
+              QByteArray("; MARKER: launch dock\n"
                          "status: ready\n"));
     writeFile(dir.filePath(QStringLiteral("library/scripts/handoff")),
               QByteArray("#!/usr/bin/env custom-runner\n"
-                         "SYMBOL: handoff_entry\n"
+                         "ANCHOR: handoff_entry\n"
                          "TODO: no-extension text without interpreter allowlist\n"));
     writeFile(dir.filePath(QStringLiteral("library/config/pins.txt")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
     writeFile(dir.filePath(QStringLiteral("library/notes.opaque")),
-              QByteArray("SYMBOL: opaque_payload\n"
+              QByteArray("MARKER: opaque_payload\n"
                          "TODO: index unknown suffix text\n"
                          "https://docs.example.com/pinloom/opaque\n"));
     writeFile(dir.filePath(QStringLiteral("library/raw.opaque")),

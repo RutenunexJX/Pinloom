@@ -4086,18 +4086,6 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
                                lineNumber);
     }
 
-    static const QRegularExpression explicitMarkerAliasPattern(
-        QStringLiteral("^\\s*(?://+|#+|;+|--+|/\\*)?\\s*(?:SYMBOL-LIKE|SYMBOL)\\b\\s*:?[\\s-]*(.+?)\\s*(?:\\*/)?\\s*$"),
-        QRegularExpression::CaseInsensitiveOption);
-    const QRegularExpressionMatch markerAliasMatch = explicitMarkerAliasPattern.match(line);
-    if (markerAliasMatch.hasMatch()) {
-        const QString markerAlias = markerAliasMatch.captured(1).trimmed();
-        if (!markerAlias.isEmpty()) {
-            appendBeaconLineAnchor(resource,
-                                   QStringLiteral("marker: %1").arg(markerAlias),
-                                   lineNumber);
-        }
-    }
 }
 
 void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)

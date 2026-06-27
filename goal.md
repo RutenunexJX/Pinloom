@@ -171,7 +171,7 @@ Completed:
 Completed:
 
 - Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources, extension lists, or shebang interpreter allowlists.
-- Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and explicit marker aliases, with marker anchors surfaced as markers rather than code symbols.
+- Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases, with marker anchors surfaced as markers rather than code symbols.
 - Keep directive-style build configuration line beacons for content-sniffed text jumps, with neutral `directive ...` labels rather than build-language semantics.
 - Keep rule-target and container-recipe line beacons for content-sniffed text jumps, with neutral `rule ...` and `container ...` labels rather than Make/Docker language support.
 - Keep CI configuration workflow/job/stage/step/uses/run/script/needs line beacons for jumps, with neutral `ci ...` labels rather than vendor-specific CI language support.
