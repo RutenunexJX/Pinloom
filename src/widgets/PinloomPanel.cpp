@@ -138,9 +138,9 @@ QString matchedContextLocationPrefix(const Resource &resource, const QStringList
     return {};
 }
 
-QString resultToolTip(const SearchResult &result, const SearchQuery &query)
+QString resultMatchSummary(const SearchResult &result, const SearchQuery &query)
 {
-    QStringList lines{result.resource.location};
+    QStringList lines;
     if (!result.matchedField.isEmpty()) {
         lines.append(QStringLiteral("Match: %1").arg(result.matchedField));
     }
@@ -172,6 +172,16 @@ QString resultToolTip(const SearchResult &result, const SearchQuery &query)
         }
     }
 
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString resultToolTip(const SearchResult &result, const SearchQuery &query)
+{
+    QStringList lines{result.resource.location};
+    const QString summary = resultMatchSummary(result, query);
+    if (!summary.isEmpty()) {
+        lines.append(summary);
+    }
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -219,6 +229,7 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
     target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
     target.matchedContextRelationNote = item->data(Qt::UserRole + 19).toString();
+    target.matchSummary = item->data(Qt::UserRole + 20).toString();
 
     if (item->data(Qt::UserRole + 2).toBool()) {
         Anchor anchor;
@@ -1154,6 +1165,7 @@ void PinloomPanel::refreshResults()
         item->setData(Qt::UserRole + 17, result.matchedContextResourceId);
         item->setData(Qt::UserRole + 18, result.matchedContextRelationLabel);
         item->setData(Qt::UserRole + 19, result.matchedContextRelationNote);
+        item->setData(Qt::UserRole + 20, resultMatchSummary(result, query));
         if (result.matchedAnchor.has_value()) {
             const Anchor &anchor = result.matchedAnchor.value();
             item->setData(Qt::UserRole + 2, true);

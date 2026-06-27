@@ -1050,6 +1050,9 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     QCOMPARE(target.resourceId, project.id);
     QCOMPARE(target.matchedContextTag, QStringLiteral("pcie"));
     QCOMPARE(target.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
+    QVERIFY(target.matchSummary.contains(QStringLiteral("Match: title")));
+    QVERIFY(target.matchSummary.contains(QStringLiteral("Context tag: pcie")));
+    QVERIFY(target.matchSummary.contains(QStringLiteral("Context location: E:/workspace/project")));
 }
 
 void WidgetSmokeTest::panelAppliesHostContextRanking()
@@ -1209,6 +1212,10 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(rowTarget.matchedField, QStringLiteral("anchor"));
     QCOMPARE(rowTarget.matchedContextTag, QStringLiteral("zeroslack"));
     QCOMPARE(rowTarget.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
+    QVERIFY(rowTarget.matchSummary.contains(QStringLiteral("Match: anchor")));
+    QVERIFY(rowTarget.matchSummary.contains(QStringLiteral("Anchor: Heading")));
+    QVERIFY(rowTarget.matchSummary.contains(QStringLiteral("Context tag: zeroslack")));
+    QVERIFY(rowTarget.matchSummary.contains(QStringLiteral("Context location: E:/workspace/project")));
     QVERIFY(rowTarget.anchor.has_value());
     QCOMPARE(rowTarget.anchor->target, QStringLiteral("Dock handoff"));
     QCOMPARE(rowTarget.anchor->line, 8);
@@ -1218,6 +1225,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(currentResults.size(), 1);
     QCOMPARE(currentResults.first().resourceId, resource.id);
     QCOMPARE(currentResults.first().resultRow, 0);
+    QCOMPARE(currentResults.first().matchSummary, rowTarget.matchSummary);
     QVERIFY(currentResults.first().anchor.has_value());
     QCOMPARE(currentResults.first().anchor->target, QStringLiteral("Dock handoff"));
 
@@ -1230,6 +1238,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(target.matchedField, QStringLiteral("anchor"));
     QCOMPARE(target.matchedContextTag, QStringLiteral("zeroslack"));
     QCOMPARE(target.matchedContextLocationPrefix, QStringLiteral("E:/workspace/project"));
+    QCOMPARE(target.matchSummary, rowTarget.matchSummary);
     QVERIFY(target.score < 0.0);
     QVERIFY(target.anchor.has_value());
     QCOMPARE(static_cast<int>(target.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
@@ -1314,6 +1323,7 @@ void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
     QCOMPARE(resultSnapshots.last().size(), 2);
     QCOMPARE(resultSnapshots.last().at(0).resultRow, 0);
     QCOMPARE(resultSnapshots.last().at(1).resultRow, 1);
+    QVERIFY(resultSnapshots.last().at(0).matchSummary.contains(QStringLiteral("Match: all")));
 
     panel.setSearchText(QStringLiteral("missing"));
     QCOMPARE(counts.last(), 0);
@@ -1325,6 +1335,7 @@ void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
     QCOMPARE(resultSnapshots.last().size(), 2);
     QCOMPARE(resultSnapshots.last().at(0).resultRow, 0);
     QCOMPARE(resultSnapshots.last().at(1).resultRow, 1);
+    QVERIFY(resultSnapshots.last().at(0).matchSummary.contains(QStringLiteral("Match: title")));
     QVERIFY(std::any_of(resultSnapshots.last().cbegin(),
                        resultSnapshots.last().cend(),
                        [&](const PinloomOpenTarget &target) {
@@ -1535,6 +1546,8 @@ void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
     QCOMPARE(capturedTarget.location, resource.location);
     QCOMPARE(capturedTarget.matchedField, QStringLiteral("anchor"));
     QCOMPARE(capturedTarget.score, 0.0);
+    QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Match: anchor")));
+    QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Anchor: Heading")));
     QVERIFY(capturedTarget.anchor.has_value());
     QCOMPARE(static_cast<int>(capturedTarget.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
     QCOMPARE(capturedTarget.anchor->target, QStringLiteral("Power sequencing"));
@@ -1595,6 +1608,9 @@ void WidgetSmokeTest::panelAllowsHostToHandleUrlTarget()
     QCOMPARE(capturedTarget.matchedField, QStringLiteral("title"));
     QCOMPARE(capturedTarget.matchedContextTag, QStringLiteral("zeroslack"));
     QCOMPARE(capturedTarget.matchedContextLocationPrefix, QStringLiteral("https://docs.example.com"));
+    QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Match: title")));
+    QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Context tag: zeroslack")));
+    QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Context location: https://docs.example.com")));
     QVERIFY(capturedTarget.score < 10.0);
     QVERIFY(!capturedTarget.anchor.has_value());
 

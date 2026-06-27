@@ -204,7 +204,7 @@ Status:
 - Host relation-label-scoped context ranking API: done.
 - Atomic host search/filter/ranking context snapshot API: done.
 - Result row included in host open-target payloads: done.
-- Rich host activation payload with resource metadata, match/context details, score, and anchors: done.
+- Rich host activation payload with resource metadata, match/context details, match summary, score, and anchors: done.
 - Standalone fallback behavior: done.
 - Embedding ownership boundary documentation: done.
 - Tests: done.
@@ -333,7 +333,7 @@ Status:
 - Anchor-level usage history and ranking: done.
 - Pinned roots and root-level ranking boosts: done.
 - Exact-match ranking within each match type: done.
-- Result tooltip details for match fields, anchors, host context matches, and matched relation notes: done.
+- Result tooltip and host payload summary details for match fields, anchors, host context matches, and matched relation notes: done.
 
 ## MVP 14: Integration And Source Refinement
 
