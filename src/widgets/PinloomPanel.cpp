@@ -49,7 +49,7 @@ QString anchorLabel(const Anchor &anchor)
     case AnchorType::MarkdownBlock:
         return QStringLiteral("Block");
     case AnchorType::SymbolLike:
-        return QStringLiteral("Symbol");
+        return QStringLiteral("Marker");
     case AnchorType::PdfPage:
         return QStringLiteral("Page");
     case AnchorType::PdfRegion:

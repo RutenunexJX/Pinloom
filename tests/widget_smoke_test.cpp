@@ -26,6 +26,7 @@ private slots:
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDisplaysAnchorAwareResults();
+    void panelDisplaysSymbolLikeAnchorsAsMarkers();
     void panelDisplaysBeaconLineResults();
     void panelDisplaysFileLineResults();
     void panelDisplaysPdfPageResults();
@@ -390,6 +391,31 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
     QVERIFY(results->item(0)->toolTip().contains(resource.location));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Heading")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
+}
+
+void WidgetSmokeTest::panelDisplaysSymbolLikeAnchorsAsMarkers()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("marker-note");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("marker-notes.txt");
+    resource.location = QStringLiteral("marker-notes.txt");
+    resource.anchors = {Anchor{AnchorType::SymbolLike, QStringLiteral("symbol-like: handoff_marker"), 9}};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("handoff_marker"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Marker] symbol-like: handoff_marker - line 9")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Marker")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 9);
 }
 
 void WidgetSmokeTest::panelDisplaysBeaconLineResults()
