@@ -402,7 +402,7 @@ void WidgetSmokeTest::panelDisplaysMarkerAnchors()
     resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("marker-notes.txt");
     resource.location = QStringLiteral("marker-notes.txt");
-    resource.anchors = {Anchor{AnchorType::SymbolLike, QStringLiteral("marker: handoff_marker"), 9}};
+    resource.anchors = {Anchor{AnchorType::Marker, QStringLiteral("marker: handoff_marker"), 9}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);

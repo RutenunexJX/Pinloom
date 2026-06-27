@@ -48,7 +48,7 @@ QString anchorLabel(const Anchor &anchor)
         return QStringLiteral("Heading");
     case AnchorType::MarkdownBlock:
         return QStringLiteral("Block");
-    case AnchorType::SymbolLike:
+    case AnchorType::Marker:
         return QStringLiteral("Marker");
     case AnchorType::PdfPage:
         return QStringLiteral("Page");

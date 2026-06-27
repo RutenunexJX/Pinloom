@@ -80,8 +80,8 @@ QString anchorTypeToString(AnchorType type)
         return QStringLiteral("markdown_heading");
     case AnchorType::MarkdownBlock:
         return QStringLiteral("markdown_block");
-    case AnchorType::SymbolLike:
-        return QStringLiteral("symbol_like");
+    case AnchorType::Marker:
+        return QStringLiteral("marker");
     case AnchorType::PdfPage:
         return QStringLiteral("pdf_page");
     case AnchorType::PdfRegion:
@@ -107,9 +107,11 @@ AnchorType anchorTypeFromString(const QString &type)
     if (type == QLatin1String("markdown_block")) {
         return AnchorType::MarkdownBlock;
     }
-    // Accept legacy code_* rows while new writes use neutral storage names.
-    if (type == QLatin1String("symbol_like") || type == QLatin1String("code_symbol")) {
-        return AnchorType::SymbolLike;
+    // Accept legacy symbol/code rows while new writes use neutral storage names.
+    if (type == QLatin1String("marker")
+        || type == QLatin1String("symbol_like")
+        || type == QLatin1String("code_symbol")) {
+        return AnchorType::Marker;
     }
     if (type == QLatin1String("pdf_page")) {
         return AnchorType::PdfPage;
@@ -282,7 +284,7 @@ bool shouldIndexAnchorTarget(const Anchor &anchor)
     case AnchorType::FileLine:
     case AnchorType::MarkdownHeading:
     case AnchorType::MarkdownBlock:
-    case AnchorType::SymbolLike:
+    case AnchorType::Marker:
     case AnchorType::PdfPage:
     case AnchorType::PdfRegion:
     case AnchorType::UrlFragment:

@@ -173,7 +173,7 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     textSnippet.title = QStringLiteral("Neutral Text Beacon");
     textSnippet.location = QStringLiteral("snippets/beacon.txt");
     textSnippet.anchors = {
-        Anchor{AnchorType::SymbolLike, QStringLiteral("marker: neutral_beacon"), 3}
+        Anchor{AnchorType::Marker, QStringLiteral("marker: neutral_beacon"), 3}
     };
     QVERIFY2(repository.upsertResource(textSnippet), qPrintable(repository.lastError()));
 
@@ -181,7 +181,7 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(storedSnippet.has_value());
     QCOMPARE(storedSnippet->kind, ResourceKind::TextSnippet);
     QCOMPARE(storedSnippet->anchors.size(), 1);
-    QCOMPARE(storedSnippet->anchors.first().type, AnchorType::SymbolLike);
+    QCOMPARE(storedSnippet->anchors.first().type, AnchorType::Marker);
 
     const QString rawConnectionName =
         QStringLiteral("pinloom_raw_kind_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
@@ -194,13 +194,16 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("text_snippet"));
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'text-snippet'")));
     QVERIFY(rawQuery.next());
-    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("symbol_like"));
+    QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("marker"));
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO resources(id, kind, title, location) "
         "VALUES ('legacy-neutral-snippet', 'code_snippet', 'Legacy Neutral Snippet', 'legacy/snippet.txt')")));
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
         "VALUES ('legacy-neutral-snippet', 0, 'code_symbol', 'legacy_symbol', 9)")));
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "INSERT INTO anchors(resource_id, anchor_order, type, target, line) "
+        "VALUES ('legacy-neutral-snippet', 1, 'symbol_like', 'legacy_marker', 10)")));
     rawQuery = QSqlQuery();
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
@@ -209,8 +212,9 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     const std::optional<Resource> legacySnippet = repository.findResource(QStringLiteral("legacy-neutral-snippet"));
     QVERIFY(legacySnippet.has_value());
     QCOMPARE(legacySnippet->kind, ResourceKind::TextSnippet);
-    QCOMPARE(legacySnippet->anchors.size(), 1);
-    QCOMPARE(legacySnippet->anchors.first().type, AnchorType::SymbolLike);
+    QCOMPARE(legacySnippet->anchors.size(), 2);
+    QCOMPARE(legacySnippet->anchors.first().type, AnchorType::Marker);
+    QCOMPARE(legacySnippet->anchors.last().type, AnchorType::Marker);
 
     SearchQuery taggedQuery;
     taggedQuery.text = QStringLiteral("plan");
