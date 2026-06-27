@@ -4263,7 +4263,7 @@ void appendFileLineAnchor(Resource &resource, const QString &target, int line)
     resource.anchors.append(anchor);
 }
 
-void appendActionLineAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendTodoFixmeNoteTextBeaconAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     static const QRegularExpression markerPattern(
         QStringLiteral("\\b(TODO|FIXME|NOTE)\\b\\s*:?[\\s-]*(.*)"),
@@ -7764,7 +7764,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
             contentLines.append(contentLine);
         }
         appendTextConventionLineMetadata(resource, fileInfo, line, lineNumber);
-        appendActionLineAnchorsFromLine(resource, line, lineNumber);
+        appendTodoFixmeNoteTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendTextNamedEntryBeaconsFromLine(resource, fileInfo, line, lineNumber, textNamedEntryBeaconState);
         if (configStyleText) {

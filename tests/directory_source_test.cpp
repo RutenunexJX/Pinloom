@@ -47,7 +47,7 @@ private slots:
     void extractsNeutralConfigStyleTextBeaconAnchors();
     void extractsRuleAndContainerTextBeaconAnchors();
     void extractsFileReferenceManifestBeacons();
-    void extractsTextActionLineAnchors();
+    void extractsTodoFixmeNoteTextBeaconAnchors();
     void extractsWebShortcutResources();
     void extractsContentSniffedTextUrlResources();
     void extractsEmailMessageUrlResources();
@@ -3196,7 +3196,7 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
     QCOMPARE(inputFileRelations.first().targetResourceId, inputFileIt->id);
 }
 
-void DirectorySourceTest::extractsTextActionLineAnchors()
+void DirectorySourceTest::extractsTodoFixmeNoteTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
