@@ -170,7 +170,7 @@ Completed:
 
 Completed:
 
-- Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources.
+- Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources, extension lists, or shebang interpreter allowlists.
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker lines.
 - Keep CMake project/target/package/option/function/macro/test beacons for build-file jumps.
 - Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for build/container jumps.

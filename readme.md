@@ -76,7 +76,7 @@ Implemented:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, JSON/TOML/requirements-style dependency anchors, and CSV/TSV column anchors.
-- Unified text beacon indexing for small content-sniffed text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and explicit symbol-like marker line anchors.
+- Unified text beacon indexing for small content-sniffed text files, without language extension or shebang interpreter allowlists, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and explicit symbol-like marker line anchors.
 - Package manifest dependency anchors are JSON/TOML/requirements-style line beacons, not programming-language dependency analysis.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard for compressed and Office/Visio package files before any dedicated reader exists, with `path-only` and `package-container` tags.
@@ -215,7 +215,7 @@ Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for content-sniffed unified text file classification, unknown-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for content-sniffed unified text file classification, unknown-extension and no-extension text beacons, binary-like NUL rejection, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/explicit symbol-like marker beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json build-input line anchors and `build-input` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 

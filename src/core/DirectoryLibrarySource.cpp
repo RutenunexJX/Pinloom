@@ -400,28 +400,6 @@ bool isGitlabCiFile(const QFileInfo &fileInfo)
         || fileName.compare(QStringLiteral(".gitlab-ci.yaml"), Qt::CaseInsensitive) == 0;
 }
 
-bool hasTextShebang(const QFileInfo &fileInfo)
-{
-    if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
-        return false;
-    }
-
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return false;
-    }
-
-    const QString firstLine = QString::fromUtf8(file.readLine(512)).trimmed();
-    if (!firstLine.startsWith(QLatin1String("#!"))) {
-        return false;
-    }
-
-    static const QRegularExpression textInterpreterPattern(
-        QStringLiteral("\\b(?:bash|sh|zsh|fish|python(?:\\d+(?:\\.\\d+)*)?|node|deno|pwsh|powershell|perl|ruby)\\b"),
-        QRegularExpression::CaseInsensitiveOption);
-    return textInterpreterPattern.match(firstLine).hasMatch();
-}
-
 bool isCompressedPackageFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
@@ -544,8 +522,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
 
     if (isCMakeFile(fileInfo)
         || isMakefile(fileInfo)
-        || isDockerfile(fileInfo)
-        || hasTextShebang(fileInfo)) {
+        || isDockerfile(fileInfo)) {
         return true;
     }
 

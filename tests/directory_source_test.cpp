@@ -2192,6 +2192,10 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     writeFile(dir.filePath(QStringLiteral("library/scripts/flow.tcl")),
               QByteArray("# SYMBOL: launch_dock\n"
                          "status: ready\n"));
+    writeFile(dir.filePath(QStringLiteral("library/scripts/handoff")),
+              QByteArray("#!/usr/bin/env custom-runner\n"
+                         "SYMBOL: handoff_entry\n"
+                         "TODO: script-like text without interpreter allowlist\n"));
     writeFile(dir.filePath(QStringLiteral("library/src/pins.xdc")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
@@ -2238,6 +2242,11 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(tclIt != resources.cend());
     QVERIFY(hasLineAnchor(*tclIt, QStringLiteral("symbol-like: launch_dock"), 1));
 
+    const auto handoffIt = findFile(QStringLiteral("handoff"));
+    QVERIFY(handoffIt != resources.cend());
+    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("symbol-like: handoff_entry"), 2));
+    QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("TODO: script-like text without interpreter allowlist"), 3));
+
     const auto xdcIt = findFile(QStringLiteral("pins.xdc"));
     QVERIFY(xdcIt != resources.cend());
     QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("NOTE: board pin review"), 1));
@@ -2283,6 +2292,13 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
         return result.resource.title == QLatin1String("notes.opaque")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("TODO: index unknown suffix text");
+    }));
+
+    const QList<SearchResult> handoffResults = repository.search(SearchQuery{QStringLiteral("interpreter allowlist")});
+    QVERIFY(std::any_of(handoffResults.cbegin(), handoffResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("handoff")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("TODO: script-like text without interpreter allowlist");
     }));
 
     const QList<SearchResult> hiddenResults = repository.search(SearchQuery{QStringLiteral("hidden")});
