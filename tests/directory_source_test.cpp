@@ -694,11 +694,41 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("workbook.xltm"),
         QStringLiteral("workbook.xltx")
     };
+    const QStringList readerLookingPackageFileNames{
+        QStringLiteral("capture.har.gz"),
+        QStringLiteral("session.warc.gz"),
+        QStringLiteral("inventory.sqlite.gz"),
+        QStringLiteral("snapshot.mhtml.zip")
+    };
     QStringList packageFileNames = archiveLikePackageFileNames;
     packageFileNames += documentDesignPackageFileNames;
+    packageFileNames += readerLookingPackageFileNames;
     for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }
+    writeFile(dir.filePath(QStringLiteral("library/artifacts/capture.har.gz")),
+              QByteArray("{\"log\":{\"entries\":[{\"_title\":\"ReaderContainedHarTitle\","
+                         "\"request\":{\"method\":\"GET\","
+                         "\"url\":\"https://docs.example.com/compressed/har#entry\"},"
+                         "\"response\":{\"status\":200}}]}}\n"));
+    writeFile(dir.filePath(QStringLiteral("library/artifacts/session.warc.gz")),
+              QByteArray("WARC/1.0\r\n"
+                         "WARC-Type: response\r\n"
+                         "WARC-Target-URI: https://docs.example.com/compressed/warc#snapshot\r\n"
+                         "\r\n"
+                         "<html><title>ReaderContainedWarcTitle</title></html>\r\n"));
+    QByteArray sqliteLikePackage("SQLite format 3", 15);
+    sqliteLikePackage.append('\0');
+    sqliteLikePackage.append("ReaderContainedSqliteTable https://docs.example.com/compressed/sqlite\n");
+    writeFile(dir.filePath(QStringLiteral("library/artifacts/inventory.sqlite.gz")), sqliteLikePackage);
+    writeFile(dir.filePath(QStringLiteral("library/artifacts/snapshot.mhtml.zip")),
+              QByteArray("Content-Type: multipart/related; boundary=\"pinloom\"\r\n"
+                         "\r\n"
+                         "--pinloom\r\n"
+                         "Content-Type: text/html\r\n"
+                         "Content-Location: https://docs.example.com/compressed/mhtml#page\r\n"
+                         "\r\n"
+                         "<html><title>ReaderContainedMhtmlTitle</title></html>\r\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
@@ -939,6 +969,21 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     verifyIndexedPackageTags(*visioPackageResultIt);
     QVERIFY(repository.resourceRelations(visioPackageResultIt->resource.id).isEmpty());
 
+    for (const QString &fileName : readerLookingPackageFileNames) {
+        const QList<SearchResult> readerLookingPackageResults = repository.search(SearchQuery{fileName});
+        auto readerLookingPackageResultIt = std::find_if(
+            readerLookingPackageResults.cbegin(),
+            readerLookingPackageResults.cend(),
+            [&](const SearchResult &result) {
+                return result.resource.kind == ResourceKind::File
+                    && result.resource.title == fileName
+                    && !result.matchedAnchor.has_value();
+            });
+        QVERIFY(readerLookingPackageResultIt != readerLookingPackageResults.cend());
+        verifyIndexedPackageTags(*readerLookingPackageResultIt);
+        QVERIFY(repository.resourceRelations(readerLookingPackageResultIt->resource.id).isEmpty());
+    }
+
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
     QVERIFY(internalResults.isEmpty());
     const QList<SearchResult> documentXmlResults = repository.search(SearchQuery{QStringLiteral("word/document.xml")});
@@ -949,6 +994,20 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(contentResults.isEmpty());
     const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("docs.example.com/package/inside")});
     QVERIFY(urlResults.isEmpty());
+    const QStringList readerLookingContentTokens{
+        QStringLiteral("ReaderContainedHarTitle"),
+        QStringLiteral("ReaderContainedWarcTitle"),
+        QStringLiteral("ReaderContainedSqliteTable"),
+        QStringLiteral("ReaderContainedMhtmlTitle"),
+        QStringLiteral("compressed/har"),
+        QStringLiteral("compressed/warc"),
+        QStringLiteral("compressed/sqlite"),
+        QStringLiteral("compressed/mhtml")
+    };
+    for (const QString &token : readerLookingContentTokens) {
+        const QList<SearchResult> readerLookingContentResults = repository.search(SearchQuery{token});
+        QVERIFY(readerLookingContentResults.isEmpty());
+    }
 }
 
 void DirectorySourceTest::extractsTextStructureLineBeacons()
