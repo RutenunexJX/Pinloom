@@ -20,7 +20,7 @@ class DirectorySourceTest : public QObject {
 private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
-    void indexesPackageContainersAsPathOnlyFiles();
+    void indexesCompressedAndDocumentPackageContainersAsPathOnlyFiles();
     void extractsTextStructureLineBeacons();
     void extractsWorkflowConfigLineBeacons();
     void extractsPipelineConfigLineBeacons();
@@ -442,7 +442,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     QVERIFY(binaryResults.isEmpty());
 }
 
-void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
+void DirectorySourceTest::indexesCompressedAndDocumentPackageContainersAsPathOnlyFiles()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -453,7 +453,7 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
                                      "hidden-entry.md\n"
                                      "Hidden Package Guide\n"
                                      "https://docs.example.com/package/inside\n");
-    const QStringList packageFileNames{
+    const QStringList compressedPackageFileNames{
         QStringLiteral("package.zip"),
         QStringLiteral("bundle.tar"),
         QStringLiteral("bundle.tar.br"),
@@ -486,12 +486,16 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
         QStringLiteral("enterprise.ear"),
         QStringLiteral("phone.ipa"),
         QStringLiteral("module.jar"),
-        QStringLiteral("site.war"),
+        QStringLiteral("site.war")
+    };
+    const QStringList documentPackageFileNames{
         QStringLiteral("document.docx"),
         QStringLiteral("workbook.xlsx"),
         QStringLiteral("slides.pptx"),
         QStringLiteral("diagram.vsdx")
     };
+    QStringList packageFileNames = compressedPackageFileNames;
+    packageFileNames += documentPackageFileNames;
     for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }

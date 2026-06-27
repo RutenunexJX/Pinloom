@@ -403,17 +403,17 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep compressed packages, including app/archive packages, `.br` files, and compound tar packages, as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only until document readers can emit real document positions.
+- Keep compressed packages, including app/archive packages, `.br` files, and compound tar packages, as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only unless explicit document readers can emit user-facing document positions without exposing package-entry paths.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
 
 1. Existing reader consolidation.
    Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
-2. Office baseline readers.
-   Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons.
+2. Office document-level readers.
+   Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons as document-level positions, not package-entry paths.
 3. Engineering and design special readers.
-   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons; generic SQLite table, column, URL-field, and sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
+   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons as document-level positions; generic SQLite table, column, URL-field, and sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
 4. Scanned/OCR readers.
    Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
 5. Reader contract and quality layer.
@@ -425,7 +425,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only until document readers can emit real document positions. The guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only unless document readers can emit real document positions without exposing package-entry paths. The guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.
