@@ -472,12 +472,16 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         QStringLiteral("swm"),
         QStringLiteral("tar"),
         QStringLiteral("taz"),
+        QStringLiteral("tbr"),
         QStringLiteral("tbz"),
         QStringLiteral("tbz2"),
         QStringLiteral("tgz"),
         QStringLiteral("tlz"),
+        QStringLiteral("tlz4"),
         QStringLiteral("tlzma"),
         QStringLiteral("txz"),
+        QStringLiteral("tzst"),
+        QStringLiteral("tzstd"),
         QStringLiteral("vsix"),
         QStringLiteral("war"),
         QStringLiteral("whl"),
@@ -492,7 +496,8 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         QStringLiteral("zipx"),
         QStringLiteral("zoo"),
         QStringLiteral("zpaq"),
-        QStringLiteral("zst")
+        QStringLiteral("zst"),
+        QStringLiteral("zstd")
     }.contains(suffix)
         || completeSuffix.endsWith(QLatin1String(".tar.br"))
         || completeSuffix.endsWith(QLatin1String(".tar.bz2"))
@@ -503,7 +508,8 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         || completeSuffix.endsWith(QLatin1String(".tar.lzo"))
         || completeSuffix.endsWith(QLatin1String(".tar.z"))
         || completeSuffix.endsWith(QLatin1String(".tar.xz"))
-        || completeSuffix.endsWith(QLatin1String(".tar.zst"));
+        || completeSuffix.endsWith(QLatin1String(".tar.zst"))
+        || completeSuffix.endsWith(QLatin1String(".tar.zstd"));
 }
 
 bool isDocumentDesignPackageContainerFile(const QFileInfo &fileInfo)
