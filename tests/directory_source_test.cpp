@@ -2844,7 +2844,7 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
               QStringLiteral("[\n"
                              "  {\n"
                              "    \"directory\": \"%1\",\n"
-                             "    \"command\": \"ignored-command-only-token --not-a-beacon\",\n"
+                             "    \"command\": \"ignored-command-only-token notabeaconflag --not-a-beacon\",\n"
                              "    \"file\": \"inputs/beacon-input.txt\",\n"
                              "    \"output\": \"build/beacon-output.loc\"\n"
                              "  }\n"
@@ -2879,6 +2879,9 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
     QVERIFY(std::none_of(referenceManifestIt->anchors.cbegin(), referenceManifestIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.target.contains(QStringLiteral("ignored-command-only-token"));
     }));
+    QVERIFY(std::none_of(referenceManifestIt->anchors.cbegin(), referenceManifestIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.contains(QStringLiteral("notabeaconflag"));
+    }));
 
     QCOMPARE(referenceManifestIt->relations.size(), 1);
     QCOMPARE(referenceManifestIt->relations.first().sourceResourceId, referenceManifestIt->id);
@@ -2887,6 +2890,7 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
     QCOMPARE(referenceManifestIt->relations.first().note,
              QStringLiteral("file reference line 5: %1").arg(anchorTarget));
     QVERIFY(!referenceManifestIt->relations.first().note.contains(QStringLiteral("ignored-command-only-token")));
+    QVERIFY(!referenceManifestIt->relations.first().note.contains(QStringLiteral("notabeaconflag")));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2903,6 +2907,13 @@ void DirectorySourceTest::extractsFileReferenceManifestBeacons()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 5;
+    }));
+
+    const QList<SearchResult> commandTextResults = repository.search(SearchQuery{QStringLiteral("notabeaconflag")});
+    QVERIFY(std::any_of(commandTextResults.cbegin(), commandTextResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("compile_commands.json")
+            && !result.matchedAnchor.has_value();
     }));
 
     SearchQuery query{QStringLiteral("jump target")};
