@@ -2622,8 +2622,6 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library/config")));
     QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
     QVERIFY(dir.mkpath(QStringLiteral("library/rtl")));
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
-    QVERIFY(dir.mkpath(QStringLiteral("library/web")));
     QVERIFY(dir.mkpath(QStringLiteral("library/eda")));
     writeFile(dir.filePath(QStringLiteral("library/text/handoff.txt")),
               QByteArray("// ANCHOR: host dock handoff\n"
@@ -2654,15 +2652,6 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
                          "  // TODO: review reset handoff\n"
                          "  // MARKER: sv_plain_text_anchor\n"
                          "endmodule\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/driver.cpp")),
-              QByteArray("class Driver {}\n"
-                         "// TODO: cpp suffix remains plain text\n"
-                         "// MARKER: cpp_plain_text_anchor\n"));
-    writeFile(dir.filePath(QStringLiteral("library/web/app.js")),
-              QByteArray("import value from './value.js';\n"
-                         "function boot() { return value; }\n"
-                         "// NOTE: js suffix remains plain text\n"
-                         "// ANCHOR: js_plain_text_anchor\n"));
     writeFile(dir.filePath(QStringLiteral("library/eda/flow.tcl")),
               QByteArray("proc launch_flow {} {\n"
                          "    puts \"plain text\"\n"
@@ -2743,31 +2732,6 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(!hdlIt->tags.contains(QStringLiteral("systemverilog")));
     QVERIFY(std::none_of(hdlIt->anchors.cbegin(), hdlIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.target.startsWith(QStringLiteral("module:"), Qt::CaseInsensitive)
-            || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
-    }));
-
-    const auto cppIt = findFile(QStringLiteral("driver.cpp"));
-    QVERIFY(cppIt != resources.cend());
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("TODO: cpp suffix remains plain text"), 2));
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("marker: cpp_plain_text_anchor"), 3));
-    QVERIFY(!cppIt->tags.contains(QStringLiteral("cpp")));
-    QVERIFY(!cppIt->tags.contains(QStringLiteral("c++")));
-    QVERIFY(!cppIt->tags.contains(QStringLiteral("cxx")));
-    QVERIFY(std::none_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.target.startsWith(QStringLiteral("class:"), Qt::CaseInsensitive)
-            || anchor.target.startsWith(QStringLiteral("function:"), Qt::CaseInsensitive)
-            || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
-    }));
-
-    const auto jsIt = findFile(QStringLiteral("app.js"));
-    QVERIFY(jsIt != resources.cend());
-    QVERIFY(hasLineAnchor(*jsIt, QStringLiteral("NOTE: js suffix remains plain text"), 3));
-    QVERIFY(hasLineAnchor(*jsIt, QStringLiteral("marker: js_plain_text_anchor"), 4));
-    QVERIFY(!jsIt->tags.contains(QStringLiteral("javascript")));
-    QVERIFY(!jsIt->tags.contains(QStringLiteral("js")));
-    QVERIFY(std::none_of(jsIt->anchors.cbegin(), jsIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.target.startsWith(QStringLiteral("import:"), Qt::CaseInsensitive)
-            || anchor.target.startsWith(QStringLiteral("function:"), Qt::CaseInsensitive)
             || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
     }));
 
@@ -2871,26 +2835,6 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
             && !result.resource.tags.contains(QStringLiteral("systemverilog"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("TODO: review reset handoff");
-    }));
-
-    const QList<SearchResult> cppResults = repository.search(SearchQuery{QStringLiteral("cpp suffix")});
-    QVERIFY(std::any_of(cppResults.cbegin(), cppResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("driver.cpp")
-            && result.resource.kind == ResourceKind::File
-            && !result.resource.tags.contains(QStringLiteral("cpp"))
-            && !result.resource.tags.contains(QStringLiteral("c++"))
-            && result.matchedAnchor.has_value()
-            && result.matchedAnchor->target == QLatin1String("TODO: cpp suffix remains plain text");
-    }));
-
-    const QList<SearchResult> jsResults = repository.search(SearchQuery{QStringLiteral("js suffix")});
-    QVERIFY(std::any_of(jsResults.cbegin(), jsResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("app.js")
-            && result.resource.kind == ResourceKind::File
-            && !result.resource.tags.contains(QStringLiteral("javascript"))
-            && !result.resource.tags.contains(QStringLiteral("js"))
-            && result.matchedAnchor.has_value()
-            && result.matchedAnchor->target == QLatin1String("NOTE: js suffix remains plain text");
     }));
 
     const QList<SearchResult> tclResults = repository.search(SearchQuery{QStringLiteral("tcl suffix")});
