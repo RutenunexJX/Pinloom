@@ -1182,6 +1182,20 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("named entry: locator-ui");
     }));
+
+    const QList<SearchResult> dependencyResults = repository.search(SearchQuery{QStringLiteral("language-package")});
+    QVERIFY(std::none_of(dependencyResults.cbegin(), dependencyResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("named-entries.json")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target.startsWith(QStringLiteral("named entry:"), Qt::CaseInsensitive);
+    }));
+
+    const QList<SearchResult> requirementsResults = repository.search(SearchQuery{QStringLiteral("pinloom-sdk")});
+    QVERIFY(std::none_of(requirementsResults.cbegin(), requirementsResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("requirements-dev.txt")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target.startsWith(QStringLiteral("named entry:"), Qt::CaseInsensitive);
+    }));
 }
 
 void DirectorySourceTest::extractsTextHeadingAndBlockAnchors()
