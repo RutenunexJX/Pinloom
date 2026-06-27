@@ -174,8 +174,7 @@ Completed:
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker lines.
 - Keep directive-style build configuration line beacons for content-sniffed text jumps, with neutral `directive ...` labels rather than build-language semantics.
 - Keep rule-target and container-recipe line beacons for content-sniffed text jumps, with neutral `rule ...` and `container ...` labels rather than Make/Docker language support.
-- Keep GitHub Actions workflow/job/step/action/run line beacons for CI jumps.
-- Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
+- Keep CI configuration workflow/job/stage/step/uses/run/script/needs line beacons for jumps, with neutral `ci ...` labels rather than vendor-specific CI language support.
 - Keep JSON/TOML/requirements-style dependency line beacons as text beacons, not package-manager or language dependency analysis.
 - Add compile_commands.json line anchors and `build-input` relations from build databases to referenced file paths.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.

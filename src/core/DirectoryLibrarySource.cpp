@@ -4245,13 +4245,13 @@ struct TextStructureBeaconState {
     QString sectionPath;
 };
 
-struct GithubActionsWorkflowState {
+struct WorkflowConfigBeaconState {
     bool inJobs = false;
     QString currentJob;
     bool inSteps = false;
 };
 
-struct GitlabCiPipelineState {
+struct PipelineConfigBeaconState {
     QString currentJob;
     QString currentListKey;
 };
@@ -4293,10 +4293,10 @@ int leadingSpaceCount(const QString &line)
     return count;
 }
 
-void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
-                                               const QString &line,
-                                               int lineNumber,
-                                               GithubActionsWorkflowState &state)
+void appendWorkflowConfigBeaconsFromLine(Resource &resource,
+                                         const QString &line,
+                                         int lineNumber,
+                                         WorkflowConfigBeaconState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4314,7 +4314,7 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
             if (key == QLatin1String("name")) {
                 const QString workflowName = cleanedYamlScalar(keyMatch.captured(2));
                 if (!workflowName.isEmpty()) {
-                    appendBeaconLineAnchor(resource, QStringLiteral("workflow: %1").arg(workflowName), lineNumber);
+                    appendBeaconLineAnchor(resource, QStringLiteral("ci workflow: %1").arg(workflowName), lineNumber);
                 }
             }
             state.inJobs = key == QLatin1String("jobs");
@@ -4335,7 +4335,7 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
             state.inSteps = false;
             if (!state.currentJob.isEmpty()) {
                 appendBeaconLineAnchor(resource,
-                                       QStringLiteral("workflow job: %1").arg(state.currentJob),
+                                       QStringLiteral("ci job: %1").arg(state.currentJob),
                                        lineNumber);
             }
         }
@@ -4358,7 +4358,7 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
                 const QString jobName = cleanedYamlScalar(keyMatch.captured(2));
                 if (!jobName.isEmpty()) {
                     appendFileLineAnchor(resource,
-                                         QStringLiteral("workflow job name: %1").arg(jobName),
+                                         QStringLiteral("ci job name: %1").arg(jobName),
                                          lineNumber);
                 }
             }
@@ -4381,11 +4381,11 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
     }
 
     if (key == QLatin1String("name")) {
-        appendBeaconLineAnchor(resource, QStringLiteral("workflow step: %1").arg(value), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("ci step: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("uses")) {
-        appendFileLineAnchor(resource, QStringLiteral("workflow action: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("ci uses: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("run")) {
-        appendFileLineAnchor(resource, QStringLiteral("workflow run: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("ci run: %1").arg(value), lineNumber);
     }
 }
 
@@ -4407,10 +4407,10 @@ bool isGitlabCiReservedTopLevelKey(const QString &key)
     return reservedKeys.contains(key, Qt::CaseInsensitive);
 }
 
-void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
-                                           const QString &line,
-                                           int lineNumber,
-                                           GitlabCiPipelineState &state)
+void appendPipelineConfigBeaconsFromLine(Resource &resource,
+                                         const QString &line,
+                                         int lineNumber,
+                                         PipelineConfigBeaconState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4445,7 +4445,7 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
 
         state.currentJob = key;
         if (!state.currentJob.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("gitlab job: %1").arg(state.currentJob), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("ci job: %1").arg(state.currentJob), lineNumber);
         }
         return;
     }
@@ -4455,7 +4455,7 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
         if (listMatch.hasMatch()) {
             const QString stageName = cleanedYamlScalar(listMatch.captured(1));
             if (!stageName.isEmpty()) {
-                appendFileLineAnchor(resource, QStringLiteral("gitlab stage: %1").arg(stageName), lineNumber);
+                appendFileLineAnchor(resource, QStringLiteral("ci stage: %1").arg(stageName), lineNumber);
             }
         }
         return;
@@ -4475,12 +4475,12 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
         const QString key = keyMatch.captured(1).trimmed();
         const QString value = cleanedYamlScalar(keyMatch.captured(2));
         if (key == QLatin1String("stage") && !value.isEmpty()) {
-            appendFileLineAnchor(resource, QStringLiteral("gitlab job stage: %1").arg(value), lineNumber);
+            appendFileLineAnchor(resource, QStringLiteral("ci job stage: %1").arg(value), lineNumber);
             state.currentListKey.clear();
             return;
         }
         if (key == QLatin1String("image") && !value.isEmpty()) {
-            appendFileLineAnchor(resource, QStringLiteral("gitlab image: %1").arg(value), lineNumber);
+            appendFileLineAnchor(resource, QStringLiteral("ci image: %1").arg(value), lineNumber);
             state.currentListKey.clear();
             return;
         }
@@ -4492,8 +4492,8 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
             state.currentListKey = key;
             if (!value.isEmpty() && value != QLatin1String("|") && value != QLatin1String(">")) {
                 const QString anchorPrefix = key == QLatin1String("needs")
-                    ? QStringLiteral("gitlab needs")
-                    : QStringLiteral("gitlab %1").arg(key);
+                    ? QStringLiteral("ci needs")
+                    : QStringLiteral("ci %1").arg(key);
                 appendFileLineAnchor(resource, QStringLiteral("%1: %2").arg(anchorPrefix, value), lineNumber);
             }
             return;
@@ -4524,12 +4524,12 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
     }
 
     if (state.currentListKey == QLatin1String("needs")) {
-        appendFileLineAnchor(resource, QStringLiteral("gitlab needs: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("ci needs: %1").arg(value), lineNumber);
         return;
     }
 
     appendFileLineAnchor(resource,
-                         QStringLiteral("gitlab %1: %2").arg(state.currentListKey, value),
+                         QStringLiteral("ci %1: %2").arg(state.currentListKey, value),
                          lineNumber);
 }
 
@@ -7594,8 +7594,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     bool tabularHeaderAnchorsAdded = false;
     TextDependencyBeaconState textDependencyBeaconState;
     TextStructureBeaconState textStructureState;
-    GithubActionsWorkflowState githubActionsWorkflowState;
-    GitlabCiPipelineState gitlabCiPipelineState;
+    WorkflowConfigBeaconState workflowConfigBeaconState;
+    PipelineConfigBeaconState pipelineConfigBeaconState;
     int lineNumber = 0;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
@@ -7614,10 +7614,10 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
             appendContainerRecipeBeaconsFromLine(resource, line, lineNumber);
         }
         if (githubActionsWorkflow) {
-            appendGithubActionsWorkflowAnchorsFromLine(resource, line, lineNumber, githubActionsWorkflowState);
+            appendWorkflowConfigBeaconsFromLine(resource, line, lineNumber, workflowConfigBeaconState);
         }
         if (gitlabCi) {
-            appendGitlabCiPipelineAnchorsFromLine(resource, line, lineNumber, gitlabCiPipelineState);
+            appendPipelineConfigBeaconsFromLine(resource, line, lineNumber, pipelineConfigBeaconState);
         }
         if (textStructureBeacons) {
             appendTextStructureAnchorsFromLine(resource, fileInfo, line, lineNumber, textStructureState);
