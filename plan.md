@@ -377,9 +377,9 @@ Status:
 - Inline external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Reference-style external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Local HTML page content extraction/search, canonical URL aliases, and heading fragment anchors: done.
-- MHTML/MHT web capture reader content extraction/search, canonical URL aliases, and heading fragment anchors: done.
+- Content-verified MHTML/MHT web capture reader content extraction/search, canonical URL aliases, and heading fragment anchors, with non-capture `.mhtml`/`.mht` text kept on the unified text path: done.
 - Local HTML outbound link URL resources with source line anchors and `links-to` relations: done.
-- MHTML/MHT outbound link URL resources with `links-to` relations: done.
+- Content-verified MHTML/MHT outbound link URL resources with `links-to` relations: done.
 - Browser bookmark export HTML indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - Chromium/Edge-style Bookmarks JSON indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - XBEL bookmark XML indexing as individual URL resources with source line anchors and `links-to` relations: done.
@@ -418,7 +418,7 @@ Scope:
 Phases:
 
 1. Existing reader consolidation.
-   Treat the current PDF, header-verified browser SQLite, HTML/MHTML, content-verified HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
+   Treat the current PDF, header-verified browser SQLite, HTML, content-verified MHTML/HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
 2. Engineering and design special readers.
    Keep generic SQLite table, column, URL-field, and sample-value beacons on header-verified `.db`/`.sqlite`/`.sqlite3` database resources; non-SQLite `.db` text remains on the unified text path. URL values remain line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and compound/package document-design containers such as doc/docx, xls/xlsx, ppt/pptx, vsd/vsdx, odt/ods/odp, Pages/Numbers/Sketch packages, and epub are not reader targets; they remain ordinary path-only package-container file resources and are not expanded, text-scanned, or passed to special readers when compressed/package-wrapped names look like reader inputs.
 3. Scanned/OCR readers.

@@ -60,6 +60,7 @@ private slots:
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
     void extractsMhtmlWebCaptureContent();
+    void keepsNonCaptureMhtmlFilesAsUnifiedText();
     void extractsBookmarkExportLinks();
     void extractsBrowserBookmarkJsonLinks();
     void extractsXbelBookmarkLinks();
@@ -5014,6 +5015,113 @@ void DirectorySourceTest::extractsMhtmlWebCaptureContent()
         return result.resource.kind == ResourceKind::Url
             && result.resource.title == QLatin1String("Host Playbook");
     }));
+}
+
+void DirectorySourceTest::keepsNonCaptureMhtmlFilesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/pages")));
+    writeFile(dir.filePath(QStringLiteral("library/pages/notes.mhtml")),
+              QByteArray("NOTE: plain MHTML suffix text remains unified text\n"
+                         "ANCHOR: mhtml_text_anchor\n"
+                         "https://docs.example.com/plain/mhtml#text\n"));
+    writeFile(dir.filePath(QStringLiteral("library/pages/notes.mht")),
+              QByteArray("NOTE: plain MHT suffix text remains unified text\n"
+                         "ANCHOR: mht_text_anchor\n"
+                         "https://docs.example.com/plain/mht#text\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    struct ExpectedMhtmlText {
+        QString title;
+        QString noteAnchor;
+        QString markerAnchor;
+        QString urlAnchor;
+        QString url;
+    };
+    const QList<ExpectedMhtmlText> expectedFiles{
+        {QStringLiteral("notes.mhtml"),
+         QStringLiteral("NOTE: plain MHTML suffix text remains unified text"),
+         QStringLiteral("marker: mhtml_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/mhtml#text"),
+         QStringLiteral("https://docs.example.com/plain/mhtml#text")},
+        {QStringLiteral("notes.mht"),
+         QStringLiteral("NOTE: plain MHT suffix text remains unified text"),
+         QStringLiteral("marker: mht_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/mht#text"),
+         QStringLiteral("https://docs.example.com/plain/mht#text")}
+    };
+
+    for (const ExpectedMhtmlText &expected : expectedFiles) {
+        const auto fileIt = findFile(expected.title);
+        QVERIFY(fileIt != resources.cend());
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("web")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("web-capture")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("web-archive")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+        QVERIFY(hasLineAnchor(*fileIt, expected.noteAnchor, 1));
+        QVERIFY(hasLineAnchor(*fileIt, expected.markerAnchor, 2));
+        QVERIFY(hasLineAnchor(*fileIt, expected.urlAnchor, 3));
+
+        auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::Url
+                && resource.location == expected.url;
+        });
+        QVERIFY(urlIt != resources.cend());
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("web-capture")));
+        QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+            return relation.label == QLatin1String("links-to")
+                && relation.targetResourceId == urlIt->id;
+        }));
+    }
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    for (const ExpectedMhtmlText &expected : expectedFiles) {
+        const QList<SearchResult> markerResults = repository.search(SearchQuery{expected.markerAnchor});
+        QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::File
+                && result.resource.title == expected.title
+                && !result.resource.tags.contains(QStringLiteral("web-capture"))
+                && result.matchedAnchor.has_value()
+                && result.matchedAnchor->type == AnchorType::FileLine
+                && result.matchedAnchor->target == expected.markerAnchor;
+        }));
+
+        const QList<SearchResult> urlResults = repository.search(SearchQuery{expected.url});
+        QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::Url
+                && result.resource.location == expected.url
+                && !result.resource.tags.contains(QStringLiteral("web-capture"));
+        }));
+    }
 }
 
 void DirectorySourceTest::extractsBookmarkExportLinks()

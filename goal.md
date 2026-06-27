@@ -251,9 +251,9 @@ Completed:
 - Index inline external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
 - Index reference-style external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with source line anchors and `links-to` relations back to the source text file.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
-- Index MHTML/MHT web capture reader outputs with searchable HTML content, canonical URL aliases, and heading fragment anchors.
+- Index content-verified MHTML/MHT web capture reader outputs with searchable HTML content, canonical URL aliases, and heading fragment anchors; non-capture `.mhtml`/`.mht` text stays on the unified text path.
 - Index local HTML outbound links as derived URL resources with source line anchors and `links-to` relations back to the source page.
-- Index MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source capture file.
+- Index content-verified MHTML/MHT outbound links as derived URL resources with `links-to` relations back to the source capture file.
 - Index browser bookmark export HTML as individual URL resources with searchable host aliases, fragment anchors, source line anchors, and `links-to` relations back to the export file.
 - Index Chromium/Edge-style Bookmarks JSON as individual URL resources with searchable host/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the Bookmarks file.
 - Index XBEL bookmark XML as individual URL resources with searchable host/folder aliases, fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.
@@ -290,7 +290,7 @@ Reader boundary:
 
 Phases:
 
-1. Existing reader consolidation: keep PDF, header-verified browser SQLite, HTML/MHTML, content-verified HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
+1. Existing reader consolidation: keep PDF, header-verified browser SQLite, HTML, content-verified MHTML/HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
 2. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place for header-verified `.db`/`.sqlite`/`.sqlite3` databases; non-SQLite `.db` text stays on the unified text path. SQLite URL values remain database line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and compound/package document-design containers such as doc/docx, xls/xlsx, ppt/pptx, vsd/vsdx, odt/ods/odp, Pages/Numbers/Sketch packages, and epub are not reader targets; they remain ordinary path-only package-container file resources, including compressed/package-wrapped reader-looking files such as `.har.gz`, `.warc.gz`, `.sqlite.gz`, and `.mhtml.zip`.
 3. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 4. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.

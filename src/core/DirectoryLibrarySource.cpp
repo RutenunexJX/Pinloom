@@ -641,6 +641,8 @@ bool isMhtmlFile(const QFileInfo &fileInfo)
     return suffix == QLatin1String("mhtml") || suffix == QLatin1String("mht");
 }
 
+bool isMhtmlCaptureFile(const QFileInfo &fileInfo);
+
 ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
@@ -657,8 +659,7 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
         || suffix == QLatin1String("desktop")
         || suffix == QLatin1String("html")
         || suffix == QLatin1String("htm")
-        || suffix == QLatin1String("mhtml")
-        || suffix == QLatin1String("mht")) {
+        || isMhtmlCaptureFile(fileInfo)) {
         return ResourceKind::Url;
     }
     return ResourceKind::File;
@@ -2897,6 +2898,25 @@ QString htmlFromMhtmlCapture(const QByteArray &bytes)
         return decodedMimeBody(partHeaders, part.mid(partHeaderEnd + partSeparatorLength));
     }
     return {};
+}
+
+bool isMhtmlCaptureFile(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || !isMhtmlFile(fileInfo)) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return false;
+    }
+
+    return !htmlFromMhtmlCapture(bytes).trimmed().isEmpty();
 }
 
 std::optional<QString> htmlDocumentFromFile(const QFileInfo &fileInfo)
