@@ -659,6 +659,59 @@ void appendFrontmatterListItem(QStringList &values, QString line)
     appendUnique(values, line.mid(1));
 }
 
+struct TextFrontmatterState {
+    bool active = false;
+    QString activeList;
+};
+
+bool consumeTextFrontmatterLine(Resource &resource, const QString &line, int lineNumber, TextFrontmatterState &state)
+{
+    const QString trimmed = line.trimmed();
+
+    if (lineNumber == 1 && trimmed == QLatin1String("---")) {
+        state.active = true;
+        return true;
+    }
+    if (!state.active) {
+        return false;
+    }
+
+    if (trimmed == QLatin1String("---")) {
+        state.active = false;
+        state.activeList.clear();
+        return true;
+    }
+
+    const int separator = line.indexOf(QLatin1Char(':'));
+    if (separator > 0) {
+        const QString key = line.left(separator).trimmed().toLower();
+        const QString value = line.mid(separator + 1).trimmed();
+        if (key == QLatin1String("aliases") || key == QLatin1String("alias")) {
+            state.activeList = QStringLiteral("aliases");
+            if (!value.isEmpty()) {
+                appendFrontmatterValue(resource.aliases, value);
+            }
+            return true;
+        }
+        if (key == QLatin1String("tags") || key == QLatin1String("tag")) {
+            state.activeList = QStringLiteral("tags");
+            if (!value.isEmpty()) {
+                appendFrontmatterValue(resource.tags, value);
+            }
+            return true;
+        }
+        state.activeList.clear();
+        return true;
+    }
+
+    if (state.activeList == QLatin1String("aliases")) {
+        appendFrontmatterListItem(resource.aliases, line);
+    } else if (state.activeList == QLatin1String("tags")) {
+        appendFrontmatterListItem(resource.tags, line);
+    }
+    return true;
+}
+
 void appendInlineTags(QStringList &tags, const QString &line)
 {
     static const QRegularExpression tagPattern(QStringLiteral("(^|[^A-Za-z0-9_/-])#([A-Za-z0-9_/-]+)"));
@@ -7457,51 +7510,13 @@ void DirectoryLibrarySource::applyTextConventionMetadata(Resource &resource, con
     }
 
     int lineNumber = 0;
-    bool inFrontmatter = false;
-    QString activeFrontmatterList;
+    TextFrontmatterState frontmatterState;
     QStringList contentLines;
     while (!file.atEnd()) {
         ++lineNumber;
         const QString line = QString::fromUtf8(file.readLine()).trimmed();
 
-        if (lineNumber == 1 && line == QLatin1String("---")) {
-            inFrontmatter = true;
-            continue;
-        }
-        if (inFrontmatter) {
-            if (line == QLatin1String("---")) {
-                inFrontmatter = false;
-                activeFrontmatterList.clear();
-                continue;
-            }
-
-            const int separator = line.indexOf(QLatin1Char(':'));
-            if (separator > 0) {
-                const QString key = line.left(separator).trimmed().toLower();
-                const QString value = line.mid(separator + 1).trimmed();
-                if (key == QLatin1String("aliases") || key == QLatin1String("alias")) {
-                    activeFrontmatterList = QStringLiteral("aliases");
-                    if (!value.isEmpty()) {
-                        appendFrontmatterValue(resource.aliases, value);
-                    }
-                    continue;
-                }
-                if (key == QLatin1String("tags") || key == QLatin1String("tag")) {
-                    activeFrontmatterList = QStringLiteral("tags");
-                    if (!value.isEmpty()) {
-                        appendFrontmatterValue(resource.tags, value);
-                    }
-                    continue;
-                }
-                activeFrontmatterList.clear();
-                continue;
-            }
-
-            if (activeFrontmatterList == QLatin1String("aliases")) {
-                appendFrontmatterListItem(resource.aliases, line);
-            } else if (activeFrontmatterList == QLatin1String("tags")) {
-                appendFrontmatterListItem(resource.tags, line);
-            }
+        if (consumeTextFrontmatterLine(resource, line, lineNumber, frontmatterState)) {
             continue;
         }
 
@@ -7647,51 +7662,11 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     WorkflowConfigBeaconState workflowConfigBeaconState;
     PipelineConfigBeaconState pipelineConfigBeaconState;
     int lineNumber = 0;
-    bool inFrontmatter = false;
-    QString activeFrontmatterList;
+    TextFrontmatterState frontmatterState;
     QStringList contentLines;
     for (const QString &line : text.split(QLatin1Char('\n'))) {
         ++lineNumber;
-        const QString trimmed = line.trimmed();
-
-        if (lineNumber == 1 && trimmed == QLatin1String("---")) {
-            inFrontmatter = true;
-            continue;
-        }
-        if (inFrontmatter) {
-            if (trimmed == QLatin1String("---")) {
-                inFrontmatter = false;
-                activeFrontmatterList.clear();
-                continue;
-            }
-
-            const int separator = line.indexOf(QLatin1Char(':'));
-            if (separator > 0) {
-                const QString key = line.left(separator).trimmed().toLower();
-                const QString value = line.mid(separator + 1).trimmed();
-                if (key == QLatin1String("aliases") || key == QLatin1String("alias")) {
-                    activeFrontmatterList = QStringLiteral("aliases");
-                    if (!value.isEmpty()) {
-                        appendFrontmatterValue(resource.aliases, value);
-                    }
-                    continue;
-                }
-                if (key == QLatin1String("tags") || key == QLatin1String("tag")) {
-                    activeFrontmatterList = QStringLiteral("tags");
-                    if (!value.isEmpty()) {
-                        appendFrontmatterValue(resource.tags, value);
-                    }
-                    continue;
-                }
-                activeFrontmatterList.clear();
-                continue;
-            }
-
-            if (activeFrontmatterList == QLatin1String("aliases")) {
-                appendFrontmatterListItem(resource.aliases, line);
-            } else if (activeFrontmatterList == QLatin1String("tags")) {
-                appendFrontmatterListItem(resource.tags, line);
-            }
+        if (consumeTextFrontmatterLine(resource, line, lineNumber, frontmatterState)) {
             continue;
         }
 
