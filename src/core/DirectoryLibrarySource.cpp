@@ -191,6 +191,12 @@ struct BrowserHistoryLink {
     QDateTime lastVisitedAt;
 };
 
+struct GenericSqliteColumn {
+    QString tableName;
+    QString name;
+    QString type;
+};
+
 struct FirefoxBookmarkNode {
     int id = 0;
     int type = 0;
@@ -3198,6 +3204,225 @@ bool isFirefoxPlacesSqliteCandidate(const QFileInfo &fileInfo)
     return !fileInfo.isDir()
         && fileInfo.size() <= 128 * 1024 * 1024
         && fileInfo.fileName().compare(QStringLiteral("places.sqlite"), Qt::CaseInsensitive) == 0;
+}
+
+bool hasSqliteHeader(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir() || fileInfo.size() <= 16 || fileInfo.size() > 128 * 1024 * 1024) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    return file.read(16) == QByteArray("SQLite format 3\000", 16);
+}
+
+bool isGenericSqliteCandidate(const QFileInfo &fileInfo)
+{
+    if (isBrowserHistorySqliteCandidate(fileInfo) || isFirefoxPlacesSqliteCandidate(fileInfo)) {
+        return false;
+    }
+
+    const QString suffix = fileInfo.suffix().toLower();
+    if (suffix != QLatin1String("db")
+        && suffix != QLatin1String("sqlite")
+        && suffix != QLatin1String("sqlite3")) {
+        return false;
+    }
+
+    return hasSqliteHeader(fileInfo);
+}
+
+QString sqliteQuotedIdentifier(QString identifier)
+{
+    identifier.replace(QLatin1Char('"'), QStringLiteral("\"\""));
+    return QStringLiteral("\"%1\"").arg(identifier);
+}
+
+bool isGenericSqliteTextCandidateColumn(const GenericSqliteColumn &column)
+{
+    const QString type = column.type.toUpper();
+    if (type.contains(QLatin1String("TEXT"))
+        || type.contains(QLatin1String("CHAR"))
+        || type.contains(QLatin1String("CLOB"))
+        || type.contains(QLatin1String("VARCHAR"))) {
+        return true;
+    }
+
+    const QString name = column.name.toLower();
+    return name.contains(QLatin1String("url"))
+        || name.contains(QLatin1String("uri"))
+        || name.contains(QLatin1String("href"))
+        || name.contains(QLatin1String("link"))
+        || name.contains(QLatin1String("title"))
+        || name.contains(QLatin1String("name"))
+        || name.contains(QLatin1String("note"))
+        || name.contains(QLatin1String("description"));
+}
+
+QString genericSqliteColumnTarget(const GenericSqliteColumn &column)
+{
+    const QString suffix = column.type.trimmed().isEmpty()
+        ? QString()
+        : QStringLiteral(" %1").arg(column.type.trimmed().toUpper());
+    return QStringLiteral("sqlite column: %1.%2%3").arg(column.tableName, column.name, suffix);
+}
+
+void appendGenericSqliteSampleAnchors(Resource &resource,
+                                      QSqlDatabase &database,
+                                      const QString &tableName,
+                                      const QList<GenericSqliteColumn> &columns,
+                                      QStringList &contentParts,
+                                      int &sampleAnchorCount)
+{
+    if (columns.isEmpty() || sampleAnchorCount >= 24) {
+        return;
+    }
+
+    QStringList selectedColumns;
+    QList<GenericSqliteColumn> sampledColumns;
+    for (const GenericSqliteColumn &column : columns) {
+        if (!isGenericSqliteTextCandidateColumn(column)) {
+            continue;
+        }
+        selectedColumns.append(sqliteQuotedIdentifier(column.name));
+        sampledColumns.append(column);
+        if (selectedColumns.size() >= 6) {
+            break;
+        }
+    }
+    if (selectedColumns.isEmpty()) {
+        return;
+    }
+
+    QSqlQuery sampleQuery(database);
+    const QString statement = QStringLiteral("SELECT %1 FROM %2 LIMIT 5")
+        .arg(selectedColumns.join(QStringLiteral(", ")), sqliteQuotedIdentifier(tableName));
+    if (!sampleQuery.exec(statement)) {
+        return;
+    }
+
+    QStringList seenSamples;
+    while (sampleQuery.next() && sampleAnchorCount < 24) {
+        for (int i = 0; i < sampledColumns.size() && sampleAnchorCount < 24; ++i) {
+            QString value = collapsedWhitespace(sampleQuery.value(i).toString());
+            if (value.isEmpty()) {
+                continue;
+            }
+            if (value.size() > 160) {
+                value = value.left(157) + QStringLiteral("...");
+            }
+
+            const GenericSqliteColumn column = sampledColumns.at(i);
+            const QString sampleKey = QStringLiteral("%1.%2=%3").arg(column.tableName, column.name, value);
+            if (seenSamples.contains(sampleKey, Qt::CaseInsensitive)) {
+                continue;
+            }
+            seenSamples.append(sampleKey);
+            contentParts.append(value);
+
+            const QUrl url = QUrl::fromUserInput(value);
+            if (isIndexableWebUrl(url)) {
+                appendFileLineAnchor(resource,
+                                     QStringLiteral("sqlite url: %1.%2 -> %3")
+                                         .arg(column.tableName,
+                                              column.name,
+                                              url.toString(QUrl::FullyEncoded)),
+                                     1);
+                ++sampleAnchorCount;
+                continue;
+            }
+
+            if (value.size() >= 3) {
+                appendFileLineAnchor(resource,
+                                     QStringLiteral("sqlite sample: %1.%2 = %3")
+                                         .arg(column.tableName, column.name, value),
+                                     1);
+                ++sampleAnchorCount;
+            }
+        }
+    }
+}
+
+void appendGenericSqliteMetadata(Resource &resource, const QFileInfo &fileInfo)
+{
+    if (!isGenericSqliteCandidate(fileInfo)) {
+        return;
+    }
+
+    appendUnique(resource.tags, QStringLiteral("sqlite"));
+    appendUnique(resource.tags, QStringLiteral("sqlite-database"));
+    appendUnique(resource.tags, QStringLiteral("special-reader"));
+
+    QStringList contentParts;
+    const QString connectionName =
+        QStringLiteral("pinloom_generic_sqlite_%1").arg(qHash(fileInfo.absoluteFilePath()));
+    int tableCount = 0;
+    int sampleAnchorCount = 0;
+
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(fileInfo.absoluteFilePath());
+        if (database.open()) {
+            QSqlQuery tableQuery(database);
+            if (tableQuery.exec(QStringLiteral(
+                    "SELECT name FROM sqlite_master "
+                    "WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' "
+                    "ORDER BY name LIMIT 32"))) {
+                while (tableQuery.next()) {
+                    const QString tableName = tableQuery.value(0).toString().trimmed();
+                    if (tableName.isEmpty()) {
+                        continue;
+                    }
+
+                    ++tableCount;
+                    appendUnique(resource.aliases, tableName);
+                    appendFileLineAnchor(resource, QStringLiteral("sqlite table: %1").arg(tableName), 1);
+                    contentParts.append(tableName);
+
+                    QList<GenericSqliteColumn> columns;
+                    QSqlQuery columnQuery(database);
+                    if (columnQuery.exec(QStringLiteral("PRAGMA table_info(%1)")
+                                             .arg(sqliteQuotedIdentifier(tableName)))) {
+                        while (columnQuery.next()) {
+                            GenericSqliteColumn column;
+                            column.tableName = tableName;
+                            column.name = columnQuery.value(1).toString().trimmed();
+                            column.type = columnQuery.value(2).toString().trimmed();
+                            if (column.name.isEmpty()) {
+                                continue;
+                            }
+                            columns.append(column);
+                            appendUnique(resource.aliases, column.name);
+                            appendFileLineAnchor(resource, genericSqliteColumnTarget(column), 1);
+                            contentParts.append(QStringLiteral("%1.%2").arg(tableName, column.name));
+                        }
+                    }
+
+                    appendGenericSqliteSampleAnchors(resource,
+                                                     database,
+                                                     tableName,
+                                                     columns,
+                                                     contentParts,
+                                                     sampleAnchorCount);
+                }
+            }
+            database.close();
+        }
+    }
+
+    QSqlDatabase::removeDatabase(connectionName);
+
+    if (tableCount > 0) {
+        appendFileLineAnchor(resource, QStringLiteral("sqlite tables: %1").arg(tableCount), 1);
+    }
+    if (!contentParts.isEmpty()) {
+        resource.content = collapsedWhitespace(
+            QStringList{resource.content, contentParts.join(QLatin1Char(' '))}.join(QLatin1Char(' ')));
+    }
 }
 
 QDateTime dateTimeFromChromiumWebTime(qint64 value)
@@ -7051,6 +7276,9 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> placesResources = browserHistoryResourcesFromLinks(fileInfo, placesLinks);
         appendBrowserHistorySourceMetadata(primary, placesLinks, placesResources);
         derivedResources.append(placesResources);
+    }
+    if (primary.kind == ResourceKind::File && isGenericSqliteCandidate(fileInfo)) {
+        appendGenericSqliteMetadata(primary, fileInfo);
     }
 
     resources.append(primary);

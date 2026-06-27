@@ -61,6 +61,7 @@ Implemented:
 - XBEL bookmark XML indexing as individual URL resources with host/folder aliases, bookmark tags, URL fragment anchors, source line anchors, and `links-to` relations back to the XBEL file.
 - Chromium/Edge-style browser History SQLite indexing as individual URL resources with host aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the history database.
 - Firefox `places.sqlite` indexing as individual URL resources with bookmark titles, bookmark/folder aliases, visit-count aliases, URL fragment anchors, and `links-to` relations back to the places database.
+- Generic SQLite database indexing with table, column, URL, and sample-value beacons on the source database resource.
 - OPML subscription/link list indexing as individual URL resources with host aliases, feed aliases, folder aliases, feed tags, URL fragment anchors, source line anchors, and `links-to` relations back to the OPML file.
 - RSS and Atom feed XML indexing as individual URL resources with feed aliases, category tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the feed file.
 - Sitemap XML indexing as individual URL resources with sitemap tags, host aliases, URL fragment anchors, source line anchors, and `links-to` relations back to the source file.

@@ -282,7 +282,7 @@ Phases:
 
 1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, JSON/YAML/TOML/INI, and CSV/TSV readers described and tested as beacon/location readers.
 2. Office baseline readers: add Word/docx paragraphs/headings/tables/comments/links, Excel/xlsx sheets/cells/headers/formulas/error values/named ranges, and PowerPoint slide/title/body/notes/link beacons.
-3. Engineering and design special readers: add Visio/vsdx page/shape/text/link beacons, generic SQLite table/column/URL/sample-value beacons, and archive manifest/file-list/text-preview beacons.
+3. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place; add Visio/vsdx page/shape/text/link beacons and archive manifest/file-list/text-preview beacons next.
 4. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 5. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
 6. Experience and performance: add reader toggles, incremental indexing, cancellation, failure UI, jump fallback behavior, deduplication, and ranking/noise tuning.

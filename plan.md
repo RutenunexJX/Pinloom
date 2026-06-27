@@ -422,7 +422,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: pending.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx and archive readers pending.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

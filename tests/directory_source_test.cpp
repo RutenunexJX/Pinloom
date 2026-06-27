@@ -63,6 +63,7 @@ private slots:
     void extractsXbelBookmarkLinks();
     void extractsBrowserHistorySqliteLinks();
     void extractsFirefoxPlacesSqliteLinks();
+    void extractsGenericSqliteBeaconMetadata();
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
@@ -221,6 +222,53 @@ static void writeFirefoxPlacesDatabase(const QString &path)
         query.addBindValue(3);
         query.addBindValue(QStringLiteral("Pinned Firefox Guide"));
         query.addBindValue(QVariant::fromValue<qlonglong>(1710000000000000LL));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+}
+
+static void writeGenericSqliteDatabase(const QString &path)
+{
+    const QString connectionName =
+        QStringLiteral("pinloom_test_generic_sqlite_%1").arg(qHash(path));
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(path);
+        QVERIFY2(database.open(), qPrintable(database.lastError().text()));
+
+        QSqlQuery query(database);
+        QVERIFY2(query.exec(QStringLiteral(
+                     "CREATE TABLE board_notes ("
+                     "id INTEGER PRIMARY KEY, "
+                     "title TEXT, "
+                     "url TEXT, "
+                     "status TEXT"
+                     ")")),
+                 qPrintable(query.lastError().text()));
+        QVERIFY2(query.exec(QStringLiteral(
+                     "CREATE TABLE parts ("
+                     "part_no TEXT, "
+                     "description TEXT, "
+                     "doc_url TEXT"
+                     ")")),
+                 qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO board_notes(title, url, status) VALUES (?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(QStringLiteral("Timing Closure"));
+        query.addBindValue(QStringLiteral("https://docs.example.com/pinloom/sqlite#row"));
+        query.addBindValue(QStringLiteral("warning review"));
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+
+        QVERIFY2(query.prepare(QStringLiteral(
+                     "INSERT INTO parts(part_no, description, doc_url) VALUES (?, ?, ?)")),
+                 qPrintable(query.lastError().text()));
+        query.addBindValue(QStringLiteral("XC7A35T"));
+        query.addBindValue(QStringLiteral("PCIe endpoint guide"));
+        query.addBindValue(QStringLiteral("https://fpga.example.com/parts/xc7a35t"));
         QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
 
         database.close();
@@ -4456,6 +4504,95 @@ void DirectorySourceTest::extractsFirefoxPlacesSqliteLinks()
     QCOMPARE(entryRelations.size(), 1);
     QCOMPARE(entryRelations.first().sourceResourceId, placesIt->id);
     QCOMPARE(entryRelations.first().targetResourceId, entryIt->id);
+}
+
+void DirectorySourceTest::extractsGenericSqliteBeaconMetadata()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/db")));
+    const QString databasePath = dir.filePath(QStringLiteral("library/db/inventory.sqlite3"));
+    writeGenericSqliteDatabase(databasePath);
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto databaseIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("inventory.sqlite3");
+    });
+    QVERIFY(databaseIt != resources.cend());
+    QVERIFY(databaseIt->tags.contains(QStringLiteral("sqlite")));
+    QVERIFY(databaseIt->tags.contains(QStringLiteral("sqlite-database")));
+    QVERIFY(databaseIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(databaseIt->aliases.contains(QStringLiteral("board_notes")));
+    QVERIFY(databaseIt->aliases.contains(QStringLiteral("parts")));
+
+    auto hasLineAnchor = [](const Resource &resource, const QString &target) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == 1;
+        });
+    };
+
+    QVERIFY(hasLineAnchor(*databaseIt, QStringLiteral("sqlite table: board_notes")));
+    QVERIFY(hasLineAnchor(*databaseIt, QStringLiteral("sqlite table: parts")));
+    QVERIFY(hasLineAnchor(*databaseIt, QStringLiteral("sqlite column: board_notes.title TEXT")));
+    QVERIFY(hasLineAnchor(*databaseIt, QStringLiteral("sqlite column: parts.doc_url TEXT")));
+    QVERIFY(hasLineAnchor(*databaseIt,
+                          QStringLiteral("sqlite url: board_notes.url -> https://docs.example.com/pinloom/sqlite#row")));
+    QVERIFY(hasLineAnchor(*databaseIt,
+                          QStringLiteral("sqlite url: parts.doc_url -> https://fpga.example.com/parts/xc7a35t")));
+    QVERIFY(hasLineAnchor(*databaseIt,
+                          QStringLiteral("sqlite sample: board_notes.title = Timing Closure")));
+    QVERIFY(hasLineAnchor(*databaseIt,
+                          QStringLiteral("sqlite sample: parts.description = PCIe endpoint guide")));
+
+    QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location.contains(QStringLiteral("pinloom/sqlite"));
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> titleResults = repository.search(SearchQuery{QStringLiteral("Timing Closure")});
+    QVERIFY(std::any_of(titleResults.cbegin(), titleResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("inventory.sqlite3")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("sqlite sample: board_notes.title = Timing Closure");
+    }));
+
+    const QList<SearchResult> columnResults = repository.search(SearchQuery{QStringLiteral("parts.doc_url")});
+    QVERIFY(std::any_of(columnResults.cbegin(), columnResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("inventory.sqlite3")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("sqlite column: parts.doc_url TEXT");
+    }));
+
+    const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("sqlite#row")});
+    QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("inventory.sqlite3")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target
+                == QLatin1String("sqlite url: board_notes.url -> https://docs.example.com/pinloom/sqlite#row");
+    }));
 }
 
 void DirectorySourceTest::extractsOpmlLinks()
