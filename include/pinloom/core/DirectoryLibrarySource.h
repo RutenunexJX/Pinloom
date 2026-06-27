@@ -37,7 +37,7 @@ private:
     QList<Resource> opmlResourcesFromFile(const QFileInfo &fileInfo) const;
     QList<Resource> feedResourcesFromXmlFile(const QFileInfo &fileInfo) const;
     QList<Resource> sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const;
-    void applyMarkdownMetadata(Resource &resource, const QFileInfo &fileInfo) const;
+    void applyTextConventionMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyPdfMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyUrlMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyHtmlMetadata(Resource &resource, const QFileInfo &fileInfo) const;

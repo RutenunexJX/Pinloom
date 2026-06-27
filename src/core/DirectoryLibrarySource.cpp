@@ -669,10 +669,10 @@ void appendInlineTags(QStringList &tags, const QString &line)
     }
 }
 
-void appendWikilinksAsAliases(QStringList &aliases, const QString &line)
+void appendBracketedTextLinksAsAliases(QStringList &aliases, const QString &line)
 {
-    static const QRegularExpression wikilinkPattern(QStringLiteral("\\[\\[([^\\]]+)\\]\\]"));
-    QRegularExpressionMatchIterator matches = wikilinkPattern.globalMatch(line);
+    static const QRegularExpression bracketedTextLinkPattern(QStringLiteral("\\[\\[([^\\]]+)\\]\\]"));
+    QRegularExpressionMatchIterator matches = bracketedTextLinkPattern.globalMatch(line);
     while (matches.hasNext()) {
         const QRegularExpressionMatch match = matches.next();
         const QString linkWithoutDisplayText = match.captured(1).section(QLatin1Char('|'), 0, 0).trimmed();
@@ -685,7 +685,7 @@ void appendWikilinksAsAliases(QStringList &aliases, const QString &line)
     }
 }
 
-bool isLocalMarkdownLinkTarget(const QString &target)
+bool isLocalTextLinkTarget(const QString &target)
 {
     const QString trimmed = target.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -702,7 +702,7 @@ bool isLocalMarkdownLinkTarget(const QString &target)
     return true;
 }
 
-QString markdownLinkPathWithoutFragment(QString target)
+QString textLinkPathWithoutFragment(QString target)
 {
     target = target.trimmed();
     const int fragmentIndex = target.indexOf(QLatin1Char('#'));
@@ -712,7 +712,7 @@ QString markdownLinkPathWithoutFragment(QString target)
     return QUrl::fromPercentEncoding(target.trimmed().toUtf8()).trimmed();
 }
 
-QString markdownLinkFragment(QString target)
+QString textLinkFragment(QString target)
 {
     target = target.trimmed();
     const int fragmentIndex = target.indexOf(QLatin1Char('#'));
@@ -722,7 +722,7 @@ QString markdownLinkFragment(QString target)
     return QUrl::fromPercentEncoding(target.mid(fragmentIndex + 1).trimmed().toUtf8()).trimmed();
 }
 
-QString markdownNotePathForWikilink(QString targetPath)
+QString notePathForBracketedTextLink(QString targetPath)
 {
     targetPath = targetPath.trimmed();
     if (targetPath.isEmpty() || QFileInfo(targetPath).suffix().isEmpty()) {
@@ -749,11 +749,11 @@ void appendLocalTextLinkAnchors(Resource &resource, const QFileInfo &fileInfo, c
     while (matches.hasNext()) {
         const QRegularExpressionMatch match = matches.next();
         const QString rawTarget = match.captured(2).trimmed();
-        if (!isLocalMarkdownLinkTarget(rawTarget)) {
+        if (!isLocalTextLinkTarget(rawTarget)) {
             continue;
         }
 
-        const QString targetPath = markdownLinkPathWithoutFragment(rawTarget);
+        const QString targetPath = textLinkPathWithoutFragment(rawTarget);
         const QString label = normalizedPlainTextFromLine(match.captured(1));
         appendUnique(resource.aliases, label);
         appendUnique(resource.aliases, QFileInfo(targetPath).fileName());
@@ -776,22 +776,22 @@ void appendLocalTextLinkAnchors(Resource &resource, const QFileInfo &fileInfo, c
     }
 }
 
-void appendLocalWikilinks(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
+void appendLocalBracketedTextLinkAnchors(Resource &resource, const QFileInfo &fileInfo, const QString &line, int lineNumber)
 {
-    static const QRegularExpression wikilinkPattern(QStringLiteral("\\[\\[([^\\]]+)\\]\\]"));
-    QRegularExpressionMatchIterator matches = wikilinkPattern.globalMatch(line);
+    static const QRegularExpression bracketedTextLinkPattern(QStringLiteral("\\[\\[([^\\]]+)\\]\\]"));
+    QRegularExpressionMatchIterator matches = bracketedTextLinkPattern.globalMatch(line);
     while (matches.hasNext()) {
         const QRegularExpressionMatch match = matches.next();
         const QString rawLink = match.captured(1).trimmed();
         const QString rawTarget = rawLink.section(QLatin1Char('|'), 0, 0).trimmed();
         const QString displayText = rawLink.section(QLatin1Char('|'), 1).trimmed();
-        const QString rawTargetPath = markdownLinkPathWithoutFragment(rawTarget);
+        const QString rawTargetPath = textLinkPathWithoutFragment(rawTarget);
         if (rawTargetPath.isEmpty()) {
             continue;
         }
 
-        const QString targetPath = markdownNotePathForWikilink(rawTargetPath);
-        const QString fragment = markdownLinkFragment(rawTarget);
+        const QString targetPath = notePathForBracketedTextLink(rawTargetPath);
+        const QString fragment = textLinkFragment(rawTarget);
         const QString normalizedFragment = fragment.startsWith(QLatin1Char('^')) ? fragment.mid(1) : fragment;
         const QString label = displayText.isEmpty()
             ? QFileInfo(rawTargetPath).fileName()
@@ -839,8 +839,8 @@ QString normalizedPlainTextFromLine(QString line)
     static const QRegularExpression taskMarkerPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+"));
     line.remove(taskMarkerPattern);
 
-    static const QRegularExpression markdownLinkPattern(QStringLiteral("!?\\[([^\\]]+)\\]\\([^\\)]+\\)"));
-    line.replace(markdownLinkPattern, QStringLiteral("\\1"));
+    static const QRegularExpression inlineTextLinkPattern(QStringLiteral("!?\\[([^\\]]+)\\]\\([^\\)]+\\)"));
+    line.replace(inlineTextLinkPattern, QStringLiteral("\\1"));
 
     static const QRegularExpression wikilinkPattern(QStringLiteral("\\[\\[([^\\]|#]+)(?:#[^\\]|]+)?(?:\\|([^\\]]+))?\\]\\]"));
     QRegularExpressionMatchIterator matches = wikilinkPattern.globalMatch(line);
@@ -5673,8 +5673,8 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
         return {};
     }
 
-    const QString markdown = QString::fromUtf8(file.readAll());
-    const QStringList lines = markdown.split(QLatin1Char('\n'));
+    const QString text = QString::fromUtf8(file.readAll());
+    const QStringList lines = text.split(QLatin1Char('\n'));
     const QRegularExpression inlineLinkPattern(
         QStringLiteral("(?<!!)\\[([^\\]]+)\\]\\((https?://[^\\s\\)]+)\\)"));
     const QRegularExpression autolinkPattern(QStringLiteral("<(https?://[^\\s<>]+)>"));
@@ -5796,7 +5796,7 @@ QList<Resource> textLinkUrlResourcesFromLinks(const QFileInfo &fileInfo, const Q
     QList<Resource> resources;
     for (const HtmlLink &link : links) {
         Resource resource;
-        resource.id = QStringLiteral("markdown-link:%1:%2")
+        resource.id = QStringLiteral("text-link:%1:%2")
                           .arg(normalizedPath(fileInfo),
                                link.url.toString(QUrl::FullyEncoded));
         resource.kind = ResourceKind::Url;
@@ -5804,7 +5804,7 @@ QList<Resource> textLinkUrlResourcesFromLinks(const QFileInfo &fileInfo, const Q
         resource.location = link.url.toString(QUrl::FullyEncoded);
         resource.updatedAt = fileInfo.lastModified().toUTC();
         appendWebUrlMetadata(resource, link.url);
-        appendUnique(resource.tags, QStringLiteral("markdown-link"));
+        appendUnique(resource.tags, QStringLiteral("text-link"));
         resources.append(resource);
     }
     return resources;
@@ -5836,7 +5836,7 @@ void appendTextLinkUrlSourceMetadata(Resource &sourceResource,
         relation.targetResourceId = urlResource.id;
         relation.label = QStringLiteral("links-to");
         relation.note = link.lineNumber > 0
-            ? QStringLiteral("markdown line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            ? QStringLiteral("text line %1: %2").arg(link.lineNumber).arg(anchorTarget)
             : anchorTarget;
         sourceResource.relations.append(relation);
     }
@@ -7303,7 +7303,7 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         return resource;
     }
     if (resource.kind == ResourceKind::Markdown) {
-        applyMarkdownMetadata(resource, fileInfo);
+        applyTextConventionMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Pdf) {
         applyPdfMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Url) {
@@ -7346,7 +7346,7 @@ QList<Resource> DirectoryLibrarySource::sitemapResourcesFromXmlFile(const QFileI
     return sitemapResourcesFromLinks(fileInfo, deduplicatedSitemapLinks(sitemapLinksFromXmlFile(fileInfo)));
 }
 
-void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFileInfo &fileInfo) const
+void DirectoryLibrarySource::applyTextConventionMetadata(Resource &resource, const QFileInfo &fileInfo) const
 {
     QFile file(fileInfo.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
@@ -7412,8 +7412,8 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
         }
 
         appendInlineTags(resource.tags, line);
-        appendWikilinksAsAliases(resource.aliases, line);
-        appendLocalWikilinks(resource, fileInfo, line, lineNumber);
+        appendBracketedTextLinksAsAliases(resource.aliases, line);
+        appendLocalBracketedTextLinkAnchors(resource, fileInfo, line, lineNumber);
         appendLocalTextLinkAnchors(resource, fileInfo, line, lineNumber);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);

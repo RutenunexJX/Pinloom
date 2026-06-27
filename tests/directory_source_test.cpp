@@ -26,10 +26,10 @@ private slots:
     void extractsNeutralPipelineConfigLineBeacons();
     void extractsTextNamedEntryLineBeacons();
     void extractsTextHeadingAndBlockAnchors();
-    void extractsMarkdownAliasTagLinkBeacons();
-    void extractsMarkdownBodyContent();
+    void extractsTextConventionAliasTagLinkBeacons();
+    void extractsTextConventionBodyContent();
     void extractsLocalTextLinkAnchors();
-    void extractsMarkdownTaskLineAnchors();
+    void extractsTextTaskLineAnchors();
     void extractsInlineTextLinkUrlResources();
     void extractsReferenceStyleTextLinkUrlResources();
     void extractsPdfTitleAndPageAnchors();
@@ -1026,7 +1026,7 @@ void DirectorySourceTest::extractsTextHeadingAndBlockAnchors()
     QCOMPARE(markdownIt->anchors.at(3).line, 5);
 }
 
-void DirectorySourceTest::extractsMarkdownAliasTagLinkBeacons()
+void DirectorySourceTest::extractsTextConventionAliasTagLinkBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -1126,7 +1126,7 @@ void DirectorySourceTest::extractsMarkdownAliasTagLinkBeacons()
     }));
 }
 
-void DirectorySourceTest::extractsMarkdownBodyContent()
+void DirectorySourceTest::extractsTextConventionBodyContent()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -1232,7 +1232,7 @@ void DirectorySourceTest::extractsLocalTextLinkAnchors()
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == externalIt->id
             && relation.label == QLatin1String("links-to")
-            && relation.note == QLatin1String("markdown line 3: url: External -> https://docs.example.com/spec");
+            && relation.note == QLatin1String("text line 3: url: External -> https://docs.example.com/spec");
     }));
 
     SqliteLibraryRepository repository;
@@ -1255,7 +1255,7 @@ void DirectorySourceTest::extractsLocalTextLinkAnchors()
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == externalIt->id
             && relation.label == QLatin1String("links-to")
-            && relation.note == QLatin1String("markdown line 3: url: External -> https://docs.example.com/spec");
+            && relation.note == QLatin1String("text line 3: url: External -> https://docs.example.com/spec");
     }));
 
     const QList<SearchResult> linkResults = repository.search(SearchQuery{QStringLiteral("Spec PDF")});
@@ -1267,7 +1267,7 @@ void DirectorySourceTest::extractsLocalTextLinkAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsMarkdownTaskLineAnchors()
+void DirectorySourceTest::extractsTextTaskLineAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -1363,7 +1363,7 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
     QVERIFY(guideIt != resources.cend());
     QCOMPARE(guideIt->location, QStringLiteral("https://docs.example.com/zeroslack/dock#handoff"));
     QVERIFY(guideIt->tags.contains(QStringLiteral("web")));
-    QVERIFY(guideIt->tags.contains(QStringLiteral("markdown-link")));
+    QVERIFY(guideIt->tags.contains(QStringLiteral("text-link")));
     QVERIFY(guideIt->aliases.contains(QStringLiteral("docs.example.com")));
     QVERIFY(std::any_of(guideIt->anchors.cbegin(), guideIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("handoff");
@@ -1380,13 +1380,13 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == guideIt->id
             && relation.label == QLatin1String("links-to")
-            && relation.note == QLatin1String("markdown line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
+            && relation.note == QLatin1String("text line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
     }));
     QVERIFY(std::any_of(markdownIt->relations.cbegin(), markdownIt->relations.cend(), [&](const ResourceRelation &relation) {
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == statusIt->id
             && relation.label == QLatin1String("links-to")
-            && relation.note == QLatin1String("markdown line 7: url: status.example.com -> https://status.example.com/system");
+            && relation.note == QLatin1String("text line 7: url: status.example.com -> https://status.example.com/system");
     }));
 
     QVERIFY(std::none_of(resources.cbegin(), resources.cend(), [](const Resource &resource) {
@@ -1420,7 +1420,7 @@ void DirectorySourceTest::extractsInlineTextLinkUrlResources()
         return relation.sourceResourceId == markdownIt->id
             && relation.targetResourceId == guideIt->id
             && relation.label == QLatin1String("links-to")
-            && relation.note == QLatin1String("markdown line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
+            && relation.note == QLatin1String("text line 5: url: ZeroSlack Dock Guide -> https://docs.example.com/zeroslack/dock#handoff");
     }));
 
     const QList<ResourceRelation> guideRelations = repository.resourceRelations(guideIt->id);
@@ -1475,7 +1475,7 @@ void DirectorySourceTest::extractsReferenceStyleTextLinkUrlResources()
     });
     QVERIFY(hostIt != resources.cend());
     QCOMPARE(hostIt->location, QStringLiteral("https://docs.example.com/pinloom/host#context"));
-    QVERIFY(hostIt->tags.contains(QStringLiteral("markdown-link")));
+    QVERIFY(hostIt->tags.contains(QStringLiteral("text-link")));
     QVERIFY(hostIt->aliases.contains(QStringLiteral("docs.example.com")));
     QVERIFY(std::any_of(hostIt->anchors.cbegin(), hostIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("context");
@@ -1491,7 +1491,7 @@ void DirectorySourceTest::extractsReferenceStyleTextLinkUrlResources()
     QCOMPARE(markdownIt->relations.first().targetResourceId, hostIt->id);
     QCOMPARE(markdownIt->relations.first().label, QStringLiteral("links-to"));
     QCOMPARE(markdownIt->relations.first().note,
-             QStringLiteral("markdown line 2: url: Host API -> https://docs.example.com/pinloom/host#context"));
+             QStringLiteral("text line 2: url: Host API -> https://docs.example.com/pinloom/host#context"));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
