@@ -16,14 +16,14 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - No language semantics: Pinloom extracts searchable beacons and locations only; it does not build ASTs, infer program meaning, or claim support for programming languages.
 - Special readers only for special files: PDF, Office documents, Visio, SQLite databases, scanned/OCR material, and web capture formats such as MHTML/HAR/WARC may have dedicated readers, but their job is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/br/bz2/xz/zst/7z/rar, app/archive packages, and compound tar packages are never expanded or text-scanned; they remain ordinary path-only file targets. Office/Visio package containers stay path-only unless an explicit document reader can emit user-facing document positions; they must not become archive-entry readers or expose package-internal paths.
 - ZeroSlack boundary: when embedded in ZeroSlack, Pinloom provides paths, lines, columns when available, display text, beacons, and jump targets; ZeroSlack owns HDL editing, display, and jump execution.
-- Obsidian friendliness: markdown tags, aliases, headings, wikilinks, and block ids should be indexed without making Pinloom an Obsidian add-on.
-- Precise anchors: search results should be able to land on PDF pages/regions, file lines, markdown headings/blocks, URLs, and manual targets.
+- Obsidian friendliness: Markdown/Obsidian text conventions such as tags, aliases, headings, wikilinks, and block ids should become beacons without making Pinloom an Obsidian add-on or Markdown language layer.
+- Precise anchors: search results should be able to land on PDF pages/regions, file lines, heading/block line anchors in text files, URLs, and manual targets.
 - Locator search: optimize for curated library positioning and fast jumps, not whole-disk crawling.
 
 ## Long-Term Roadmap
 
 - ZeroSlack embedding boundary: make `pinloom_widgets` usable by standalone Pinloom and ZeroSlack without transferring ownership of core state to either host.
-- Obsidian-friendly indexing: extract frontmatter aliases, inline tags, wikilinks, and block-reference beacons while keeping Markdown support useful outside Obsidian.
+- Markdown/Obsidian text beacons: extract frontmatter aliases, inline tags, wikilinks, and block-reference beacons as text positions while keeping the same locator model outside Obsidian.
 - PDF navigation: index PDF metadata and pages first, then add page and region jump targets.
 - Beacon/location indexing: index text files by paths, line beacons, user markers, URLs, warnings/errors, section-like lines, and project-relevant tags without language parsing.
 - Special-file reader roadmap: grow dedicated readers in phases for formats that are not simple text, while keeping every reader limited to beacon and location extraction.
@@ -84,15 +84,15 @@ Completed:
 - Reusable UI for managing saved folders and rebuilding the resource index.
 - Tests for root persistence, v1-to-v2 upgrade, saved-root indexing, rebuilds, and widget root loading.
 
-### Precise Text and Markdown Jumps MVP
+### Precise Text Beacon Jumps MVP
 
 Completed:
 
 - Search results can carry a matched anchor.
 - SQLite schema v3 indexes anchors for heading and block searches.
-- Directory indexing extracts Markdown headings and block ids with line numbers.
+- Directory indexing extracts heading and block-id line anchors from Markdown text files.
 - UI shows anchor-aware results and opens line anchors in a built-in read-only text preview.
-- Tests cover Markdown anchor extraction, anchor search, v2-to-v3 upgrade, anchor-aware UI display, and text preview loading.
+- Tests cover text heading/block anchor extraction, anchor search, v2-to-v3 upgrade, anchor-aware UI display, and text preview loading.
 
 ### Search Results Cleanup MVP
 
@@ -142,17 +142,17 @@ Remaining follow-up:
 
 - Wire the boundary into the actual ZeroSlack dock/global-control host.
 
-### Obsidian-Friendly Indexing MVP
+### Markdown/Obsidian Text Beacon MVP
 
 Completed:
 
-- Extract YAML frontmatter aliases and tags.
-- Extract inline `#tags`, `[[wikilinks]]`, and block-reference beacons.
-- Extract searchable Markdown body content while excluding frontmatter metadata from body text.
-- Extract Markdown task checkbox lines as searchable file-line anchors.
-- Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
+- Extract YAML-style frontmatter aliases and tags as text beacons.
+- Extract inline `#tags`, `[[wikilinks]]`, and block-reference beacons as line anchors.
+- Extract searchable body text while excluding frontmatter metadata from body text.
+- Extract task checkbox lines as searchable file-line anchors.
+- Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Extract Obsidian wikilinks as searchable file-line anchors and indexed `links-to` relations.
-- Preserve normal Markdown behavior for non-Obsidian folders.
+- Preserve the same text-beacon behavior for non-Obsidian folders.
 - Add focused tests around mixed plain-Markdown and Obsidian vault inputs.
 
 ### PDF Navigation MVP
@@ -237,11 +237,11 @@ Completed:
 - Apply ordered PDF stream filter chains for supported filters.
 - Decode UTF-16 BOM PDF strings in titles and content streams.
 - Decode basic PDF ToUnicode CMaps for font-encoded content streams.
-- Extract searchable Markdown body content.
-- Extract Markdown task checkbox lines as searchable file-line anchors.
-- Extract local relative Markdown links as searchable aliases, file-line anchors, and indexed `links-to` relations.
-- Index Markdown external links as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source note.
-- Index Markdown reference-style external links as derived URL resources with source line anchors and `links-to` relations back to the source note.
+- Extract searchable body text from Markdown text files.
+- Extract task checkbox lines as searchable file-line anchors.
+- Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
+- Index inline external links as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source note.
+- Index reference-style external links as derived URL resources with source line anchors and `links-to` relations back to the source note.
 - Index local HTML pages with searchable extracted content, canonical URL aliases, and heading fragment anchors.
 - Index MHTML/MHT web archives with searchable HTML content, canonical URL aliases, and heading fragment anchors.
 - Index local HTML outbound links as derived URL resources with source line anchors and `links-to` relations back to the source page.
