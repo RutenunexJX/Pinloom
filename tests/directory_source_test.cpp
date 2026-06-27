@@ -586,8 +586,12 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("installer.deb"),
         QStringLiteral("installer.dmg"),
         QStringLiteral("installer.mpkg"),
+        QStringLiteral("installer.msi"),
         QStringLiteral("installer.msix"),
         QStringLiteral("installer.msixbundle"),
+        QStringLiteral("installer.msm"),
+        QStringLiteral("installer.msp"),
+        QStringLiteral("installer.msu"),
         QStringLiteral("installer.pkg"),
         QStringLiteral("installer.rpm"),
         QStringLiteral("installer.esd"),
@@ -746,6 +750,26 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(zipVolumeResultIt != zipVolumeResults.cend());
     verifyIndexedPackageTags(*zipVolumeResultIt);
     QVERIFY(repository.resourceRelations(zipVolumeResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> windowsInstallerResults = repository.search(SearchQuery{QStringLiteral("installer.msi")});
+    auto windowsInstallerResultIt = std::find_if(windowsInstallerResults.cbegin(), windowsInstallerResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("installer.msi")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(windowsInstallerResultIt != windowsInstallerResults.cend());
+    verifyIndexedPackageTags(*windowsInstallerResultIt);
+    QVERIFY(repository.resourceRelations(windowsInstallerResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> windowsUpdateResults = repository.search(SearchQuery{QStringLiteral("installer.msu")});
+    auto windowsUpdateResultIt = std::find_if(windowsUpdateResults.cbegin(), windowsUpdateResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("installer.msu")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(windowsUpdateResultIt != windowsUpdateResults.cend());
+    verifyIndexedPackageTags(*windowsUpdateResultIt);
+    QVERIFY(repository.resourceRelations(windowsUpdateResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> documentPackageResults = repository.search(SearchQuery{QStringLiteral("document.docx")});
     auto documentPackageResultIt = std::find_if(documentPackageResults.cbegin(), documentPackageResults.cend(), [](const SearchResult &result) {
