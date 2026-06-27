@@ -14,7 +14,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - Source neutrality: Obsidian vaults, normal folders, PDFs, text files, notes, and manual anchors are all library sources.
 - Unified text treatment: small files whose content sniffs as text are indexed as text, regardless of extension, not as language-specific resources.
 - No language semantics: Pinloom extracts searchable beacons and locations only; it does not build ASTs, infer program meaning, or claim support for programming languages.
-- Special readers only for special files: PDF, Office documents, Visio, SQLite databases, scanned/OCR material, and web/archive capture formats may have dedicated readers, but their job is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar stay path-only and are not expanded or text-scanned. Office/Visio package containers stay path-only until a dedicated reader can emit real document positions.
+- Special readers only for special files: PDF, Office documents, Visio, SQLite databases, scanned/OCR material, and web capture formats such as MHTML/HAR/WARC may have dedicated readers, but their job is still beacon and location extraction. Compressed packages such as zip/jar/tar/gz/7z/rar are never expanded or text-scanned; they remain ordinary path-only file targets. Office/Visio package containers stay path-only until a document reader can emit real document positions.
 - ZeroSlack boundary: when embedded in ZeroSlack, Pinloom provides paths, lines, columns when available, display text, beacons, and jump targets; ZeroSlack owns HDL editing, display, and jump execution.
 - Obsidian friendliness: markdown tags, aliases, headings, wikilinks, and block ids should be indexed without making Pinloom an Obsidian add-on.
 - Precise anchors: search results should be able to land on PDF pages/regions, file lines, markdown headings/blocks, URLs, and manual targets.
@@ -291,4 +291,4 @@ Phases:
 
 Current boundary enforcement:
 
-- A shared path-only package-container guard keeps compressed packages and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until a dedicated reader can emit real positions; these resources are tagged `path-only` and `package-container`.
+- A shared path-only package-container guard keeps compressed packages and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers may be upgraded only by document readers that emit real document positions. These resources are tagged `path-only` and `package-container`.

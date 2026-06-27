@@ -389,7 +389,7 @@ Status:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with source line anchors and `links-to` relations: done.
 - CSV/TSV URL-column indexing as individual URL resources with source row anchors and `links-to` relations: done.
 - Optional remote HTML fetching/content extraction for indexed web shortcuts: done.
-- Small plain-text/log/config/manifest/tabular file content indexing with TODO/FIXME/NOTE, config key/section/path, package dependency, and CSV/TSV column line anchors: done.
+- Small content-sniffed text content indexing with TODO/FIXME/NOTE, text-structure key/section/path, JSON/TOML/requirements-style dependency, and CSV/TSV column line anchors: done.
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
@@ -403,13 +403,13 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep package containers path-only before their dedicated readers exist; do not let them fall through to generic text scanning.
+- Keep compressed packages as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only until document readers can emit real document positions.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
 
 1. Existing reader consolidation.
-   Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, structured text, and tabular readers as special or semi-special beacon readers. Make naming, documentation, and tests reflect that boundary.
+   Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, text-structure beacons, and tabular beacons as beacon/location extractors. Make naming, documentation, and tests reflect that boundary.
 2. Office baseline readers.
    Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons.
 3. Engineering and design special readers.
@@ -425,7 +425,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until dedicated readers exist, and tags them `path-only`/`package-container`.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps compressed and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only until document readers can emit real document positions. The guard tags them `path-only`/`package-container`.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

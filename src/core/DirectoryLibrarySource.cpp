@@ -545,7 +545,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
     return sample.isEmpty() || controlBytes * 20 <= sample.size();
 }
 
-bool isStructuredPlainTextFile(const QFileInfo &fileInfo)
+bool hasTextStructureBeaconFormat(const QFileInfo &fileInfo)
 {
     const QString suffix = fileInfo.suffix().toLower();
     return QStringList{
@@ -4229,7 +4229,7 @@ void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, in
     }
 }
 
-struct StructuredPlainTextState {
+struct TextStructureBeaconState {
     QStringList jsonPath;
     QList<int> yamlIndents;
     QStringList yamlPath;
@@ -4524,7 +4524,7 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
                          lineNumber);
 }
 
-void popJsonStructuredPathClosures(StructuredPlainTextState &state, const QString &trimmed)
+void popJsonTextStructurePathClosures(TextStructureBeaconState &state, const QString &trimmed)
 {
     int cursor = 0;
     while (cursor < trimmed.size()
@@ -4539,11 +4539,11 @@ void popJsonStructuredPathClosures(StructuredPlainTextState &state, const QStrin
     }
 }
 
-void appendStructuredPlainTextAnchorsFromLine(Resource &resource,
-                                             const QFileInfo &fileInfo,
-                                             const QString &line,
-                                             int lineNumber,
-                                             StructuredPlainTextState &state)
+void appendTextStructureAnchorsFromLine(Resource &resource,
+                                        const QFileInfo &fileInfo,
+                                        const QString &line,
+                                        int lineNumber,
+                                        TextStructureBeaconState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty()
@@ -4567,7 +4567,7 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource,
     }
 
     if (jsonLike) {
-        popJsonStructuredPathClosures(state, trimmed);
+        popJsonTextStructurePathClosures(state, trimmed);
     }
 
     static const QRegularExpression jsonKeyPattern(QStringLiteral("^\"([^\"]+)\"\\s*:\\s*(.*)$"));
@@ -7575,7 +7575,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     }
 
     const QString text = QString::fromUtf8(bytes);
-    const bool structured = isStructuredPlainTextFile(fileInfo);
+    const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
     const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
     const bool gitlabCi = isGitlabCiFile(fileInfo);
     const bool cmakeFile = isCMakeFile(fileInfo);
@@ -7584,7 +7584,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     ManifestDependencyState manifestDependencyState;
-    StructuredPlainTextState structuredPlainTextState;
+    TextStructureBeaconState textStructureState;
     GithubActionsWorkflowState githubActionsWorkflowState;
     GitlabCiPipelineState gitlabCiPipelineState;
     int lineNumber = 0;
@@ -7610,8 +7610,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         if (gitlabCi) {
             appendGitlabCiPipelineAnchorsFromLine(resource, line, lineNumber, gitlabCiPipelineState);
         }
-        if (structured) {
-            appendStructuredPlainTextAnchorsFromLine(resource, fileInfo, line, lineNumber, structuredPlainTextState);
+        if (textStructureBeacons) {
+            appendTextStructureAnchorsFromLine(resource, fileInfo, line, lineNumber, textStructureState);
         }
         if (tabularDelimiter.has_value()
             && !tabularHeaderAnchorsAdded

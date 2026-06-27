@@ -21,7 +21,7 @@ private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
     void indexesPackageContainersAsPathOnlyFiles();
-    void extractsStructuredPlainTextLineAnchors();
+    void extractsTextStructureLineBeacons();
     void extractsGithubActionsWorkflowAnchors();
     void extractsGitlabCiPipelineAnchors();
     void extractsPackageManifestDependencyLineAnchors();
@@ -514,7 +514,7 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
     QVERIFY(urlResults.isEmpty());
 }
 
-void DirectorySourceTest::extractsStructuredPlainTextLineAnchors()
+void DirectorySourceTest::extractsTextStructureLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
