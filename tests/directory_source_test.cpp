@@ -687,6 +687,12 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
+    auto verifyIndexedPackageTags = [](const SearchResult &result) {
+        QVERIFY(result.resource.tags.contains(QStringLiteral("path-only")));
+        QVERIFY(result.resource.tags.contains(QStringLiteral("package-container")));
+        QVERIFY(!result.resource.tags.contains(QStringLiteral("special-reader")));
+    };
+
     const QList<SearchResult> packageResults = repository.search(SearchQuery{QStringLiteral("package.zip")});
     auto packageResultIt = std::find_if(packageResults.cbegin(), packageResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
@@ -694,6 +700,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
             && !result.matchedAnchor.has_value();
     });
     QVERIFY(packageResultIt != packageResults.cend());
+    verifyIndexedPackageTags(*packageResultIt);
     QVERIFY(repository.resourceRelations(packageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> documentPackageResults = repository.search(SearchQuery{QStringLiteral("document.docx")});
@@ -703,6 +710,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
             && !result.matchedAnchor.has_value();
     });
     QVERIFY(documentPackageResultIt != documentPackageResults.cend());
+    verifyIndexedPackageTags(*documentPackageResultIt);
     QVERIFY(repository.resourceRelations(documentPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> openDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.odt")});
@@ -721,6 +729,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
             && !result.matchedAnchor.has_value();
     });
     QVERIFY(electronPackageResultIt != electronPackageResults.cend());
+    verifyIndexedPackageTags(*electronPackageResultIt);
     QVERIFY(repository.resourceRelations(electronPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> visioPackageResults = repository.search(SearchQuery{QStringLiteral("diagram.vsdx")});
