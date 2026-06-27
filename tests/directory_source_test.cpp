@@ -510,7 +510,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
                                      "ppt/slides/slide1.xml\n"
                                      "Hidden Package Guide\n"
                                      "https://docs.example.com/package/inside\n");
-    const QStringList compressedPackageFileNames{
+    const QStringList archiveLikePackageFileNames{
         QStringLiteral("package.zip"),
         QStringLiteral("package.zipx"),
         QStringLiteral("android.aab"),
@@ -648,7 +648,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("workbook.xltm"),
         QStringLiteral("workbook.xltx")
     };
-    QStringList packageFileNames = compressedPackageFileNames;
+    QStringList packageFileNames = archiveLikePackageFileNames;
     packageFileNames += documentDesignPackageFileNames;
     for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);

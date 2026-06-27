@@ -400,7 +400,7 @@ bool hasPipelineConfigTextBeaconFormat(const QFileInfo &fileInfo)
         || fileName.compare(QStringLiteral(".gitlab-ci.yaml"), Qt::CaseInsensitive) == 0;
 }
 
-bool isCompressedPackageFile(const QFileInfo &fileInfo)
+bool isArchiveLikePackageContainerFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -559,7 +559,7 @@ bool isDocumentDesignPackageContainerFile(const QFileInfo &fileInfo)
 
 bool isPathOnlyPackageContainerFile(const QFileInfo &fileInfo)
 {
-    return isCompressedPackageFile(fileInfo) || isDocumentDesignPackageContainerFile(fileInfo);
+    return isArchiveLikePackageContainerFile(fileInfo) || isDocumentDesignPackageContainerFile(fileInfo);
 }
 
 bool isMhtmlFile(const QFileInfo &fileInfo)
