@@ -81,7 +81,7 @@ Implemented:
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
 - Shared path-only package-container guard: compressed packages remain permanent path-only file targets, while Office/Visio package files stay path-only until document readers can emit real positions. Guarded files carry `path-only` and `package-container` tags.
 - Build/config text beacons layered after text content sniffing for directive-style lines, rule targets, container recipe stages/base/copy lines, CI configuration workflow/job/stage/step/uses/run/script/needs lines, and compile_commands.json file-reference line anchors with `file-reference` relations to referenced file paths. These are line-pattern beacons for jumps, not build-language, container-language, or CI-language support.
-- Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel.
+- Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel. Manual relation labels are user-authored jump context, not inferred semantic relationships.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
 - Locator UI and host-facing API for creating manual aliases and anchors on selected resources or explicit resource ids.
 - Locator UI and host-facing API record successful result activations and let callers pin/unpin selected resources or explicit resource ids.

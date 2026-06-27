@@ -3672,7 +3672,7 @@ void DirectorySourceTest::extractsConfigTextUrlBeacons()
     writeFile(dir.filePath(QStringLiteral("library/config/workspace.yml")),
               QByteArray("pinloom:\n"
                          "  docs_url: https://docs.example.com/pinloom/workspace#roots\n"
-                         "  support:\n"
+                         "  status_links:\n"
                          "    - https://status.example.com/zeroslack\n"
                          "  local: file://ignored\n"));
     writeFile(dir.filePath(QStringLiteral("library/config/settings.toml")),

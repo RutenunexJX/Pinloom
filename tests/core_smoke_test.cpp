@@ -282,7 +282,7 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     ResourceRelation relation;
     relation.sourceResourceId = active.id;
     relation.targetResourceId = related.id;
-    relation.label = QStringLiteral("supports");
+    relation.label = QStringLiteral("related-to");
     relation.note = QStringLiteral("active relation edge");
     QVERIFY(repository.upsertResourceRelation(relation));
 
@@ -297,7 +297,7 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, related.id);
     QCOMPARE(results.first().matchedContextResourceId, active.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
     QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
 
     query.contextRelationLabels = {QStringLiteral("file-reference")};
@@ -307,11 +307,11 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
     QVERIFY(results.first().matchedContextRelationLabel.isEmpty());
     QVERIFY(results.first().matchedContextRelationNote.isEmpty());
 
-    query.contextRelationLabels = {QStringLiteral("SUPPORTS")};
+    query.contextRelationLabels = {QStringLiteral("RELATED-TO")};
     results = repository.search(query);
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, related.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
     QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
 }
 

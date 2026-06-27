@@ -543,7 +543,7 @@ void WidgetSmokeTest::panelDisplaysRelationSummary()
     ResourceRelation relation;
     relation.sourceResourceId = note.id;
     relation.targetResourceId = spec.id;
-    relation.label = QStringLiteral("supports");
+    relation.label = QStringLiteral("related-to");
     relation.note = QStringLiteral("chapter 7");
     QVERIFY(repository.upsertResourceRelation(relation));
 
@@ -558,7 +558,7 @@ void WidgetSmokeTest::panelDisplaysRelationSummary()
     searchEdit->setText(QStringLiteral("Bringup"));
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
-    QVERIFY(relationLabel->text().contains(QStringLiteral("Related: supports -> PCIe Spec (chapter 7)")));
+    QVERIFY(relationLabel->text().contains(QStringLiteral("Related: related-to -> PCIe Spec (chapter 7)")));
 }
 
 void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
@@ -601,14 +601,14 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
 
     QVERIFY(panel.upsertResourceRelation(note.id,
                                          spec.id,
-                                         QStringLiteral("supports"),
+                                         QStringLiteral("related-to"),
                                          QStringLiteral("chapter 7")));
     QCOMPARE(statusNotifications.last(), QStringLiteral("Saved resource relation"));
-    QVERIFY(relationLabel->text().contains(QStringLiteral("supports -> PCIe Spec (chapter 7)")));
+    QVERIFY(relationLabel->text().contains(QStringLiteral("related-to -> PCIe Spec (chapter 7)")));
 
     QList<PinloomRelatedTarget> relatedById = panel.relatedTargetsForResource(note.id);
     QCOMPARE(relatedById.size(), 1);
-    QCOMPARE(relatedById.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(relatedById.first().relationLabel, QStringLiteral("related-to"));
     QCOMPARE(relatedById.first().relationNote, QStringLiteral("chapter 7"));
     QVERIFY(relatedById.first().currentIsSource);
     QCOMPARE(relatedById.first().target.resourceId, spec.id);
@@ -616,7 +616,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
 
     QList<PinloomRelatedTarget> related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
-    QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(related.first().relationLabel, QStringLiteral("related-to"));
     QCOMPARE(related.first().relationNote, QStringLiteral("chapter 7"));
     QVERIFY(related.first().currentIsSource);
     QCOMPARE(related.first().target.resourceId, spec.id);
@@ -628,7 +628,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
 
     QVERIFY(panel.upsertResourceRelation(note.id,
                                          spec.id,
-                                         QStringLiteral("supports"),
+                                         QStringLiteral("related-to"),
                                          QStringLiteral("chapter 8")));
     related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
@@ -640,7 +640,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
 
     related = panel.currentRelatedTargets();
     QCOMPARE(related.size(), 1);
-    QCOMPARE(related.first().relationLabel, QStringLiteral("supports"));
+    QCOMPARE(related.first().relationLabel, QStringLiteral("related-to"));
     QCOMPARE(related.first().relationNote, QStringLiteral("chapter 8"));
     QVERIFY(!related.first().currentIsSource);
     QCOMPARE(related.first().target.resourceId, note.id);
@@ -655,13 +655,13 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
     QVERIFY(!relatedById.first().currentIsSource);
     QCOMPARE(relatedById.first().target.resourceId, note.id);
 
-    QVERIFY(panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
+    QVERIFY(panel.removeResourceRelation(note.id, spec.id, QStringLiteral("related-to")));
     QCOMPARE(statusNotifications.last(), QStringLiteral("Removed resource relation"));
     QVERIFY(panel.currentRelatedTargets().isEmpty());
     QVERIFY(panel.relatedTargetsForResource(note.id).isEmpty());
     QVERIFY(panel.relatedTargetsForResource(QStringLiteral("missing")).isEmpty());
     QVERIFY(relationLabel->text().isEmpty());
-    QVERIFY(!panel.removeResourceRelation(note.id, spec.id, QStringLiteral("supports")));
+    QVERIFY(!panel.removeResourceRelation(note.id, spec.id, QStringLiteral("related-to")));
     QCOMPARE(statusNotifications.last(), QStringLiteral("Unable to remove resource relation"));
 }
 
@@ -1123,7 +1123,7 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     ResourceRelation relation;
     relation.sourceResourceId = active.id;
     relation.targetResourceId = related.id;
-    relation.label = QStringLiteral("supports");
+    relation.label = QStringLiteral("related-to");
     relation.note = QStringLiteral("active relation edge");
     QVERIFY(repository.upsertResourceRelation(relation));
 
@@ -1138,23 +1138,23 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
     panel.setContextResourceIds({active.id});
     QCOMPARE(panel.contextResourceIds(), QStringList{active.id});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
-    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via related-to")));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("(active relation edge)")));
 
     panel.setContextRelationLabels({QStringLiteral("file-reference")});
     QCOMPARE(panel.contextRelationLabels(), QStringList{QStringLiteral("file-reference")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), generic.id);
 
-    panel.setContextRelationLabels({QStringLiteral("supports")});
+    panel.setContextRelationLabels({QStringLiteral("related-to")});
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), related.id);
-    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via supports")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Context relation: active via related-to")));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("(active relation edge)")));
 
     results->setCurrentRow(0);
     const PinloomOpenTarget target = panel.currentOpenTarget();
     QCOMPARE(target.resourceId, related.id);
     QCOMPARE(target.matchedContextResourceId, active.id);
-    QCOMPARE(target.matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(target.matchedContextRelationLabel, QStringLiteral("related-to"));
     QCOMPARE(target.matchedContextRelationNote, QStringLiteral("active relation edge"));
 }
 

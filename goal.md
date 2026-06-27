@@ -192,6 +192,7 @@ Completed:
 - Persist related-resource links.
 - Persist indexed `links-to` relations discovered from local Markdown links.
 - Surface relationships in compact result details without turning the main result list into a graph browser.
+- Treat manual relation labels as user-authored jump context, not inferred semantic relationships.
 - Expose current related targets through the host-facing panel API.
 - Expose related-target lookup by explicit resource id through the host-facing panel API.
 - Expose host APIs for creating, updating, and removing resource relations.

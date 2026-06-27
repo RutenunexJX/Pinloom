@@ -551,7 +551,7 @@ void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
     ResourceRelation relation;
     relation.sourceResourceId = active.id;
     relation.targetResourceId = related.id;
-    relation.label = QStringLiteral("supports");
+    relation.label = QStringLiteral("related-to");
     relation.note = QStringLiteral("active relation edge");
     QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
 
@@ -566,7 +566,7 @@ void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, related.id);
     QCOMPARE(results.first().matchedContextResourceId, active.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
     QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
 
     query.contextRelationLabels = {QStringLiteral("file-reference")};
@@ -576,11 +576,11 @@ void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
     QVERIFY(results.first().matchedContextRelationLabel.isEmpty());
     QVERIFY(results.first().matchedContextRelationNote.isEmpty());
 
-    query.contextRelationLabels = {QStringLiteral("SUPPORTS")};
+    query.contextRelationLabels = {QStringLiteral("RELATED-TO")};
     results = repository.search(query);
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, related.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("supports"));
+    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
     QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
 }
 
@@ -700,7 +700,7 @@ void SqliteRepositoryTest::managesResourceRelations()
     ResourceRelation relation;
     relation.sourceResourceId = source.id;
     relation.targetResourceId = target.id;
-    relation.label = QStringLiteral("supports");
+    relation.label = QStringLiteral("related-to");
     relation.note = QStringLiteral("chapter 7");
     QVERIFY2(repository.upsertResourceRelation(relation), qPrintable(repository.lastError()));
 
@@ -708,7 +708,7 @@ void SqliteRepositoryTest::managesResourceRelations()
     QCOMPARE(sourceRelations.size(), 1);
     QCOMPARE(sourceRelations.first().sourceResourceId, source.id);
     QCOMPARE(sourceRelations.first().targetResourceId, target.id);
-    QCOMPARE(sourceRelations.first().label, QStringLiteral("supports"));
+    QCOMPARE(sourceRelations.first().label, QStringLiteral("related-to"));
     QCOMPARE(sourceRelations.first().note, QStringLiteral("chapter 7"));
 
     relation.note = QStringLiteral("chapter 8");
