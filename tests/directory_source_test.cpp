@@ -2486,6 +2486,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(dir.mkpath(QStringLiteral("library/logs")));
     QVERIFY(dir.mkpath(QStringLiteral("library/config")));
     QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/rtl")));
     writeFile(dir.filePath(QStringLiteral("library/text/handoff.txt")),
               QByteArray("// ANCHOR: host dock handoff\n"
                          "MARKER: jump target\n"
@@ -2505,6 +2506,16 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
               QByteArray("#!/usr/bin/env custom-runner\n"
                          "ANCHOR: handoff_entry\n"
                          "TODO: no-extension text without interpreter allowlist\n"));
+    writeFile(dir.filePath(QStringLiteral("library/scripts/probe.py")),
+              QByteArray("def helper():\n"
+                         "    return 'plain text'\n"
+                         "# NOTE: script suffix remains plain text\n"
+                         "# ANCHOR: script_plain_text_anchor\n"));
+    writeFile(dir.filePath(QStringLiteral("library/rtl/top.sv")),
+              QByteArray("module top;\n"
+                         "  // TODO: review reset handoff\n"
+                         "  // MARKER: sv_plain_text_anchor\n"
+                         "endmodule\n"));
     writeFile(dir.filePath(QStringLiteral("library/config/pins.txt")),
               QByteArray("NOTE: board pin review\n"
                          "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
@@ -2555,6 +2566,27 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(handoffIt != resources.cend());
     QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("marker: handoff_entry"), 2));
     QVERIFY(hasLineAnchor(*handoffIt, QStringLiteral("TODO: no-extension text without interpreter allowlist"), 3));
+
+    const auto scriptIt = findFile(QStringLiteral("probe.py"));
+    QVERIFY(scriptIt != resources.cend());
+    QVERIFY(hasLineAnchor(*scriptIt, QStringLiteral("NOTE: script suffix remains plain text"), 3));
+    QVERIFY(hasLineAnchor(*scriptIt, QStringLiteral("marker: script_plain_text_anchor"), 4));
+    QVERIFY(!scriptIt->tags.contains(QStringLiteral("python")));
+    QVERIFY(std::none_of(scriptIt->anchors.cbegin(), scriptIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("def:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("function:"), Qt::CaseInsensitive);
+    }));
+
+    const auto hdlIt = findFile(QStringLiteral("top.sv"));
+    QVERIFY(hdlIt != resources.cend());
+    QVERIFY(hasLineAnchor(*hdlIt, QStringLiteral("TODO: review reset handoff"), 2));
+    QVERIFY(hasLineAnchor(*hdlIt, QStringLiteral("marker: sv_plain_text_anchor"), 3));
+    QVERIFY(!hdlIt->tags.contains(QStringLiteral("verilog")));
+    QVERIFY(!hdlIt->tags.contains(QStringLiteral("systemverilog")));
+    QVERIFY(std::none_of(hdlIt->anchors.cbegin(), hdlIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.target.startsWith(QStringLiteral("module:"), Qt::CaseInsensitive)
+            || anchor.target.startsWith(QStringLiteral("symbol:"), Qt::CaseInsensitive);
+    }));
 
     const auto pinsIt = findFile(QStringLiteral("pins.txt"));
     QVERIFY(pinsIt != resources.cend());
@@ -2608,6 +2640,25 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
         return result.resource.title == QLatin1String("handoff")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("TODO: no-extension text without interpreter allowlist");
+    }));
+
+    const QList<SearchResult> scriptResults = repository.search(SearchQuery{QStringLiteral("script suffix")});
+    QVERIFY(std::any_of(scriptResults.cbegin(), scriptResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("probe.py")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("python"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("NOTE: script suffix remains plain text");
+    }));
+
+    const QList<SearchResult> hdlResults = repository.search(SearchQuery{QStringLiteral("reset handoff")});
+    QVERIFY(std::any_of(hdlResults.cbegin(), hdlResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("top.sv")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("verilog"))
+            && !result.resource.tags.contains(QStringLiteral("systemverilog"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("TODO: review reset handoff");
     }));
 
     const QList<SearchResult> hiddenResults = repository.search(SearchQuery{QStringLiteral("hidden")});
