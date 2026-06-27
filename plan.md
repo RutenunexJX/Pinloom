@@ -410,7 +410,7 @@ Phases:
 2. Office baseline readers.
    Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons.
 3. Engineering and design special readers.
-   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons; generic SQLite table, column, URL-field, and sample-value beacons; archive file-list, manifest, and stored text-preview beacons.
+   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons; generic SQLite table, column, URL-field, and sample-value beacons; archive file-list, manifest, stored text-preview, and preview-diagnostic beacons.
 4. Scanned/OCR readers.
    Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
 5. Reader contract and quality layer.
@@ -422,7 +422,7 @@ Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
 - Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader and ZIP archive file-list/manifest/stored text-preview beacon reader done; Visio/vsdx and compressed archive text-preview readers pending.
+- Phase 3: generic SQLite table/column/URL/sample-value beacon reader and ZIP archive file-list/manifest/stored text-preview/preview-diagnostic beacon reader done; Visio/vsdx and compressed archive text extraction pending.
 - Phase 4: pending.
 - Phase 5: pending.
 - Phase 6: pending.

@@ -296,6 +296,9 @@ static void writeZipArchive(const QString &path)
     struct Entry {
         QString path;
         QByteArray content;
+        quint16 flags = 0x0800;
+        quint16 compressionMethod = 0;
+        quint32 uncompressedSize = 0;
         quint32 localHeaderOffset = 0;
     };
 
@@ -303,20 +306,25 @@ static void writeZipArchive(const QString &path)
     entries.append(Entry{QStringLiteral("docs/readme.md"), QByteArray("# Archive Guide\n")});
     entries.append(Entry{QStringLiteral("META-INF/MANIFEST.MF"), QByteArray("Manifest-Version: 1.0\n")});
     entries.append(Entry{QStringLiteral("src/top.sv"), QByteArray("module top; endmodule\n")});
+    entries.append(Entry{QStringLiteral("docs/compressed.md"), QByteArray("compressed-payload"), 0x0800, 8, 128});
+    entries.append(Entry{QStringLiteral("docs/secret.txt"), QByteArray("Secret\n"), 0x0801});
+    entries.append(Entry{QStringLiteral("docs/huge.txt"), QByteArray(16 * 1024 + 1, 'A')});
 
     QByteArray bytes;
     for (Entry &entry : entries) {
         entry.localHeaderOffset = static_cast<quint32>(bytes.size());
         const QByteArray name = entry.path.toUtf8();
+        const quint32 compressedSize = static_cast<quint32>(entry.content.size());
+        const quint32 uncompressedSize = entry.uncompressedSize == 0 ? compressedSize : entry.uncompressedSize;
         appendLittleEndian32(bytes, 0x04034b50);
         appendLittleEndian16(bytes, 20);
-        appendLittleEndian16(bytes, 0x0800);
-        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, entry.flags);
+        appendLittleEndian16(bytes, entry.compressionMethod);
         appendLittleEndian16(bytes, 0);
         appendLittleEndian16(bytes, 0);
         appendLittleEndian32(bytes, 0);
-        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
-        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian32(bytes, compressedSize);
+        appendLittleEndian32(bytes, uncompressedSize);
         appendLittleEndian16(bytes, static_cast<quint16>(name.size()));
         appendLittleEndian16(bytes, 0);
         bytes.append(name);
@@ -326,16 +334,18 @@ static void writeZipArchive(const QString &path)
     const quint32 centralDirectoryOffset = static_cast<quint32>(bytes.size());
     for (const Entry &entry : entries) {
         const QByteArray name = entry.path.toUtf8();
+        const quint32 compressedSize = static_cast<quint32>(entry.content.size());
+        const quint32 uncompressedSize = entry.uncompressedSize == 0 ? compressedSize : entry.uncompressedSize;
         appendLittleEndian32(bytes, 0x02014b50);
         appendLittleEndian16(bytes, 20);
         appendLittleEndian16(bytes, 20);
-        appendLittleEndian16(bytes, 0x0800);
-        appendLittleEndian16(bytes, 0);
+        appendLittleEndian16(bytes, entry.flags);
+        appendLittleEndian16(bytes, entry.compressionMethod);
         appendLittleEndian16(bytes, 0);
         appendLittleEndian16(bytes, 0);
         appendLittleEndian32(bytes, 0);
-        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
-        appendLittleEndian32(bytes, static_cast<quint32>(entry.content.size()));
+        appendLittleEndian32(bytes, compressedSize);
+        appendLittleEndian32(bytes, uncompressedSize);
         appendLittleEndian16(bytes, static_cast<quint16>(name.size()));
         appendLittleEndian16(bytes, 0);
         appendLittleEndian16(bytes, 0);
@@ -4701,10 +4711,14 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
     QVERIFY(archiveIt->tags.contains(QStringLiteral("archive")));
     QVERIFY(archiveIt->tags.contains(QStringLiteral("zip-archive")));
     QVERIFY(archiveIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(archiveIt->tags.contains(QStringLiteral("archive-preview-limited")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("package")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("readme.md")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("MANIFEST.MF")));
     QVERIFY(archiveIt->aliases.contains(QStringLiteral("top.sv")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("compressed.md")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("secret.txt")));
+    QVERIFY(archiveIt->aliases.contains(QStringLiteral("huge.txt")));
 
     auto hasLineAnchor = [](const Resource &resource, const QString &target) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
@@ -4714,7 +4728,7 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
         });
     };
 
-    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entries: 3")));
+    QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entries: 6")));
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: docs/readme.md")));
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive entry: META-INF/MANIFEST.MF")));
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive manifest: META-INF/MANIFEST.MF")));
@@ -4722,6 +4736,12 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
     QVERIFY(hasLineAnchor(*archiveIt, QStringLiteral("archive text: docs/readme.md: # Archive Guide")));
     QVERIFY(hasLineAnchor(*archiveIt,
                           QStringLiteral("archive text: META-INF/MANIFEST.MF: Manifest-Version: 1.0")));
+    QVERIFY(hasLineAnchor(*archiveIt,
+                          QStringLiteral("archive text preview skipped: docs/compressed.md (compressed method 8)")));
+    QVERIFY(hasLineAnchor(*archiveIt,
+                          QStringLiteral("archive text preview skipped: docs/secret.txt (encrypted)")));
+    QVERIFY(hasLineAnchor(*archiveIt,
+                          QStringLiteral("archive text preview skipped: docs/huge.txt (too large)")));
 
     QCOMPARE(resources.size(), 3);
 
@@ -4758,6 +4778,17 @@ void DirectorySourceTest::extractsZipArchiveEntryBeacons()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("archive text: docs/readme.md: # Archive Guide");
+    }));
+
+    const QList<SearchResult> diagnosticResults =
+        repository.search(SearchQuery{QStringLiteral("compressed method 8")});
+    QVERIFY(std::any_of(diagnosticResults.cbegin(), diagnosticResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("package.zip")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target
+                   == QLatin1String("archive text preview skipped: docs/compressed.md (compressed method 8)");
     }));
 }
 

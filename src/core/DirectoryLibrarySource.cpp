@@ -3572,14 +3572,9 @@ bool isArchiveManifestEntry(const ZipArchiveEntry &entry)
         || path.endsWith(QLatin1String("/manifest.mf"));
 }
 
-bool isArchiveTextPreviewEntry(const ZipArchiveEntry &entry)
+bool isArchiveTextPathCandidate(const ZipArchiveEntry &entry)
 {
-    if (entry.directory
-        || entry.compressionMethod != 0
-        || (entry.flags & 0x0001) != 0
-        || entry.uncompressedSize == 0
-        || entry.uncompressedSize > 16 * 1024
-        || entry.compressedSize != entry.uncompressedSize) {
+    if (entry.directory) {
         return false;
     }
 
@@ -3607,6 +3602,37 @@ bool isArchiveTextPreviewEntry(const ZipArchiveEntry &entry)
         QStringLiteral("yaml"),
         QStringLiteral("yml")
     }.contains(suffix);
+}
+
+bool isArchiveTextPreviewEntry(const ZipArchiveEntry &entry)
+{
+    return isArchiveTextPathCandidate(entry)
+        && entry.compressionMethod == 0
+        && (entry.flags & 0x0001) == 0
+        && entry.uncompressedSize > 0
+        && entry.uncompressedSize <= 16 * 1024
+        && entry.compressedSize == entry.uncompressedSize;
+}
+
+QString archiveTextPreviewSkipReason(const ZipArchiveEntry &entry)
+{
+    if (!isArchiveTextPathCandidate(entry) || entry.uncompressedSize == 0) {
+        return {};
+    }
+
+    if ((entry.flags & 0x0001) != 0) {
+        return QStringLiteral("encrypted");
+    }
+    if (entry.uncompressedSize > 16 * 1024) {
+        return QStringLiteral("too large");
+    }
+    if (entry.compressionMethod != 0) {
+        return QStringLiteral("compressed method %1").arg(entry.compressionMethod);
+    }
+    if (entry.compressedSize != entry.uncompressedSize) {
+        return QStringLiteral("stored size mismatch");
+    }
+    return {};
 }
 
 QByteArray zipStoredEntryContent(const QByteArray &bytes, const ZipArchiveEntry &entry)
@@ -3668,6 +3694,23 @@ void appendArchiveTextPreviewAnchors(Resource &resource,
     }
 }
 
+void appendArchiveTextPreviewDiagnosticAnchor(Resource &resource,
+                                              const ZipArchiveEntry &entry,
+                                              const QString &reason,
+                                              QStringList &contentParts,
+                                              int &diagnosticAnchorCount)
+{
+    if (reason.isEmpty() || diagnosticAnchorCount >= 24) {
+        return;
+    }
+
+    const QString target =
+        QStringLiteral("archive text preview skipped: %1 (%2)").arg(entry.path, reason);
+    appendFileLineAnchor(resource, target, 1);
+    contentParts.append(target);
+    ++diagnosticAnchorCount;
+}
+
 void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
 {
     const QList<ZipArchiveEntry> entries = zipArchiveEntriesFromFile(fileInfo);
@@ -3686,6 +3729,7 @@ void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
 
     QStringList contentParts;
     int previewAnchorCount = 0;
+    int diagnosticAnchorCount = 0;
     for (const ZipArchiveEntry &entry : entries) {
         contentParts.append(entry.path);
         const QString leafName = zipArchiveEntryLeafName(entry.path);
@@ -3703,11 +3747,21 @@ void appendZipArchiveMetadata(Resource &resource, const QFileInfo &fileInfo)
                                  1);
         }
 
-        appendArchiveTextPreviewAnchors(resource,
-                                        archiveBytes,
-                                        entry,
-                                        contentParts,
-                                        previewAnchorCount);
+        const QString skipReason = archiveTextPreviewSkipReason(entry);
+        if (!skipReason.isEmpty()) {
+            appendUnique(resource.tags, QStringLiteral("archive-preview-limited"));
+            appendArchiveTextPreviewDiagnosticAnchor(resource,
+                                                    entry,
+                                                    skipReason,
+                                                    contentParts,
+                                                    diagnosticAnchorCount);
+        } else {
+            appendArchiveTextPreviewAnchors(resource,
+                                            archiveBytes,
+                                            entry,
+                                            contentParts,
+                                            previewAnchorCount);
+        }
     }
 
     if (!contentParts.isEmpty()) {
