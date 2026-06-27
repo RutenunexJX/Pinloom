@@ -52,6 +52,7 @@ private slots:
     void extractsCodeCommentLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
+    void extractsEmailMessageUrlResources();
     void extractsIcalendarEventUrlResources();
     void extractsJsonUrlResources();
     void extractsHarEntryLinks();
@@ -3134,6 +3135,172 @@ void DirectorySourceTest::extractsPlainTextUrlListResources()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 1
             && result.matchedAnchor->target == QLatin1String("url: Pinloom Launch Notes -> https://docs.example.com/pinloom/launch#overview");
+    }));
+}
+
+void DirectorySourceTest::extractsEmailMessageUrlResources()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/mail")));
+    writeFile(dir.filePath(QStringLiteral("library/mail/handoff.eml")),
+              QByteArray("From: Alice Example <alice@example.com>\r\n"
+                         "To: Pinloom Team <pinloom@example.com>\r\n"
+                         "Subject: ZeroSlack Dock\r\n"
+                         " Handoff\r\n"
+                         "Date: Sat, 27 Jun 2026 10:00:00 +0800\r\n"
+                         "\r\n"
+                         "Please review https://docs.example.com/pinloom/email#handoff before standup.\r\n"
+                         "Dashboard: https://dash.example.org/zeroslack#dock\r\n"
+                         "Duplicate https://docs.example.com/pinloom/email#handoff\r\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto emailIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("handoff.eml");
+    });
+    QVERIFY(emailIt != resources.cend());
+    QVERIFY(emailIt->tags.contains(QStringLiteral("email")));
+    QVERIFY(emailIt->aliases.contains(QStringLiteral("ZeroSlack Dock Handoff")));
+    QVERIFY(emailIt->aliases.contains(QStringLiteral("Alice Example <alice@example.com>")));
+    QVERIFY(emailIt->aliases.contains(QStringLiteral("Pinloom Team <pinloom@example.com>")));
+    QVERIFY(emailIt->content.contains(QStringLiteral("before standup")));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("email subject: ZeroSlack Dock Handoff")
+            && anchor.line == 3;
+    }));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("email from: Alice Example <alice@example.com>")
+            && anchor.line == 1;
+    }));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("email to: Pinloom Team <pinloom@example.com>")
+            && anchor.line == 2;
+    }));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("email date: Sat, 27 Jun 2026 10:00:00 +0800")
+            && anchor.line == 5;
+    }));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Please review -> https://docs.example.com/pinloom/email#handoff")
+            && anchor.line == 7;
+    }));
+    QVERIFY(std::any_of(emailIt->anchors.cbegin(), emailIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: Dashboard -> https://dash.example.org/zeroslack#dock")
+            && anchor.line == 8;
+    }));
+
+    auto reviewIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Please review")
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/email#handoff");
+    });
+    QVERIFY(reviewIt != resources.cend());
+    QVERIFY(reviewIt->tags.contains(QStringLiteral("email-link")));
+    QVERIFY(reviewIt->aliases.contains(QStringLiteral("docs.example.com")));
+    QVERIFY(reviewIt->aliases.contains(QStringLiteral("ZeroSlack Dock Handoff")));
+    QVERIFY(reviewIt->aliases.contains(QStringLiteral("Alice Example <alice@example.com>")));
+    QVERIFY(std::any_of(reviewIt->anchors.cbegin(), reviewIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("handoff");
+    }));
+
+    auto dashboardIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.title == QLatin1String("Dashboard")
+            && resource.location == QLatin1String("https://dash.example.org/zeroslack#dock");
+    });
+    QVERIFY(dashboardIt != resources.cend());
+    QVERIFY(dashboardIt->tags.contains(QStringLiteral("email-link")));
+    QVERIFY(std::any_of(dashboardIt->anchors.cbegin(), dashboardIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::UrlFragment && anchor.target == QLatin1String("dock");
+    }));
+
+    const int reviewResourceCount = std::count_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/pinloom/email#handoff");
+    });
+    QCOMPARE(reviewResourceCount, 1);
+
+    QCOMPARE(emailIt->relations.size(), 2);
+    QVERIFY(std::any_of(emailIt->relations.cbegin(), emailIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == emailIt->id
+            && relation.targetResourceId == reviewIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("email line 7: url: Please review -> https://docs.example.com/pinloom/email#handoff");
+    }));
+    QVERIFY(std::any_of(emailIt->relations.cbegin(), emailIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == emailIt->id
+            && relation.targetResourceId == dashboardIt->id
+            && relation.label == QLatin1String("links-to")
+            && relation.note == QLatin1String("email line 8: url: Dashboard -> https://dash.example.org/zeroslack#dock");
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> subjectResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack Dock Handoff")});
+    QVERIFY(std::any_of(subjectResults.cbegin(), subjectResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("handoff.eml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("email subject: ZeroSlack Dock Handoff");
+    }));
+
+    const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("standup")});
+    QVERIFY(std::any_of(contentResults.cbegin(), contentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("handoff.eml")
+            && result.matchedField == QLatin1String("content");
+    }));
+
+    const QList<SearchResult> fragmentResults = repository.search(SearchQuery{QStringLiteral("dock")});
+    QVERIFY(std::any_of(fragmentResults.cbegin(), fragmentResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.title == QLatin1String("Dashboard")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::UrlFragment
+            && result.matchedAnchor->target == QLatin1String("dock");
+    }));
+
+    const QList<SearchResult> sourceLineResults = repository.search(SearchQuery{QStringLiteral("Dashboard")});
+    QVERIFY(std::any_of(sourceLineResults.cbegin(), sourceLineResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("handoff.eml")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 8
+            && result.matchedAnchor->target == QLatin1String("url: Dashboard -> https://dash.example.org/zeroslack#dock");
+    }));
+
+    const QList<ResourceRelation> emailRelations = repository.resourceRelations(emailIt->id);
+    QCOMPARE(emailRelations.size(), 2);
+    QVERIFY(std::any_of(emailRelations.cbegin(), emailRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == emailIt->id
+            && relation.targetResourceId == reviewIt->id
+            && relation.label == QLatin1String("links-to");
+    }));
+    QVERIFY(std::any_of(emailRelations.cbegin(), emailRelations.cend(), [&](const ResourceRelation &relation) {
+        return relation.sourceResourceId == emailIt->id
+            && relation.targetResourceId == dashboardIt->id
+            && relation.label == QLatin1String("links-to");
     }));
 }
 

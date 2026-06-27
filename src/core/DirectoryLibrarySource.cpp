@@ -68,6 +68,27 @@ struct TextUrlLink {
     int lineNumber = -1;
 };
 
+struct EmailUrlLink {
+    QUrl url;
+    QString title;
+    int lineNumber = -1;
+};
+
+struct EmailMessageMetadata {
+    QString subject;
+    QString from;
+    QString to;
+    QString cc;
+    QString date;
+    int subjectLineNumber = -1;
+    int fromLineNumber = -1;
+    int toLineNumber = -1;
+    int ccLineNumber = -1;
+    int dateLineNumber = -1;
+    QString content;
+    QList<EmailUrlLink> links;
+};
+
 struct TabularUrlLink {
     QUrl url;
     QString title;
@@ -555,6 +576,13 @@ bool isRobotsTxtCandidate(const QFileInfo &fileInfo)
     return !fileInfo.isDir()
         && fileInfo.size() <= 512 * 1024
         && fileInfo.fileName().compare(QStringLiteral("robots.txt"), Qt::CaseInsensitive) == 0;
+}
+
+bool isEmailFileCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 4 * 1024 * 1024
+        && fileInfo.suffix().compare(QStringLiteral("eml"), Qt::CaseInsensitive) == 0;
 }
 
 bool isFeedXmlCandidate(const QFileInfo &fileInfo)
@@ -2751,6 +2779,144 @@ QList<TextUrlLink> textUrlLinksFromFile(const QFileInfo &fileInfo)
     }
 
     return textUrlLinksFromDocument(QString::fromUtf8(bytes));
+}
+
+void applyEmailHeader(EmailMessageMetadata &metadata,
+                      const QString &name,
+                      const QString &value,
+                      int lineNumber)
+{
+    const QString normalizedName = name.trimmed().toLower();
+    const QString normalizedValue = collapsedWhitespace(value);
+    if (normalizedValue.isEmpty()) {
+        return;
+    }
+
+    if (normalizedName == QLatin1String("subject") && metadata.subject.isEmpty()) {
+        metadata.subject = normalizedValue;
+        metadata.subjectLineNumber = lineNumber;
+    } else if (normalizedName == QLatin1String("from") && metadata.from.isEmpty()) {
+        metadata.from = normalizedValue;
+        metadata.fromLineNumber = lineNumber;
+    } else if (normalizedName == QLatin1String("to") && metadata.to.isEmpty()) {
+        metadata.to = normalizedValue;
+        metadata.toLineNumber = lineNumber;
+    } else if (normalizedName == QLatin1String("cc") && metadata.cc.isEmpty()) {
+        metadata.cc = normalizedValue;
+        metadata.ccLineNumber = lineNumber;
+    } else if (normalizedName == QLatin1String("date") && metadata.date.isEmpty()) {
+        metadata.date = normalizedValue;
+        metadata.dateLineNumber = lineNumber;
+    }
+}
+
+EmailMessageMetadata emailMessageMetadataFromText(const QString &text)
+{
+    EmailMessageMetadata metadata;
+    QStringList seenUrls;
+    QStringList bodyLines;
+    QString currentHeaderName;
+    QString currentHeaderValue;
+    int currentHeaderLineNumber = -1;
+    bool inHeaders = true;
+    int lineNumber = 0;
+
+    auto flushHeader = [&]() {
+        if (!currentHeaderName.isEmpty()) {
+            applyEmailHeader(metadata, currentHeaderName, currentHeaderValue, currentHeaderLineNumber);
+        }
+        currentHeaderName.clear();
+        currentHeaderValue.clear();
+        currentHeaderLineNumber = -1;
+    };
+
+    static const QRegularExpression urlPattern(QStringLiteral("https?://[^\\s<>\"]+"));
+
+    for (QString line : text.split(QLatin1Char('\n'))) {
+        ++lineNumber;
+        if (line.endsWith(QLatin1Char('\r'))) {
+            line.chop(1);
+        }
+
+        if (inHeaders) {
+            if (line.trimmed().isEmpty()) {
+                flushHeader();
+                inHeaders = false;
+                continue;
+            }
+
+            if (!currentHeaderName.isEmpty()
+                && !line.isEmpty()
+                && (line.front() == QLatin1Char(' ') || line.front() == QLatin1Char('\t'))) {
+                currentHeaderValue.append(QLatin1Char(' '));
+                currentHeaderValue.append(line.trimmed());
+                continue;
+            }
+
+            flushHeader();
+            const int colon = line.indexOf(QLatin1Char(':'));
+            if (colon > 0) {
+                currentHeaderName = line.left(colon);
+                currentHeaderValue = line.mid(colon + 1).trimmed();
+                currentHeaderLineNumber = lineNumber;
+            }
+            continue;
+        }
+
+        bodyLines.append(line);
+        QRegularExpressionMatchIterator matches = urlPattern.globalMatch(line);
+        while (matches.hasNext()) {
+            const QRegularExpressionMatch match = matches.next();
+            const QUrl url = QUrl::fromUserInput(trimmedPlainTextUrl(match.captured(0)));
+            if (!isIndexableWebUrl(url)) {
+                continue;
+            }
+
+            const QString urlKey = url.toString(QUrl::FullyEncoded);
+            if (seenUrls.contains(urlKey, Qt::CaseInsensitive)) {
+                continue;
+            }
+            seenUrls.append(urlKey);
+
+            EmailUrlLink link;
+            link.url = url;
+            link.title = titleFromTextBeforeUrl(line.left(match.capturedStart()));
+            if (link.title.isEmpty()) {
+                link.title = metadata.subject;
+            }
+            if (link.title.isEmpty()) {
+                link.title = url.host().isEmpty() ? url.toDisplayString() : url.host();
+            }
+            link.lineNumber = lineNumber;
+            metadata.links.append(link);
+        }
+    }
+
+    if (inHeaders) {
+        flushHeader();
+    }
+
+    metadata.content = collapsedWhitespace(bodyLines.join(QLatin1Char(' ')));
+    return metadata;
+}
+
+EmailMessageMetadata emailMessageMetadataFromFile(const QFileInfo &fileInfo)
+{
+    if (!isEmailFileCandidate(fileInfo)) {
+        return {};
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return {};
+    }
+
+    return emailMessageMetadataFromText(QString::fromUtf8(bytes));
 }
 
 QList<TextUrlLink> robotsSitemapLinksFromFile(const QFileInfo &fileInfo)
@@ -5957,6 +6123,86 @@ QList<Resource> robotsSitemapResourcesFromLinks(const QFileInfo &fileInfo, const
     return resources;
 }
 
+QString emailUrlLineAnchorTarget(const EmailUrlLink &link)
+{
+    const QString title = link.title.trimmed().isEmpty()
+        ? (link.url.host().isEmpty() ? link.url.toDisplayString() : link.url.host())
+        : link.title.trimmed();
+    return QStringLiteral("url: %1 -> %2").arg(title, link.url.toString(QUrl::FullyEncoded));
+}
+
+QList<Resource> emailUrlResourcesFromLinks(const QFileInfo &fileInfo,
+                                           const EmailMessageMetadata &metadata)
+{
+    QList<Resource> resources;
+    for (const EmailUrlLink &link : metadata.links) {
+        const QString urlKey = link.url.toString(QUrl::FullyEncoded);
+        Resource resource;
+        resource.id = QStringLiteral("email-link:%1:%2")
+                          .arg(normalizedPath(fileInfo), urlKey);
+        resource.kind = ResourceKind::Url;
+        resource.title = link.title;
+        resource.location = urlKey;
+        resource.updatedAt = fileInfo.lastModified().toUTC();
+        appendWebUrlMetadata(resource, link.url);
+        appendUnique(resource.tags, QStringLiteral("email-link"));
+        appendUnique(resource.aliases, fileInfo.completeBaseName());
+        appendUnique(resource.aliases, metadata.subject);
+        appendUnique(resource.aliases, metadata.from);
+        appendUnique(resource.aliases, metadata.to);
+        appendUnique(resource.aliases, metadata.cc);
+        appendUnique(resource.aliases, metadata.date);
+        resources.append(resource);
+    }
+    return resources;
+}
+
+void appendEmailHeaderLineAnchor(Resource &resource, const QString &label, const QString &value, int lineNumber)
+{
+    if (value.trimmed().isEmpty() || lineNumber <= 0) {
+        return;
+    }
+    appendFileLineAnchor(resource, QStringLiteral("email %1: %2").arg(label, value), lineNumber);
+}
+
+void appendEmailSourceMetadata(Resource &sourceResource,
+                               const EmailMessageMetadata &metadata,
+                               const QList<Resource> &urlResources)
+{
+    appendUnique(sourceResource.tags, QStringLiteral("email"));
+    appendUnique(sourceResource.aliases, metadata.subject);
+    appendUnique(sourceResource.aliases, metadata.from);
+    appendUnique(sourceResource.aliases, metadata.to);
+    appendUnique(sourceResource.aliases, metadata.cc);
+    appendUnique(sourceResource.aliases, metadata.date);
+    sourceResource.content = metadata.content;
+
+    appendEmailHeaderLineAnchor(sourceResource, QStringLiteral("subject"), metadata.subject, metadata.subjectLineNumber);
+    appendEmailHeaderLineAnchor(sourceResource, QStringLiteral("from"), metadata.from, metadata.fromLineNumber);
+    appendEmailHeaderLineAnchor(sourceResource, QStringLiteral("to"), metadata.to, metadata.toLineNumber);
+    appendEmailHeaderLineAnchor(sourceResource, QStringLiteral("cc"), metadata.cc, metadata.ccLineNumber);
+    appendEmailHeaderLineAnchor(sourceResource, QStringLiteral("date"), metadata.date, metadata.dateLineNumber);
+
+    const int count = std::min(metadata.links.size(), urlResources.size());
+    for (int i = 0; i < count; ++i) {
+        const EmailUrlLink &link = metadata.links.at(i);
+        const Resource &urlResource = urlResources.at(i);
+        const QString anchorTarget = emailUrlLineAnchorTarget(link);
+        if (link.lineNumber > 0) {
+            appendFileLineAnchor(sourceResource, anchorTarget, link.lineNumber);
+        }
+
+        ResourceRelation relation;
+        relation.sourceResourceId = sourceResource.id;
+        relation.targetResourceId = urlResource.id;
+        relation.label = QStringLiteral("links-to");
+        relation.note = link.lineNumber > 0
+            ? QStringLiteral("email line %1: %2").arg(link.lineNumber).arg(anchorTarget)
+            : QStringLiteral("email: %1").arg(anchorTarget);
+        sourceResource.relations.append(relation);
+    }
+}
+
 QString textUrlLineAnchorTarget(const TextUrlLink &link)
 {
     const QString title = link.title.trimmed().isEmpty()
@@ -6844,6 +7090,12 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         const QList<Resource> sitemapResources = sitemapResourcesFromLinks(fileInfo, sitemapLinks);
         appendSitemapXmlSourceMetadata(primary, sitemapLinks, sitemapResources);
         derivedResources.append(sitemapResources);
+    }
+    if (primary.kind == ResourceKind::File && isEmailFileCandidate(fileInfo)) {
+        const EmailMessageMetadata metadata = emailMessageMetadataFromFile(fileInfo);
+        const QList<Resource> emailResources = emailUrlResourcesFromLinks(fileInfo, metadata);
+        appendEmailSourceMetadata(primary, metadata, emailResources);
+        derivedResources.append(emailResources);
     }
     const bool robotsTxtCandidate = primary.kind == ResourceKind::File && isRobotsTxtCandidate(fileInfo);
     if (robotsTxtCandidate) {
