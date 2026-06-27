@@ -234,6 +234,7 @@ Status:
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
 - Directory scans emit `.md/.markdown` as ordinary file resources; legacy Markdown kind inputs and stored `markdown` rows normalize to ordinary file resources: done.
 - Directory scans emit text heading/block anchors through neutral text anchor types and `text_heading`/`text_block` storage names; SQLite and in-memory repositories normalize legacy Markdown-named anchor inputs and stored rows to neutral text anchors: done.
+- SQLite and in-memory repository smoke coverage uses neutral file/text fixtures; Markdown-named inputs remain only in explicit legacy compatibility coverage: done.
 - Tests: done.
 - Build/test verification: done.
 

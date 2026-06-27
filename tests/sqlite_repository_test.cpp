@@ -320,13 +320,13 @@ void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
     folder.location = QStringLiteral("E:/test_dir");
     QVERIFY2(repository.upsertResource(folder), qPrintable(repository.lastError()));
 
-    Resource markdown;
-    markdown.id = QStringLiteral("note");
-    markdown.kind = ResourceKind::Markdown;
-    markdown.title = QStringLiteral("1.md");
-    markdown.location = QStringLiteral("E:/test_dir/1.md");
-    markdown.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("test"), 143}};
-    QVERIFY2(repository.upsertResource(markdown), qPrintable(repository.lastError()));
+    Resource textFile;
+    textFile.id = QStringLiteral("note");
+    textFile.kind = ResourceKind::File;
+    textFile.title = QStringLiteral("1.md");
+    textFile.location = QStringLiteral("E:/test_dir/1.md");
+    textFile.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("test"), 143}};
+    QVERIFY2(repository.upsertResource(textFile), qPrintable(repository.lastError()));
 
     Resource pdf;
     pdf.id = QStringLiteral("pdf");
@@ -348,7 +348,7 @@ void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
 
     Resource namedByPath;
     namedByPath.id = QStringLiteral("schematic");
-    namedByPath.kind = ResourceKind::Markdown;
+    namedByPath.kind = ResourceKind::File;
     namedByPath.title = QStringLiteral("Document");
     namedByPath.location = QStringLiteral("E:/test_dir/schematic.md");
     QVERIFY2(repository.upsertResource(namedByPath), qPrintable(repository.lastError()));
@@ -370,14 +370,14 @@ void SqliteRepositoryTest::ranksExactMatchesWithinMatchType()
 
     Resource partialTitle;
     partialTitle.id = QStringLiteral("partial-title");
-    partialTitle.kind = ResourceKind::Markdown;
+    partialTitle.kind = ResourceKind::File;
     partialTitle.title = QStringLiteral("UART Bringup");
     partialTitle.location = QStringLiteral("partial.md");
     QVERIFY2(repository.upsertResource(partialTitle), qPrintable(repository.lastError()));
 
     Resource exactTitle;
     exactTitle.id = QStringLiteral("exact-title");
-    exactTitle.kind = ResourceKind::Markdown;
+    exactTitle.kind = ResourceKind::File;
     exactTitle.title = QStringLiteral("UART");
     exactTitle.location = QStringLiteral("exact.md");
     QVERIFY2(repository.upsertResource(exactTitle), qPrintable(repository.lastError()));
@@ -390,18 +390,18 @@ void SqliteRepositoryTest::ranksExactMatchesWithinMatchType()
 
     Resource partialAnchor;
     partialAnchor.id = QStringLiteral("partial-anchor");
-    partialAnchor.kind = ResourceKind::Markdown;
+    partialAnchor.kind = ResourceKind::File;
     partialAnchor.title = QStringLiteral("a.md");
     partialAnchor.location = QStringLiteral("a.md");
-    partialAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 7}};
+    partialAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing"), 7}};
     QVERIFY2(repository.upsertResource(partialAnchor), qPrintable(repository.lastError()));
 
     Resource exactAnchor;
     exactAnchor.id = QStringLiteral("exact-anchor");
-    exactAnchor.kind = ResourceKind::Markdown;
+    exactAnchor.kind = ResourceKind::File;
     exactAnchor.title = QStringLiteral("b.md");
     exactAnchor.location = QStringLiteral("b.md");
-    exactAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power"), 3}};
+    exactAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power"), 3}};
     QVERIFY2(repository.upsertResource(exactAnchor), qPrintable(repository.lastError()));
 
     const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power")});
@@ -424,14 +424,14 @@ void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
 
     Resource cold;
     cold.id = QStringLiteral("cold");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("UART Alpha");
     cold.location = QStringLiteral("alpha.md");
     QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
 
     Resource hot;
     hot.id = QStringLiteral("hot");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("UART Zulu");
     hot.location = QStringLiteral("zulu.md");
     QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
@@ -477,18 +477,18 @@ void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()
 
     Resource project;
     project.id = QStringLiteral("project");
-    project.kind = ResourceKind::Markdown;
+    project.kind = ResourceKind::File;
     project.title = QStringLiteral("UART Project Note");
     project.location = QStringLiteral("E:/workspace/project/notes/uart.md");
-    project.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 9}};
+    project.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 9}};
     QVERIFY2(repository.upsertResource(project), qPrintable(repository.lastError()));
 
     Resource other;
     other.id = QStringLiteral("other");
-    other.kind = ResourceKind::Markdown;
+    other.kind = ResourceKind::File;
     other.title = QStringLiteral("UART Other Note");
     other.location = QStringLiteral("E:/workspace/other/uart.md");
-    other.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 4}};
+    other.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 4}};
     QVERIFY2(repository.upsertResource(other), qPrintable(repository.lastError()));
 
     SearchQuery query;
@@ -573,7 +573,7 @@ void SqliteRepositoryTest::ranksContextSignalsWithinMatchType()
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     generic.tags = {QStringLiteral("notes")};
@@ -581,7 +581,7 @@ void SqliteRepositoryTest::ranksContextSignalsWithinMatchType()
 
     Resource contextual;
     contextual.id = QStringLiteral("contextual");
-    contextual.kind = ResourceKind::Markdown;
+    contextual.kind = ResourceKind::File;
     contextual.title = QStringLiteral("UART Zulu");
     contextual.location = QStringLiteral("E:/workspace/project/zulu.md");
     contextual.tags = {QStringLiteral("pcie")};
@@ -610,21 +610,21 @@ void SqliteRepositoryTest::ranksRelatedContextResourcesWithinMatchType()
 
     Resource active;
     active.id = QStringLiteral("active");
-    active.kind = ResourceKind::Markdown;
+    active.kind = ResourceKind::File;
     active.title = QStringLiteral("Current Note");
     active.location = QStringLiteral("E:/workspace/current.md");
     QVERIFY2(repository.upsertResource(active), qPrintable(repository.lastError()));
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     QVERIFY2(repository.upsertResource(generic), qPrintable(repository.lastError()));
 
     Resource related;
     related.id = QStringLiteral("related");
-    related.kind = ResourceKind::Markdown;
+    related.kind = ResourceKind::File;
     related.title = QStringLiteral("UART Zulu");
     related.location = QStringLiteral("E:/workspace/project/zulu.md");
     QVERIFY2(repository.upsertResource(related), qPrintable(repository.lastError()));
@@ -683,14 +683,14 @@ void SqliteRepositoryTest::ranksPinnedLibraryRootSignalsWithinMatchType()
 
     Resource cold;
     cold.id = QStringLiteral("cold-note");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("Bringup Checklist");
     cold.location = QStringLiteral("E:/workspace/cold/bringup.md");
     QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
 
     Resource hot;
     hot.id = QStringLiteral("hot-note");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("Bringup Checklist");
     hot.location = QStringLiteral("E:/workspace/hot/bringup.md");
     QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
@@ -718,18 +718,18 @@ void SqliteRepositoryTest::tracksAnchorUsageAndRanksAnchorRecall()
 
     Resource cold;
     cold.id = QStringLiteral("cold-anchor");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("Alpha");
     cold.location = QStringLiteral("alpha.md");
-    cold.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 1}};
+    cold.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 1}};
     QVERIFY2(repository.upsertResource(cold), qPrintable(repository.lastError()));
 
     Resource hot;
     hot.id = QStringLiteral("hot-anchor");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("Zulu");
     hot.location = QStringLiteral("zulu.md");
-    hot.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 2}};
+    hot.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 2}};
     QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
 
     QVERIFY2(repository.recordAnchorOpen(hot.id, hot.anchors.first()), qPrintable(repository.lastError()));
@@ -766,7 +766,7 @@ void SqliteRepositoryTest::managesResourceRelations()
 
     Resource source;
     source.id = QStringLiteral("note");
-    source.kind = ResourceKind::Markdown;
+    source.kind = ResourceKind::File;
     source.title = QStringLiteral("Bringup Note");
     source.location = QStringLiteral("note.md");
     QVERIFY2(repository.upsertResource(source), qPrintable(repository.lastError()));
@@ -888,10 +888,10 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
 
     Resource resource;
     resource.id = QStringLiteral("anchored");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Anchored Note");
     resource.location = QStringLiteral("anchored.md");
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Deep Link"), 7}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Deep Link"), 7}};
     QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
 
     ResourceRelation relation;
