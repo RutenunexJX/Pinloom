@@ -515,6 +515,7 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
         QVERIFY(!packageIt->tags.contains(QStringLiteral("special-reader")));
         QVERIFY(!packageIt->tags.contains(QStringLiteral("archive-preview-limited")));
         QVERIFY(packageIt->anchors.isEmpty());
+        QVERIFY(packageIt->relations.isEmpty());
         QVERIFY(packageIt->content.isEmpty());
     }
 
@@ -527,11 +528,13 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> packageResults = repository.search(SearchQuery{QStringLiteral("package.zip")});
-    QVERIFY(std::any_of(packageResults.cbegin(), packageResults.cend(), [](const SearchResult &result) {
+    auto packageResultIt = std::find_if(packageResults.cbegin(), packageResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("package.zip")
             && !result.matchedAnchor.has_value();
-    }));
+    });
+    QVERIFY(packageResultIt != packageResults.cend());
+    QVERIFY(repository.resourceRelations(packageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
     QVERIFY(internalResults.isEmpty());
