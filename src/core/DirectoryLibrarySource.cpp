@@ -4208,10 +4208,10 @@ void appendContainerRecipeBeaconsFromLine(Resource &resource, const QString &lin
     if (fromMatch.hasMatch()) {
         const QString stage = fromMatch.captured(2).trimmed();
         if (!stage.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("container stage: %1").arg(stage), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("container block: %1").arg(stage), lineNumber);
         }
         appendFileLineAnchor(resource,
-                             QStringLiteral("container base: %1").arg(fromMatch.captured(1).trimmed()),
+                             QStringLiteral("container input: %1").arg(fromMatch.captured(1).trimmed()),
                              lineNumber);
         return;
     }
@@ -4219,8 +4219,7 @@ void appendContainerRecipeBeaconsFromLine(Resource &resource, const QString &lin
     const QRegularExpressionMatch copyMatch = copyPattern.match(trimmed);
     if (copyMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("container %1: %2")
-                                 .arg(copyMatch.captured(1).toLower(), copyMatch.captured(2).trimmed()),
+                             QStringLiteral("container input: %1").arg(copyMatch.captured(2).trimmed()),
                              lineNumber);
     }
 }
