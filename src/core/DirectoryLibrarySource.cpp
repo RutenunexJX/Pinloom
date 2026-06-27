@@ -234,12 +234,12 @@ struct SitemapLink {
     int lineNumber = -1;
 };
 
-QString markdownPlainTextFromLine(QString line);
+QString normalizedPlainTextFromLine(QString line);
 void appendFileLineAnchor(Resource &resource, const QString &target, int line);
 
 QString normalizedReferenceStyleTextLinkId(QString id)
 {
-    id = markdownPlainTextFromLine(id).toLower().trimmed();
+    id = normalizedPlainTextFromLine(id).toLower().trimmed();
     id.replace(QRegularExpression(QStringLiteral("\\s+")), QStringLiteral(" "));
     return id;
 }
@@ -754,7 +754,7 @@ void appendLocalTextLinkAnchors(Resource &resource, const QFileInfo &fileInfo, c
         }
 
         const QString targetPath = markdownLinkPathWithoutFragment(rawTarget);
-        const QString label = markdownPlainTextFromLine(match.captured(1));
+        const QString label = normalizedPlainTextFromLine(match.captured(1));
         appendUnique(resource.aliases, label);
         appendUnique(resource.aliases, QFileInfo(targetPath).fileName());
         appendUnique(resource.aliases, targetPath);
@@ -795,7 +795,7 @@ void appendLocalWikilinks(Resource &resource, const QFileInfo &fileInfo, const Q
         const QString normalizedFragment = fragment.startsWith(QLatin1Char('^')) ? fragment.mid(1) : fragment;
         const QString label = displayText.isEmpty()
             ? QFileInfo(rawTargetPath).fileName()
-            : markdownPlainTextFromLine(displayText);
+            : normalizedPlainTextFromLine(displayText);
 
         appendUnique(resource.aliases, label);
         appendUnique(resource.aliases, QFileInfo(targetPath).fileName());
@@ -823,7 +823,7 @@ void appendLocalWikilinks(Resource &resource, const QFileInfo &fileInfo, const Q
     }
 }
 
-QString markdownPlainTextFromLine(QString line)
+QString normalizedPlainTextFromLine(QString line)
 {
     line = line.trimmed();
     if (line.isEmpty()) {
@@ -5754,7 +5754,7 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
         QRegularExpressionMatchIterator inlineMatches = inlineLinkPattern.globalMatch(line);
         while (inlineMatches.hasNext()) {
             const QRegularExpressionMatch match = inlineMatches.next();
-            appendLink(match.captured(2), markdownPlainTextFromLine(match.captured(1)), lineNumber);
+            appendLink(match.captured(2), normalizedPlainTextFromLine(match.captured(1)), lineNumber);
         }
 
         QRegularExpressionMatchIterator autolinkMatches = autolinkPattern.globalMatch(line);
@@ -5766,7 +5766,7 @@ QList<HtmlLink> textLinkUrlBeaconsFromFile(const QFileInfo &fileInfo)
         QRegularExpressionMatchIterator referenceMatches = referenceUsePattern.globalMatch(line);
         while (referenceMatches.hasNext()) {
             const QRegularExpressionMatch match = referenceMatches.next();
-            const QString title = markdownPlainTextFromLine(match.captured(1));
+            const QString title = normalizedPlainTextFromLine(match.captured(1));
             const QString id = match.captured(2).trimmed().isEmpty()
                 ? title
                 : match.captured(2);
@@ -7406,7 +7406,7 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
             continue;
         }
 
-        const QString contentLine = markdownPlainTextFromLine(line);
+        const QString contentLine = normalizedPlainTextFromLine(line);
         if (!contentLine.isEmpty()) {
             contentLines.append(contentLine);
         }
@@ -7438,7 +7438,7 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
 
         const QRegularExpressionMatch taskMatch = taskPattern.match(line);
         if (taskMatch.hasMatch()) {
-            appendFileLineAnchor(resource, markdownPlainTextFromLine(taskMatch.captured(1)), lineNumber);
+            appendFileLineAnchor(resource, normalizedPlainTextFromLine(taskMatch.captured(1)), lineNumber);
         }
     }
 

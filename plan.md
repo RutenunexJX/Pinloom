@@ -118,7 +118,7 @@ Goal: make anchors useful for real navigation.
 Scope:
 
 - File line anchors.
-- Markdown heading/block anchors.
+- Text heading/block anchors.
 - PDF page/region anchors.
 - Manual anchors and aliases.
 
@@ -126,7 +126,7 @@ Status:
 
 - Anchor-aware `SearchResult`: done
 - SQLite schema v3 anchor search index: done
-- Markdown heading/block extraction: done
+- Text heading/block extraction: done
 - Built-in text preview for line anchors: done
 - PDF page/region anchors: deferred
 - Manual anchor UI: deferred

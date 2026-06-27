@@ -25,7 +25,7 @@ private slots:
     void extractsNeutralWorkflowConfigLineBeacons();
     void extractsNeutralPipelineConfigLineBeacons();
     void extractsTextNamedEntryLineBeacons();
-    void extractsMarkdownHeadingAndBlockAnchors();
+    void extractsTextHeadingAndBlockAnchors();
     void extractsMarkdownAliasTagLinkBeacons();
     void extractsMarkdownBodyContent();
     void extractsLocalTextLinkAnchors();
@@ -994,7 +994,7 @@ void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
     }));
 }
 
-void DirectorySourceTest::extractsMarkdownHeadingAndBlockAnchors()
+void DirectorySourceTest::extractsTextHeadingAndBlockAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
