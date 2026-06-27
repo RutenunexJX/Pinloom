@@ -24,7 +24,7 @@ private slots:
     void extractsStructuredPlainTextLineAnchors();
     void extractsGithubActionsWorkflowAnchors();
     void extractsGitlabCiPipelineAnchors();
-    void extractsManifestDependencyLineAnchors();
+    void extractsPackageManifestDependencyLineAnchors();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsObsidianAliasesTagsAndWikilinks();
     void extractsMarkdownBodyContent();
@@ -868,7 +868,7 @@ void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsManifestDependencyLineAnchors()
+void DirectorySourceTest::extractsPackageManifestDependencyLineAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());

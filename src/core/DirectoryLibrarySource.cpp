@@ -4709,12 +4709,12 @@ void appendStructuredPlainTextAnchorsFromLine(Resource &resource,
 }
 
 struct ManifestDependencyState {
-    bool inPackageJsonDependencySection = false;
-    bool inCargoDependencySection = false;
-    bool inGoRequireBlock = false;
+    bool inJsonDependencyMap = false;
+    bool inTomlDependencySection = false;
+    bool inModuleRequirementBlock = false;
 };
 
-bool isPackageJsonDependencySection(const QString &name)
+bool isJsonManifestDependencyMap(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("devDependencies")
@@ -4722,7 +4722,7 @@ bool isPackageJsonDependencySection(const QString &name)
         || name == QLatin1String("optionalDependencies");
 }
 
-bool isCargoDependencySection(const QString &name)
+bool isTomlManifestDependencySection(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("dev-dependencies")
@@ -4756,12 +4756,12 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inPackageJsonDependencySection = isPackageJsonDependencySection(sectionMatch.captured(1));
+            state.inJsonDependencyMap = isJsonManifestDependencyMap(sectionMatch.captured(1));
             return;
         }
-        if (state.inPackageJsonDependencySection) {
+        if (state.inJsonDependencyMap) {
             if (trimmed.startsWith(QLatin1Char('}'))) {
-                state.inPackageJsonDependencySection = false;
+                state.inJsonDependencyMap = false;
                 return;
             }
             const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
@@ -4780,10 +4780,10 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inCargoDependencySection = isCargoDependencySection(sectionMatch.captured(1));
+            state.inTomlDependencySection = isTomlManifestDependencySection(sectionMatch.captured(1));
             return;
         }
-        if (state.inCargoDependencySection) {
+        if (state.inTomlDependencySection) {
             const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
             if (dependencyMatch.hasMatch()) {
                 const QString dependency = dependencyMatch.captured(1).isEmpty()
@@ -4802,12 +4802,12 @@ void appendManifestDependencyAnchorsFromLine(Resource &resource,
         static const QRegularExpression blockDependencyPattern(QStringLiteral("^([^\\s]+)\\s+v\\S+"));
 
         if (trimmed == QLatin1String("require (")) {
-            state.inGoRequireBlock = true;
+            state.inModuleRequirementBlock = true;
             return;
         }
-        if (state.inGoRequireBlock) {
+        if (state.inModuleRequirementBlock) {
             if (trimmed.startsWith(QLatin1Char(')'))) {
-                state.inGoRequireBlock = false;
+                state.inModuleRequirementBlock = false;
                 return;
             }
             const QRegularExpressionMatch dependencyMatch = blockDependencyPattern.match(trimmed);

@@ -176,6 +176,7 @@ Completed:
 - Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for build/container jumps.
 - Keep GitHub Actions workflow/job/step/action/run line beacons for CI jumps.
 - Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
+- Keep package manifest dependency anchors as manifest-file line beacons, not language dependency analysis.
 - Add compile_commands.json line anchors and `compiles` relations from compilation databases to indexed source files.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path.
 - Use neutral model/storage names for text snippets and symbol-like anchors while retaining legacy `code_*` database read compatibility.
