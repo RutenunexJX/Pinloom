@@ -2704,6 +2704,13 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     writeFile(dir.filePath(QStringLiteral("library/config/signing.key")),
               QByteArray("NOTE: ambiguous key suffix remains text\n"
                          "ANCHOR: key_text_anchor\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/certificate.pem")),
+              QByteArray("-----BEGIN CERTIFICATE-----\n"
+                         "NOTE: certificate-like suffix remains text\n"
+                         "-----END CERTIFICATE-----\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/public.pub")),
+              QByteArray("ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPinloomText public-key@example\n"
+                         "ANCHOR: public_key_text_anchor\n"));
     writeFile(dir.filePath(QStringLiteral("library/scripts/handoff")),
               QByteArray("#!/usr/bin/env custom-runner\n"
                          "ANCHOR: handoff_entry\n"
@@ -2781,6 +2788,18 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     QVERIFY(!keyTextIt->tags.contains(QStringLiteral("package-container")));
     QVERIFY(hasLineAnchor(*keyTextIt, QStringLiteral("NOTE: ambiguous key suffix remains text"), 1));
     QVERIFY(hasLineAnchor(*keyTextIt, QStringLiteral("marker: key_text_anchor"), 2));
+
+    const auto certificateTextIt = findFile(QStringLiteral("certificate.pem"));
+    QVERIFY(certificateTextIt != resources.cend());
+    QVERIFY(!certificateTextIt->tags.contains(QStringLiteral("path-only")));
+    QVERIFY(!certificateTextIt->tags.contains(QStringLiteral("package-container")));
+    QVERIFY(hasLineAnchor(*certificateTextIt, QStringLiteral("NOTE: certificate-like suffix remains text"), 2));
+
+    const auto publicKeyTextIt = findFile(QStringLiteral("public.pub"));
+    QVERIFY(publicKeyTextIt != resources.cend());
+    QVERIFY(!publicKeyTextIt->tags.contains(QStringLiteral("path-only")));
+    QVERIFY(!publicKeyTextIt->tags.contains(QStringLiteral("package-container")));
+    QVERIFY(hasLineAnchor(*publicKeyTextIt, QStringLiteral("marker: public_key_text_anchor"), 2));
 
     const auto handoffIt = findFile(QStringLiteral("handoff"));
     QVERIFY(handoffIt != resources.cend());
@@ -2899,6 +2918,26 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
             && !result.resource.tags.contains(QStringLiteral("package-container"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("NOTE: ambiguous key suffix remains text");
+    }));
+
+    const QList<SearchResult> certificateTextResults = repository.search(SearchQuery{QStringLiteral("certificate-like suffix")});
+    QVERIFY(std::any_of(certificateTextResults.cbegin(), certificateTextResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("certificate.pem")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("path-only"))
+            && !result.resource.tags.contains(QStringLiteral("package-container"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("NOTE: certificate-like suffix remains text");
+    }));
+
+    const QList<SearchResult> publicKeyTextResults = repository.search(SearchQuery{QStringLiteral("public_key_text_anchor")});
+    QVERIFY(std::any_of(publicKeyTextResults.cbegin(), publicKeyTextResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("public.pub")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("path-only"))
+            && !result.resource.tags.contains(QStringLiteral("package-container"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("marker: public_key_text_anchor");
     }));
 
     const QList<SearchResult> runnerTextResults = repository.search(SearchQuery{QStringLiteral("runner-like file")});

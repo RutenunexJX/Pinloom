@@ -278,7 +278,7 @@ Status:
 - Automatic code resource classification: removed; text-like files are indexed through the unified text path.
 - Format-specific Markdown resource emission from directory scans: removed; note-style text files now stay on ordinary file resources.
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
-- Ambiguous text-friendly suffixes stay on the content-sniffed text path unless explicitly guarded as package containers: done.
+- Ambiguous text-friendly suffixes, including key/certificate-like text files, stay on the content-sniffed text path unless explicitly guarded as package containers: done.
 - Text named-entry line beacons: kept only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers with neutral `named entry ...` labels; dependency-like keys remain ordinary text and do not become named-entry anchors.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` beacons surfaced as markers rather than code symbols: done.
 - Config-style text line beacons layered after text content sniffing with neutral `config entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than build-command or call-kind semantics: done.
