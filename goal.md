@@ -183,7 +183,7 @@ Completed:
 - Keep explicit JSON/TOML named-entry container line beacons with neutral `named entry ...` labels; dependency-like keys remain ordinary text and do not become named-entry anchors.
 - Add file-reference manifest line anchors for compile_commands.json and `file-reference` relations to referenced file paths without using command strings as beacon details or treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
-- Use neutral model/storage names for text snippets and marker anchors while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
+- Use neutral model/storage names for text snippets and marker anchors; new writes use neutral `text_snippet`/`marker` storage while retaining read-only legacy `symbol_like`/`code_*` database compatibility.
 - Use neutral text heading/block anchor model and storage names for new directory indexing while normalizing legacy Markdown-named anchor inputs and stored rows.
 - Centralize legacy Markdown resource/anchor aliases behind shared compatibility helpers, preserving old input/database readability while keeping new writes on ordinary file and neutral text-anchor names.
 - Rank exact beacon and filename matches ahead of broad path matches.

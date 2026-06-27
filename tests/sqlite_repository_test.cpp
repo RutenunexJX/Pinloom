@@ -231,6 +231,13 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT type FROM anchors WHERE resource_id = 'text-snippet'")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toString(), QStringLiteral("marker"));
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM resources WHERE kind LIKE 'code_%'")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 0);
+    QVERIFY(rawQuery.exec(QStringLiteral(
+        "SELECT COUNT(*) FROM anchors WHERE type IN ('code_symbol', 'symbol_like')")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 0);
     QVERIFY(rawQuery.exec(QStringLiteral(
         "INSERT INTO resources(id, kind, title, location) "
         "VALUES ('legacy-text-anchors', 'file', 'Legacy Text Anchors', 'legacy/anchors.txt')")));
