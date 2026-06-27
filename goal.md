@@ -175,6 +175,7 @@ Completed:
 Completed:
 
 - Treat content-sniffed text files, including code-looking and tool-script-looking suffixes, as normal file resources with searchable content instead of code-language resources, extension lists, or shebang interpreter allowlists.
+- Keep ambiguous text-friendly suffixes on the content-sniffed text path unless they are explicitly guarded as package containers.
 - Keep note-style text extensions on the same normal file resource path rather than emitting format-specific resource kinds from directory scans.
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases, with marker anchors surfaced as markers rather than code symbols.
 - Keep config-style text line beacons for content-sniffed jumps, with neutral `config entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than build-system command or call-kind semantics.

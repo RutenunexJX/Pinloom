@@ -2701,6 +2701,9 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     writeFile(dir.filePath(QStringLiteral("library/config/flow.cfg")),
               QByteArray("; MARKER: launch dock\n"
                          "status: ready\n"));
+    writeFile(dir.filePath(QStringLiteral("library/config/signing.key")),
+              QByteArray("NOTE: ambiguous key suffix remains text\n"
+                         "ANCHOR: key_text_anchor\n"));
     writeFile(dir.filePath(QStringLiteral("library/scripts/handoff")),
               QByteArray("#!/usr/bin/env custom-runner\n"
                          "ANCHOR: handoff_entry\n"
@@ -2771,6 +2774,13 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     const auto configIt = findFile(QStringLiteral("flow.cfg"));
     QVERIFY(configIt != resources.cend());
     QVERIFY(hasLineAnchor(*configIt, QStringLiteral("marker: launch dock"), 1));
+
+    const auto keyTextIt = findFile(QStringLiteral("signing.key"));
+    QVERIFY(keyTextIt != resources.cend());
+    QVERIFY(!keyTextIt->tags.contains(QStringLiteral("path-only")));
+    QVERIFY(!keyTextIt->tags.contains(QStringLiteral("package-container")));
+    QVERIFY(hasLineAnchor(*keyTextIt, QStringLiteral("NOTE: ambiguous key suffix remains text"), 1));
+    QVERIFY(hasLineAnchor(*keyTextIt, QStringLiteral("marker: key_text_anchor"), 2));
 
     const auto handoffIt = findFile(QStringLiteral("handoff"));
     QVERIFY(handoffIt != resources.cend());
@@ -2879,6 +2889,16 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
         return result.resource.title == QLatin1String("handoff")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->target == QLatin1String("TODO: no-extension text without interpreter allowlist");
+    }));
+
+    const QList<SearchResult> keyTextResults = repository.search(SearchQuery{QStringLiteral("ambiguous key suffix")});
+    QVERIFY(std::any_of(keyTextResults.cbegin(), keyTextResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("signing.key")
+            && result.resource.kind == ResourceKind::File
+            && !result.resource.tags.contains(QStringLiteral("path-only"))
+            && !result.resource.tags.contains(QStringLiteral("package-container"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->target == QLatin1String("NOTE: ambiguous key suffix remains text");
     }));
 
     const QList<SearchResult> runnerTextResults = repository.search(SearchQuery{QStringLiteral("runner-like file")});
