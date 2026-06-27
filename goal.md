@@ -2,16 +2,20 @@
 
 ## Long-Term Goal
 
-Pinloom is a fast locator for personal and engineering knowledge. It helps users jump to the right material, anchor, note, file, PDF page, code line, folder, web page, alias, tag, or related resource without becoming a full-disk search tool.
+Pinloom is a fast beacon and location indexer for personal and engineering knowledge. It helps users jump to the right material, beacon, note, file line, PDF page, folder, web page, alias, tag, or related resource without becoming a full-disk search tool.
 
-Pinloom's long-term product shape is a personal knowledge locator and jump layer. It should answer "where do I need to go next?" better than "which files contain this string?" Search quality is measured by how quickly a user lands on the right source, anchor, page, code line, or related note inside a curated library.
+Pinloom's long-term product shape is a personal knowledge locator and jump layer. It should answer "where do I need to go next?" better than "which files contain this string?" Search quality is measured by how quickly a user lands on the right source, beacon, page, file line, or related note inside a curated library.
 
 ## Architecture Principles
 
 - Standalone first: Pinloom must run as a complete Qt application.
 - Embeddable UI: reusable widgets must later fit into ZeroSlack as a dock/global-control panel.
 - Core independence: `pinloom_core` must not depend on ZeroSlack UI or app-specific host behavior.
-- Source neutrality: Obsidian vaults, normal folders, PDFs, code snippets, notes, and manual anchors are all library sources.
+- Source neutrality: Obsidian vaults, normal folders, PDFs, text files, notes, and manual anchors are all library sources.
+- Unified text treatment: Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and other text-like files are indexed as text, not as language-specific resources.
+- No language semantics: Pinloom extracts searchable beacons and locations only; it does not build ASTs, infer program meaning, or claim support for programming languages.
+- Special readers only for special files: PDF, Office documents, Visio, SQLite databases, binary archives, scanned/OCR material, and web/archive formats may have dedicated readers, but their job is still beacon and location extraction.
+- ZeroSlack boundary: when embedded in ZeroSlack, Pinloom provides paths, lines, columns when available, display text, beacons, and jump targets; ZeroSlack owns HDL editing, display, and jump execution.
 - Obsidian friendliness: markdown tags, aliases, headings, wikilinks, and block ids should be indexed without making Pinloom an Obsidian add-on.
 - Precise anchors: search results should be able to land on PDF pages/regions, file lines, markdown headings/blocks, URLs, and manual targets.
 - Locator search: optimize for curated library positioning and fast jumps, not whole-disk crawling.
@@ -21,7 +25,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - ZeroSlack embedding boundary: make `pinloom_widgets` usable by standalone Pinloom and ZeroSlack without transferring ownership of core state to either host.
 - Obsidian-friendly indexing: parse frontmatter aliases, inline tags, wikilinks, and block references while keeping Markdown support useful outside Obsidian.
 - PDF navigation: index PDF metadata and pages first, then add page and region jump targets.
-- Code-aware locator: index source files by paths, symbols, line anchors, and project-relevant tags.
+- Beacon/location indexing: index text files by paths, line beacons, user markers, URLs, warnings/errors, section-like lines, and project-relevant tags without language parsing.
 - Manual anchors and relationships: let users create aliases, manual anchors, and related-resource links from the UI.
 - Ranking and recall: combine match type, recency, usage frequency, pinned resources, tags, and active project context.
 - Packaging and reliability: make standalone launch, deployment, database upgrades, and diagnostics boringly dependable.
@@ -161,28 +165,23 @@ Completed:
 - Extract PDF annotation rectangles as region anchors.
 - Index PDF URI link annotations as URL resources with fragment anchors and `links-to` relations back to the PDF.
 
-### Code-Aware Locator MVP
+### Beacon/Location Indexing MVP
 
 Completed:
 
-- Index source-code files as first-class resources.
-- Add line and symbol anchors for common languages used in engineering work.
-- Add lightweight Rust, Go, Java, and C# symbol anchors.
-- Add lightweight test case/suite anchors for C++ GoogleTest and JS/TS tests.
-- Add CMake project, target, package, option, function, macro, and test anchors for build-script jumps.
-- Add Makefile target anchors and Dockerfile stage/base/copy line anchors for build/container jumps.
-- Add GitHub Actions workflow, job, step, action, and run line anchors for CI jumps.
-- Add GitLab CI stage, job, needs, and script line anchors for pipeline jumps.
+- Treat text-like files as normal file resources with searchable content instead of code-language resources.
+- Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and simple symbol-like lines.
+- Keep CMake project/target/package/option/function/macro/test beacons for build-file jumps.
+- Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for build/container jumps.
+- Keep GitHub Actions workflow/job/step/action/run line beacons for CI jumps.
+- Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
 - Add compile_commands.json line anchors and `compiles` relations from compilation databases to indexed source files.
-- Add dependency/import line anchors for common engineering languages.
-- Support Go import block and JS/TS dynamic import dependency anchors.
-- Add shell, PowerShell, batch, and shebang script code classification, function/label anchors, and script dependency line anchors.
-- Extract TODO/FIXME/NOTE comment line anchors for engineering source files.
-- Rank exact symbol and filename matches ahead of broad path matches.
+- Remove automatic code classification and language-specific symbol/test/import parsing from the product path.
+- Rank exact beacon and filename matches ahead of broad path matches.
 
 Remaining follow-up:
 
-- Replace lightweight regular-expression parsing with richer language-specific parsers if precision becomes a bottleneck.
+- Improve beacon precision and noise control without turning Pinloom into a language parser or IDE.
 
 ### Manual Anchors And Relationships MVP
 
@@ -268,4 +267,4 @@ Remaining:
 
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
 - Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
-- Add richer source-code parsing if lightweight symbol extraction becomes too noisy.
+- Improve generic text beacon extraction and special-file readers without pursuing richer source-code parsing.

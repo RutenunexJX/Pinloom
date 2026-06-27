@@ -26,7 +26,7 @@ private slots:
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDisplaysAnchorAwareResults();
-    void panelDisplaysCodeSymbolResults();
+    void panelDisplaysBeaconLineResults();
     void panelDisplaysFileLineResults();
     void panelDisplaysPdfPageResults();
     void panelPreservesPdfRegionOpenTarget();
@@ -392,16 +392,16 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
 }
 
-void WidgetSmokeTest::panelDisplaysCodeSymbolResults()
+void WidgetSmokeTest::panelDisplaysBeaconLineResults()
 {
     InMemoryLibraryRepository repository;
 
     Resource resource;
-    resource.id = QStringLiteral("code");
-    resource.kind = ResourceKind::CodeSnippet;
+    resource.id = QStringLiteral("text-beacon");
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("pinloom.cpp");
     resource.location = QStringLiteral("pinloom.cpp");
-    resource.anchors = {Anchor{AnchorType::CodeSymbol, QStringLiteral("JumpController"), 12}};
+    resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("symbol-like: JumpController"), 12}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -412,7 +412,7 @@ void WidgetSmokeTest::panelDisplaysCodeSymbolResults()
 
     searchEdit->setText(QStringLiteral("JumpController"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Symbol] JumpController - line 12")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] symbol-like: JumpController - line 12")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 12);
 }
 
@@ -422,7 +422,7 @@ void WidgetSmokeTest::panelDisplaysFileLineResults()
 
     Resource resource;
     resource.id = QStringLiteral("code-note");
-    resource.kind = ResourceKind::CodeSnippet;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("PinloomPanel.cpp");
     resource.location = QStringLiteral("PinloomPanel.cpp");
     resource.anchors = {Anchor{AnchorType::FileLine, QStringLiteral("TODO: wire ZeroSlack dock"), 27}};

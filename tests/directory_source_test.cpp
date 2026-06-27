@@ -42,14 +42,11 @@ private slots:
     void extractsLzwEncodedPdfContentText();
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
-    void extractsCodeSymbolAnchors();
-    void extractsAdditionalLanguageSymbolAnchors();
-    void extractsCodeTestCaseAnchors();
-    void extractsCodeDependencyLineAnchors();
-    void extractsCMakeBuildAnchors();
-    void extractsMakeAndDockerBuildAnchors();
+    void extractsUnifiedTextBeaconAnchors();
+    void extractsBuildFileBeaconAnchors();
+    void extractsMakeAndDockerBeaconAnchors();
     void extractsCompileCommandsRelations();
-    void extractsCodeCommentLineAnchors();
+    void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
     void extractsPlainTextUrlListResources();
     void extractsEmailMessageUrlResources();
@@ -575,9 +572,9 @@ void DirectorySourceTest::extractsGithubActionsWorkflowAnchors()
     });
     QVERIFY(workflowIt != resources.cend());
 
-    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+    auto hasBeacon = [](const Resource &resource, const QString &target, int line) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
+            return anchor.type == AnchorType::FileLine
                 && anchor.target == target
                 && anchor.line == line;
         });
@@ -590,15 +587,15 @@ void DirectorySourceTest::extractsGithubActionsWorkflowAnchors()
         });
     };
 
-    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow: Pinloom CI"), 1));
-    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow job: build"), 4));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("workflow: Pinloom CI"), 1));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("workflow job: build"), 4));
     QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow job name: Build and Test"), 5));
-    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow step: Checkout"), 8));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("workflow step: Checkout"), 8));
     QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow action: actions/checkout@v4"), 9));
-    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow step: Configure"), 10));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("workflow step: Configure"), 10));
     QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow run: cmake -S . -B build"), 11));
     QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow action: actions/upload-artifact@v4"), 12));
-    QVERIFY(hasSymbol(*workflowIt, QStringLiteral("workflow job: docs"), 13));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("workflow job: docs"), 13));
     QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("workflow run: ./scripts/build-docs.sh"), 15));
 
     auto configIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
@@ -623,7 +620,7 @@ void DirectorySourceTest::extractsGithubActionsWorkflowAnchors()
         return result.resource.title == QLatin1String("ci.yml")
             && result.resource.location.contains(QStringLiteral(".github/workflows"))
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("workflow: Pinloom CI");
     }));
 
@@ -688,9 +685,9 @@ void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
     });
     QVERIFY(pipelineIt != resources.cend());
 
-    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+    auto hasBeacon = [](const Resource &resource, const QString &target, int line) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
+            return anchor.type == AnchorType::FileLine
                 && anchor.target == target
                 && anchor.line == line;
         });
@@ -705,12 +702,12 @@ void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
 
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab stage: build"), 2));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab stage: test"), 3));
-    QVERIFY(hasSymbol(*pipelineIt, QStringLiteral("gitlab job: build_app"), 6));
+    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("gitlab job: build_app"), 6));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab job stage: build"), 7));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab image: gcc:13"), 8));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab script: cmake -S . -B build"), 10));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab script: cmake --build build"), 11));
-    QVERIFY(hasSymbol(*pipelineIt, QStringLiteral("gitlab job: test_app"), 12));
+    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("gitlab job: test_app"), 12));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab job stage: test"), 13));
     QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("gitlab needs: build_app"), 15));
     QVERIFY(hasLineAnchor(*pipelineIt,
@@ -738,7 +735,7 @@ void DirectorySourceTest::extractsGitlabCiPipelineAnchors()
     QVERIFY(std::any_of(jobResults.cbegin(), jobResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String(".gitlab-ci.yml")
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("gitlab job: build_app");
     }));
 
@@ -2072,352 +2069,42 @@ void DirectorySourceTest::extractsPdfRegionAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsCodeSymbolAnchors()
+void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
 
     QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/src/rtl")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/scripts")));
     writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
-              QByteArray("class JumpController {\n"
+              QByteArray("// ANCHOR: host dock handoff\n"
+                         "class JumpController {\n"
                          "};\n"
-                         "\n"
-                         "void openTarget()\n"
-                         "{\n"
+                         "[Build Handoff]\n"
+                         "WARNING: route timing changed\n"
+                         "https://docs.example.com/pinloom/jump\n"
+                         "TODO: wire ZeroSlack jump\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/rtl/top.sv")),
+              QByteArray("module beacon_top;\n"
+                         "// ERROR: missing reset\n"
+                         "endmodule\n"));
+    writeFile(dir.filePath(QStringLiteral("library/scripts/flow.tcl")),
+              QByteArray("proc launch_dock {} {\n"
+                         "  puts ready\n"
                          "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
-              QByteArray("def parse_note():\n"
-                         "    pass\n"));
+    writeFile(dir.filePath(QStringLiteral("library/src/pins.xdc")),
+              QByteArray("NOTE: board pin review\n"
+                         "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto cppIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("pinloom.cpp");
-    });
-    QVERIFY(cppIt != resources.cend());
-    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::CodeSymbol
-            && anchor.target == QLatin1String("JumpController")
-            && anchor.line == 1;
-    }));
-    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::CodeSymbol
-            && anchor.target == QLatin1String("openTarget")
-            && anchor.line == 4;
-    }));
-
-    auto pythonIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("tools.py");
-    });
-    QVERIFY(pythonIt != resources.cend());
-    QVERIFY(std::any_of(pythonIt->anchors.cbegin(), pythonIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.type == AnchorType::CodeSymbol
-            && anchor.target == QLatin1String("parse_note")
-            && anchor.line == 1;
-    }));
-
-    SqliteLibraryRepository repository;
-    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
-             qPrintable(repository.lastError()));
-    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
-
-    IndexingService indexer(repository);
-    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
-
-    const QList<SearchResult> symbolResults = repository.search(SearchQuery{QStringLiteral("JumpController")});
-    QCOMPARE(symbolResults.size(), 1);
-    QVERIFY(symbolResults.first().matchedAnchor.has_value());
-    QCOMPARE(symbolResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-    QCOMPARE(symbolResults.first().matchedAnchor->line, 1);
-
-    const QList<SearchResult> pythonResults = repository.search(SearchQuery{QStringLiteral("parse_note")});
-    QCOMPARE(pythonResults.size(), 1);
-    QVERIFY(pythonResults.first().matchedAnchor.has_value());
-    QCOMPARE(pythonResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-}
-
-void DirectorySourceTest::extractsAdditionalLanguageSymbolAnchors()
-{
-    QTemporaryDir temp;
-    QVERIFY(temp.isValid());
-
-    QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
-    writeFile(dir.filePath(QStringLiteral("library/src/bridge.rs")),
-              QByteArray("pub struct BridgeController {}\n"
-                         "pub async fn open_target() {}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/server.go")),
-              QByteArray("type DockServer struct {}\n"
-                         "func (s *DockServer) StartRelay() error { return nil }\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/HostBridge.java")),
-              QByteArray("public class HostBridge {\n"
-                         "    public void attachDock() {}\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/DockHost.cs")),
-              QByteArray("public sealed class DockHost {\n"
-                         "    public void AttachDock() {}\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/deploy.sh")),
-              QByteArray("build_pinloom() {\n"
-                         "  echo dock\n"
-                         "}\n"
-                         "function deploy_host {\n"
-                         "  echo host\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/Bootstrap.ps1")),
-              QByteArray("Function Invoke-PinloomDock {\n"
-                         "  Write-Output dock\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/setup.cmd")),
-              QByteArray(":prepare_dock\n"
-                         "echo ready\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/runner")),
-              QByteArray("#!/usr/bin/env bash\n"
-                         "run_handoff() {\n"
-                         "  echo handoff\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/pytool")),
-              QByteArray("#!/usr/bin/env python3\n"
-                         "def sync_index():\n"
-                         "    pass\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/plain-script")),
-              QByteArray("plain_helper() {\n"
-                         "  echo no shebang\n"
-                         "}\n"));
-
-    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
-    QString error;
-    const QList<Resource> resources = source.scan(&error);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
-
-    auto findCode = [&](const QString &title) {
+    auto findFile = [&](const QString &title) {
         return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
-            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
-        });
-    };
-    auto hasSymbol = [](const Resource &resource, const QString &symbol, int line) {
-        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
-                && anchor.target == symbol
-                && anchor.line == line;
-        });
-    };
-
-    const auto rustIt = findCode(QStringLiteral("bridge.rs"));
-    QVERIFY(rustIt != resources.cend());
-    QVERIFY(hasSymbol(*rustIt, QStringLiteral("BridgeController"), 1));
-    QVERIFY(hasSymbol(*rustIt, QStringLiteral("open_target"), 2));
-
-    const auto goIt = findCode(QStringLiteral("server.go"));
-    QVERIFY(goIt != resources.cend());
-    QVERIFY(hasSymbol(*goIt, QStringLiteral("DockServer"), 1));
-    QVERIFY(hasSymbol(*goIt, QStringLiteral("StartRelay"), 2));
-
-    const auto javaIt = findCode(QStringLiteral("HostBridge.java"));
-    QVERIFY(javaIt != resources.cend());
-    QVERIFY(hasSymbol(*javaIt, QStringLiteral("HostBridge"), 1));
-    QVERIFY(hasSymbol(*javaIt, QStringLiteral("attachDock"), 2));
-
-    const auto csharpIt = findCode(QStringLiteral("DockHost.cs"));
-    QVERIFY(csharpIt != resources.cend());
-    QVERIFY(hasSymbol(*csharpIt, QStringLiteral("DockHost"), 1));
-    QVERIFY(hasSymbol(*csharpIt, QStringLiteral("AttachDock"), 2));
-
-    const auto shellIt = findCode(QStringLiteral("deploy.sh"));
-    QVERIFY(shellIt != resources.cend());
-    QVERIFY(hasSymbol(*shellIt, QStringLiteral("build_pinloom"), 1));
-    QVERIFY(hasSymbol(*shellIt, QStringLiteral("deploy_host"), 4));
-
-    const auto powershellIt = findCode(QStringLiteral("Bootstrap.ps1"));
-    QVERIFY(powershellIt != resources.cend());
-    QVERIFY(hasSymbol(*powershellIt, QStringLiteral("Invoke-PinloomDock"), 1));
-
-    const auto batchIt = findCode(QStringLiteral("setup.cmd"));
-    QVERIFY(batchIt != resources.cend());
-    QVERIFY(hasSymbol(*batchIt, QStringLiteral("prepare_dock"), 1));
-
-    const auto runnerIt = findCode(QStringLiteral("runner"));
-    QVERIFY(runnerIt != resources.cend());
-    QVERIFY(hasSymbol(*runnerIt, QStringLiteral("run_handoff"), 2));
-
-    const auto pytoolIt = findCode(QStringLiteral("pytool"));
-    QVERIFY(pytoolIt != resources.cend());
-    QVERIFY(hasSymbol(*pytoolIt, QStringLiteral("sync_index"), 2));
-
-    const auto plainScriptIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.title == QLatin1String("plain-script");
-    });
-    QVERIFY(plainScriptIt != resources.cend());
-    QCOMPARE(plainScriptIt->kind, ResourceKind::File);
-
-    SqliteLibraryRepository repository;
-    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
-             qPrintable(repository.lastError()));
-    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
-
-    IndexingService indexer(repository);
-    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
-
-    const QList<SearchResult> rustResults = repository.search(SearchQuery{QStringLiteral("BridgeController")});
-    QCOMPARE(rustResults.size(), 1);
-    QCOMPARE(rustResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(rustResults.first().matchedAnchor.has_value());
-    QCOMPARE(rustResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-
-    const QList<SearchResult> goResults = repository.search(SearchQuery{QStringLiteral("StartRelay")});
-    QCOMPARE(goResults.size(), 1);
-    QCOMPARE(goResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(goResults.first().matchedAnchor.has_value());
-    QCOMPARE(goResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-
-    const QList<SearchResult> powershellResults = repository.search(SearchQuery{QStringLiteral("Invoke-PinloomDock")});
-    QCOMPARE(powershellResults.size(), 1);
-    QCOMPARE(powershellResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(powershellResults.first().matchedAnchor.has_value());
-    QCOMPARE(powershellResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-
-    const QList<SearchResult> batchResults = repository.search(SearchQuery{QStringLiteral("prepare_dock")});
-    QCOMPARE(batchResults.size(), 1);
-    QCOMPARE(batchResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(batchResults.first().matchedAnchor.has_value());
-    QCOMPARE(batchResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-
-    const QList<SearchResult> shebangResults = repository.search(SearchQuery{QStringLiteral("run_handoff")});
-    QCOMPARE(shebangResults.size(), 1);
-    QCOMPARE(shebangResults.first().resource.title, QStringLiteral("runner"));
-    QCOMPARE(shebangResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(shebangResults.first().matchedAnchor.has_value());
-    QCOMPARE(shebangResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-}
-
-void DirectorySourceTest::extractsCodeTestCaseAnchors()
-{
-    QTemporaryDir temp;
-    QVERIFY(temp.isValid());
-
-    QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/tests")));
-    writeFile(dir.filePath(QStringLiteral("library/tests/pinloom_test.cpp")),
-              QByteArray("TEST(PinloomLocator, OpensSelectedAnchor)\n"
-                         "{\n"
-                         "}\n"
-                         "TEST_F(PinloomPanelTest, RecordsActivation)\n"
-                         "{\n"
-                         "}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/tests/panel.test.ts")),
-              QByteArray("describe(\"Pinloom panel\", () => {\n"
-                         "  it('renders dock handoff state', () => {});\n"
-                         "  test(`records activation metrics`, () => {});\n"
-                         "});\n"));
-
-    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
-    QString error;
-    const QList<Resource> resources = source.scan(&error);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
-
-    auto findCode = [&](const QString &title) {
-        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
-            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
-        });
-    };
-    auto hasSymbol = [](const Resource &resource, const QString &symbol, int line) {
-        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
-                && anchor.target == symbol
-                && anchor.line == line;
-        });
-    };
-
-    const auto cppIt = findCode(QStringLiteral("pinloom_test.cpp"));
-    QVERIFY(cppIt != resources.cend());
-    QVERIFY(hasSymbol(*cppIt, QStringLiteral("PinloomLocator.OpensSelectedAnchor"), 1));
-    QVERIFY(hasSymbol(*cppIt, QStringLiteral("PinloomPanelTest.RecordsActivation"), 4));
-
-    const auto tsIt = findCode(QStringLiteral("panel.test.ts"));
-    QVERIFY(tsIt != resources.cend());
-    QVERIFY(hasSymbol(*tsIt, QStringLiteral("suite: Pinloom panel"), 1));
-    QVERIFY(hasSymbol(*tsIt, QStringLiteral("test: renders dock handoff state"), 2));
-    QVERIFY(hasSymbol(*tsIt, QStringLiteral("test: records activation metrics"), 3));
-
-    SqliteLibraryRepository repository;
-    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
-             qPrintable(repository.lastError()));
-    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
-
-    IndexingService indexer(repository);
-    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
-
-    const QList<SearchResult> cppResults = repository.search(SearchQuery{QStringLiteral("OpensSelectedAnchor")});
-    QCOMPARE(cppResults.size(), 1);
-    QCOMPARE(cppResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(cppResults.first().matchedAnchor.has_value());
-    QCOMPARE(cppResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-    QCOMPARE(cppResults.first().matchedAnchor->target, QStringLiteral("PinloomLocator.OpensSelectedAnchor"));
-
-    const QList<SearchResult> jsResults = repository.search(SearchQuery{QStringLiteral("handoff")});
-    QCOMPARE(jsResults.size(), 1);
-    QCOMPARE(jsResults.first().resource.kind, ResourceKind::CodeSnippet);
-    QVERIFY(jsResults.first().matchedAnchor.has_value());
-    QCOMPARE(jsResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-    QCOMPARE(jsResults.first().matchedAnchor->target, QStringLiteral("test: renders dock handoff state"));
-}
-
-void DirectorySourceTest::extractsCodeDependencyLineAnchors()
-{
-    QTemporaryDir temp;
-    QVERIFY(temp.isValid());
-
-    QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
-    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
-              QByteArray("#include \"pinloom/core/Resource.h\"\n"
-                         "class JumpController {};\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
-              QByteArray("from pinloom.core import Resource\n"
-                         "import pathlib, json\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/web.ts")),
-              QByteArray("import type { PinloomOpenTarget } from \"./pinloom\";\n"
-                         "const bridge = require(\"@zeroslack/dock\");\n"
-                         "const panel = await import(\"./lazy-panel\");\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/bridge.rs")),
-              QByteArray("use crate::dock::HostBridge;\n"
-                         "pub fn open_target() {}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/server.go")),
-              QByteArray("import (\n"
-                         "    \"context\"\n"
-                         "    http \"net/http\"\n"
-                         ")\n"
-                         "func StartRelay() {}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/HostBridge.java")),
-              QByteArray("import com.example.pinloom.Dock;\n"
-                         "public class HostBridge {}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/DockHost.cs")),
-              QByteArray("using ZeroSlack.Dock;\n"
-                         "public sealed class DockHost {}\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/deploy.sh")),
-              QByteArray(". ./env.sh\n"
-                         "source scripts/build-env.sh\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/Bootstrap.ps1")),
-              QByteArray("Import-Module ZeroSlack.Dock\n"
-                         ". .\\common.ps1\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/setup.bat")),
-              QByteArray("call scripts\\prepare.cmd\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/bootstrap")),
-              QByteArray("#!/usr/bin/env -S bash -e\n"
-                         "source scripts/extensionless-env.sh\n"));
-
-    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
-    QString error;
-    const QList<Resource> resources = source.scan(&error);
-    QVERIFY2(error.isEmpty(), qPrintable(error));
-
-    auto findCode = [&](const QString &title) {
-        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
-            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+            return resource.kind == ResourceKind::File && resource.title == title;
         });
     };
     auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
@@ -2428,55 +2115,27 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
         });
     };
 
-    const auto cppIt = findCode(QStringLiteral("pinloom.cpp"));
+    const auto cppIt = findFile(QStringLiteral("pinloom.cpp"));
     QVERIFY(cppIt != resources.cend());
-    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("include: pinloom/core/Resource.h"), 1));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("marker: host dock handoff"), 1));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("symbol-like: JumpController"), 2));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("section: Build Handoff"), 4));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("warning: WARNING: route timing changed"), 5));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("url: https://docs.example.com/pinloom/jump"), 6));
+    QVERIFY(hasLineAnchor(*cppIt, QStringLiteral("TODO: wire ZeroSlack jump"), 7));
 
-    const auto pythonIt = findCode(QStringLiteral("tools.py"));
-    QVERIFY(pythonIt != resources.cend());
-    QVERIFY(hasLineAnchor(*pythonIt, QStringLiteral("import: pinloom.core"), 1));
-    QVERIFY(hasLineAnchor(*pythonIt, QStringLiteral("import: pathlib, json"), 2));
+    const auto svIt = findFile(QStringLiteral("top.sv"));
+    QVERIFY(svIt != resources.cend());
+    QVERIFY(hasLineAnchor(*svIt, QStringLiteral("symbol-like: beacon_top"), 1));
+    QVERIFY(hasLineAnchor(*svIt, QStringLiteral("error: // ERROR: missing reset"), 2));
 
-    const auto tsIt = findCode(QStringLiteral("web.ts"));
-    QVERIFY(tsIt != resources.cend());
-    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("import: ./pinloom"), 1));
-    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("require: @zeroslack/dock"), 2));
-    QVERIFY(hasLineAnchor(*tsIt, QStringLiteral("import: ./lazy-panel"), 3));
+    const auto tclIt = findFile(QStringLiteral("flow.tcl"));
+    QVERIFY(tclIt != resources.cend());
+    QVERIFY(hasLineAnchor(*tclIt, QStringLiteral("symbol-like: launch_dock"), 1));
 
-    const auto rustIt = findCode(QStringLiteral("bridge.rs"));
-    QVERIFY(rustIt != resources.cend());
-    QVERIFY(hasLineAnchor(*rustIt, QStringLiteral("use: crate::dock::HostBridge"), 1));
-
-    const auto goIt = findCode(QStringLiteral("server.go"));
-    QVERIFY(goIt != resources.cend());
-    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: context"), 2));
-    QVERIFY(hasLineAnchor(*goIt, QStringLiteral("import: net/http"), 3));
-
-    const auto javaIt = findCode(QStringLiteral("HostBridge.java"));
-    QVERIFY(javaIt != resources.cend());
-    QVERIFY(hasLineAnchor(*javaIt, QStringLiteral("import: com.example.pinloom.Dock"), 1));
-
-    const auto csharpIt = findCode(QStringLiteral("DockHost.cs"));
-    QVERIFY(csharpIt != resources.cend());
-    QVERIFY(hasLineAnchor(*csharpIt, QStringLiteral("using: ZeroSlack.Dock"), 1));
-
-    const auto shellIt = findCode(QStringLiteral("deploy.sh"));
-    QVERIFY(shellIt != resources.cend());
-    QVERIFY(hasLineAnchor(*shellIt, QStringLiteral("source: ./env.sh"), 1));
-    QVERIFY(hasLineAnchor(*shellIt, QStringLiteral("source: scripts/build-env.sh"), 2));
-
-    const auto powershellIt = findCode(QStringLiteral("Bootstrap.ps1"));
-    QVERIFY(powershellIt != resources.cend());
-    QVERIFY(hasLineAnchor(*powershellIt, QStringLiteral("import-module: ZeroSlack.Dock"), 1));
-    QVERIFY(hasLineAnchor(*powershellIt, QStringLiteral("source: .\\common.ps1"), 2));
-
-    const auto batchIt = findCode(QStringLiteral("setup.bat"));
-    QVERIFY(batchIt != resources.cend());
-    QVERIFY(hasLineAnchor(*batchIt, QStringLiteral("call: scripts\\prepare.cmd"), 1));
-
-    const auto extensionlessIt = findCode(QStringLiteral("bootstrap"));
-    QVERIFY(extensionlessIt != resources.cend());
-    QVERIFY(hasLineAnchor(*extensionlessIt, QStringLiteral("source: scripts/extensionless-env.sh"), 2));
+    const auto xdcIt = findFile(QStringLiteral("pins.xdc"));
+    QVERIFY(xdcIt != resources.cend());
+    QVERIFY(hasLineAnchor(*xdcIt, QStringLiteral("NOTE: board pin review"), 1));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2486,47 +2145,24 @@ void DirectorySourceTest::extractsCodeDependencyLineAnchors()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> includeResults = repository.search(SearchQuery{QStringLiteral("Resource")});
-    QVERIFY(std::any_of(includeResults.cbegin(), includeResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> beaconResults = repository.search(SearchQuery{QStringLiteral("JumpController")});
+    QVERIFY(std::any_of(beaconResults.cbegin(), beaconResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("pinloom.cpp")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("symbol-like: JumpController");
+    }));
+
+    const QList<SearchResult> warningResults = repository.search(SearchQuery{QStringLiteral("route timing")});
+    QVERIFY(std::any_of(warningResults.cbegin(), warningResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("pinloom.cpp")
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("include: pinloom/core/Resource.h");
+            && result.matchedAnchor->target == QLatin1String("warning: WARNING: route timing changed");
     }));
-
-    const QList<SearchResult> requireResults = repository.search(SearchQuery{QStringLiteral("zeroslack")});
-    QVERIFY(std::any_of(requireResults.cbegin(), requireResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("web.ts")
-            && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("require: @zeroslack/dock");
-    }));
-
-    const QList<SearchResult> importModuleResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack.Dock")});
-    QVERIFY(std::any_of(importModuleResults.cbegin(), importModuleResults.cend(), [](const SearchResult &result) {
-        return result.resource.title == QLatin1String("Bootstrap.ps1")
-            && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("import-module: ZeroSlack.Dock");
-    }));
-
-    const QList<SearchResult> batchCallResults = repository.search(SearchQuery{QStringLiteral("prepare.cmd")});
-    QCOMPARE(batchCallResults.size(), 1);
-    QCOMPARE(batchCallResults.first().resource.title, QStringLiteral("setup.bat"));
-    QVERIFY(batchCallResults.first().matchedAnchor.has_value());
-    QCOMPARE(batchCallResults.first().matchedAnchor->type, AnchorType::FileLine);
-    QCOMPARE(batchCallResults.first().matchedAnchor->target, QStringLiteral("call: scripts\\prepare.cmd"));
-
-    const QList<SearchResult> shebangDependencyResults = repository.search(SearchQuery{QStringLiteral("extensionless-env")});
-    QCOMPARE(shebangDependencyResults.size(), 1);
-    QCOMPARE(shebangDependencyResults.first().resource.title, QStringLiteral("bootstrap"));
-    QVERIFY(shebangDependencyResults.first().matchedAnchor.has_value());
-    QCOMPARE(shebangDependencyResults.first().matchedAnchor->type, AnchorType::FileLine);
-    QCOMPARE(shebangDependencyResults.first().matchedAnchor->target,
-             QStringLiteral("source: scripts/extensionless-env.sh"));
 }
 
-void DirectorySourceTest::extractsCMakeBuildAnchors()
+void DirectorySourceTest::extractsBuildFileBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2553,14 +2189,14 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto findCode = [&](const QString &title) {
+    auto findFile = [&](const QString &title) {
         return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
-            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+            return resource.kind == ResourceKind::File && resource.title == title;
         });
     };
-    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+    auto hasBeacon = [](const Resource &resource, const QString &target, int line) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
+            return anchor.type == AnchorType::FileLine
                 && anchor.target == target
                 && anchor.line == line;
         });
@@ -2573,20 +2209,20 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
         });
     };
 
-    const auto cmakeListsIt = findCode(QStringLiteral("CMakeLists.txt"));
+    const auto cmakeListsIt = findFile(QStringLiteral("CMakeLists.txt"));
     QVERIFY(cmakeListsIt != resources.cend());
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("project: PinloomHost"), 2));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("project: PinloomHost"), 2));
     QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("dependency: Qt6"), 3));
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_core"), 5));
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_app"), 6));
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("target: pinloom_docs"), 7));
-    QVERIFY(hasSymbol(*cmakeListsIt, QStringLiteral("test: pinloom_core_smoke_test"), 8));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_core"), 5));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_app"), 6));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_docs"), 7));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("test: pinloom_core_smoke_test"), 8));
 
-    const auto helpersIt = findCode(QStringLiteral("PinloomHelpers.cmake"));
+    const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
-    QVERIFY(hasSymbol(*helpersIt, QStringLiteral("function: pinloom_add_widget_test"), 1));
-    QVERIFY(hasSymbol(*helpersIt, QStringLiteral("macro: pinloom_copy_runtime"), 3));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("function: pinloom_add_widget_test"), 1));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("macro: pinloom_copy_runtime"), 3));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2600,7 +2236,7 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
     QVERIFY(std::any_of(targetResults.cbegin(), targetResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("target: pinloom_core");
     }));
 
@@ -2613,7 +2249,7 @@ void DirectorySourceTest::extractsCMakeBuildAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsMakeAndDockerBuildAnchors()
+void DirectorySourceTest::extractsMakeAndDockerBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2644,14 +2280,14 @@ void DirectorySourceTest::extractsMakeAndDockerBuildAnchors()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto findCode = [&](const QString &title) {
+    auto findFile = [&](const QString &title) {
         return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
-            return resource.kind == ResourceKind::CodeSnippet && resource.title == title;
+            return resource.kind == ResourceKind::File && resource.title == title;
         });
     };
-    auto hasSymbol = [](const Resource &resource, const QString &target, int line) {
+    auto hasBeacon = [](const Resource &resource, const QString &target, int line) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-            return anchor.type == AnchorType::CodeSymbol
+            return anchor.type == AnchorType::FileLine
                 && anchor.target == target
                 && anchor.line == line;
         });
@@ -2664,32 +2300,32 @@ void DirectorySourceTest::extractsMakeAndDockerBuildAnchors()
         });
     };
 
-    const auto makefileIt = findCode(QStringLiteral("Makefile"));
+    const auto makefileIt = findFile(QStringLiteral("Makefile"));
     QVERIFY(makefileIt != resources.cend());
-    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: all"), 2));
-    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: build"), 2));
-    QVERIFY(hasSymbol(*makefileIt, QStringLiteral("make target: clean"), 4));
-    QVERIFY(!hasSymbol(*makefileIt, QStringLiteral("make target: .PHONY"), 1));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: all"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: build"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: clean"), 4));
+    QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("make target: .PHONY"), 1));
 
-    const auto rulesIt = findCode(QStringLiteral("rules.mk"));
+    const auto rulesIt = findFile(QStringLiteral("rules.mk"));
     QVERIFY(rulesIt != resources.cend());
-    QVERIFY(hasSymbol(*rulesIt, QStringLiteral("make target: pinloom-docs"), 1));
+    QVERIFY(hasBeacon(*rulesIt, QStringLiteral("make target: pinloom-docs"), 1));
 
-    const auto dockerIt = findCode(QStringLiteral("Dockerfile"));
+    const auto dockerIt = findFile(QStringLiteral("Dockerfile"));
     QVERIFY(dockerIt != resources.cend());
-    QVERIFY(hasSymbol(*dockerIt, QStringLiteral("docker stage: build"), 1));
+    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("docker stage: build"), 1));
     QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker base: qt:6.10"), 1));
     QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker COPY: src/"), 2));
     QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker ADD: assets.tar.gz"), 3));
-    QVERIFY(hasSymbol(*dockerIt, QStringLiteral("docker stage: runtime"), 4));
+    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("docker stage: runtime"), 4));
 
-    const auto dockerDevIt = findCode(QStringLiteral("Dockerfile.dev"));
+    const auto dockerDevIt = findFile(QStringLiteral("Dockerfile.dev"));
     QVERIFY(dockerDevIt != resources.cend());
     QVERIFY(hasLineAnchor(*dockerDevIt, QStringLiteral("docker base: ubuntu:24.04"), 1));
 
-    const auto dockerSuffixIt = findCode(QStringLiteral("app.dockerfile"));
+    const auto dockerSuffixIt = findFile(QStringLiteral("app.dockerfile"));
     QVERIFY(dockerSuffixIt != resources.cend());
-    QVERIFY(hasSymbol(*dockerSuffixIt, QStringLiteral("docker stage: tools"), 1));
+    QVERIFY(hasBeacon(*dockerSuffixIt, QStringLiteral("docker stage: tools"), 1));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2700,26 +2336,28 @@ void DirectorySourceTest::extractsMakeAndDockerBuildAnchors()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> makeResults = repository.search(SearchQuery{QStringLiteral("pinloom-docs")});
-    QCOMPARE(makeResults.size(), 1);
-    QCOMPARE(makeResults.first().resource.title, QStringLiteral("rules.mk"));
-    QVERIFY(makeResults.first().matchedAnchor.has_value());
-    QCOMPARE(makeResults.first().matchedAnchor->type, AnchorType::CodeSymbol);
-    QCOMPARE(makeResults.first().matchedAnchor->target, QStringLiteral("make target: pinloom-docs"));
+    QVERIFY(std::any_of(makeResults.cbegin(), makeResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("rules.mk")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("make target: pinloom-docs");
+    }));
 
     const QList<SearchResult> dockerStageResults = repository.search(SearchQuery{QStringLiteral("runtime")});
     QVERIFY(std::any_of(dockerStageResults.cbegin(), dockerStageResults.cend(), [](const SearchResult &result) {
         return result.resource.title == QLatin1String("Dockerfile")
             && result.matchedAnchor.has_value()
-            && result.matchedAnchor->type == AnchorType::CodeSymbol
+            && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target == QLatin1String("docker stage: runtime");
     }));
 
     const QList<SearchResult> dockerCopyResults = repository.search(SearchQuery{QStringLiteral("assets.tar.gz")});
-    QCOMPARE(dockerCopyResults.size(), 1);
-    QCOMPARE(dockerCopyResults.first().resource.title, QStringLiteral("Dockerfile"));
-    QVERIFY(dockerCopyResults.first().matchedAnchor.has_value());
-    QCOMPARE(dockerCopyResults.first().matchedAnchor->type, AnchorType::FileLine);
-    QCOMPARE(dockerCopyResults.first().matchedAnchor->target, QStringLiteral("docker ADD: assets.tar.gz"));
+    QVERIFY(std::any_of(dockerCopyResults.cbegin(), dockerCopyResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("Dockerfile")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("docker ADD: assets.tar.gz");
+    }));
 }
 
 void DirectorySourceTest::extractsCompileCommandsRelations()
@@ -2759,7 +2397,7 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
     QVERIFY(compileDbIt != resources.cend());
 
     auto sourceIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::CodeSnippet
+        return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("pinloom.cpp");
     });
     QVERIFY(sourceIt != resources.cend());
@@ -2800,7 +2438,7 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
     query.contextResourceIds = {compileDbIt->id};
     const QList<SearchResult> contextResults = repository.search(query);
     QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
-        return result.resource.kind == ResourceKind::CodeSnippet
+        return result.resource.kind == ResourceKind::File
             && result.resource.title == QLatin1String("pinloom.cpp")
             && result.matchedContextRelationLabel == QLatin1String("compiles");
     }));
@@ -2811,47 +2449,47 @@ void DirectorySourceTest::extractsCompileCommandsRelations()
     QCOMPARE(sourceRelations.first().targetResourceId, sourceIt->id);
 }
 
-void DirectorySourceTest::extractsCodeCommentLineAnchors()
+void DirectorySourceTest::extractsTextActionLineAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
 
     QDir dir(temp.path());
-    QVERIFY(dir.mkpath(QStringLiteral("library/src")));
-    writeFile(dir.filePath(QStringLiteral("library/src/pinloom.cpp")),
-              QByteArray("// TODO: wire ZeroSlack dock\n"
-                         "class JumpController {};\n"
-                         "int main() { return 0; } // FIXME: remove blocking wait\n"));
-    writeFile(dir.filePath(QStringLiteral("library/src/tools.py")),
-              QByteArray("# NOTE: cache active project\n"
-                         "def parse_note():\n"
-                         "    pass\n"));
+    QVERIFY(dir.mkpath(QStringLiteral("library/logs")));
+    QVERIFY(dir.mkpath(QStringLiteral("library/constraints")));
+    writeFile(dir.filePath(QStringLiteral("library/logs/build.log")),
+              QByteArray("TODO: wire ZeroSlack dock\n"
+                         "INFO: ready\n"
+                         "FIXME: remove blocking wait\n"));
+    writeFile(dir.filePath(QStringLiteral("library/constraints/top.xdc")),
+              QByteArray("NOTE: cache active project\n"
+                         "set_property PACKAGE_PIN A1 [get_ports clk]\n"));
 
     DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
     QString error;
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto cppIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("pinloom.cpp");
+    auto logIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("build.log");
     });
-    QVERIFY(cppIt != resources.cend());
-    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+    QVERIFY(logIt != resources.cend());
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("TODO: wire ZeroSlack dock")
             && anchor.line == 1;
     }));
-    QVERIFY(std::any_of(cppIt->anchors.cbegin(), cppIt->anchors.cend(), [](const Anchor &anchor) {
+    QVERIFY(std::any_of(logIt->anchors.cbegin(), logIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("FIXME: remove blocking wait")
             && anchor.line == 3;
     }));
 
-    auto pythonIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
-        return resource.kind == ResourceKind::CodeSnippet && resource.title == QLatin1String("tools.py");
+    auto xdcIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File && resource.title == QLatin1String("top.xdc");
     });
-    QVERIFY(pythonIt != resources.cend());
-    QVERIFY(std::any_of(pythonIt->anchors.cbegin(), pythonIt->anchors.cend(), [](const Anchor &anchor) {
+    QVERIFY(xdcIt != resources.cend());
+    QVERIFY(std::any_of(xdcIt->anchors.cbegin(), xdcIt->anchors.cend(), [](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == QLatin1String("NOTE: cache active project")
             && anchor.line == 1;
@@ -2866,16 +2504,20 @@ void DirectorySourceTest::extractsCodeCommentLineAnchors()
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
     const QList<SearchResult> todoResults = repository.search(SearchQuery{QStringLiteral("ZeroSlack dock")});
-    QCOMPARE(todoResults.size(), 1);
-    QVERIFY(todoResults.first().matchedAnchor.has_value());
-    QCOMPARE(todoResults.first().matchedAnchor->type, AnchorType::FileLine);
-    QCOMPARE(todoResults.first().matchedAnchor->line, 1);
+    QVERIFY(std::any_of(todoResults.cbegin(), todoResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("build.log")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 1;
+    }));
 
     const QList<SearchResult> fixmeResults = repository.search(SearchQuery{QStringLiteral("blocking wait")});
-    QCOMPARE(fixmeResults.size(), 1);
-    QVERIFY(fixmeResults.first().matchedAnchor.has_value());
-    QCOMPARE(fixmeResults.first().matchedAnchor->type, AnchorType::FileLine);
-    QCOMPARE(fixmeResults.first().matchedAnchor->line, 3);
+    QVERIFY(std::any_of(fixmeResults.cbegin(), fixmeResults.cend(), [](const SearchResult &result) {
+        return result.resource.title == QLatin1String("build.log")
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->line == 3;
+    }));
 }
 
 void DirectorySourceTest::extractsWebShortcutResources()

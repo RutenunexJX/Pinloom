@@ -255,35 +255,31 @@ Status:
 - PDF annotation region anchors: done.
 - PDF URI link annotation URL resources and `links-to` relations: done.
 
-## MVP 11: Code-Aware Locator
+## MVP 11: Beacon/Location Indexing
 
-Goal: make engineering source trees searchable by symbols and jump targets, not only file names.
+Goal: make engineering text trees searchable by beacons and jump targets, not only file names, without turning Pinloom into a language-aware IDE.
 
 Scope:
 
-- Treat source-code files as first-class resources.
-- Extract lightweight line and symbol anchors for common engineering languages.
-- Rank exact symbol and filename matches ahead of path matches.
-- Keep source parsing modular so language-specific logic does not leak into repository storage.
+- Treat all text-like files uniformly as text: HDL, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same beacon/location model.
+- Extract neutral line beacons: TODO/FIXME/NOTE, URLs, errors/warnings, section-like lines, user markers, and simple symbol-like text.
+- Keep special file readers only where the file format needs one, and keep their purpose limited to beacon/location extraction.
+- Keep ZeroSlack integration limited to paths, line/column locations, display text, beacons, and jump targets.
+- Rank exact beacon and filename matches ahead of path matches.
 
 Status:
 
 - Generic file indexing: done in MVP 3.
-- Code resource classification: done.
-- Lightweight symbol anchors for common engineering languages: done.
-- Rust, Go, Java, and C# lightweight symbol anchors: done.
-- Test case/suite anchors for C++ GoogleTest and JS/TS tests: done.
-- CMake project/target/package/option/function/macro/test anchors: done.
-- Makefile target anchors and Dockerfile stage/base/copy anchors: done.
-- GitHub Actions workflow/job/step/action/run anchors: done.
-- GitLab CI stage/job/needs/script anchors: done.
+- Automatic code resource classification: removed; source-like files are indexed through the unified text path.
+- General text content indexing for source-like and log/config/text files: done.
+- Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and simple symbol-like beacons: done.
+- CMake project/target/package/option/function/macro/test beacons: done.
+- Makefile target beacons and Dockerfile stage/base/copy beacons: done.
+- GitHub Actions workflow/job/step/action/run beacons: done.
+- GitLab CI stage/job/needs/script beacons: done.
 - compile_commands.json line anchors and `compiles` relations: done.
-- Dependency/import line anchors for common engineering languages: done.
-- Go import block and JS/TS dynamic import anchors: done.
-- Shell, PowerShell, batch, and shebang script symbol/dependency anchors: done.
-- TODO/FIXME/NOTE comment line anchors for source files: done.
-- Exact symbol and filename ranking baseline: done through anchor-first and filename-before-path ranking.
-- Rich language-specific parsers: deferred.
+- Language-specific symbol/test/import parsing for Rust, Go, Java, C#, JS/TS, C/C++, shell, PowerShell, batch, and shebang scripts: no longer pursued under the product boundary.
+- Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.
 
 ## MVP 12: Manual Anchors And Relationships
 
@@ -342,7 +338,7 @@ Goal: close the gap between the reusable Pinloom layer and the real host/source 
 Scope:
 
 - Wire Pinloom into the actual ZeroSlack dock/global-control host.
-- Extend source coverage beyond normal files, Markdown, PDFs, and code.
+- Extend source coverage beyond normal files, Markdown, PDFs, and current special readers.
 - Add more precise jumps where the current model already has anchor types.
 - Keep standalone behavior working while embedded behavior gains host context.
 
@@ -395,4 +391,4 @@ Status:
 - Actual ZeroSlack host integration: pending.
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
-- Richer source-code parsing: deferred until lightweight symbols prove insufficient.
+- Richer source-code parsing: not pursued; future work should improve generic text beacons and special-file readers instead.

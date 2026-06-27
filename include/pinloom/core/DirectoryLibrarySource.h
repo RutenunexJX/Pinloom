@@ -39,7 +39,6 @@ private:
     QList<Resource> sitemapResourcesFromXmlFile(const QFileInfo &fileInfo) const;
     void applyMarkdownMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyPdfMetadata(Resource &resource, const QFileInfo &fileInfo) const;
-    void applyCodeMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyUrlMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyHtmlMetadata(Resource &resource, const QFileInfo &fileInfo) const;
     void applyPlainTextMetadata(Resource &resource, const QFileInfo &fileInfo) const;

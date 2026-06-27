@@ -394,7 +394,7 @@ bool isGitlabCiFile(const QFileInfo &fileInfo)
         || fileName.compare(QStringLiteral(".gitlab-ci.yaml"), Qt::CaseInsensitive) == 0;
 }
 
-bool hasCodeShebang(const QFileInfo &fileInfo)
+bool hasTextShebang(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
         return false;
@@ -410,10 +410,10 @@ bool hasCodeShebang(const QFileInfo &fileInfo)
         return false;
     }
 
-    static const QRegularExpression codeInterpreterPattern(
+    static const QRegularExpression textInterpreterPattern(
         QStringLiteral("\\b(?:bash|sh|zsh|fish|python(?:\\d+(?:\\.\\d+)*)?|node|deno|pwsh|powershell|perl|ruby)\\b"),
         QRegularExpression::CaseInsensitiveOption);
-    return codeInterpreterPattern.match(firstLine).hasMatch();
+    return textInterpreterPattern.match(firstLine).hasMatch();
 }
 
 bool isMhtmlFile(const QFileInfo &fileInfo)
@@ -426,10 +426,6 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return ResourceKind::Folder;
-    }
-
-    if (isCMakeFile(fileInfo) || isMakefile(fileInfo) || isDockerfile(fileInfo)) {
-        return ResourceKind::CodeSnippet;
     }
 
     const QString suffix = fileInfo.suffix().toLower();
@@ -449,44 +445,6 @@ ResourceKind kindForFileInfo(const QFileInfo &fileInfo)
         || suffix == QLatin1String("mht")) {
         return ResourceKind::Url;
     }
-    if (QStringList{
-            QStringLiteral("c"),
-            QStringLiteral("cc"),
-            QStringLiteral("cpp"),
-            QStringLiteral("cxx"),
-            QStringLiteral("h"),
-            QStringLiteral("hh"),
-            QStringLiteral("hpp"),
-            QStringLiteral("hxx"),
-            QStringLiteral("py"),
-            QStringLiteral("js"),
-            QStringLiteral("jsx"),
-            QStringLiteral("ts"),
-            QStringLiteral("tsx"),
-            QStringLiteral("rs"),
-            QStringLiteral("go"),
-            QStringLiteral("java"),
-            QStringLiteral("cs"),
-            QStringLiteral("qml"),
-            QStringLiteral("sv"),
-            QStringLiteral("svh"),
-            QStringLiteral("v"),
-            QStringLiteral("vh"),
-            QStringLiteral("tcl"),
-            QStringLiteral("sh"),
-            QStringLiteral("bash"),
-            QStringLiteral("zsh"),
-            QStringLiteral("fish"),
-            QStringLiteral("ps1"),
-            QStringLiteral("psm1"),
-            QStringLiteral("bat"),
-            QStringLiteral("cmd")
-        }.contains(suffix)) {
-        return ResourceKind::CodeSnippet;
-    }
-    if (hasCodeShebang(fileInfo)) {
-        return ResourceKind::CodeSnippet;
-    }
     return ResourceKind::File;
 }
 
@@ -496,28 +454,69 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         return false;
     }
 
-    if (fileInfo.fileName().compare(QStringLiteral("go.mod"), Qt::CaseInsensitive) == 0) {
+    if (fileInfo.fileName().compare(QStringLiteral("go.mod"), Qt::CaseInsensitive) == 0
+        || isCMakeFile(fileInfo)
+        || isMakefile(fileInfo)
+        || isDockerfile(fileInfo)
+        || hasTextShebang(fileInfo)) {
         return true;
     }
 
     const QString suffix = fileInfo.suffix().toLower();
     return QStringList{
-        QStringLiteral("txt"),
-        QStringLiteral("text"),
-        QStringLiteral("log"),
-        QStringLiteral("list"),
-        QStringLiteral("links"),
-        QStringLiteral("urls"),
+        QStringLiteral("bat"),
+        QStringLiteral("bash"),
+        QStringLiteral("c"),
+        QStringLiteral("cc"),
+        QStringLiteral("cmd"),
+        QStringLiteral("cmake"),
+        QStringLiteral("conf"),
+        QStringLiteral("cfg"),
+        QStringLiteral("cpp"),
+        QStringLiteral("cs"),
         QStringLiteral("csv"),
-        QStringLiteral("tsv"),
+        QStringLiteral("cxx"),
+        QStringLiteral("dockerfile"),
+        QStringLiteral("fish"),
+        QStringLiteral("go"),
+        QStringLiteral("h"),
+        QStringLiteral("hh"),
+        QStringLiteral("hpp"),
+        QStringLiteral("hxx"),
+        QStringLiteral("ini"),
+        QStringLiteral("java"),
+        QStringLiteral("js"),
         QStringLiteral("json"),
         QStringLiteral("jsonl"),
+        QStringLiteral("jsx"),
+        QStringLiteral("links"),
+        QStringLiteral("list"),
+        QStringLiteral("log"),
+        QStringLiteral("mak"),
+        QStringLiteral("mk"),
+        QStringLiteral("ps1"),
+        QStringLiteral("psm1"),
+        QStringLiteral("py"),
+        QStringLiteral("qml"),
+        QStringLiteral("rs"),
+        QStringLiteral("sdc"),
+        QStringLiteral("sh"),
+        QStringLiteral("sv"),
+        QStringLiteral("svh"),
+        QStringLiteral("tcl"),
+        QStringLiteral("txt"),
+        QStringLiteral("text"),
+        QStringLiteral("tsv"),
+        QStringLiteral("ts"),
+        QStringLiteral("tsx"),
+        QStringLiteral("toml"),
+        QStringLiteral("urls"),
+        QStringLiteral("v"),
+        QStringLiteral("vh"),
+        QStringLiteral("xdc"),
         QStringLiteral("yaml"),
         QStringLiteral("yml"),
-        QStringLiteral("toml"),
-        QStringLiteral("ini"),
-        QStringLiteral("cfg"),
-        QStringLiteral("conf")
+        QStringLiteral("zsh")
     }.contains(suffix);
 }
 
@@ -3716,21 +3715,23 @@ int pdfPageCountFromText(const QString &text)
     return count;
 }
 
-void appendCodeSymbol(Resource &resource, const QString &target, int line)
+void appendBeaconLineAnchor(Resource &resource, const QString &target, int line)
 {
-    const QString normalized = target.trimmed();
+    const QString normalized = collapsedWhitespace(target);
     if (normalized.isEmpty()) {
         return;
     }
     const auto duplicate = std::find_if(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
-        return anchor.type == AnchorType::CodeSymbol && anchor.target == normalized && anchor.line == line;
+        return anchor.type == AnchorType::FileLine
+            && anchor.target.compare(normalized, Qt::CaseInsensitive) == 0
+            && anchor.line == line;
     });
     if (duplicate != resource.anchors.cend()) {
         return;
     }
 
     Anchor anchor;
-    anchor.type = AnchorType::CodeSymbol;
+    anchor.type = AnchorType::FileLine;
     anchor.target = normalized;
     anchor.line = line;
     resource.anchors.append(anchor);
@@ -3775,72 +3776,73 @@ void appendActionLineAnchorsFromLine(Resource &resource, const QString &line, in
                          lineNumber);
 }
 
-void appendCodeDependencyAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty()) {
         return;
     }
 
-    static const QRegularExpression cppIncludePattern(
-        QStringLiteral("^#\\s*include\\s*[<\"]([^>\"]+)[>\"]"));
-    static const QRegularExpression pythonFromPattern(
-        QStringLiteral("^from\\s+([A-Za-z_][A-Za-z0-9_.]*)\\s+import\\s+.+$"));
-    static const QRegularExpression pythonImportPattern(
-        QStringLiteral("^import\\s+([A-Za-z_][A-Za-z0-9_.]*(?:\\s*,\\s*[A-Za-z_][A-Za-z0-9_.]*)*)\\b"));
-    static const QRegularExpression jsImportFromPattern(
-        QStringLiteral("^import(?:\\s+type)?\\s+.+\\s+from\\s+[\"']([^\"']+)[\"']"));
-    static const QRegularExpression jsSideEffectImportPattern(
-        QStringLiteral("^import\\s+[\"']([^\"']+)[\"']"));
-    static const QRegularExpression jsRequirePattern(
-        QStringLiteral("^(?:const|let|var)\\s+[A-Za-z_$][A-Za-z0-9_$]*\\s*=\\s*require\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)"));
-    static const QRegularExpression jsDynamicImportPattern(
-        QStringLiteral("\\bimport\\s*\\(\\s*[\"']([^\"']+)[\"']\\s*\\)"));
-    static const QRegularExpression rustUsePattern(
-        QStringLiteral("^use\\s+([^;]+);"));
-    static const QRegularExpression goImportPattern(
-        QStringLiteral("^import\\s+\"([^\"]+)\""));
-    static const QRegularExpression javaImportPattern(
-        QStringLiteral("^import\\s+(?:static\\s+)?([^;]+);"));
-    static const QRegularExpression csharpUsingPattern(
-        QStringLiteral("^using\\s+([^;=]+);"));
-    static const QRegularExpression shellSourcePattern(
-        QStringLiteral("^(?:source|\\.)\\s+([^\\s#;]+)"));
-    static const QRegularExpression powershellImportModulePattern(
-        QStringLiteral("^Import-Module\\s+([^\\s#;]+)"),
-        QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression batchCallPattern(
-        QStringLiteral("^call\\s+([^\\s&|]+)"),
-        QRegularExpression::CaseInsensitiveOption);
+    static const QRegularExpression urlPattern(QStringLiteral("\\bhttps?://[^\\s<>)\"']+"));
+    QRegularExpressionMatchIterator urlMatches = urlPattern.globalMatch(trimmed);
+    while (urlMatches.hasNext()) {
+        const QRegularExpressionMatch match = urlMatches.next();
+        appendBeaconLineAnchor(resource, QStringLiteral("url: %1").arg(match.captured(0)), lineNumber);
+    }
 
-    struct DependencyPattern {
-        const QRegularExpression *pattern;
-        QString label;
-    };
+    static const QRegularExpression errorWarningPattern(
+        QStringLiteral("\\b(error|warning|warn)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch errorWarningMatch = errorWarningPattern.match(trimmed);
+    if (errorWarningMatch.hasMatch()) {
+        const QString kind = errorWarningMatch.captured(1).startsWith(QLatin1String("err"), Qt::CaseInsensitive)
+            ? QStringLiteral("error")
+            : QStringLiteral("warning");
+        appendBeaconLineAnchor(resource, QStringLiteral("%1: %2").arg(kind, trimmed), lineNumber);
+    }
 
-    for (const DependencyPattern &candidate : {
-             DependencyPattern{&cppIncludePattern, QStringLiteral("include")},
-             DependencyPattern{&pythonFromPattern, QStringLiteral("import")},
-             DependencyPattern{&jsImportFromPattern, QStringLiteral("import")},
-             DependencyPattern{&jsSideEffectImportPattern, QStringLiteral("import")},
-             DependencyPattern{&jsRequirePattern, QStringLiteral("require")},
-             DependencyPattern{&jsDynamicImportPattern, QStringLiteral("import")},
-             DependencyPattern{&pythonImportPattern, QStringLiteral("import")},
-             DependencyPattern{&rustUsePattern, QStringLiteral("use")},
-             DependencyPattern{&goImportPattern, QStringLiteral("import")},
-             DependencyPattern{&javaImportPattern, QStringLiteral("import")},
-             DependencyPattern{&csharpUsingPattern, QStringLiteral("using")},
-             DependencyPattern{&shellSourcePattern, QStringLiteral("source")},
-             DependencyPattern{&powershellImportModulePattern, QStringLiteral("import-module")},
-             DependencyPattern{&batchCallPattern, QStringLiteral("call")}
-         }) {
-        const QRegularExpressionMatch match = candidate.pattern->match(trimmed);
-        if (match.hasMatch()) {
-            appendFileLineAnchor(resource,
-                                 QStringLiteral("%1: %2").arg(candidate.label, match.captured(1).trimmed()),
-                                 lineNumber);
-            return;
-        }
+    static const QRegularExpression userMarkerPattern(
+        QStringLiteral("^\\s*(?://+|#+|;+|--+|/\\*)?\\s*(MARKER|ANCHOR|BOOKMARK)\\b\\s*:?[\\s-]*(.+?)\\s*(?:\\*/)?\\s*$"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch markerMatch = userMarkerPattern.match(line);
+    if (markerMatch.hasMatch()) {
+        const QString detail = markerMatch.captured(2).trimmed();
+        appendBeaconLineAnchor(resource,
+                               detail.isEmpty()
+                                   ? QStringLiteral("marker")
+                                   : QStringLiteral("marker: %1").arg(detail),
+                               lineNumber);
+    }
+
+    static const QRegularExpression bracketSectionPattern(QStringLiteral("^\\[([^\\]]{1,120})\\]$"));
+    static const QRegularExpression colonSectionPattern(QStringLiteral("^([A-Za-z0-9][A-Za-z0-9_. /-]{1,120})\\s*:$"));
+    static const QRegularExpression wrappedSectionPattern(
+        QStringLiteral("^(?:={2,}|-{3,})\\s*(.+?)\\s*(?:={2,}|-{3,})$"));
+    const QRegularExpressionMatch bracketSectionMatch = bracketSectionPattern.match(trimmed);
+    const QRegularExpressionMatch colonSectionMatch = colonSectionPattern.match(trimmed);
+    const QRegularExpressionMatch wrappedSectionMatch = wrappedSectionPattern.match(trimmed);
+    if (bracketSectionMatch.hasMatch()) {
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("section: %1").arg(bracketSectionMatch.captured(1).trimmed()),
+                               lineNumber);
+    } else if (colonSectionMatch.hasMatch()) {
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("section: %1").arg(colonSectionMatch.captured(1).trimmed()),
+                               lineNumber);
+    } else if (wrappedSectionMatch.hasMatch()) {
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("section: %1").arg(wrappedSectionMatch.captured(1).trimmed()),
+                               lineNumber);
+    }
+
+    static const QRegularExpression symbolLikePattern(
+        QStringLiteral("^(?:class|struct|module|interface|package|task|function|def|proc)\\s+(?:automatic\\s+)?([A-Za-z_][A-Za-z0-9_$:.-]*)\\b"),
+        QRegularExpression::CaseInsensitiveOption);
+    const QRegularExpressionMatch symbolLikeMatch = symbolLikePattern.match(trimmed);
+    if (symbolLikeMatch.hasMatch()) {
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("symbol-like: %1").arg(symbolLikeMatch.captured(1).trimmed()),
+                               lineNumber);
     }
 }
 
@@ -3872,34 +3874,34 @@ void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lin
 
     const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
     if (targetMatch.hasMatch()) {
-        appendCodeSymbol(resource, QStringLiteral("target: %1").arg(targetMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("target: %1").arg(targetMatch.captured(1)), lineNumber);
         return;
     }
 
     const QRegularExpressionMatch testMatch = testPattern.match(trimmed);
     if (testMatch.hasMatch()) {
-        appendCodeSymbol(resource, QStringLiteral("test: %1").arg(testMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("test: %1").arg(testMatch.captured(1)), lineNumber);
         return;
     }
 
     const QRegularExpressionMatch projectMatch = projectPattern.match(trimmed);
     if (projectMatch.hasMatch()) {
-        appendCodeSymbol(resource, QStringLiteral("project: %1").arg(projectMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("project: %1").arg(projectMatch.captured(1)), lineNumber);
         return;
     }
 
     const QRegularExpressionMatch optionMatch = optionPattern.match(trimmed);
     if (optionMatch.hasMatch()) {
-        appendCodeSymbol(resource, QStringLiteral("option: %1").arg(optionMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("option: %1").arg(optionMatch.captured(1)), lineNumber);
         return;
     }
 
     const QRegularExpressionMatch functionMatch = functionPattern.match(trimmed);
     if (functionMatch.hasMatch()) {
-        appendCodeSymbol(resource,
-                         QStringLiteral("%1: %2")
-                             .arg(functionMatch.captured(1).toLower(), functionMatch.captured(2)),
-                         lineNumber);
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("%1: %2")
+                                   .arg(functionMatch.captured(1).toLower(), functionMatch.captured(2)),
+                               lineNumber);
         return;
     }
 
@@ -3934,7 +3936,7 @@ void appendMakefileAnchorsFromLine(Resource &resource, const QString &line, int 
     for (const QString &target : targets) {
         const QString normalized = target.trimmed();
         if (!normalized.isEmpty() && !normalized.startsWith(QLatin1Char('.'))) {
-            appendCodeSymbol(resource, QStringLiteral("make target: %1").arg(normalized), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("make target: %1").arg(normalized), lineNumber);
         }
     }
 }
@@ -3957,7 +3959,7 @@ void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, in
     if (fromMatch.hasMatch()) {
         const QString stage = fromMatch.captured(2).trimmed();
         if (!stage.isEmpty()) {
-            appendCodeSymbol(resource, QStringLiteral("docker stage: %1").arg(stage), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("docker stage: %1").arg(stage), lineNumber);
         }
         appendFileLineAnchor(resource,
                              QStringLiteral("docker base: %1").arg(fromMatch.captured(1).trimmed()),
@@ -3971,27 +3973,6 @@ void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, in
                              QStringLiteral("docker %1: %2")
                                  .arg(copyMatch.captured(1).toUpper(), copyMatch.captured(2).trimmed()),
                              lineNumber);
-    }
-}
-
-bool isGoImportBlockStart(const QString &line)
-{
-    static const QRegularExpression pattern(QStringLiteral("^import\\s*\\($"));
-    return pattern.match(line.trimmed()).hasMatch();
-}
-
-bool isGoImportBlockEnd(const QString &line)
-{
-    return line.trimmed().startsWith(QLatin1Char(')'));
-}
-
-void appendGoImportBlockDependencyAnchorFromLine(Resource &resource, const QString &line, int lineNumber)
-{
-    static const QRegularExpression pattern(
-        QStringLiteral("^(?:(?:[A-Za-z_][A-Za-z0-9_]*|\\.|_)\\s+)?\"([^\"]+)\""));
-    const QRegularExpressionMatch match = pattern.match(line.trimmed());
-    if (match.hasMatch()) {
-        appendFileLineAnchor(resource, QStringLiteral("import: %1").arg(match.captured(1).trimmed()), lineNumber);
     }
 }
 
@@ -4071,7 +4052,7 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
             if (key == QLatin1String("name")) {
                 const QString workflowName = cleanedYamlScalar(keyMatch.captured(2));
                 if (!workflowName.isEmpty()) {
-                    appendCodeSymbol(resource, QStringLiteral("workflow: %1").arg(workflowName), lineNumber);
+                    appendBeaconLineAnchor(resource, QStringLiteral("workflow: %1").arg(workflowName), lineNumber);
                 }
             }
             state.inJobs = key == QLatin1String("jobs");
@@ -4091,9 +4072,9 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
             state.currentJob = jobMatch.captured(1).trimmed();
             state.inSteps = false;
             if (!state.currentJob.isEmpty()) {
-                appendCodeSymbol(resource,
-                                 QStringLiteral("workflow job: %1").arg(state.currentJob),
-                                 lineNumber);
+                appendBeaconLineAnchor(resource,
+                                       QStringLiteral("workflow job: %1").arg(state.currentJob),
+                                       lineNumber);
             }
         }
         return;
@@ -4138,7 +4119,7 @@ void appendGithubActionsWorkflowAnchorsFromLine(Resource &resource,
     }
 
     if (key == QLatin1String("name")) {
-        appendCodeSymbol(resource, QStringLiteral("workflow step: %1").arg(value), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("workflow step: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("uses")) {
         appendFileLineAnchor(resource, QStringLiteral("workflow action: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("run")) {
@@ -4202,7 +4183,7 @@ void appendGitlabCiPipelineAnchorsFromLine(Resource &resource,
 
         state.currentJob = key;
         if (!state.currentJob.isEmpty()) {
-            appendCodeSymbol(resource, QStringLiteral("gitlab job: %1").arg(state.currentJob), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("gitlab job: %1").arg(state.currentJob), lineNumber);
         }
         return;
     }
@@ -6875,98 +6856,6 @@ void appendTabularHeaderAnchorsFromLine(Resource &resource, const QString &line,
     }
 }
 
-void appendCodeSymbolsFromLine(Resource &resource, const QString &line, int lineNumber)
-{
-    const QString trimmed = line.trimmed();
-    if (trimmed.isEmpty() || trimmed.startsWith(QLatin1String("//")) || trimmed.startsWith(QLatin1Char('#'))) {
-        return;
-    }
-
-    static const QRegularExpression cppTestPattern(
-        QStringLiteral("^(?:TYPED_TEST|TYPED_TEST_P|TEST|TEST_F|TEST_P)\\s*\\(\\s*([A-Za-z_][A-Za-z0-9_:]*)\\s*,\\s*([A-Za-z_][A-Za-z0-9_]*)\\s*\\)"));
-    static const QRegularExpression jsTestPattern(
-        QStringLiteral("^(describe|it|test)\\s*\\(\\s*([\"'`])([^\"'`\\r\\n]+)\\2"));
-    static const QRegularExpression typePattern(
-        QStringLiteral("^(?:template\\s*<[^>]+>\\s*)?(?:class|struct|enum(?:\\s+class)?)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression cppFunctionPattern(
-        QStringLiteral("^(?!(?:if|for|while|switch|catch)\\b)(?:template\\s*<[^>]+>\\s*)?[A-Za-z_~][A-Za-z0-9_:<>~*&\\s]*\\s+([A-Za-z_~][A-Za-z0-9_:~]*)\\s*\\([^;{}]*\\)\\s*(?:const\\s*)?(?:noexcept\\s*)?(?:->\\s*[A-Za-z_][A-Za-z0-9_:<>*&\\s]*)?\\s*(?:\\{|$)"));
-    static const QRegularExpression pythonPattern(
-        QStringLiteral("^(?:async\\s+def|def|class)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression jsFunctionPattern(
-        QStringLiteral("^(?:export\\s+)?(?:async\\s+)?function\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\b"));
-    static const QRegularExpression jsClassPattern(
-        QStringLiteral("^(?:export\\s+)?class\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\b"));
-    static const QRegularExpression jsArrowPattern(
-        QStringLiteral("^(?:export\\s+)?(?:const|let|var)\\s+([A-Za-z_$][A-Za-z0-9_$]*)\\s*=\\s*(?:async\\s*)?(?:\\([^)]*\\)|[A-Za-z_$][A-Za-z0-9_$]*)\\s*=>"));
-    static const QRegularExpression rustTypePattern(
-        QStringLiteral("^(?:pub(?:\\([^)]*\\))?\\s+)?(?:struct|enum|trait|type)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression rustFunctionPattern(
-        QStringLiteral("^(?:pub(?:\\([^)]*\\))?\\s+)?(?:async\\s+)?fn\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression goTypePattern(
-        QStringLiteral("^type\\s+([A-Za-z_][A-Za-z0-9_]*)\\s+(?:struct|interface|func|[A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression goFunctionPattern(
-        QStringLiteral("^func\\s+(?:\\([^)]*\\)\\s*)?([A-Za-z_][A-Za-z0-9_]*)\\s*\\("));
-    static const QRegularExpression jvmDotNetTypePattern(
-        QStringLiteral("^(?:(?:public|private|protected|internal|static|final|abstract|sealed|partial|readonly)\\s+)*(?:class|interface|enum|record|struct)\\s+([A-Za-z_][A-Za-z0-9_]*)\\b"));
-    static const QRegularExpression hdlPattern(
-        QStringLiteral("^(?:module|interface|package|class|task|function)\\s+(?:automatic\\s+)?([A-Za-z_][A-Za-z0-9_$]*)\\b"));
-    static const QRegularExpression tclPattern(QStringLiteral("^proc\\s+([^\\s{]+)\\b"));
-    static const QRegularExpression shellFunctionPattern(
-        QStringLiteral("^function\\s+([A-Za-z_][A-Za-z0-9_:-]*)\\b"));
-    static const QRegularExpression shellParenFunctionPattern(
-        QStringLiteral("^([A-Za-z_][A-Za-z0-9_:-]*)\\s*\\(\\s*\\)\\s*(?:\\{|$)"));
-    static const QRegularExpression powershellFunctionPattern(
-        QStringLiteral("^function\\s+([A-Za-z_][A-Za-z0-9_-]*)\\b"),
-        QRegularExpression::CaseInsensitiveOption);
-    static const QRegularExpression batchLabelPattern(
-        QStringLiteral("^:([A-Za-z_][A-Za-z0-9_.-]*)\\b"));
-
-    const QRegularExpressionMatch cppTestMatch = cppTestPattern.match(trimmed);
-    if (cppTestMatch.hasMatch()) {
-        appendCodeSymbol(resource,
-                         QStringLiteral("%1.%2").arg(cppTestMatch.captured(1), cppTestMatch.captured(2)),
-                         lineNumber);
-        return;
-    }
-
-    const QRegularExpressionMatch jsTestMatch = jsTestPattern.match(trimmed);
-    if (jsTestMatch.hasMatch()) {
-        const QString prefix = jsTestMatch.captured(1) == QLatin1String("describe")
-            ? QStringLiteral("suite")
-            : QStringLiteral("test");
-        appendCodeSymbol(resource,
-                         QStringLiteral("%1: %2").arg(prefix, jsTestMatch.captured(3).trimmed()),
-                         lineNumber);
-        return;
-    }
-
-    for (const QRegularExpression *pattern : {
-             &typePattern,
-             &cppFunctionPattern,
-             &pythonPattern,
-             &jsFunctionPattern,
-             &jsClassPattern,
-             &jsArrowPattern,
-             &rustTypePattern,
-             &rustFunctionPattern,
-             &goTypePattern,
-             &goFunctionPattern,
-             &jvmDotNetTypePattern,
-             &hdlPattern,
-             &tclPattern,
-             &shellFunctionPattern,
-             &shellParenFunctionPattern,
-             &powershellFunctionPattern,
-             &batchLabelPattern
-         }) {
-        const QRegularExpressionMatch match = pattern->match(trimmed);
-        if (match.hasMatch()) {
-            appendCodeSymbol(resource, match.captured(1), lineNumber);
-            return;
-        }
-    }
-}
-
 } // namespace
 
 DirectoryLibrarySource::DirectoryLibrarySource(QString rootPath)
@@ -7184,8 +7073,6 @@ Resource DirectoryLibrarySource::resourceFromFileInfo(const QFileInfo &fileInfo)
         applyMarkdownMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Pdf) {
         applyPdfMetadata(resource, fileInfo);
-    } else if (resource.kind == ResourceKind::CodeSnippet) {
-        applyCodeMetadata(resource, fileInfo);
     } else if (resource.kind == ResourceKind::Url) {
         const QString suffix = fileInfo.suffix().toLower();
         if (suffix == QLatin1String("html") || suffix == QLatin1String("htm") || isMhtmlFile(fileInfo)) {
@@ -7295,6 +7182,8 @@ void DirectoryLibrarySource::applyMarkdownMetadata(Resource &resource, const QFi
         appendWikilinksAsAliases(resource.aliases, line);
         appendLocalWikilinks(resource, fileInfo, line, lineNumber);
         appendLocalMarkdownLinks(resource, fileInfo, line, lineNumber);
+        appendActionLineAnchorsFromLine(resource, line, lineNumber);
+        appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
 
         const QRegularExpressionMatch headingMatch = headingPattern.match(line);
         if (headingMatch.hasMatch()) {
@@ -7363,52 +7252,6 @@ void DirectoryLibrarySource::applyPdfMetadata(Resource &resource, const QFileInf
                 appendPdfRegionAnchor(resource, annotationIt.value(), page);
             }
         }
-    }
-}
-
-void DirectoryLibrarySource::applyCodeMetadata(Resource &resource, const QFileInfo &fileInfo) const
-{
-    QFile file(fileInfo.absoluteFilePath());
-    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
-        return;
-    }
-
-    int lineNumber = 0;
-    bool inGoImportBlock = false;
-    const bool cmakeFile = isCMakeFile(fileInfo);
-    const bool makefile = isMakefile(fileInfo);
-    const bool dockerfile = isDockerfile(fileInfo);
-    while (!file.atEnd()) {
-        ++lineNumber;
-        const QString line = QString::fromUtf8(file.readLine());
-        appendActionLineAnchorsFromLine(resource, line, lineNumber);
-
-        if (cmakeFile) {
-            appendCMakeAnchorsFromLine(resource, line, lineNumber);
-        }
-        if (makefile) {
-            appendMakefileAnchorsFromLine(resource, line, lineNumber);
-        }
-        if (dockerfile) {
-            appendDockerfileAnchorsFromLine(resource, line, lineNumber);
-        }
-
-        if (inGoImportBlock) {
-            if (isGoImportBlockEnd(line)) {
-                inGoImportBlock = false;
-            } else {
-                appendGoImportBlockDependencyAnchorFromLine(resource, line, lineNumber);
-            }
-            continue;
-        }
-
-        if (isGoImportBlockStart(line)) {
-            inGoImportBlock = true;
-            continue;
-        }
-
-        appendCodeDependencyAnchorsFromLine(resource, line, lineNumber);
-        appendCodeSymbolsFromLine(resource, line, lineNumber);
     }
 }
 
@@ -7488,6 +7331,9 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool structured = isStructuredPlainTextFile(fileInfo);
     const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
     const bool gitlabCi = isGitlabCiFile(fileInfo);
+    const bool cmakeFile = isCMakeFile(fileInfo);
+    const bool makefile = isMakefile(fileInfo);
+    const bool dockerfile = isDockerfile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     ManifestDependencyState manifestDependencyState;
@@ -7500,7 +7346,17 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         ++lineNumber;
         contentLines.append(line);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
+        appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendManifestDependencyAnchorsFromLine(resource, fileInfo, line, lineNumber, manifestDependencyState);
+        if (cmakeFile) {
+            appendCMakeAnchorsFromLine(resource, line, lineNumber);
+        }
+        if (makefile) {
+            appendMakefileAnchorsFromLine(resource, line, lineNumber);
+        }
+        if (dockerfile) {
+            appendDockerfileAnchorsFromLine(resource, line, lineNumber);
+        }
         if (githubActionsWorkflow) {
             appendGithubActionsWorkflowAnchorsFromLine(resource, line, lineNumber, githubActionsWorkflowState);
         }

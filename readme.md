@@ -1,8 +1,17 @@
 # Pinloom
 
-Pinloom is a standalone Qt application for locating personal and engineering materials: files, folders, PDFs, code snippets, web pages, notes, tags, aliases, anchors, and jump relationships.
+Pinloom is a standalone Qt application for locating personal and engineering materials: files, folders, PDFs, text beacons, web pages, notes, tags, aliases, anchors, and jump relationships.
 
 It is not an Obsidian add-on and is not a ZeroSlack-private feature. Obsidian vaults are one supported library source. ZeroSlack embedding is a later UI host target.
+
+## Product Boundary
+
+Pinloom is a beacon/location indexer and jump layer. It is not a code intelligence engine, a multilingual IDE, or a language semantic analyzer.
+
+- Text-like files are treated uniformly. Verilog/SV, Tcl, XDC, C/C++, Python, JS, YAML, JSON, Markdown, logs, and plain text all feed the same text beacon model.
+- Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, user markers, and neutral symbol-like text. It does not build ASTs or claim programming-language support.
+- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, binary archives, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction.
+- When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
 ## Current MVP: Integration And Source Refinement
 
@@ -55,7 +64,8 @@ Implemented:
 - YAML/TOML/INI/config URL string indexing as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Optional remote HTML fetching for indexed web shortcuts, with fetched page titles, canonical URL aliases, heading fragment anchors, and extracted searchable content.
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
-- Code resource classification, lightweight symbol anchors, Rust/Go/Java/C# symbol coverage, shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, GitHub Actions workflow/job/step/action/run anchors, GitLab CI stage/job/needs/script anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, and TODO/FIXME/NOTE line anchors for common engineering languages.
+- Unified text beacon indexing for source-like, log, config, manifest, and plain-text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and simple symbol-like line anchors.
+- Build/config beacons for CMake project/target/package/test lines, Makefile targets, Dockerfile stage/base/copy lines, GitHub Actions workflow/job/step/action/run lines, GitLab CI stage/job/needs/script lines, and compile_commands.json line anchors with `compiles` relations.
 - Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
 - Locator UI and host-facing API for creating manual aliases and anchors on selected resources or explicit resource ids.
@@ -82,7 +92,7 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; richer source-code parsing; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
@@ -185,11 +195,11 @@ PDF Navigation MVP validation:
 - Build: passed
 - Tests: passed (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
-Code-Aware Locator MVP validation:
+Beacon/Location Indexing MVP validation:
 
 - Configure: passed
 - Build: passed
-- Tests: passed for code resource classification, C/C++/Python/JS/TS/HDL/Tcl/Rust/Go/Java/C#/shell/PowerShell/batch/shebang script symbol anchors, C++ GoogleTest and JS/TS test case anchors, CMake project/target/package/test anchors, Makefile target anchors, Dockerfile stage/base/copy anchors, GitHub Actions workflow/job/step/action/run anchors, GitLab CI stage/job/needs/script anchors, compile_commands.json line anchors and `compiles` relations, dependency/import line anchors including Go import blocks, JS/TS dynamic imports, and script source/import/call lines, TODO/FIXME/NOTE line anchors, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
+- Tests: passed for unified text file classification, TODO/FIXME/NOTE line anchors, URL/error/warning/section/marker/simple symbol-like beacons, CMake project/target/package/test beacons, Makefile target beacons, Dockerfile stage/base/copy beacons, GitHub Actions workflow/job/step/action/run beacons, GitLab CI stage/job/needs/script beacons, compile_commands.json line anchors and `compiles` relations, and line-anchor UI display (`pinloom_core_smoke_test`, `pinloom_sqlite_repository_test`, `pinloom_directory_source_test`, `pinloom_widget_smoke_test`)
 
 Manual Anchors And Relationships MVP validation:
 
