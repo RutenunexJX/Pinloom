@@ -20,7 +20,7 @@ class DirectorySourceTest : public QObject {
 private slots:
     void scansOnlyExplicitRoot();
     void indexesPlainTextFileContent();
-    void indexesCompressedAndDocumentPackageContainersAsPathOnlyFiles();
+    void keepsPackageContainersAsPermanentPathOnlyFiles();
     void extractsTextStructureLineBeacons();
     void extractsNeutralWorkflowConfigLineBeacons();
     void extractsNeutralPipelineConfigLineBeacons();
@@ -497,7 +497,7 @@ void DirectorySourceTest::indexesPlainTextFileContent()
     QVERIFY(binaryResults.isEmpty());
 }
 
-void DirectorySourceTest::indexesCompressedAndDocumentPackageContainersAsPathOnlyFiles()
+void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -576,10 +576,26 @@ void DirectorySourceTest::indexesCompressedAndDocumentPackageContainersAsPathOnl
         QStringLiteral("site.war")
     };
     const QStringList documentPackageFileNames{
+        QStringLiteral("document.docm"),
         QStringLiteral("document.docx"),
-        QStringLiteral("workbook.xlsx"),
+        QStringLiteral("template.dotm"),
+        QStringLiteral("template.dotx"),
+        QStringLiteral("slides.potm"),
+        QStringLiteral("slides.potx"),
+        QStringLiteral("show.ppsm"),
+        QStringLiteral("show.ppsx"),
+        QStringLiteral("slides.pptm"),
         QStringLiteral("slides.pptx"),
-        QStringLiteral("diagram.vsdx")
+        QStringLiteral("diagram.vsdm"),
+        QStringLiteral("diagram.vsdx"),
+        QStringLiteral("stencil.vssm"),
+        QStringLiteral("stencil.vssx"),
+        QStringLiteral("template.vstm"),
+        QStringLiteral("template.vstx"),
+        QStringLiteral("workbook.xlsm"),
+        QStringLiteral("workbook.xlsx"),
+        QStringLiteral("workbook.xltm"),
+        QStringLiteral("workbook.xltx")
     };
     QStringList packageFileNames = compressedPackageFileNames;
     packageFileNames += documentPackageFileNames;

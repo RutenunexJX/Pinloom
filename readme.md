@@ -10,7 +10,7 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 
 - Small files whose content sniffs as text are treated uniformly regardless of extension and feed the same text beacon model. Directory indexing keeps `.md/.markdown` on the ordinary file resource path; legacy Markdown resource kind inputs and stored `markdown` rows normalize to ordinary file resources.
 - Pinloom extracts searchable positions: line text, headings/sections, TODO/FIXME/NOTE, URLs, errors/warnings, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases. Marker anchors are surfaced as markers, not code symbols. It does not build ASTs or claim programming-language support.
-- Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, web capture formats such as MHTML/HAR/WARC, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages and installable package containers such as zip/zipx/jar/tar/tgz/tbz/txz/gz/br/bz2/xz/zst/lz/lzma/lz4/lzo/7z/rar/cab/arj/iso/apk/ipa/ear/war/deb/rpm/appx/msix/vsix/nupkg/whl/gem/crate are never expanded or text-scanned; they remain ordinary path-only file targets and do not emit package-inside anchors, relations, derived resources, or searchable content. Office/Visio package containers stay path-only unless an explicit document reader can emit user-facing document positions without exposing package-internal paths.
+- Special file readers are reserved for formats that need them, such as PDF, SQLite databases, web capture formats such as MHTML/HAR/WARC, and scanned/OCR material. Their purpose is still beacon and location extraction. Compressed packages, installable package containers, and Office/Visio package files such as docx/xlsx/pptx/vsdx are never expanded or text-scanned; they remain ordinary path-only file targets and do not emit package-inside anchors, relations, derived resources, searchable content, or package-internal paths.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
 ## Special File Reader Phases
@@ -18,11 +18,10 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 Dedicated readers are staged so each phase improves location extraction without expanding Pinloom into a knowledge-modeling system.
 
 1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors; document text-structure and tabular coverage as unified text beacon rules, not special readers.
-2. Office document-level readers: extract Word/docx paragraph, heading, table, comment, and link beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and link beacons; PowerPoint slide, title, body, notes, and link beacons as document-level positions, not package-entry paths.
-3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons as document-level positions; generic SQLite table/column/URL/sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
-4. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
-5. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
-6. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.
+2. Engineering/design readers: keep generic SQLite table/column/URL/sample-value beacons. Office/Visio package files such as docx/xlsx/pptx/vsdx are not reader targets; they remain ordinary path-only package-container file resources.
+3. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
+4. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
+5. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.
 
 ## Current MVP: Integration And Source Refinement
 
@@ -83,7 +82,7 @@ Implemented:
 - Repository smoke coverage uses neutral file/text fixtures for ordinary behavior; Markdown-named resource and anchor inputs are tested only as legacy compatibility.
 - Text named-entry line beacons use neutral `named entry ...` labels only for explicit JSON/TOML `entries`/`items`/`markers`/`beacons`/`anchors` containers, not package-manager or programming-language dependency analysis.
 - Neutral text snippet and marker anchor model/storage names, with read-only legacy `symbol_like`/`code_*` database compatibility.
-- Shared path-only package-container guard: common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package files remain path-only unless document readers can emit real positions without exposing package-entry paths. Guarded files carry `path-only` and `package-container` tags and are validated to have no scanned content, anchors, relations, or derived package-inside resources.
+- Shared path-only package-container guard: common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package files remain permanent path-only targets. Guarded files carry `path-only` and `package-container` tags and are validated to have no scanned content, anchors, relations, derived package-inside resources, or package-internal paths.
 - Directive-style text beacons layered after text content sniffing for neutral directive entries/settings/blocks/references, rule-entry lines, container-style block/input lines, CI configuration text beacons for workflow/block/stage/step/uses/run/script/needs lines, and file-reference manifest line anchors for compile_commands.json with `file-reference` relations to referenced file paths. These are line-pattern beacons for jumps, not build-system, container, or CI platform interpretation, target/test semantics, or instruction semantics.
 - Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel. Manual relation labels are user-authored jump context, not inferred semantic relationships.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
@@ -111,13 +110,13 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; Office document-level readers; Visio/vsdx document-level readers; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
 
 - Full ZeroSlack dock/global-control integration.
-- Special-file reader phase 1 consolidation, then Office document-level reader boundaries.
+- Special-file reader phase 1 consolidation and reader contract cleanup.
 - Fuller PDF text extraction for remaining unsupported filters/encodings, OCR, and broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, content-sniffed text URLs, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 
 ## Embedding Contract

@@ -409,29 +409,26 @@ Scope:
 
 - Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
 - Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
-- Keep compressed packages, compound tar suffixes, installable package containers, and `.br` files as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning. Keep Office/Visio package containers path-only unless explicit document readers can emit user-facing document positions without exposing package-entry paths.
+- Keep compressed packages, compound tar suffixes, installable package containers, `.br` files, and Office/Visio package files such as docx/xlsx/pptx/vsdx as permanent path-only file targets; do not expand them and do not let them fall through to generic text scanning or package-entry indexing.
 - Stage readers so each phase can be tested independently and left useful if later phases wait.
 
 Phases:
 
 1. Existing reader consolidation.
    Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
-2. Office document-level readers.
-   Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons as document-level positions, not package-entry paths.
-3. Engineering and design special readers.
-   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons as document-level positions; generic SQLite table, column, URL-field, and sample-value beacons. Compressed packages remain ordinary path-only file resources and are not expanded or text-scanned.
-4. Scanned/OCR readers.
+2. Engineering and design special readers.
+   Keep generic SQLite table, column, URL-field, and sample-value beacons. Office/Visio package files such as docx/xlsx/pptx/vsdx are not reader targets; they remain ordinary path-only package-container file resources and are not expanded or text-scanned.
+3. Scanned/OCR readers.
    Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
-5. Reader contract and quality layer.
+4. Reader contract and quality layer.
    Standardize reader input limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeout/cancellation behavior, and diagnostics.
-6. Experience and performance.
+5. Experience and performance.
    Add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and performance budgets for large files.
 
 Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
-- Phase 2: pending.
-- Phase 3: generic SQLite table/column/URL/sample-value beacon reader done; Visio/vsdx pending. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. Compressed packages remain permanent path-only file targets; Office/Visio package containers stay path-only unless document readers can emit real document positions without exposing package-entry paths. The guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
+- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
+- Phase 3: pending.
 - Phase 4: pending.
 - Phase 5: pending.
-- Phase 6: pending.
