@@ -82,7 +82,7 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
 
     Resource resource;
     resource.id = QStringLiteral("readme");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Pinloom README");
     resource.location = QStringLiteral("readme.md");
     QVERIFY(repository.upsertResource(resource));
@@ -95,7 +95,7 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
 
     searchEdit->setText(QStringLiteral("README"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Text]")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[File]")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("[Markdown]")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
     QVERIFY(results->item(0)->toolTip().contains(resource.location));
@@ -374,10 +374,10 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Note");
     resource.location = QStringLiteral("note.md");
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 3}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing"), 3}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -556,7 +556,7 @@ void WidgetSmokeTest::panelDisplaysRelationSummary()
 
     Resource note;
     note.id = QStringLiteral("note");
-    note.kind = ResourceKind::Markdown;
+    note.kind = ResourceKind::File;
     note.title = QStringLiteral("Bringup Note");
     note.location = QStringLiteral("note.md");
     QVERIFY(repository.upsertResource(note));
@@ -595,7 +595,7 @@ void WidgetSmokeTest::panelExposesCurrentRelatedTargetsForHostPreview()
 
     Resource note;
     note.id = QStringLiteral("note");
-    note.kind = ResourceKind::Markdown;
+    note.kind = ResourceKind::File;
     note.title = QStringLiteral("Bringup Note");
     note.location = QStringLiteral("note.md");
     QVERIFY(repository.upsertResource(note));
@@ -699,14 +699,14 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Bringup Note");
     resource.location = QStringLiteral("note.md");
     QVERIFY(repository.upsertResource(resource));
 
     Resource hostResource;
     hostResource.id = QStringLiteral("host-note");
-    hostResource.kind = ResourceKind::Markdown;
+    hostResource.kind = ResourceKind::File;
     hostResource.title = QStringLiteral("Host Note");
     hostResource.location = QStringLiteral("host.md");
     QVERIFY(repository.upsertResource(hostResource));
@@ -769,14 +769,14 @@ void WidgetSmokeTest::panelPinsSelectedResource()
 
     Resource cold;
     cold.id = QStringLiteral("cold");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("UART Alpha");
     cold.location = QStringLiteral("alpha.md");
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
     hot.id = QStringLiteral("hot");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("UART Zulu");
     hot.location = QStringLiteral("zulu.md");
     QVERIFY(repository.upsertResource(hot));
@@ -834,14 +834,14 @@ void WidgetSmokeTest::panelPinsSelectedLibraryRoot()
 
     Resource cold;
     cold.id = QStringLiteral("cold-note");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("Bringup Alpha");
     cold.location = QStringLiteral("E:/workspace/cold/bringup.md");
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
     hot.id = QStringLiteral("hot-note");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("Bringup Zulu");
     hot.location = QStringLiteral("E:/workspace/hot/bringup.md");
     QVERIFY(repository.upsertResource(hot));
@@ -913,7 +913,7 @@ void WidgetSmokeTest::panelSupportsEmbeddedChromeOptions()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("UART Project Note");
     resource.location = QStringLiteral("E:/workspace/project/note.md");
     QVERIFY(repository.upsertResource(resource));
@@ -960,7 +960,7 @@ void WidgetSmokeTest::panelAppliesRequiredTagLocationAndKindFiltering()
 
     Resource project;
     project.id = QStringLiteral("project");
-    project.kind = ResourceKind::Markdown;
+    project.kind = ResourceKind::File;
     project.title = QStringLiteral("UART Project Note");
     project.location = QStringLiteral("E:/workspace/project/project.md");
     project.tags = {QStringLiteral("zeroslack"), QStringLiteral("pcie")};
@@ -1021,7 +1021,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
 
     Resource project;
     project.id = QStringLiteral("project");
-    project.kind = ResourceKind::Markdown;
+    project.kind = ResourceKind::File;
     project.title = QStringLiteral("UART Project Note");
     project.location = QStringLiteral("E:/workspace/project/project.md");
     project.tags = {QStringLiteral("zeroslack"), QStringLiteral("pcie")};
@@ -1029,7 +1029,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
 
     Resource other;
     other.id = QStringLiteral("other");
-    other.kind = ResourceKind::Markdown;
+    other.kind = ResourceKind::File;
     other.title = QStringLiteral("UART Other Note");
     other.location = QStringLiteral("E:/workspace/other/other.md");
     other.tags = {QStringLiteral("zeroslack")};
@@ -1051,7 +1051,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     context.searchText = QStringLiteral("UART");
     context.requiredTags = {QStringLiteral("zeroslack")};
     context.requiredLocationPrefixes = {QStringLiteral("E:/workspace")};
-    context.requiredResourceKinds = {ResourceKind::Markdown};
+    context.requiredResourceKinds = {ResourceKind::File};
     context.contextTags = {QStringLiteral("pcie")};
     context.contextLocationPrefixes = {QStringLiteral("E:/workspace/project")};
     context.contextResourceIds = {project.id};
@@ -1089,7 +1089,7 @@ void WidgetSmokeTest::panelAppliesHostContextRanking()
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     generic.tags = {QStringLiteral("notes")};
@@ -1097,7 +1097,7 @@ void WidgetSmokeTest::panelAppliesHostContextRanking()
 
     Resource contextual;
     contextual.id = QStringLiteral("contextual");
-    contextual.kind = ResourceKind::Markdown;
+    contextual.kind = ResourceKind::File;
     contextual.title = QStringLiteral("UART Zulu");
     contextual.location = QStringLiteral("E:/workspace/project/zulu.md");
     contextual.tags = {QStringLiteral("pcie")};
@@ -1129,21 +1129,21 @@ void WidgetSmokeTest::panelAppliesHostContextResourceRanking()
 
     Resource active;
     active.id = QStringLiteral("active");
-    active.kind = ResourceKind::Markdown;
+    active.kind = ResourceKind::File;
     active.title = QStringLiteral("Current Note");
     active.location = QStringLiteral("E:/workspace/current.md");
     QVERIFY(repository.upsertResource(active));
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     QVERIFY(repository.upsertResource(generic));
 
     Resource related;
     related.id = QStringLiteral("related");
-    related.kind = ResourceKind::Markdown;
+    related.kind = ResourceKind::File;
     related.title = QStringLiteral("UART Zulu");
     related.location = QStringLiteral("E:/workspace/project/zulu.md");
     QVERIFY(repository.upsertResource(related));
@@ -1192,11 +1192,11 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("ZeroSlack Handoff");
     resource.location = QStringLiteral("E:/workspace/project/handoff.md");
     resource.tags = {QStringLiteral("zeroslack")};
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 8}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 8}};
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
@@ -1269,7 +1269,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QCOMPARE(target.matchSummary, rowTarget.matchSummary);
     QVERIFY(target.score < 0.0);
     QVERIFY(target.anchor.has_value());
-    QCOMPARE(static_cast<int>(target.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(static_cast<int>(target.anchor->type), static_cast<int>(AnchorType::TextHeading));
     QCOMPARE(target.anchor->target, QStringLiteral("Dock handoff"));
     QCOMPARE(target.anchor->line, 8);
 }
@@ -1280,10 +1280,10 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Preview Note");
     resource.location = QStringLiteral("preview.md");
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Preview target"), 4}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Preview target"), 4}};
     QVERIFY(repository.upsertResource(resource));
 
     QList<PinloomOpenTarget> notifications;
@@ -1311,7 +1311,7 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
     QCOMPARE(notified.matchedField, current.matchedField);
     QCOMPARE(notified.score, current.score);
     QVERIFY(notified.anchor.has_value());
-    QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(static_cast<int>(notified.anchor->type), static_cast<int>(AnchorType::TextHeading));
     QCOMPARE(notified.anchor->target, QStringLiteral("Preview target"));
     QCOMPARE(notified.anchor->line, 4);
 }
@@ -1322,14 +1322,14 @@ void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
 
     Resource alpha;
     alpha.id = QStringLiteral("alpha");
-    alpha.kind = ResourceKind::Markdown;
+    alpha.kind = ResourceKind::File;
     alpha.title = QStringLiteral("UART Alpha");
     alpha.location = QStringLiteral("alpha.md");
     QVERIFY(repository.upsertResource(alpha));
 
     Resource zulu;
     zulu.id = QStringLiteral("zulu");
-    zulu.kind = ResourceKind::Markdown;
+    zulu.kind = ResourceKind::File;
     zulu.title = QStringLiteral("UART Zulu");
     zulu.location = QStringLiteral("zulu.md");
     QVERIFY(repository.upsertResource(zulu));
@@ -1382,14 +1382,14 @@ void WidgetSmokeTest::panelAllowsHostResultNavigation()
 
     Resource alpha;
     alpha.id = QStringLiteral("alpha");
-    alpha.kind = ResourceKind::Markdown;
+    alpha.kind = ResourceKind::File;
     alpha.title = QStringLiteral("UART Alpha");
     alpha.location = QStringLiteral("alpha.md");
     QVERIFY(repository.upsertResource(alpha));
 
     Resource zulu;
     zulu.id = QStringLiteral("zulu");
-    zulu.kind = ResourceKind::Markdown;
+    zulu.kind = ResourceKind::File;
     zulu.title = QStringLiteral("UART Zulu");
     zulu.location = QStringLiteral("zulu.md");
     QVERIFY(repository.upsertResource(zulu));
@@ -1439,10 +1439,10 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Note");
     resource.location = QStringLiteral("note.md");
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock command"), 5}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock command"), 5}};
     QVERIFY(repository.upsertResource(resource));
 
     bool handled = false;
@@ -1490,7 +1490,7 @@ void WidgetSmokeTest::panelAllowsHostToActivateResourceById()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Direct Note");
     resource.location = QStringLiteral("direct-note.md");
     QVERIFY(repository.upsertResource(resource));
@@ -1539,10 +1539,10 @@ void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
 
     Resource resource;
     resource.id = QStringLiteral("note");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("Note");
     resource.location = QStringLiteral("note.md");
-    resource.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 3}};
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing"), 3}};
     QVERIFY(repository.upsertResource(resource));
 
     bool handled = false;
@@ -1577,7 +1577,7 @@ void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
     QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Match: anchor")));
     QVERIFY(capturedTarget.matchSummary.contains(QStringLiteral("Anchor: Heading")));
     QVERIFY(capturedTarget.anchor.has_value());
-    QCOMPARE(static_cast<int>(capturedTarget.anchor->type), static_cast<int>(AnchorType::MarkdownHeading));
+    QCOMPARE(static_cast<int>(capturedTarget.anchor->type), static_cast<int>(AnchorType::TextHeading));
     QCOMPARE(capturedTarget.anchor->target, QStringLiteral("Power sequencing"));
     QCOMPARE(capturedTarget.anchor->line, 3);
 

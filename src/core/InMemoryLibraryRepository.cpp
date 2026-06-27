@@ -49,9 +49,38 @@ SearchResult anchorResult(const Resource &resource, const Anchor &anchor, const 
                         anchor};
 }
 
+AnchorType normalizedAnchorType(AnchorType type)
+{
+    switch (type) {
+    case AnchorType::MarkdownHeading:
+        return AnchorType::TextHeading;
+    case AnchorType::MarkdownBlock:
+        return AnchorType::TextBlock;
+    default:
+        return type;
+    }
+}
+
+Anchor normalizedAnchor(Anchor anchor)
+{
+    anchor.type = normalizedAnchorType(anchor.type);
+    return anchor;
+}
+
+Resource normalizedResource(Resource resource)
+{
+    if (resource.kind == ResourceKind::Markdown) {
+        resource.kind = ResourceKind::File;
+    }
+    for (Anchor &anchor : resource.anchors) {
+        anchor = normalizedAnchor(anchor);
+    }
+    return resource;
+}
+
 QString anchorTypeKey(AnchorType type)
 {
-    return QString::number(static_cast<int>(type));
+    return QString::number(static_cast<int>(normalizedAnchorType(type)));
 }
 
 QString anchorUsageKey(const QString &resourceId, const Anchor &anchor)
@@ -280,7 +309,7 @@ bool InMemoryLibraryRepository::upsertResource(const Resource &resource)
         return false;
     }
 
-    resources_.insert(resource.id, resource);
+    resources_.insert(resource.id, normalizedResource(resource));
     return true;
 }
 
@@ -489,10 +518,11 @@ bool InMemoryLibraryRepository::recordAnchorOpen(const QString &resourceId, cons
         return false;
     }
 
-    const QString key = anchorUsageKey(resourceId, anchor);
+    const Anchor normalized = normalizedAnchor(anchor);
+    const QString key = anchorUsageKey(resourceId, normalized);
     AnchorUsage usage = anchorUsage_.value(key);
     usage.resourceId = resourceId;
-    usage.anchor = anchor;
+    usage.anchor = normalized;
     usage.openCount += 1;
     usage.lastOpenedAt = QDateTime::currentDateTimeUtc();
     anchorUsage_.insert(key, usage);
@@ -501,7 +531,7 @@ bool InMemoryLibraryRepository::recordAnchorOpen(const QString &resourceId, cons
 
 std::optional<AnchorUsage> InMemoryLibraryRepository::anchorUsage(const QString &resourceId, const Anchor &anchor) const
 {
-    const auto it = anchorUsage_.constFind(anchorUsageKey(resourceId, anchor));
+    const auto it = anchorUsage_.constFind(anchorUsageKey(resourceId, normalizedAnchor(anchor)));
     if (it == anchorUsage_.constEnd()) {
         return std::nullopt;
     }

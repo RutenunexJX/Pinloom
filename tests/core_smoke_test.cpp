@@ -11,6 +11,7 @@ class CoreSmokeTest : public QObject {
 
 private slots:
     void searchesAliasesAndTags();
+    void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
     void ranksExactMatchesWithinMatchType();
     void ranksPinnedAndOpenedResourcesWithinMatchType();
@@ -29,7 +30,7 @@ void CoreSmokeTest::searchesAliasesAndTags()
 
     Resource resource;
     resource.id = QStringLiteral("pcie-notes");
-    resource.kind = ResourceKind::Markdown;
+    resource.kind = ResourceKind::File;
     resource.title = QStringLiteral("PCIe UART Bringup Notes");
     resource.location = QStringLiteral("docs/pcie.md");
     resource.tags = {QStringLiteral("fpga"), QStringLiteral("uart")};
@@ -48,16 +49,54 @@ void CoreSmokeTest::searchesAliasesAndTags()
     QCOMPARE(tagResults.size(), 1);
 }
 
+void CoreSmokeTest::normalizesLegacyTextResourceInputs()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("legacy-text-input");
+    resource.kind = ResourceKind::Markdown;
+    resource.title = QStringLiteral("Legacy Text Input");
+    resource.location = QStringLiteral("docs/legacy.md");
+    resource.anchors = {
+        Anchor{AnchorType::MarkdownHeading, QStringLiteral("Legacy Heading"), 3},
+        Anchor{AnchorType::MarkdownBlock, QStringLiteral("legacy-block"), 9}
+    };
+    QVERIFY(repository.upsertResource(resource));
+
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->kind, ResourceKind::File);
+    QCOMPARE(stored->anchors.size(), 2);
+    QCOMPARE(stored->anchors.at(0).type, AnchorType::TextHeading);
+    QCOMPARE(stored->anchors.at(1).type, AnchorType::TextBlock);
+
+    SearchQuery query;
+    query.text = QStringLiteral("Legacy Heading");
+    query.requiredKinds = {ResourceKind::Markdown};
+    const QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->type, AnchorType::TextHeading);
+
+    QVERIFY(repository.recordAnchorOpen(resource.id, resource.anchors.first()));
+    Anchor normalizedHeading = resource.anchors.first();
+    normalizedHeading.type = AnchorType::TextHeading;
+    const std::optional<AnchorUsage> usage = repository.anchorUsage(resource.id, normalizedHeading);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->anchor.type, AnchorType::TextHeading);
+}
+
 void CoreSmokeTest::ranksAnchorBeforePathMatches()
 {
     InMemoryLibraryRepository repository;
 
     Resource anchored;
     anchored.id = QStringLiteral("anchored");
-    anchored.kind = ResourceKind::Markdown;
+    anchored.kind = ResourceKind::File;
     anchored.title = QStringLiteral("note.md");
     anchored.location = QStringLiteral("E:/test_dir/note.md");
-    anchored.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("test"), 12}};
+    anchored.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("test"), 12}};
     QVERIFY(repository.upsertResource(anchored));
 
     Resource pathOnly;
@@ -79,14 +118,14 @@ void CoreSmokeTest::ranksExactMatchesWithinMatchType()
 
     Resource partialTitle;
     partialTitle.id = QStringLiteral("partial-title");
-    partialTitle.kind = ResourceKind::Markdown;
+    partialTitle.kind = ResourceKind::File;
     partialTitle.title = QStringLiteral("UART Bringup");
     partialTitle.location = QStringLiteral("partial.md");
     QVERIFY(repository.upsertResource(partialTitle));
 
     Resource exactTitle;
     exactTitle.id = QStringLiteral("exact-title");
-    exactTitle.kind = ResourceKind::Markdown;
+    exactTitle.kind = ResourceKind::File;
     exactTitle.title = QStringLiteral("UART");
     exactTitle.location = QStringLiteral("exact.md");
     QVERIFY(repository.upsertResource(exactTitle));
@@ -99,18 +138,18 @@ void CoreSmokeTest::ranksExactMatchesWithinMatchType()
 
     Resource partialAnchor;
     partialAnchor.id = QStringLiteral("partial-anchor");
-    partialAnchor.kind = ResourceKind::Markdown;
+    partialAnchor.kind = ResourceKind::File;
     partialAnchor.title = QStringLiteral("a.md");
     partialAnchor.location = QStringLiteral("a.md");
-    partialAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power sequencing"), 7}};
+    partialAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing"), 7}};
     QVERIFY(repository.upsertResource(partialAnchor));
 
     Resource exactAnchor;
     exactAnchor.id = QStringLiteral("exact-anchor");
-    exactAnchor.kind = ResourceKind::Markdown;
+    exactAnchor.kind = ResourceKind::File;
     exactAnchor.title = QStringLiteral("b.md");
     exactAnchor.location = QStringLiteral("b.md");
-    exactAnchor.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power"), 3}};
+    exactAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power"), 3}};
     QVERIFY(repository.upsertResource(exactAnchor));
 
     const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power")});
@@ -127,14 +166,14 @@ void CoreSmokeTest::ranksPinnedAndOpenedResourcesWithinMatchType()
 
     Resource cold;
     cold.id = QStringLiteral("cold");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("UART Alpha");
     cold.location = QStringLiteral("alpha.md");
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
     hot.id = QStringLiteral("hot");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("UART Zulu");
     hot.location = QStringLiteral("zulu.md");
     QVERIFY(repository.upsertResource(hot));
@@ -161,14 +200,14 @@ void CoreSmokeTest::filtersByRequiredLocationPrefixes()
 
     Resource project;
     project.id = QStringLiteral("project");
-    project.kind = ResourceKind::Markdown;
+    project.kind = ResourceKind::File;
     project.title = QStringLiteral("UART Project Note");
     project.location = QStringLiteral("E:/workspace/project/notes/uart.md");
     QVERIFY(repository.upsertResource(project));
 
     Resource other;
     other.id = QStringLiteral("other");
-    other.kind = ResourceKind::Markdown;
+    other.kind = ResourceKind::File;
     other.title = QStringLiteral("UART Other Note");
     other.location = QStringLiteral("E:/workspace/other/uart.md");
     QVERIFY(repository.upsertResource(other));
@@ -191,10 +230,10 @@ void CoreSmokeTest::filtersByRequiredResourceKinds()
 
     Resource note;
     note.id = QStringLiteral("note");
-    note.kind = ResourceKind::Markdown;
+    note.kind = ResourceKind::File;
     note.title = QStringLiteral("UART Note");
     note.location = QStringLiteral("note.md");
-    note.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Dock handoff"), 4}};
+    note.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 4}};
     QVERIFY(repository.upsertResource(note));
 
     Resource link;
@@ -215,7 +254,7 @@ void CoreSmokeTest::filtersByRequiredResourceKinds()
 
     SearchQuery anchorQuery;
     anchorQuery.text = QStringLiteral("Dock handoff");
-    anchorQuery.requiredKinds = {ResourceKind::Markdown};
+    anchorQuery.requiredKinds = {ResourceKind::File};
 
     const QList<SearchResult> anchorResults = repository.search(anchorQuery);
     QCOMPARE(anchorResults.size(), 1);
@@ -229,7 +268,7 @@ void CoreSmokeTest::ranksContextResourcesWithinMatchType()
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     generic.tags = {QStringLiteral("notes")};
@@ -237,7 +276,7 @@ void CoreSmokeTest::ranksContextResourcesWithinMatchType()
 
     Resource contextual;
     contextual.id = QStringLiteral("contextual");
-    contextual.kind = ResourceKind::Markdown;
+    contextual.kind = ResourceKind::File;
     contextual.title = QStringLiteral("UART Zulu");
     contextual.location = QStringLiteral("E:/workspace/project/zulu.md");
     contextual.tags = {QStringLiteral("pcie")};
@@ -260,21 +299,21 @@ void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
 
     Resource active;
     active.id = QStringLiteral("active");
-    active.kind = ResourceKind::Markdown;
+    active.kind = ResourceKind::File;
     active.title = QStringLiteral("Current Note");
     active.location = QStringLiteral("E:/workspace/current.md");
     QVERIFY(repository.upsertResource(active));
 
     Resource generic;
     generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::Markdown;
+    generic.kind = ResourceKind::File;
     generic.title = QStringLiteral("UART Alpha");
     generic.location = QStringLiteral("E:/workspace/other/alpha.md");
     QVERIFY(repository.upsertResource(generic));
 
     Resource related;
     related.id = QStringLiteral("related");
-    related.kind = ResourceKind::Markdown;
+    related.kind = ResourceKind::File;
     related.title = QStringLiteral("UART Zulu");
     related.location = QStringLiteral("E:/workspace/project/zulu.md");
     QVERIFY(repository.upsertResource(related));
@@ -321,18 +360,18 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
 
     Resource cold;
     cold.id = QStringLiteral("cold-anchor");
-    cold.kind = ResourceKind::Markdown;
+    cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("Alpha");
     cold.location = QStringLiteral("alpha.md");
-    cold.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 1}};
+    cold.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 1}};
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
     hot.id = QStringLiteral("hot-anchor");
-    hot.kind = ResourceKind::Markdown;
+    hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("Zulu");
     hot.location = QStringLiteral("zulu.md");
-    hot.anchors = {Anchor{AnchorType::MarkdownHeading, QStringLiteral("Power rail"), 2}};
+    hot.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 2}};
     QVERIFY(repository.upsertResource(hot));
 
     QVERIFY(repository.recordAnchorOpen(hot.id, hot.anchors.first()));

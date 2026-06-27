@@ -233,7 +233,7 @@ Status:
 - Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
 - Directory scans emit `.md/.markdown` as ordinary file resources; legacy Markdown kind inputs and stored `markdown` rows normalize to ordinary file resources: done.
-- Directory scans emit text heading/block anchors through neutral text anchor types and `text_heading`/`text_block` storage names; legacy Markdown-named anchor inputs and stored rows normalize to neutral text anchors: done.
+- Directory scans emit text heading/block anchors through neutral text anchor types and `text_heading`/`text_block` storage names; SQLite and in-memory repositories normalize legacy Markdown-named anchor inputs and stored rows to neutral text anchors: done.
 - Tests: done.
 - Build/test verification: done.
 
