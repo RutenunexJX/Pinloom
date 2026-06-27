@@ -513,6 +513,9 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     const QStringList compressedPackageFileNames{
         QStringLiteral("package.zip"),
         QStringLiteral("package.zipx"),
+        QStringLiteral("android.aab"),
+        QStringLiteral("android.apks"),
+        QStringLiteral("android.xapk"),
         QStringLiteral("bundle.tar"),
         QStringLiteral("bundle.tar.br"),
         QStringLiteral("bundle.tar.gz"),
@@ -537,6 +540,11 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("legacy.ar"),
         QStringLiteral("legacy.arc"),
         QStringLiteral("legacy.arj"),
+        QStringLiteral("app.AppImage"),
+        QStringLiteral("app.asar"),
+        QStringLiteral("app.maff"),
+        QStringLiteral("app.snap"),
+        QStringLiteral("bundle.flatpak"),
         QStringLiteral("single.br"),
         QStringLiteral("single.bz2"),
         QStringLiteral("single.gz"),
@@ -552,36 +560,63 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("dump.rar"),
         QStringLiteral("dump.zoo"),
         QStringLiteral("snapshot.zst"),
+        QStringLiteral("vector.svgz"),
         QStringLiteral("mobile.apk"),
+        QStringLiteral("module.aar"),
+        QStringLiteral("module.jmod"),
         QStringLiteral("desktop.appx"),
         QStringLiteral("desktop.appxbundle"),
         QStringLiteral("installer.cab"),
         QStringLiteral("installer.deb"),
         QStringLiteral("installer.dmg"),
+        QStringLiteral("installer.mpkg"),
         QStringLiteral("installer.msix"),
         QStringLiteral("installer.msixbundle"),
+        QStringLiteral("installer.pkg"),
         QStringLiteral("installer.rpm"),
+        QStringLiteral("installer.xip"),
         QStringLiteral("installer.xar"),
         QStringLiteral("disk.iso"),
         QStringLiteral("comic.cb7"),
         QStringLiteral("comic.cbr"),
         QStringLiteral("comic.cbz"),
         QStringLiteral("extension.crx"),
+        QStringLiteral("extension.xpi"),
         QStringLiteral("extension.vsix"),
+        QStringLiteral("extension.oxt"),
         QStringLiteral("library.nupkg"),
         QStringLiteral("library.whl"),
+        QStringLiteral("library.egg"),
         QStringLiteral("library.gem"),
         QStringLiteral("library.crate"),
         QStringLiteral("enterprise.ear"),
         QStringLiteral("phone.ipa"),
         QStringLiteral("module.jar"),
+        QStringLiteral("module.pak"),
+        QStringLiteral("plugin.hpi"),
+        QStringLiteral("plugin.jpi"),
+        QStringLiteral("runtime.swc"),
         QStringLiteral("site.war")
     };
-    const QStringList officeVisioPackageFileNames{
+    const QStringList documentDesignPackageFileNames{
         QStringLiteral("document.docm"),
         QStringLiteral("document.docx"),
         QStringLiteral("template.dotm"),
         QStringLiteral("template.dotx"),
+        QStringLiteral("book.epub"),
+        QStringLiteral("document.odt"),
+        QStringLiteral("template.ott"),
+        QStringLiteral("master.odm"),
+        QStringLiteral("spreadsheet.ods"),
+        QStringLiteral("spreadsheet.ots"),
+        QStringLiteral("slides.odp"),
+        QStringLiteral("slides.otp"),
+        QStringLiteral("drawing.odg"),
+        QStringLiteral("drawing.otg"),
+        QStringLiteral("formula.odf"),
+        QStringLiteral("database.odb"),
+        QStringLiteral("document.xps"),
+        QStringLiteral("document.oxps"),
         QStringLiteral("slides.potm"),
         QStringLiteral("slides.potx"),
         QStringLiteral("show.ppsm"),
@@ -600,7 +635,7 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
         QStringLiteral("workbook.xltx")
     };
     QStringList packageFileNames = compressedPackageFileNames;
-    packageFileNames += officeVisioPackageFileNames;
+    packageFileNames += documentDesignPackageFileNames;
     for (const QString &fileName : packageFileNames) {
         writeFile(dir.filePath(QStringLiteral("library/artifacts/%1").arg(fileName)), packageLikeText);
     }
@@ -653,6 +688,24 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     });
     QVERIFY(documentPackageResultIt != documentPackageResults.cend());
     QVERIFY(repository.resourceRelations(documentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> openDocumentPackageResults = repository.search(SearchQuery{QStringLiteral("document.odt")});
+    auto openDocumentPackageResultIt = std::find_if(openDocumentPackageResults.cbegin(), openDocumentPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("document.odt")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(openDocumentPackageResultIt != openDocumentPackageResults.cend());
+    QVERIFY(repository.resourceRelations(openDocumentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> electronPackageResults = repository.search(SearchQuery{QStringLiteral("app.asar")});
+    auto electronPackageResultIt = std::find_if(electronPackageResults.cbegin(), electronPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("app.asar")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(electronPackageResultIt != electronPackageResults.cend());
+    QVERIFY(repository.resourceRelations(electronPackageResultIt->resource.id).isEmpty());
 
     const QList<SearchResult> visioPackageResults = repository.search(SearchQuery{QStringLiteral("diagram.vsdx")});
     auto visioPackageResultIt = std::find_if(visioPackageResults.cbegin(), visioPackageResults.cend(), [](const SearchResult &result) {

@@ -410,14 +410,19 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
     const QString completeSuffix = fileInfo.completeSuffix().toLower();
     return QStringList{
         QStringLiteral("7z"),
+        QStringLiteral("aab"),
+        QStringLiteral("aar"),
         QStringLiteral("ace"),
         QStringLiteral("alz"),
         QStringLiteral("apk"),
+        QStringLiteral("apks"),
+        QStringLiteral("appimage"),
         QStringLiteral("appx"),
         QStringLiteral("appxbundle"),
         QStringLiteral("ar"),
         QStringLiteral("arc"),
         QStringLiteral("arj"),
+        QStringLiteral("asar"),
         QStringLiteral("br"),
         QStringLiteral("bz2"),
         QStringLiteral("cab"),
@@ -429,23 +434,36 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         QStringLiteral("crx"),
         QStringLiteral("deb"),
         QStringLiteral("dmg"),
+        QStringLiteral("egg"),
         QStringLiteral("ear"),
+        QStringLiteral("flatpak"),
         QStringLiteral("gem"),
         QStringLiteral("gz"),
+        QStringLiteral("hpi"),
         QStringLiteral("ipa"),
         QStringLiteral("iso"),
         QStringLiteral("jar"),
+        QStringLiteral("jmod"),
+        QStringLiteral("jpi"),
         QStringLiteral("lz"),
         QStringLiteral("lz4"),
         QStringLiteral("lzma"),
         QStringLiteral("lzh"),
         QStringLiteral("lha"),
         QStringLiteral("lzo"),
+        QStringLiteral("maff"),
+        QStringLiteral("mpkg"),
         QStringLiteral("msix"),
         QStringLiteral("msixbundle"),
         QStringLiteral("nupkg"),
+        QStringLiteral("oxt"),
+        QStringLiteral("pak"),
+        QStringLiteral("pkg"),
         QStringLiteral("rpm"),
         QStringLiteral("rar"),
+        QStringLiteral("snap"),
+        QStringLiteral("svgz"),
+        QStringLiteral("swc"),
         QStringLiteral("tar"),
         QStringLiteral("taz"),
         QStringLiteral("tbz"),
@@ -457,7 +475,10 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         QStringLiteral("vsix"),
         QStringLiteral("war"),
         QStringLiteral("whl"),
+        QStringLiteral("xapk"),
         QStringLiteral("xar"),
+        QStringLiteral("xip"),
+        QStringLiteral("xpi"),
         QStringLiteral("xz"),
         QStringLiteral("z"),
         QStringLiteral("zip"),
@@ -477,7 +498,7 @@ bool isCompressedPackageFile(const QFileInfo &fileInfo)
         || completeSuffix.endsWith(QLatin1String(".tar.zst"));
 }
 
-bool isOfficeVisioPackageContainerFile(const QFileInfo &fileInfo)
+bool isDocumentDesignPackageContainerFile(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -489,6 +510,19 @@ bool isOfficeVisioPackageContainerFile(const QFileInfo &fileInfo)
         QStringLiteral("docx"),
         QStringLiteral("dotm"),
         QStringLiteral("dotx"),
+        QStringLiteral("epub"),
+        QStringLiteral("odb"),
+        QStringLiteral("odf"),
+        QStringLiteral("odg"),
+        QStringLiteral("odm"),
+        QStringLiteral("odp"),
+        QStringLiteral("ods"),
+        QStringLiteral("odt"),
+        QStringLiteral("otg"),
+        QStringLiteral("otp"),
+        QStringLiteral("ots"),
+        QStringLiteral("ott"),
+        QStringLiteral("oxps"),
         QStringLiteral("potm"),
         QStringLiteral("potx"),
         QStringLiteral("ppsm"),
@@ -504,13 +538,14 @@ bool isOfficeVisioPackageContainerFile(const QFileInfo &fileInfo)
         QStringLiteral("xlsm"),
         QStringLiteral("xlsx"),
         QStringLiteral("xltm"),
-        QStringLiteral("xltx")
+        QStringLiteral("xltx"),
+        QStringLiteral("xps")
     }.contains(suffix);
 }
 
 bool isPathOnlyPackageContainerFile(const QFileInfo &fileInfo)
 {
-    return isCompressedPackageFile(fileInfo) || isOfficeVisioPackageContainerFile(fileInfo);
+    return isCompressedPackageFile(fileInfo) || isDocumentDesignPackageContainerFile(fileInfo);
 }
 
 bool isMhtmlFile(const QFileInfo &fileInfo)
