@@ -4185,7 +4185,7 @@ void appendRuleTextBeaconsFromLine(Resource &resource, const QString &line, int 
     for (const QString &target : targets) {
         const QString normalized = target.trimmed();
         if (!normalized.isEmpty() && !normalized.startsWith(QLatin1Char('.'))) {
-            appendBeaconLineAnchor(resource, QStringLiteral("rule target: %1").arg(normalized), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("rule entry: %1").arg(normalized), lineNumber);
         }
     }
 }

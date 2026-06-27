@@ -2487,14 +2487,14 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
 
     const auto makefileIt = findFile(QStringLiteral("Makefile"));
     QVERIFY(makefileIt != resources.cend());
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: all"), 2));
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: build"), 2));
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: clean"), 4));
-    QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("rule target: .PHONY"), 1));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule entry: all"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule entry: build"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule entry: clean"), 4));
+    QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("rule entry: .PHONY"), 1));
 
     const auto rulesIt = findFile(QStringLiteral("rules.mk"));
     QVERIFY(rulesIt != resources.cend());
-    QVERIFY(hasBeacon(*rulesIt, QStringLiteral("rule target: pinloom-docs"), 1));
+    QVERIFY(hasBeacon(*rulesIt, QStringLiteral("rule entry: pinloom-docs"), 1));
 
     const auto dockerIt = findFile(QStringLiteral("Dockerfile"));
     QVERIFY(dockerIt != resources.cend());
@@ -2525,7 +2525,7 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
         return result.resource.title == QLatin1String("rules.mk")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("rule target: pinloom-docs");
+            && result.matchedAnchor->target == QLatin1String("rule entry: pinloom-docs");
     }));
 
     const QList<SearchResult> dockerStageResults = repository.search(SearchQuery{QStringLiteral("runtime")});
