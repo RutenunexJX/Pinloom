@@ -295,4 +295,4 @@ Phases:
 
 Current boundary enforcement:
 
-- A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. These are permanent path-only file targets, tagged `path-only` and `package-container`; current validation requires no scanned content, anchors, relations, or derived package-inside resources.
+- A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. These are permanent path-only file targets, tagged `path-only` and `package-container`; current validation requires no scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.

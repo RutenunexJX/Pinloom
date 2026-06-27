@@ -506,6 +506,8 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(dir.mkpath(QStringLiteral("library/artifacts")));
     const QByteArray packageLikeText("#!/bin/sh\n"
                                      "hidden-entry.md\n"
+                                     "word/document.xml\n"
+                                     "ppt/slides/slide1.xml\n"
                                      "Hidden Package Guide\n"
                                      "https://docs.example.com/package/inside\n");
     const QStringList compressedPackageFileNames{
@@ -643,8 +645,30 @@ void DirectorySourceTest::keepsPackageContainersAsPermanentPathOnlyFiles()
     QVERIFY(packageResultIt != packageResults.cend());
     QVERIFY(repository.resourceRelations(packageResultIt->resource.id).isEmpty());
 
+    const QList<SearchResult> documentPackageResults = repository.search(SearchQuery{QStringLiteral("document.docx")});
+    auto documentPackageResultIt = std::find_if(documentPackageResults.cbegin(), documentPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("document.docx")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(documentPackageResultIt != documentPackageResults.cend());
+    QVERIFY(repository.resourceRelations(documentPackageResultIt->resource.id).isEmpty());
+
+    const QList<SearchResult> visioPackageResults = repository.search(SearchQuery{QStringLiteral("diagram.vsdx")});
+    auto visioPackageResultIt = std::find_if(visioPackageResults.cbegin(), visioPackageResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("diagram.vsdx")
+            && !result.matchedAnchor.has_value();
+    });
+    QVERIFY(visioPackageResultIt != visioPackageResults.cend());
+    QVERIFY(repository.resourceRelations(visioPackageResultIt->resource.id).isEmpty());
+
     const QList<SearchResult> internalResults = repository.search(SearchQuery{QStringLiteral("hidden-entry")});
     QVERIFY(internalResults.isEmpty());
+    const QList<SearchResult> documentXmlResults = repository.search(SearchQuery{QStringLiteral("word/document.xml")});
+    QVERIFY(documentXmlResults.isEmpty());
+    const QList<SearchResult> slideXmlResults = repository.search(SearchQuery{QStringLiteral("ppt/slides/slide1.xml")});
+    QVERIFY(slideXmlResults.isEmpty());
     const QList<SearchResult> contentResults = repository.search(SearchQuery{QStringLiteral("Hidden Package Guide")});
     QVERIFY(contentResults.isEmpty());
     const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("docs.example.com/package/inside")});

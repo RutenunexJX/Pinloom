@@ -428,7 +428,7 @@ Phases:
 Status:
 
 - Phase 1: partly done through existing source readers; consolidation naming and tests remain.
-- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, or derived package-inside resources.
+- Phase 2: generic SQLite table/column/URL/sample-value beacon reader done. A shared path-only package-container guard keeps common compressed packages, compound tar suffixes, installable package containers, and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing. These package containers remain permanent path-only file targets; the guard tags them `path-only`/`package-container` and is validated to leave package resources without scanned content, anchors, relations, derived package-inside resources, or searchable package-internal path strings.
 - Phase 3: pending.
 - Phase 4: pending.
 - Phase 5: pending.
