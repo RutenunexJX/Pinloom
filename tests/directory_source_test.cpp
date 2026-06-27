@@ -44,8 +44,8 @@ private slots:
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsUnifiedTextBeaconAnchors();
-    void extractsBuildFileBeaconAnchors();
-    void extractsMakeAndDockerBeaconAnchors();
+    void extractsContentSniffedBuildFileBeaconAnchors();
+    void extractsContentSniffedMakeAndDockerBeaconAnchors();
     void extractsCompileCommandBuildInputBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
@@ -2307,7 +2307,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsBuildFileBeaconAnchors()
+void DirectorySourceTest::extractsContentSniffedBuildFileBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2394,7 +2394,7 @@ void DirectorySourceTest::extractsBuildFileBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsMakeAndDockerBeaconAnchors()
+void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());

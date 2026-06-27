@@ -172,8 +172,8 @@ Completed:
 
 - Treat content-sniffed text files as normal file resources with searchable content instead of code-language resources, extension lists, or shebang interpreter allowlists.
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, user markers, and explicit symbol-like marker lines.
-- Keep CMake project/target/package/option/function/macro/test beacons for build-file jumps.
-- Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for build/container jumps.
+- Keep CMake project/target/package/option/function/macro/test beacons for content-sniffed build-file jumps.
+- Keep Makefile target beacons and Dockerfile stage/base/copy line beacons for content-sniffed build/container jumps.
 - Keep GitHub Actions workflow/job/step/action/run line beacons for CI jumps.
 - Keep GitLab CI stage/job/needs/script line beacons for pipeline jumps.
 - Keep JSON/TOML/requirements-style dependency anchors as manifest-file line beacons, not language dependency analysis.

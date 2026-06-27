@@ -520,12 +520,6 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
         return false;
     }
 
-    if (isCMakeFile(fileInfo)
-        || isMakefile(fileInfo)
-        || isDockerfile(fileInfo)) {
-        return true;
-    }
-
     QFile file(fileInfo.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly)) {
         return false;
