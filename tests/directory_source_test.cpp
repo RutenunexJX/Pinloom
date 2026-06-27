@@ -24,7 +24,7 @@ private slots:
     void extractsTextStructureLineBeacons();
     void extractsWorkflowConfigLineBeacons();
     void extractsPipelineConfigLineBeacons();
-    void extractsTextDependencyLineBeacons();
+    void extractsTextNamedEntryLineBeacons();
     void extractsMarkdownHeadingAndBlockAnchors();
     void extractsMarkdownAliasTagLinkBeacons();
     void extractsMarkdownBodyContent();
@@ -897,7 +897,7 @@ void DirectorySourceTest::extractsPipelineConfigLineBeacons()
     }));
 }
 
-void DirectorySourceTest::extractsTextDependencyLineBeacons()
+void DirectorySourceTest::extractsTextNamedEntryLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -933,30 +933,30 @@ void DirectorySourceTest::extractsTextDependencyLineBeacons()
             return resource.kind == ResourceKind::File && resource.title == title;
         });
     };
-    auto hasDependency = [](const Resource &resource, const QString &dependency, int line) {
+    auto hasNamedEntry = [](const Resource &resource, const QString &entry, int line) {
         return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
             return anchor.type == AnchorType::FileLine
-                && anchor.target == QStringLiteral("dependency: %1").arg(dependency)
+                && anchor.target == QStringLiteral("named entry: %1").arg(entry)
                 && anchor.line == line;
         });
     };
 
     const auto jsonDependenciesIt = findFile(QStringLiteral("dependencies.json"));
     QVERIFY(jsonDependenciesIt != resources.cend());
-    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("search-panel"), 3));
-    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("locator-dock"), 4));
-    QVERIFY(hasDependency(*jsonDependenciesIt, QStringLiteral("preview-runner"), 7));
+    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("search-panel"), 3));
+    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("locator-dock"), 4));
+    QVERIFY(hasNamedEntry(*jsonDependenciesIt, QStringLiteral("preview-runner"), 7));
 
     const auto tomlDependenciesIt = findFile(QStringLiteral("dependencies.toml"));
     QVERIFY(tomlDependenciesIt != resources.cend());
-    QVERIFY(hasDependency(*tomlDependenciesIt, QStringLiteral("index-core"), 2));
-    QVERIFY(hasDependency(*tomlDependenciesIt, QStringLiteral("locator-ui"), 3));
+    QVERIFY(hasNamedEntry(*tomlDependenciesIt, QStringLiteral("index-core"), 2));
+    QVERIFY(hasNamedEntry(*tomlDependenciesIt, QStringLiteral("locator-ui"), 3));
 
     const auto requirementsIt = findFile(QStringLiteral("requirements-dev.txt"));
     QVERIFY(requirementsIt != resources.cend());
-    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
-    QVERIFY(hasDependency(*requirementsIt, QStringLiteral("desktop-shell"), 2));
-    QVERIFY(!hasDependency(*requirementsIt, QStringLiteral("base.txt"), 3));
+    QVERIFY(hasNamedEntry(*requirementsIt, QStringLiteral("pinloom-sdk"), 1));
+    QVERIFY(hasNamedEntry(*requirementsIt, QStringLiteral("desktop-shell"), 2));
+    QVERIFY(!hasNamedEntry(*requirementsIt, QStringLiteral("base.txt"), 3));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -971,7 +971,7 @@ void DirectorySourceTest::extractsTextDependencyLineBeacons()
         return result.resource.title == QLatin1String("dependencies.json")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: search-panel");
+            && result.matchedAnchor->target == QLatin1String("named entry: search-panel");
     }));
 
     const QList<SearchResult> locatorResults = repository.search(SearchQuery{QStringLiteral("locator-ui")});
@@ -979,7 +979,7 @@ void DirectorySourceTest::extractsTextDependencyLineBeacons()
         return result.resource.title == QLatin1String("dependencies.toml")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: locator-ui");
+            && result.matchedAnchor->target == QLatin1String("named entry: locator-ui");
     }));
 }
 
@@ -2386,7 +2386,7 @@ void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
     const auto cmakeListsIt = findFile(QStringLiteral("CMakeLists.txt"));
     QVERIFY(cmakeListsIt != resources.cend());
     QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive project: PinloomHost"), 2));
-    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("directive dependency: Qt6"), 3));
+    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("directive reference: Qt6"), 3));
     QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
     QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive target: pinloom_core"), 5));
     QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive target: pinloom_app"), 6));
@@ -2419,7 +2419,7 @@ void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("directive dependency: Qt6");
+            && result.matchedAnchor->target == QLatin1String("directive reference: Qt6");
     }));
 }
 

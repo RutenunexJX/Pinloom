@@ -4170,7 +4170,7 @@ void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line
     const QRegularExpressionMatch packageMatch = packagePattern.match(trimmed);
     if (packageMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("directive dependency: %1").arg(packageMatch.captured(1)),
+                             QStringLiteral("directive reference: %1").arg(packageMatch.captured(1)),
                              lineNumber);
     }
 }
@@ -4639,12 +4639,12 @@ void appendTextStructureAnchorsFromLine(Resource &resource,
     }
 }
 
-struct TextDependencyBeaconState {
-    bool inJsonDependencyMap = false;
-    bool inTomlDependencySection = false;
+struct TextNamedEntryBeaconState {
+    bool inJsonNamedEntryMap = false;
+    bool inTomlNamedEntrySection = false;
 };
 
-bool isJsonDependencyBeaconMap(const QString &name)
+bool isJsonNamedEntryMap(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("devDependencies")
@@ -4652,7 +4652,7 @@ bool isJsonDependencyBeaconMap(const QString &name)
         || name == QLatin1String("optionalDependencies");
 }
 
-bool isTomlDependencyBeaconSection(const QString &name)
+bool isTomlNamedEntrySection(const QString &name)
 {
     return name == QLatin1String("dependencies")
         || name == QLatin1String("dev-dependencies")
@@ -4668,11 +4668,11 @@ bool isRequirementsFile(const QFileInfo &fileInfo)
         && fileInfo.completeBaseName().startsWith(QStringLiteral("requirements"), Qt::CaseInsensitive);
 }
 
-void appendTextDependencyBeaconsFromLine(Resource &resource,
+void appendTextNamedEntryBeaconsFromLine(Resource &resource,
                                          const QFileInfo &fileInfo,
                                          const QString &line,
                                          int lineNumber,
-                                         TextDependencyBeaconState &state)
+                                         TextNamedEntryBeaconState &state)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4686,18 +4686,18 @@ void appendTextDependencyBeaconsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inJsonDependencyMap = isJsonDependencyBeaconMap(sectionMatch.captured(1));
+            state.inJsonNamedEntryMap = isJsonNamedEntryMap(sectionMatch.captured(1));
             return;
         }
-        if (state.inJsonDependencyMap) {
+        if (state.inJsonNamedEntryMap) {
             if (trimmed.startsWith(QLatin1Char('}'))) {
-                state.inJsonDependencyMap = false;
+                state.inJsonNamedEntryMap = false;
                 return;
             }
             const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
             if (dependencyMatch.hasMatch()) {
                 appendFileLineAnchor(resource,
-                                     QStringLiteral("dependency: %1").arg(dependencyMatch.captured(1).trimmed()),
+                                     QStringLiteral("named entry: %1").arg(dependencyMatch.captured(1).trimmed()),
                                      lineNumber);
             }
         }
@@ -4710,17 +4710,17 @@ void appendTextDependencyBeaconsFromLine(Resource &resource,
 
         const QRegularExpressionMatch sectionMatch = sectionPattern.match(trimmed);
         if (sectionMatch.hasMatch()) {
-            state.inTomlDependencySection = isTomlDependencyBeaconSection(sectionMatch.captured(1));
+            state.inTomlNamedEntrySection = isTomlNamedEntrySection(sectionMatch.captured(1));
             return;
         }
-        if (state.inTomlDependencySection) {
+        if (state.inTomlNamedEntrySection) {
             const QRegularExpressionMatch dependencyMatch = dependencyPattern.match(trimmed);
             if (dependencyMatch.hasMatch()) {
                 const QString dependency = dependencyMatch.captured(1).isEmpty()
                     ? dependencyMatch.captured(2)
                     : dependencyMatch.captured(1);
                 appendFileLineAnchor(resource,
-                                     QStringLiteral("dependency: %1").arg(dependency.trimmed()),
+                                     QStringLiteral("named entry: %1").arg(dependency.trimmed()),
                                      lineNumber);
             }
         }
@@ -4735,7 +4735,7 @@ void appendTextDependencyBeaconsFromLine(Resource &resource,
         const QRegularExpressionMatch requirementMatch = requirementPattern.match(trimmed);
         if (requirementMatch.hasMatch()) {
             appendFileLineAnchor(resource,
-                                 QStringLiteral("dependency: %1").arg(requirementMatch.captured(1).trimmed()),
+                                 QStringLiteral("named entry: %1").arg(requirementMatch.captured(1).trimmed()),
                                  lineNumber);
         }
     }
@@ -7592,7 +7592,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool containerRecipeText = isDockerfile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
-    TextDependencyBeaconState textDependencyBeaconState;
+    TextNamedEntryBeaconState textNamedEntryBeaconState;
     TextStructureBeaconState textStructureState;
     WorkflowConfigBeaconState workflowConfigBeaconState;
     PipelineConfigBeaconState pipelineConfigBeaconState;
@@ -7603,7 +7603,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         contentLines.append(line);
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
-        appendTextDependencyBeaconsFromLine(resource, fileInfo, line, lineNumber, textDependencyBeaconState);
+        appendTextNamedEntryBeaconsFromLine(resource, fileInfo, line, lineNumber, textNamedEntryBeaconState);
         if (buildDirectiveText) {
             appendBuildDirectiveBeaconsFromLine(resource, line, lineNumber);
         }
