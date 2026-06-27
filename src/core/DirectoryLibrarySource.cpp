@@ -374,7 +374,7 @@ bool hasContainerTextBeaconFormat(const QFileInfo &fileInfo)
     return fileInfo.suffix().compare(QStringLiteral("dockerfile"), Qt::CaseInsensitive) == 0;
 }
 
-bool isGithubActionsWorkflowFile(const QFileInfo &fileInfo)
+bool hasWorkflowConfigTextBeaconFormat(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -389,7 +389,7 @@ bool isGithubActionsWorkflowFile(const QFileInfo &fileInfo)
     return path.contains(QStringLiteral("/.github/workflows/"), Qt::CaseInsensitive);
 }
 
-bool isGitlabCiFile(const QFileInfo &fileInfo)
+bool hasPipelineConfigTextBeaconFormat(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -4375,7 +4375,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
     }
 }
 
-bool isGitlabCiReservedTopLevelKey(const QString &key)
+bool isPipelineConfigReservedTopLevelKey(const QString &key)
 {
     static const QStringList reservedKeys{
         QStringLiteral("stages"),
@@ -4424,7 +4424,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
         }
 
         state.currentListKey.clear();
-        if (isGitlabCiReservedTopLevelKey(key)) {
+        if (isPipelineConfigReservedTopLevelKey(key)) {
             state.currentBlock.clear();
             return;
         }
@@ -7561,8 +7561,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
 
     const QString text = QString::fromUtf8(bytes);
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
-    const bool workflowConfigText = isGithubActionsWorkflowFile(fileInfo);
-    const bool pipelineConfigText = isGitlabCiFile(fileInfo);
+    const bool workflowConfigText = hasWorkflowConfigTextBeaconFormat(fileInfo);
+    const bool pipelineConfigText = hasPipelineConfigTextBeaconFormat(fileInfo);
     const bool directiveText = hasDirectiveTextBeaconFormat(fileInfo);
     const bool ruleEntryText = hasRuleEntryTextBeaconFormat(fileInfo);
     const bool containerText = hasContainerTextBeaconFormat(fileInfo);

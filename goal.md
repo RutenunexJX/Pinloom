@@ -174,7 +174,7 @@ Completed:
 - Extract neutral text beacons for TODO/FIXME/NOTE lines, URLs, errors/warnings, section-like lines, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` aliases, with marker anchors surfaced as markers rather than code symbols.
 - Keep directive-style text line beacons for content-sniffed jumps, with neutral `directive entry/setting/block/reference ...` labels and format-trigger naming rather than build-system target/test/function/macro semantics.
 - Keep rule-entry and container-style text line beacons for content-sniffed jumps, with neutral `rule ...` and `container block/input ...` labels and format-trigger naming rather than tool/platform interpretation, target semantics, or instruction semantics.
-- Keep CI configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `ci ...` labels and block/label implementation state naming rather than vendor-specific CI platform interpretation.
+- Keep CI configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `ci ...` labels plus format-trigger and block/label implementation state naming rather than vendor-specific CI platform interpretation.
 - Keep explicit JSON/TOML named-entry container line beacons with neutral `named entry ...` labels, not package-manager or language dependency analysis.
 - Add compile_commands.json file-reference line anchors and `file-reference` relations to referenced file paths without treating the file as build semantics.
 - Remove automatic code classification and language-specific symbol/test/import parsing from the product path, without maintaining a language support matrix.
