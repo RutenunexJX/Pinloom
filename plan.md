@@ -277,7 +277,7 @@ Status:
 - Directive-style text line beacons layered after text content sniffing with neutral `directive entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than target/test/function/macro semantics: done.
 - Rule-entry and container-style text line beacons layered after text content sniffing with neutral `rule ...` and `container block/input ...` labels and format-trigger naming, without target or instruction semantics: done.
 - CI configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `ci ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
-- compile_commands.json file-reference line anchors and `file-reference` relations: done.
+- File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done.
 - Neutral model/storage names for text snippets and marker anchors: done, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Language-specific symbol/test/import parsing across programming languages and script types: no longer pursued under the product boundary.
 - Exact beacon and filename ranking baseline: done through anchor-first and filename-before-path ranking.

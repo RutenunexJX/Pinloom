@@ -46,7 +46,7 @@ private slots:
     void extractsUnifiedTextBeaconAnchors();
     void extractsNeutralDirectiveTextBeaconAnchors();
     void extractsRuleAndContainerTextBeaconAnchors();
-    void extractsCompileCommandFileReferenceBeacons();
+    void extractsFileReferenceManifestBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
     void extractsContentSniffedTextUrlResources();
@@ -2545,7 +2545,7 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
+void DirectorySourceTest::extractsFileReferenceManifestBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2575,11 +2575,11 @@ void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
 
-    auto compileDbIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+    auto referenceManifestIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File
             && resource.title == QLatin1String("compile_commands.json");
     });
-    QVERIFY(compileDbIt != resources.cend());
+    QVERIFY(referenceManifestIt != resources.cend());
 
     auto inputFileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File
@@ -2589,17 +2589,17 @@ void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
 
     const QString anchorTarget =
         QStringLiteral("file reference: ../inputs/beacon-input.txt -> build/beacon-output.loc");
-    QVERIFY(std::any_of(compileDbIt->anchors.cbegin(), compileDbIt->anchors.cend(), [&](const Anchor &anchor) {
+    QVERIFY(std::any_of(referenceManifestIt->anchors.cbegin(), referenceManifestIt->anchors.cend(), [&](const Anchor &anchor) {
         return anchor.type == AnchorType::FileLine
             && anchor.target == anchorTarget
             && anchor.line == 5;
     }));
 
-    QCOMPARE(compileDbIt->relations.size(), 1);
-    QCOMPARE(compileDbIt->relations.first().sourceResourceId, compileDbIt->id);
-    QCOMPARE(compileDbIt->relations.first().targetResourceId, inputFileIt->id);
-    QCOMPARE(compileDbIt->relations.first().label, QStringLiteral("file-reference"));
-    QCOMPARE(compileDbIt->relations.first().note,
+    QCOMPARE(referenceManifestIt->relations.size(), 1);
+    QCOMPARE(referenceManifestIt->relations.first().sourceResourceId, referenceManifestIt->id);
+    QCOMPARE(referenceManifestIt->relations.first().targetResourceId, inputFileIt->id);
+    QCOMPARE(referenceManifestIt->relations.first().label, QStringLiteral("file-reference"));
+    QCOMPARE(referenceManifestIt->relations.first().note,
              QStringLiteral("file reference line 5: %1").arg(anchorTarget));
 
     SqliteLibraryRepository repository;
@@ -2620,7 +2620,7 @@ void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
     }));
 
     SearchQuery query{QStringLiteral("jump target")};
-    query.contextResourceIds = {compileDbIt->id};
+    query.contextResourceIds = {referenceManifestIt->id};
     const QList<SearchResult> contextResults = repository.search(query);
     QVERIFY(std::any_of(contextResults.cbegin(), contextResults.cend(), [](const SearchResult &result) {
         return result.resource.kind == ResourceKind::File
@@ -2630,7 +2630,7 @@ void DirectorySourceTest::extractsCompileCommandFileReferenceBeacons()
 
     const QList<ResourceRelation> inputFileRelations = repository.resourceRelations(inputFileIt->id);
     QCOMPARE(inputFileRelations.size(), 1);
-    QCOMPARE(inputFileRelations.first().sourceResourceId, compileDbIt->id);
+    QCOMPARE(inputFileRelations.first().sourceResourceId, referenceManifestIt->id);
     QCOMPARE(inputFileRelations.first().targetResourceId, inputFileIt->id);
 }
 

@@ -5057,7 +5057,7 @@ bool isHarFileCandidate(const QFileInfo &fileInfo)
         && fileInfo.suffix().compare(QStringLiteral("har"), Qt::CaseInsensitive) == 0;
 }
 
-bool isCompileCommandsFile(const QFileInfo &fileInfo)
+bool hasFileReferenceManifestFormat(const QFileInfo &fileInfo)
 {
     return !fileInfo.isDir()
         && fileInfo.size() <= 16 * 1024 * 1024
@@ -5140,7 +5140,7 @@ int lineNumberForJsonPropertyValue(const QString &text, const QString &propertyN
     return lineNumberForTextValue(text, value);
 }
 
-QString absoluteReferencedFilePath(const QFileInfo &compileCommandsFile,
+QString absoluteReferencedFilePath(const QFileInfo &referenceManifestFile,
                                    const QString &directory,
                                    const QString &path)
 {
@@ -5155,23 +5155,23 @@ QString absoluteReferencedFilePath(const QFileInfo &compileCommandsFile,
     }
 
     const QString basePath = directory.trimmed().isEmpty()
-        ? compileCommandsFile.absolutePath()
+        ? referenceManifestFile.absolutePath()
         : directory.trimmed();
     return QDir::cleanPath(QFileInfo(QDir(basePath).filePath(trimmedPath)).absoluteFilePath());
 }
 
-QString displayReferencedFilePath(const QFileInfo &compileCommandsFile, const QString &inputPath)
+QString displayReferencedFilePath(const QFileInfo &referenceManifestFile, const QString &inputPath)
 {
-    const QString relativePath = QDir(compileCommandsFile.absolutePath()).relativeFilePath(inputPath);
+    const QString relativePath = QDir(referenceManifestFile.absolutePath()).relativeFilePath(inputPath);
     if (!relativePath.isEmpty()) {
         return QDir::cleanPath(relativePath);
     }
     return QFileInfo(inputPath).fileName();
 }
 
-QList<FileReferenceEntry> fileReferenceEntriesFromCompileCommandsFile(const QFileInfo &fileInfo)
+QList<FileReferenceEntry> fileReferenceEntriesFromManifestFile(const QFileInfo &fileInfo)
 {
-    if (!isCompileCommandsFile(fileInfo)) {
+    if (!hasFileReferenceManifestFormat(fileInfo)) {
         return {};
     }
 
@@ -7230,8 +7230,8 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         appendTabularUrlSourceMetadata(primary, tabularLinks, tabularResources);
         derivedResources.append(tabularResources);
     }
-    if (primary.kind == ResourceKind::File && isCompileCommandsFile(fileInfo)) {
-        appendFileReferenceMetadata(primary, fileReferenceEntriesFromCompileCommandsFile(fileInfo));
+    if (primary.kind == ResourceKind::File && hasFileReferenceManifestFormat(fileInfo)) {
+        appendFileReferenceMetadata(primary, fileReferenceEntriesFromManifestFile(fileInfo));
     }
     if (primary.kind == ResourceKind::File && isIcalendarFileCandidate(fileInfo)) {
         const QList<CalendarEvent> calendarEvents = calendarEventsFromFile(fileInfo);
