@@ -2728,19 +2728,19 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
 
     const auto containerIt = findFile(QStringLiteral("Dockerfile"));
     QVERIFY(containerIt != resources.cend());
-    QVERIFY(hasBeacon(*containerIt, QStringLiteral("container block: build"), 1));
-    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("container input: qt:6.10"), 1));
-    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("container input: src/"), 2));
-    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("container input: assets.tar.gz"), 3));
-    QVERIFY(hasBeacon(*containerIt, QStringLiteral("container block: runtime"), 4));
+    QVERIFY(hasBeacon(*containerIt, QStringLiteral("config block: build"), 1));
+    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("config input: qt:6.10"), 1));
+    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("config input: src/"), 2));
+    QVERIFY(hasLineAnchor(*containerIt, QStringLiteral("config input: assets.tar.gz"), 3));
+    QVERIFY(hasBeacon(*containerIt, QStringLiteral("config block: runtime"), 4));
 
     const auto containerDevIt = findFile(QStringLiteral("Dockerfile.dev"));
     QVERIFY(containerDevIt != resources.cend());
-    QVERIFY(hasLineAnchor(*containerDevIt, QStringLiteral("container input: ubuntu:24.04"), 1));
+    QVERIFY(hasLineAnchor(*containerDevIt, QStringLiteral("config input: ubuntu:24.04"), 1));
 
     const auto containerSuffixIt = findFile(QStringLiteral("app.dockerfile"));
     QVERIFY(containerSuffixIt != resources.cend());
-    QVERIFY(hasBeacon(*containerSuffixIt, QStringLiteral("container block: tools"), 1));
+    QVERIFY(hasBeacon(*containerSuffixIt, QStringLiteral("config block: tools"), 1));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2763,7 +2763,7 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
         return result.resource.title == QLatin1String("Dockerfile")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("container block: runtime");
+            && result.matchedAnchor->target == QLatin1String("config block: runtime");
     }));
 
     const QList<SearchResult> containerInputResults = repository.search(SearchQuery{QStringLiteral("assets.tar.gz")});
@@ -2771,7 +2771,7 @@ void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
         return result.resource.title == QLatin1String("Dockerfile")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("container input: assets.tar.gz");
+            && result.matchedAnchor->target == QLatin1String("config input: assets.tar.gz");
     }));
 }
 
