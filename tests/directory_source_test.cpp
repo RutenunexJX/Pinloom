@@ -44,8 +44,8 @@ private slots:
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsUnifiedTextBeaconAnchors();
-    void extractsContentSniffedBuildFileBeaconAnchors();
-    void extractsContentSniffedMakeAndDockerBeaconAnchors();
+    void extractsDirectiveTextBeaconAnchors();
+    void extractsRuleAndContainerTextBeaconAnchors();
     void extractsCompileCommandBuildInputBeacons();
     void extractsTextActionLineAnchors();
     void extractsWebShortcutResources();
@@ -2336,7 +2336,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsContentSniffedBuildFileBeaconAnchors()
+void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2385,18 +2385,18 @@ void DirectorySourceTest::extractsContentSniffedBuildFileBeaconAnchors()
 
     const auto cmakeListsIt = findFile(QStringLiteral("CMakeLists.txt"));
     QVERIFY(cmakeListsIt != resources.cend());
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("project: PinloomHost"), 2));
-    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("dependency: Qt6"), 3));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_core"), 5));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_app"), 6));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("target: pinloom_docs"), 7));
-    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("test: pinloom_core_smoke_test"), 8));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive project: PinloomHost"), 2));
+    QVERIFY(hasLineAnchor(*cmakeListsIt, QStringLiteral("directive dependency: Qt6"), 3));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive option: PINLOOM_ENABLE_REMOTE_FETCH"), 4));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive target: pinloom_core"), 5));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive target: pinloom_app"), 6));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive target: pinloom_docs"), 7));
+    QVERIFY(hasBeacon(*cmakeListsIt, QStringLiteral("directive test: pinloom_core_smoke_test"), 8));
 
     const auto helpersIt = findFile(QStringLiteral("PinloomHelpers.cmake"));
     QVERIFY(helpersIt != resources.cend());
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("function: pinloom_add_widget_test"), 1));
-    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("macro: pinloom_copy_runtime"), 3));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive function: pinloom_add_widget_test"), 1));
+    QVERIFY(hasBeacon(*helpersIt, QStringLiteral("directive macro: pinloom_copy_runtime"), 3));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2411,7 +2411,7 @@ void DirectorySourceTest::extractsContentSniffedBuildFileBeaconAnchors()
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("target: pinloom_core");
+            && result.matchedAnchor->target == QLatin1String("directive target: pinloom_core");
     }));
 
     const QList<SearchResult> packageResults = repository.search(SearchQuery{QStringLiteral("Qt6")});
@@ -2419,11 +2419,11 @@ void DirectorySourceTest::extractsContentSniffedBuildFileBeaconAnchors()
         return result.resource.title == QLatin1String("CMakeLists.txt")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("dependency: Qt6");
+            && result.matchedAnchor->target == QLatin1String("directive dependency: Qt6");
     }));
 }
 
-void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
+void DirectorySourceTest::extractsRuleAndContainerTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -2476,30 +2476,30 @@ void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
 
     const auto makefileIt = findFile(QStringLiteral("Makefile"));
     QVERIFY(makefileIt != resources.cend());
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: all"), 2));
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: build"), 2));
-    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("make target: clean"), 4));
-    QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("make target: .PHONY"), 1));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: all"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: build"), 2));
+    QVERIFY(hasBeacon(*makefileIt, QStringLiteral("rule target: clean"), 4));
+    QVERIFY(!hasBeacon(*makefileIt, QStringLiteral("rule target: .PHONY"), 1));
 
     const auto rulesIt = findFile(QStringLiteral("rules.mk"));
     QVERIFY(rulesIt != resources.cend());
-    QVERIFY(hasBeacon(*rulesIt, QStringLiteral("make target: pinloom-docs"), 1));
+    QVERIFY(hasBeacon(*rulesIt, QStringLiteral("rule target: pinloom-docs"), 1));
 
     const auto dockerIt = findFile(QStringLiteral("Dockerfile"));
     QVERIFY(dockerIt != resources.cend());
-    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("docker stage: build"), 1));
-    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker base: qt:6.10"), 1));
-    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker COPY: src/"), 2));
-    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("docker ADD: assets.tar.gz"), 3));
-    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("docker stage: runtime"), 4));
+    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("container stage: build"), 1));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("container base: qt:6.10"), 1));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("container copy: src/"), 2));
+    QVERIFY(hasLineAnchor(*dockerIt, QStringLiteral("container add: assets.tar.gz"), 3));
+    QVERIFY(hasBeacon(*dockerIt, QStringLiteral("container stage: runtime"), 4));
 
     const auto dockerDevIt = findFile(QStringLiteral("Dockerfile.dev"));
     QVERIFY(dockerDevIt != resources.cend());
-    QVERIFY(hasLineAnchor(*dockerDevIt, QStringLiteral("docker base: ubuntu:24.04"), 1));
+    QVERIFY(hasLineAnchor(*dockerDevIt, QStringLiteral("container base: ubuntu:24.04"), 1));
 
     const auto dockerSuffixIt = findFile(QStringLiteral("app.dockerfile"));
     QVERIFY(dockerSuffixIt != resources.cend());
-    QVERIFY(hasBeacon(*dockerSuffixIt, QStringLiteral("docker stage: tools"), 1));
+    QVERIFY(hasBeacon(*dockerSuffixIt, QStringLiteral("container stage: tools"), 1));
 
     SqliteLibraryRepository repository;
     QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
@@ -2514,7 +2514,7 @@ void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
         return result.resource.title == QLatin1String("rules.mk")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("make target: pinloom-docs");
+            && result.matchedAnchor->target == QLatin1String("rule target: pinloom-docs");
     }));
 
     const QList<SearchResult> dockerStageResults = repository.search(SearchQuery{QStringLiteral("runtime")});
@@ -2522,7 +2522,7 @@ void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
         return result.resource.title == QLatin1String("Dockerfile")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("docker stage: runtime");
+            && result.matchedAnchor->target == QLatin1String("container stage: runtime");
     }));
 
     const QList<SearchResult> dockerCopyResults = repository.search(SearchQuery{QStringLiteral("assets.tar.gz")});
@@ -2530,7 +2530,7 @@ void DirectorySourceTest::extractsContentSniffedMakeAndDockerBeaconAnchors()
         return result.resource.title == QLatin1String("Dockerfile")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("docker ADD: assets.tar.gz");
+            && result.matchedAnchor->target == QLatin1String("container add: assets.tar.gz");
     }));
 }
 

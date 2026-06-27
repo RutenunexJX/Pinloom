@@ -274,8 +274,8 @@ Status:
 - General text content indexing for small files that sniff as text, without language extension or shebang interpreter allowlists: done.
 - Text dependency line beacons: kept as JSON/TOML/requirements-style line beacons, not package-manager or language dependency analysis.
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, marker, and explicit symbol-like marker beacons: done.
-- CMake project/target/package/option/function/macro/test beacons layered after text content sniffing: done.
-- Makefile target beacons and Dockerfile stage/base/copy beacons layered after text content sniffing: done.
+- Directive-style build configuration line beacons layered after text content sniffing with neutral `directive ...` labels: done.
+- Rule-target and container-recipe line beacons layered after text content sniffing with neutral `rule ...` and `container ...` labels: done.
 - GitHub Actions workflow/job/step/action/run beacons: done.
 - GitLab CI stage/job/needs/script beacons: done.
 - compile_commands.json build-input line anchors and `build-input` relations: done.

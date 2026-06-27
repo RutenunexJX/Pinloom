@@ -4100,7 +4100,7 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
     }
 }
 
-void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4128,32 +4128,40 @@ void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lin
 
     const QRegularExpressionMatch targetMatch = targetPattern.match(trimmed);
     if (targetMatch.hasMatch()) {
-        appendBeaconLineAnchor(resource, QStringLiteral("target: %1").arg(targetMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("directive target: %1").arg(targetMatch.captured(1)),
+                               lineNumber);
         return;
     }
 
     const QRegularExpressionMatch testMatch = testPattern.match(trimmed);
     if (testMatch.hasMatch()) {
-        appendBeaconLineAnchor(resource, QStringLiteral("test: %1").arg(testMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("directive test: %1").arg(testMatch.captured(1)),
+                               lineNumber);
         return;
     }
 
     const QRegularExpressionMatch projectMatch = projectPattern.match(trimmed);
     if (projectMatch.hasMatch()) {
-        appendBeaconLineAnchor(resource, QStringLiteral("project: %1").arg(projectMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("directive project: %1").arg(projectMatch.captured(1)),
+                               lineNumber);
         return;
     }
 
     const QRegularExpressionMatch optionMatch = optionPattern.match(trimmed);
     if (optionMatch.hasMatch()) {
-        appendBeaconLineAnchor(resource, QStringLiteral("option: %1").arg(optionMatch.captured(1)), lineNumber);
+        appendBeaconLineAnchor(resource,
+                               QStringLiteral("directive option: %1").arg(optionMatch.captured(1)),
+                               lineNumber);
         return;
     }
 
     const QRegularExpressionMatch functionMatch = functionPattern.match(trimmed);
     if (functionMatch.hasMatch()) {
         appendBeaconLineAnchor(resource,
-                               QStringLiteral("%1: %2")
+                               QStringLiteral("directive %1: %2")
                                    .arg(functionMatch.captured(1).toLower(), functionMatch.captured(2)),
                                lineNumber);
         return;
@@ -4162,12 +4170,12 @@ void appendCMakeAnchorsFromLine(Resource &resource, const QString &line, int lin
     const QRegularExpressionMatch packageMatch = packagePattern.match(trimmed);
     if (packageMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("dependency: %1").arg(packageMatch.captured(1)),
+                             QStringLiteral("directive dependency: %1").arg(packageMatch.captured(1)),
                              lineNumber);
     }
 }
 
-void appendMakefileAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendRuleTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     if (line.startsWith(QLatin1Char('\t'))) {
         return;
@@ -4190,12 +4198,12 @@ void appendMakefileAnchorsFromLine(Resource &resource, const QString &line, int 
     for (const QString &target : targets) {
         const QString normalized = target.trimmed();
         if (!normalized.isEmpty() && !normalized.startsWith(QLatin1Char('.'))) {
-            appendBeaconLineAnchor(resource, QStringLiteral("make target: %1").arg(normalized), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("rule target: %1").arg(normalized), lineNumber);
         }
     }
 }
 
-void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendContainerRecipeBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -4213,10 +4221,10 @@ void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, in
     if (fromMatch.hasMatch()) {
         const QString stage = fromMatch.captured(2).trimmed();
         if (!stage.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("docker stage: %1").arg(stage), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("container stage: %1").arg(stage), lineNumber);
         }
         appendFileLineAnchor(resource,
-                             QStringLiteral("docker base: %1").arg(fromMatch.captured(1).trimmed()),
+                             QStringLiteral("container base: %1").arg(fromMatch.captured(1).trimmed()),
                              lineNumber);
         return;
     }
@@ -4224,8 +4232,8 @@ void appendDockerfileAnchorsFromLine(Resource &resource, const QString &line, in
     const QRegularExpressionMatch copyMatch = copyPattern.match(trimmed);
     if (copyMatch.hasMatch()) {
         appendFileLineAnchor(resource,
-                             QStringLiteral("docker %1: %2")
-                                 .arg(copyMatch.captured(1).toUpper(), copyMatch.captured(2).trimmed()),
+                             QStringLiteral("container %1: %2")
+                                 .arg(copyMatch.captured(1).toLower(), copyMatch.captured(2).trimmed()),
                              lineNumber);
     }
 }
@@ -7579,9 +7587,9 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
     const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
     const bool gitlabCi = isGitlabCiFile(fileInfo);
-    const bool cmakeFile = isCMakeFile(fileInfo);
-    const bool makefile = isMakefile(fileInfo);
-    const bool dockerfile = isDockerfile(fileInfo);
+    const bool buildDirectiveText = isCMakeFile(fileInfo);
+    const bool ruleTextFile = isMakefile(fileInfo);
+    const bool containerRecipeText = isDockerfile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     TextDependencyBeaconState textDependencyBeaconState;
@@ -7596,14 +7604,14 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendTextDependencyBeaconsFromLine(resource, fileInfo, line, lineNumber, textDependencyBeaconState);
-        if (cmakeFile) {
-            appendCMakeAnchorsFromLine(resource, line, lineNumber);
+        if (buildDirectiveText) {
+            appendBuildDirectiveBeaconsFromLine(resource, line, lineNumber);
         }
-        if (makefile) {
-            appendMakefileAnchorsFromLine(resource, line, lineNumber);
+        if (ruleTextFile) {
+            appendRuleTextBeaconsFromLine(resource, line, lineNumber);
         }
-        if (dockerfile) {
-            appendDockerfileAnchorsFromLine(resource, line, lineNumber);
+        if (containerRecipeText) {
+            appendContainerRecipeBeaconsFromLine(resource, line, lineNumber);
         }
         if (githubActionsWorkflow) {
             appendGithubActionsWorkflowAnchorsFromLine(resource, line, lineNumber, githubActionsWorkflowState);
