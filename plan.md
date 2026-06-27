@@ -228,7 +228,7 @@ Status:
 - Frontmatter aliases/tags in `.md/.markdown` and content-sniffed text files: done.
 - Inline tags, bracketed text links, and block-reference beacons: done.
 - Body text extraction/search from text files: done.
-- Task checkbox line anchors/search: done.
+- Checkbox line beacons/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
 - Bracketed text-link aliases/line anchors and indexed `links-to` relations: done.
 - Inline/reference-style external text-link URL resources for `.md/.markdown` and content-sniffed text files: done.
@@ -371,7 +371,7 @@ Status:
 - UTF-16 BOM PDF title/content string decoding: done.
 - Basic PDF ToUnicode CMap decoding for font-encoded content streams: done.
 - Body text extraction/search from text files: done.
-- Task checkbox line anchors/search: done.
+- Checkbox line beacons/search: done.
 - Local relative link aliases/line anchors and indexed `links-to` relations: done.
 - Inline external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.
 - Reference-style external text-link URL resources with source line anchors and `links-to` relations across `.md/.markdown` and content-sniffed text files: done.

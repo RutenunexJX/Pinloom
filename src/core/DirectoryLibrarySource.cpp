@@ -1037,10 +1037,10 @@ void appendTextConventionLineMetadata(Resource &resource, const QFileInfo &fileI
         resource.anchors.append(anchor);
     }
 
-    static const QRegularExpression taskPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+(.+?)\\s*$"));
-    const QRegularExpressionMatch taskMatch = taskPattern.match(line);
-    if (taskMatch.hasMatch()) {
-        appendFileLineAnchor(resource, normalizedPlainTextFromLine(taskMatch.captured(1)), lineNumber);
+    static const QRegularExpression checkboxLinePattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+(.+?)\\s*$"));
+    const QRegularExpressionMatch checkboxLineMatch = checkboxLinePattern.match(line);
+    if (checkboxLineMatch.hasMatch()) {
+        appendFileLineAnchor(resource, normalizedPlainTextFromLine(checkboxLineMatch.captured(1)), lineNumber);
     }
 }
 
@@ -1057,8 +1057,8 @@ QString normalizedPlainTextFromLine(QString line)
     static const QRegularExpression headingMarkerPattern(QStringLiteral("^#{1,6}\\s+"));
     line.remove(headingMarkerPattern);
 
-    static const QRegularExpression taskMarkerPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+"));
-    line.remove(taskMarkerPattern);
+    static const QRegularExpression checkboxMarkerPattern(QStringLiteral("^[-*+]\\s+\\[[ xX-]\\]\\s+"));
+    line.remove(checkboxMarkerPattern);
 
     static const QRegularExpression inlineTextLinkPattern(QStringLiteral("!?\\[([^\\]]+)\\]\\([^\\)]+\\)"));
     line.replace(inlineTextLinkPattern, QStringLiteral("\\1"));

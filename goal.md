@@ -149,7 +149,7 @@ Completed:
 - Extract YAML-style frontmatter aliases and tags as text beacons in `.md/.markdown` and content-sniffed text files.
 - Extract inline `#tags`, bracketed text links such as `[[...]]`, and block-reference beacons as line anchors.
 - Extract searchable body text while excluding frontmatter metadata from body text.
-- Extract task checkbox lines as searchable file-line anchors.
+- Extract checkbox lines as searchable text beacons with file-line anchors.
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Extract bracketed text links as searchable file-line anchors and indexed `links-to` relations.
 - Treat `.md/.markdown` inputs from directory scanning as ordinary file resources on the unified text path; Markdown resource kind inputs and stored `markdown` rows are compatibility surface and normalize to ordinary file resources, not a new indexing branch.
@@ -245,7 +245,7 @@ Completed:
 - Decode UTF-16 BOM PDF strings in titles and content streams.
 - Decode basic PDF ToUnicode CMaps for font-encoded content streams.
 - Extract searchable body text from text files.
-- Extract task checkbox lines as searchable file-line anchors.
+- Extract checkbox lines as searchable text beacons with file-line anchors.
 - Extract local relative links as searchable aliases, file-line anchors, and indexed `links-to` relations.
 - Index inline external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source text file.
 - Index reference-style external text links from `.md/.markdown` and content-sniffed text files as derived URL resources with source line anchors and `links-to` relations back to the source text file.

@@ -29,7 +29,7 @@ private slots:
     void extractsTextConventionAliasTagLinkBeacons();
     void extractsTextConventionBodyContent();
     void extractsLocalTextLinkAnchors();
-    void extractsTextTaskLineAnchors();
+    void extractsTextCheckboxLineBeacons();
     void extractsInlineTextLinkUrlResources();
     void extractsReferenceStyleTextLinkUrlResources();
     void extractsPdfTitleAndPageAnchors();
@@ -1598,7 +1598,7 @@ void DirectorySourceTest::extractsLocalTextLinkAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsTextTaskLineAnchors()
+void DirectorySourceTest::extractsTextCheckboxLineBeacons()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
@@ -1606,7 +1606,7 @@ void DirectorySourceTest::extractsTextTaskLineAnchors()
     QDir dir(temp.path());
     QVERIFY(dir.mkpath(QStringLiteral("library")));
     writeFile(dir.filePath(QStringLiteral("library/tasks.md")),
-              QByteArray("# Bringup Tasks\n"
+              QByteArray("# Bringup Checklist\n"
                          "- [ ] Verify timing closure #fpga\n"
                          "- [x] Update [[Runbook|handoff runbook]]\n"));
 
@@ -1639,8 +1639,8 @@ void DirectorySourceTest::extractsTextTaskLineAnchors()
     IndexingService indexer(repository);
     QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
 
-    const QList<SearchResult> taskResults = repository.search(SearchQuery{QStringLiteral("timing closure")});
-    QVERIFY(std::any_of(taskResults.cbegin(), taskResults.cend(), [](const SearchResult &result) {
+    const QList<SearchResult> checkboxResults = repository.search(SearchQuery{QStringLiteral("timing closure")});
+    QVERIFY(std::any_of(checkboxResults.cbegin(), checkboxResults.cend(), [](const SearchResult &result) {
         return result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->line == 2;
