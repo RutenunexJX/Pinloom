@@ -5327,9 +5327,29 @@ bool isJsonUrlCandidate(const QFileInfo &fileInfo)
 
 bool isHarFileCandidate(const QFileInfo &fileInfo)
 {
-    return !fileInfo.isDir()
-        && fileInfo.size() <= 4 * 1024 * 1024
-        && fileInfo.suffix().compare(QStringLiteral("har"), Qt::CaseInsensitive) == 0;
+    if (fileInfo.isDir()
+        || fileInfo.size() > 4 * 1024 * 1024
+        || fileInfo.suffix().compare(QStringLiteral("har"), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return false;
+    }
+
+    const QJsonDocument document = QJsonDocument::fromJson(bytes);
+    if (!document.isObject()) {
+        return false;
+    }
+
+    const QJsonObject logObject = document.object().value(QStringLiteral("log")).toObject();
+    return logObject.value(QStringLiteral("entries")).isArray();
 }
 
 bool hasFileReferenceManifestFormat(const QFileInfo &fileInfo)
@@ -6410,13 +6430,6 @@ void appendXbelBookmarkSourceMetadata(Resource &sourceResource,
     }
 }
 
-bool isWarcFileCandidate(const QFileInfo &fileInfo)
-{
-    return !fileInfo.isDir()
-        && fileInfo.size() <= 16 * 1024 * 1024
-        && fileInfo.suffix().compare(QStringLiteral("warc"), Qt::CaseInsensitive) == 0;
-}
-
 QString htmlFromWarcResponsePayload(const QString &payload)
 {
     const QString trimmed = payload.trimmed();
@@ -6438,6 +6451,64 @@ QString htmlFromWarcResponsePayload(const QString &payload)
         return {};
     }
     return body;
+}
+
+bool isWarcFileCandidate(const QFileInfo &fileInfo)
+{
+    if (fileInfo.isDir()
+        || fileInfo.size() > 16 * 1024 * 1024
+        || fileInfo.suffix().compare(QStringLiteral("warc"), Qt::CaseInsensitive) != 0) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return false;
+    }
+
+    const QString text = QString::fromLatin1(bytes);
+    int cursor = 0;
+    while (cursor < text.size()) {
+        const int recordStart = text.indexOf(QStringLiteral("WARC/1."), cursor);
+        if (recordStart < 0) {
+            return false;
+        }
+
+        int separatorLength = 0;
+        const int relativeHeaderEnd = mimeHeaderSeparatorIndex(text.mid(recordStart), &separatorLength);
+        if (relativeHeaderEnd < 0) {
+            return false;
+        }
+
+        const int headerEnd = recordStart + relativeHeaderEnd;
+        const QString headers = text.mid(recordStart, relativeHeaderEnd);
+        const int bodyStart = headerEnd + separatorLength;
+        int nextRecordStart = text.indexOf(QStringLiteral("\nWARC/1."), bodyStart);
+        if (nextRecordStart < 0) {
+            nextRecordStart = text.size();
+        }
+        cursor = nextRecordStart + 1;
+
+        if (mimeHeaderValue(headers, QStringLiteral("WARC-Type")).compare(QStringLiteral("response"), Qt::CaseInsensitive) != 0) {
+            continue;
+        }
+
+        const QUrl url = QUrl::fromUserInput(mimeHeaderValue(headers, QStringLiteral("WARC-Target-URI")));
+        if (!isIndexableWebUrl(url)) {
+            continue;
+        }
+
+        const QString payload = text.mid(bodyStart, nextRecordStart - bodyStart);
+        if (!htmlFromWarcResponsePayload(payload).isEmpty()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 QList<WarcResponseUrlTarget> warcResponseUrlTargetsFromFile(const QFileInfo &fileInfo)

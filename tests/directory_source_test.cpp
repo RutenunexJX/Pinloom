@@ -55,6 +55,7 @@ private slots:
     void extractsJsonUrlResources();
     void extractsHarEntryUrlResources();
     void extractsWarcResponseUrlResources();
+    void keepsNonCaptureHarWarcFilesAsUnifiedText();
     void extractsConfigTextUrlBeacons();
     void extractsTabularUrlResources();
     void extractsHtmlPageContent();
@@ -4461,6 +4462,115 @@ void DirectorySourceTest::extractsWarcResponseUrlResources()
             && result.matchedAnchor->type == AnchorType::UrlFragment
             && result.matchedAnchor->target == QLatin1String("snapshot");
     }));
+}
+
+void DirectorySourceTest::keepsNonCaptureHarWarcFilesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/captures")));
+    writeFile(dir.filePath(QStringLiteral("library/captures/notes.har")),
+              QByteArray("NOTE: plain HAR suffix text remains unified text\n"
+                         "ANCHOR: har_text_anchor\n"
+                         "https://docs.example.com/plain/har#text\n"));
+    writeFile(dir.filePath(QStringLiteral("library/captures/notes.warc")),
+              QByteArray("NOTE: plain WARC suffix text remains unified text\n"
+                         "ANCHOR: warc_text_anchor\n"
+                         "https://docs.example.com/plain/warc#text\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    struct ExpectedCaptureText {
+        QString title;
+        QString noteAnchor;
+        QString markerAnchor;
+        QString urlAnchor;
+        QString url;
+    };
+    const QList<ExpectedCaptureText> expectedFiles{
+        {QStringLiteral("notes.har"),
+         QStringLiteral("NOTE: plain HAR suffix text remains unified text"),
+         QStringLiteral("marker: har_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/har#text"),
+         QStringLiteral("https://docs.example.com/plain/har#text")},
+        {QStringLiteral("notes.warc"),
+         QStringLiteral("NOTE: plain WARC suffix text remains unified text"),
+         QStringLiteral("marker: warc_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/warc#text"),
+         QStringLiteral("https://docs.example.com/plain/warc#text")}
+    };
+
+    for (const ExpectedCaptureText &expected : expectedFiles) {
+        const auto fileIt = findFile(expected.title);
+        QVERIFY(fileIt != resources.cend());
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("har")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("warc")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("web-capture")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+        QVERIFY(hasLineAnchor(*fileIt, expected.noteAnchor, 1));
+        QVERIFY(hasLineAnchor(*fileIt, expected.markerAnchor, 2));
+        QVERIFY(hasLineAnchor(*fileIt, expected.urlAnchor, 3));
+
+        auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::Url
+                && resource.location == expected.url;
+        });
+        QVERIFY(urlIt != resources.cend());
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("har")));
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("warc")));
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("web-capture")));
+        QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+            return relation.label == QLatin1String("links-to")
+                && relation.targetResourceId == urlIt->id;
+        }));
+    }
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    for (const ExpectedCaptureText &expected : expectedFiles) {
+        const QList<SearchResult> markerResults = repository.search(SearchQuery{expected.markerAnchor});
+        QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::File
+                && result.resource.title == expected.title
+                && !result.resource.tags.contains(QStringLiteral("web-capture"))
+                && result.matchedAnchor.has_value()
+                && result.matchedAnchor->type == AnchorType::FileLine
+                && result.matchedAnchor->target == expected.markerAnchor;
+        }));
+
+        const QList<SearchResult> urlResults = repository.search(SearchQuery{expected.url});
+        QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::Url
+                && result.resource.location == expected.url
+                && !result.resource.tags.contains(QStringLiteral("web-capture"));
+        }));
+    }
 }
 
 void DirectorySourceTest::extractsConfigTextUrlBeacons()
