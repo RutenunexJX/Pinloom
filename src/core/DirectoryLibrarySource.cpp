@@ -496,6 +496,11 @@ bool isDocumentPackageContainerFile(const QFileInfo &fileInfo)
     }.contains(suffix);
 }
 
+bool isPathOnlyPackageContainerFile(const QFileInfo &fileInfo)
+{
+    return isCompressedPackageFile(fileInfo) || isDocumentPackageContainerFile(fileInfo);
+}
+
 bool isMhtmlFile(const QFileInfo &fileInfo)
 {
     const QString suffix = fileInfo.suffix().toLower();
@@ -533,7 +538,7 @@ bool isPlainTextContentFile(const QFileInfo &fileInfo)
     if (fileInfo.isDir() || fileInfo.size() > 512 * 1024) {
         return false;
     }
-    if (isCompressedPackageFile(fileInfo) || isDocumentPackageContainerFile(fileInfo)) {
+    if (isPathOnlyPackageContainerFile(fileInfo)) {
         return false;
     }
 
@@ -7259,7 +7264,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
     QList<Resource> derivedResources;
     QList<Resource> browserBookmarkResources;
 
-    if (isCompressedPackageFile(fileInfo)) {
+    if (isPathOnlyPackageContainerFile(fileInfo)) {
         resources.append(primary);
         return resources;
     }

@@ -287,3 +287,7 @@ Phases:
 4. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 5. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
 6. Experience and performance: add reader toggles, incremental indexing, cancellation, failure UI, jump fallback behavior, deduplication, and ranking/noise tuning.
+
+Current boundary enforcement:
+
+- A shared path-only package-container guard keeps compressed packages and Office/Visio package containers out of expansion, generic text scanning, and derived-resource indexing until a dedicated reader can emit real positions.

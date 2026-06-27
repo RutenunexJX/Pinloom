@@ -467,6 +467,7 @@ void DirectorySourceTest::indexesPackageContainersAsPathOnlyFiles()
     QString error;
     const QList<Resource> resources = source.scan(&error);
     QVERIFY2(error.isEmpty(), qPrintable(error));
+    QCOMPARE(resources.size(), 9);
 
     for (const QString &fileName : {QStringLiteral("package.zip"),
                                     QStringLiteral("bundle.tar.gz"),

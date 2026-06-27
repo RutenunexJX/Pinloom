@@ -78,6 +78,7 @@ Implemented:
 - Lightweight content indexing for small plain-text, log, config, manifest, and tabular files, including TODO/FIXME/NOTE line anchors, config key/section/path anchors, package dependency anchors, and CSV/TSV column anchors.
 - Unified text beacon indexing for source-like, log, config, manifest, and plain-text files, including TODO/FIXME/NOTE, URL, error/warning, section-like, user marker, and simple symbol-like line anchors.
 - Neutral text snippet and symbol-like anchor model/storage names, with legacy `code_*` database read compatibility.
+- Shared path-only package-container guard for compressed and Office/Visio package files before any dedicated reader exists.
 - Build/config beacons for CMake project/target/package/test lines, Makefile targets, Dockerfile stage/base/copy lines, GitHub Actions workflow/job/step/action/run lines, GitLab CI stage/job/needs/script lines, and compile_commands.json line anchors with `compiles` relations.
 - Persistent manual and indexed related-resource links with host-facing relation editing and a compact relationship summary in the locator panel.
 - Persistent resource, anchor, and library-root recall signals for open count, last opened time, pinned resources, and pinned roots.
