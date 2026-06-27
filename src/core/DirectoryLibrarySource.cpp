@@ -4484,7 +4484,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
             if (key == QLatin1String("name")) {
                 const QString workflowName = cleanedYamlScalar(keyMatch.captured(2));
                 if (!workflowName.isEmpty()) {
-                    appendBeaconLineAnchor(resource, QStringLiteral("ci workflow: %1").arg(workflowName), lineNumber);
+                    appendBeaconLineAnchor(resource, QStringLiteral("config workflow: %1").arg(workflowName), lineNumber);
                 }
             }
             state.inBlocksSection = key == QLatin1String("jobs");
@@ -4505,7 +4505,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
             state.inSteps = false;
             if (!state.currentBlock.isEmpty()) {
                 appendBeaconLineAnchor(resource,
-                                       QStringLiteral("ci block: %1").arg(state.currentBlock),
+                                       QStringLiteral("config block: %1").arg(state.currentBlock),
                                        lineNumber);
             }
         }
@@ -4528,7 +4528,7 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
                 const QString blockLabel = cleanedYamlScalar(keyMatch.captured(2));
                 if (!blockLabel.isEmpty()) {
                     appendFileLineAnchor(resource,
-                                         QStringLiteral("ci label: %1").arg(blockLabel),
+                                         QStringLiteral("config label: %1").arg(blockLabel),
                                          lineNumber);
                 }
             }
@@ -4551,11 +4551,11 @@ void appendWorkflowConfigBeaconsFromLine(Resource &resource,
     }
 
     if (key == QLatin1String("name")) {
-        appendBeaconLineAnchor(resource, QStringLiteral("ci step: %1").arg(value), lineNumber);
+        appendBeaconLineAnchor(resource, QStringLiteral("config step: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("uses")) {
-        appendFileLineAnchor(resource, QStringLiteral("ci uses: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("config uses: %1").arg(value), lineNumber);
     } else if (key == QLatin1String("run")) {
-        appendFileLineAnchor(resource, QStringLiteral("ci run: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("config run: %1").arg(value), lineNumber);
     }
 }
 
@@ -4615,7 +4615,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
 
         state.currentBlock = key;
         if (!state.currentBlock.isEmpty()) {
-            appendBeaconLineAnchor(resource, QStringLiteral("ci block: %1").arg(state.currentBlock), lineNumber);
+            appendBeaconLineAnchor(resource, QStringLiteral("config block: %1").arg(state.currentBlock), lineNumber);
         }
         return;
     }
@@ -4625,7 +4625,7 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
         if (listMatch.hasMatch()) {
             const QString stageName = cleanedYamlScalar(listMatch.captured(1));
             if (!stageName.isEmpty()) {
-                appendFileLineAnchor(resource, QStringLiteral("ci stage: %1").arg(stageName), lineNumber);
+                appendFileLineAnchor(resource, QStringLiteral("config stage: %1").arg(stageName), lineNumber);
             }
         }
         return;
@@ -4645,12 +4645,12 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
         const QString key = keyMatch.captured(1).trimmed();
         const QString value = cleanedYamlScalar(keyMatch.captured(2));
         if (key == QLatin1String("stage") && !value.isEmpty()) {
-            appendFileLineAnchor(resource, QStringLiteral("ci stage: %1").arg(value), lineNumber);
+            appendFileLineAnchor(resource, QStringLiteral("config stage: %1").arg(value), lineNumber);
             state.currentListKey.clear();
             return;
         }
         if (key == QLatin1String("image") && !value.isEmpty()) {
-            appendFileLineAnchor(resource, QStringLiteral("ci image: %1").arg(value), lineNumber);
+            appendFileLineAnchor(resource, QStringLiteral("config image: %1").arg(value), lineNumber);
             state.currentListKey.clear();
             return;
         }
@@ -4662,8 +4662,8 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
             state.currentListKey = key;
             if (!value.isEmpty() && value != QLatin1String("|") && value != QLatin1String(">")) {
                 const QString anchorPrefix = key == QLatin1String("needs")
-                    ? QStringLiteral("ci needs")
-                    : QStringLiteral("ci %1").arg(key);
+                    ? QStringLiteral("config needs")
+                    : QStringLiteral("config %1").arg(key);
                 appendFileLineAnchor(resource, QStringLiteral("%1: %2").arg(anchorPrefix, value), lineNumber);
             }
             return;
@@ -4694,12 +4694,12 @@ void appendPipelineConfigBeaconsFromLine(Resource &resource,
     }
 
     if (state.currentListKey == QLatin1String("needs")) {
-        appendFileLineAnchor(resource, QStringLiteral("ci needs: %1").arg(value), lineNumber);
+        appendFileLineAnchor(resource, QStringLiteral("config needs: %1").arg(value), lineNumber);
         return;
     }
 
     appendFileLineAnchor(resource,
-                         QStringLiteral("ci %1: %2").arg(state.currentListKey, value),
+                         QStringLiteral("config %1: %2").arg(state.currentListKey, value),
                          lineNumber);
 }
 

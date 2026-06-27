@@ -922,16 +922,16 @@ void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
         });
     };
 
-    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("ci workflow: Pinloom CI"), 1));
-    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("ci block: build"), 4));
-    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("ci label: Build and Test"), 5));
-    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("ci step: Checkout"), 8));
-    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("ci uses: actions/checkout@v4"), 9));
-    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("ci step: Configure"), 10));
-    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("ci run: cmake -S . -B build"), 11));
-    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("ci uses: actions/upload-artifact@v4"), 12));
-    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("ci block: docs"), 13));
-    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("ci run: ./scripts/build-docs.sh"), 15));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("config workflow: Pinloom CI"), 1));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("config block: build"), 4));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("config label: Build and Test"), 5));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("config step: Checkout"), 8));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("config uses: actions/checkout@v4"), 9));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("config step: Configure"), 10));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("config run: cmake -S . -B build"), 11));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("config uses: actions/upload-artifact@v4"), 12));
+    QVERIFY(hasBeacon(*workflowIt, QStringLiteral("config block: docs"), 13));
+    QVERIFY(hasLineAnchor(*workflowIt, QStringLiteral("config run: ./scripts/build-docs.sh"), 15));
 
     auto configIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
         return resource.kind == ResourceKind::File && resource.title == QLatin1String("ci.yml")
@@ -939,7 +939,7 @@ void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
     });
     QVERIFY(configIt != resources.cend());
     QVERIFY(std::none_of(configIt->anchors.cbegin(), configIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.target.startsWith(QStringLiteral("ci "));
+        return anchor.target.startsWith(QStringLiteral("config "));
     }));
 
     SqliteLibraryRepository repository;
@@ -956,7 +956,7 @@ void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
             && result.resource.location.contains(QStringLiteral(".github/workflows"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("ci workflow: Pinloom CI");
+            && result.matchedAnchor->target == QLatin1String("config workflow: Pinloom CI");
     }));
 
     const QList<SearchResult> actionResults = repository.search(SearchQuery{QStringLiteral("upload-artifact")});
@@ -965,7 +965,7 @@ void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
             && result.resource.location.contains(QStringLiteral(".github/workflows"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("ci uses: actions/upload-artifact@v4");
+            && result.matchedAnchor->target == QLatin1String("config uses: actions/upload-artifact@v4");
     }));
 
     const QList<SearchResult> runResults = repository.search(SearchQuery{QStringLiteral("build-docs")});
@@ -974,7 +974,7 @@ void DirectorySourceTest::extractsNeutralWorkflowConfigLineBeacons()
             && result.resource.location.contains(QStringLiteral(".github/workflows"))
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("ci run: ./scripts/build-docs.sh");
+            && result.matchedAnchor->target == QLatin1String("config run: ./scripts/build-docs.sh");
     }));
 }
 
@@ -1035,18 +1035,18 @@ void DirectorySourceTest::extractsNeutralPipelineConfigLineBeacons()
         });
     };
 
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci stage: build"), 2));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci stage: test"), 3));
-    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("ci block: build_app"), 6));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci stage: build"), 7));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci image: gcc:13"), 8));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci script: cmake -S . -B build"), 10));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci script: cmake --build build"), 11));
-    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("ci block: test_app"), 12));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci stage: test"), 13));
-    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("ci needs: build_app"), 15));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config stage: build"), 2));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config stage: test"), 3));
+    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("config block: build_app"), 6));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config stage: build"), 7));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config image: gcc:13"), 8));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config script: cmake -S . -B build"), 10));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config script: cmake --build build"), 11));
+    QVERIFY(hasBeacon(*pipelineIt, QStringLiteral("config block: test_app"), 12));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config stage: test"), 13));
+    QVERIFY(hasLineAnchor(*pipelineIt, QStringLiteral("config needs: build_app"), 15));
     QVERIFY(hasLineAnchor(*pipelineIt,
-                          QStringLiteral("ci script: ctest --test-dir build --output-on-failure"),
+                          QStringLiteral("config script: ctest --test-dir build --output-on-failure"),
                           17));
 
     auto configIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
@@ -1055,7 +1055,7 @@ void DirectorySourceTest::extractsNeutralPipelineConfigLineBeacons()
     });
     QVERIFY(configIt != resources.cend());
     QVERIFY(std::none_of(configIt->anchors.cbegin(), configIt->anchors.cend(), [](const Anchor &anchor) {
-        return anchor.target.startsWith(QStringLiteral("ci "));
+        return anchor.target.startsWith(QStringLiteral("config "));
     }));
 
     SqliteLibraryRepository repository;
@@ -1071,7 +1071,7 @@ void DirectorySourceTest::extractsNeutralPipelineConfigLineBeacons()
         return result.resource.title == QLatin1String(".gitlab-ci.yml")
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
-            && result.matchedAnchor->target == QLatin1String("ci block: build_app");
+            && result.matchedAnchor->target == QLatin1String("config block: build_app");
     }));
 
     const QList<SearchResult> scriptResults = repository.search(SearchQuery{QStringLiteral("output-on-failure")});
@@ -1080,7 +1080,7 @@ void DirectorySourceTest::extractsNeutralPipelineConfigLineBeacons()
             && result.matchedAnchor.has_value()
             && result.matchedAnchor->type == AnchorType::FileLine
             && result.matchedAnchor->target
-                == QLatin1String("ci script: ctest --test-dir build --output-on-failure");
+                == QLatin1String("config script: ctest --test-dir build --output-on-failure");
     }));
 }
 

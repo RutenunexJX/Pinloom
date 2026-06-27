@@ -282,7 +282,7 @@ Status:
 - Neutral TODO/FIXME/NOTE, URL, error/warning, section-like, and explicit `MARKER`/`ANCHOR`/`BOOKMARK` beacons surfaced as markers rather than code symbols: done.
 - Directive-style text line beacons layered after text content sniffing with neutral `directive entry/setting/block/reference ...` labels plus format-trigger and reference implementation naming rather than target/test/function/macro semantics: done.
 - Rule-entry and container-style text line beacons layered after text content sniffing with neutral `rule ...` and `container block/input ...` labels and format-trigger naming, without target or instruction semantics: done.
-- CI configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `ci ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
+- Workflow/pipeline configuration text line beacons for workflow/block/stage/step/uses/run/script/needs jumps, with neutral `config ...` labels plus format-trigger and block/label implementation state naming rather than CI platform semantics: done.
 - File-reference manifest line anchors for compile_commands.json and `file-reference` relations: done.
 - Neutral model/storage names for text snippets and marker anchors: done, with read-only legacy `symbol_like`/`code_*` database compatibility.
 - Neutral text heading/block model and storage names: done, with legacy Markdown-named anchor inputs and stored rows normalized to neutral text anchors.
