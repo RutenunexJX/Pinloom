@@ -419,7 +419,7 @@ Phases:
 1. Existing reader consolidation.
    Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email readers as beacon/location extractors. Keep text-structure and tabular coverage documented as unified text beacon rules, not special readers.
 2. Engineering and design special readers.
-   Keep generic SQLite table, column, URL-field, and sample-value beacons. Document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources and are not expanded or text-scanned.
+   Keep generic SQLite table, column, URL-field, and sample-value beacons. Archive-like package containers and document/design package containers such as docx/xlsx/pptx/vsdx/odt/ods/odp/epub are not reader targets; they remain ordinary path-only package-container file resources and are not expanded or text-scanned.
 3. Scanned/OCR readers.
    Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
 4. Reader contract and quality layer.
