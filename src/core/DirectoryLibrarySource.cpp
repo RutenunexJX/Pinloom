@@ -4088,7 +4088,7 @@ void appendGenericTextBeaconAnchorsFromLine(Resource &resource, const QString &l
 
 }
 
-void appendBuildDirectiveBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -7563,7 +7563,7 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool textStructureBeacons = hasTextStructureBeaconFormat(fileInfo);
     const bool githubActionsWorkflow = isGithubActionsWorkflowFile(fileInfo);
     const bool gitlabCi = isGitlabCiFile(fileInfo);
-    const bool buildDirectiveText = isCMakeFile(fileInfo);
+    const bool directiveText = isCMakeFile(fileInfo);
     const bool ruleTextFile = isMakefile(fileInfo);
     const bool containerRecipeText = isDockerfile(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
@@ -7580,8 +7580,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         appendActionLineAnchorsFromLine(resource, line, lineNumber);
         appendGenericTextBeaconAnchorsFromLine(resource, line, lineNumber);
         appendTextNamedEntryBeaconsFromLine(resource, fileInfo, line, lineNumber, textNamedEntryBeaconState);
-        if (buildDirectiveText) {
-            appendBuildDirectiveBeaconsFromLine(resource, line, lineNumber);
+        if (directiveText) {
+            appendDirectiveTextBeaconsFromLine(resource, line, lineNumber);
         }
         if (ruleTextFile) {
             appendRuleTextBeaconsFromLine(resource, line, lineNumber);

@@ -44,7 +44,7 @@ private slots:
     void extractsChainedFilterPdfContentText();
     void extractsPdfRegionAnchors();
     void extractsUnifiedTextBeaconAnchors();
-    void extractsDirectiveTextBeaconAnchors();
+    void extractsNeutralDirectiveTextBeaconAnchors();
     void extractsRuleAndContainerTextBeaconAnchors();
     void extractsCompileCommandFileReferenceBeacons();
     void extractsTextActionLineAnchors();
@@ -2347,7 +2347,7 @@ void DirectorySourceTest::extractsUnifiedTextBeaconAnchors()
     }));
 }
 
-void DirectorySourceTest::extractsDirectiveTextBeaconAnchors()
+void DirectorySourceTest::extractsNeutralDirectiveTextBeaconAnchors()
 {
     QTemporaryDir temp;
     QVERIFY(temp.isValid());
