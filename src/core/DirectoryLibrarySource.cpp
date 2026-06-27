@@ -343,7 +343,7 @@ bool isCMakeFile(const QFileInfo &fileInfo)
             || fileInfo.suffix().compare(QStringLiteral("cmake"), Qt::CaseInsensitive) == 0);
 }
 
-bool isMakefile(const QFileInfo &fileInfo)
+bool hasRuleEntryTextBeaconFormat(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -359,7 +359,7 @@ bool isMakefile(const QFileInfo &fileInfo)
     return suffix == QLatin1String("mk") || suffix == QLatin1String("mak");
 }
 
-bool isDockerfile(const QFileInfo &fileInfo)
+bool hasContainerTextBeaconFormat(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir()) {
         return false;
@@ -4162,7 +4162,7 @@ void appendDirectiveTextBeaconsFromLine(Resource &resource, const QString &line,
     }
 }
 
-void appendRuleTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendRuleEntryTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     if (line.startsWith(QLatin1Char('\t'))) {
         return;
@@ -4190,7 +4190,7 @@ void appendRuleTextBeaconsFromLine(Resource &resource, const QString &line, int 
     }
 }
 
-void appendContainerRecipeBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
+void appendContainerTextBeaconsFromLine(Resource &resource, const QString &line, int lineNumber)
 {
     const QString trimmed = line.trimmed();
     if (trimmed.isEmpty() || trimmed.startsWith(QLatin1Char('#'))) {
@@ -7564,8 +7564,8 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
     const bool workflowConfigText = isGithubActionsWorkflowFile(fileInfo);
     const bool pipelineConfigText = isGitlabCiFile(fileInfo);
     const bool directiveText = isCMakeFile(fileInfo);
-    const bool ruleTextFile = isMakefile(fileInfo);
-    const bool containerRecipeText = isDockerfile(fileInfo);
+    const bool ruleEntryText = hasRuleEntryTextBeaconFormat(fileInfo);
+    const bool containerText = hasContainerTextBeaconFormat(fileInfo);
     const std::optional<QChar> tabularDelimiter = tabularDelimiterForFile(fileInfo);
     bool tabularHeaderAnchorsAdded = false;
     TextNamedEntryBeaconState textNamedEntryBeaconState;
@@ -7583,11 +7583,11 @@ void DirectoryLibrarySource::applyPlainTextMetadata(Resource &resource, const QF
         if (directiveText) {
             appendDirectiveTextBeaconsFromLine(resource, line, lineNumber);
         }
-        if (ruleTextFile) {
-            appendRuleTextBeaconsFromLine(resource, line, lineNumber);
+        if (ruleEntryText) {
+            appendRuleEntryTextBeaconsFromLine(resource, line, lineNumber);
         }
-        if (containerRecipeText) {
-            appendContainerRecipeBeaconsFromLine(resource, line, lineNumber);
+        if (containerText) {
+            appendContainerTextBeaconsFromLine(resource, line, lineNumber);
         }
         if (workflowConfigText) {
             appendWorkflowConfigBeaconsFromLine(resource, line, lineNumber, workflowConfigBeaconState);
