@@ -13,6 +13,17 @@ Pinloom is a beacon/location indexer and jump layer. It is not a code intelligen
 - Special file readers are reserved for formats that need them, such as PDF, Office documents, Visio, SQLite databases, binary archives, web/archive captures, and scanned/OCR material. Their purpose is still beacon and location extraction.
 - When embedded in ZeroSlack, Pinloom provides paths, line/column locations when available, display text, beacons, and jump targets. ZeroSlack owns Verilog/SystemVerilog editing, HDL semantics, rendering, and the jump action.
 
+## Special File Reader Phases
+
+Dedicated readers are staged so each phase improves location extraction without expanding Pinloom into a knowledge-modeling system.
+
+1. Existing reader consolidation: describe and test current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, structured text, and tabular readers as beacon/location readers.
+2. Office baseline readers: extract Word/docx paragraph, heading, table, comment, and link beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and link beacons; PowerPoint slide, title, body, notes, and link beacons.
+3. Engineering/design readers: extract Visio/vsdx page, shape text, connector label, and link beacons; generic SQLite table/column/URL/sample-value beacons; archive file-list, manifest, and text-preview beacons.
+4. Scanned/OCR readers: extract OCR text from scanned PDFs and image-heavy documents with page/region anchors, confidence diagnostics, and page-level fallback jumps.
+5. Reader contract and quality layer: standardize limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeouts, cancellation, and diagnostics.
+6. Experience and performance: add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and large-file budgets.
+
 ## Current MVP: Integration And Source Refinement
 
 Implemented:
@@ -92,13 +103,14 @@ Implemented:
 
 Not implemented yet:
 
-- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Full PDF text/content extraction for remaining unsupported filters, complex encodings, and OCR; Office baseline readers; Visio/vsdx, generic SQLite, and archive readers; broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Full ZeroSlack dock/global-control integration.
 
 Next:
 
 - Full ZeroSlack dock/global-control integration.
-- Fuller PDF text extraction for remaining unsupported filters/encodings and broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
+- Special-file reader phase 1 consolidation, then Office baseline readers.
+- Fuller PDF text extraction for remaining unsupported filters/encodings, OCR, and broader web source support beyond local HTML/MHTML/WARC, desktop shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 
 ## Embedding Contract
 

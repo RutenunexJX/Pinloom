@@ -392,3 +392,37 @@ Status:
 - Fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR: pending.
 - Broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns: deferred.
 - Richer source-code parsing: not pursued; future work should improve generic text beacons and special-file readers instead.
+
+## MVP 15: Special-File Reader Phases
+
+Goal: add dedicated readers only where file formats require them, while keeping Pinloom focused on beacon/location indexing.
+
+Scope:
+
+- Keep every reader output limited to searchable content, aliases, tags, relations, diagnostics, and anchors with positions.
+- Avoid document knowledge modeling, language semantics, and IDE-style interpretation.
+- Stage readers so each phase can be tested independently and left useful if later phases wait.
+
+Phases:
+
+1. Existing reader consolidation.
+   Treat the current PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, structured text, and tabular readers as special or semi-special beacon readers. Make naming, documentation, and tests reflect that boundary.
+2. Office baseline readers.
+   Add Word/docx paragraph, heading, table, comment, and hyperlink beacons; Excel/xlsx sheet, cell, header, formula, error-value, named-range, and hyperlink beacons; PowerPoint slide, title, body, notes, and hyperlink beacons.
+3. Engineering and design special readers.
+   Add Visio/vsdx page, shape-text, connector-label, and hyperlink beacons; generic SQLite table, column, URL-field, and sample-value beacons; archive file-list, manifest, and text-preview beacons.
+4. Scanned/OCR readers.
+   Add OCR text extraction for scanned PDFs and image-heavy documents, with page/region anchors, confidence diagnostics, and fallback page-level jumps.
+5. Reader contract and quality layer.
+   Standardize reader input limits, output fields, position types, partial extraction, unsupported/encrypted/too-large states, timeout/cancellation behavior, and diagnostics.
+6. Experience and performance.
+   Add reader toggles, incremental indexing, failure UI, jump fallbacks, deduplication, ranking/noise tuning, and performance budgets for large files.
+
+Status:
+
+- Phase 1: partly done through existing source readers; consolidation naming and tests remain.
+- Phase 2: pending.
+- Phase 3: pending.
+- Phase 4: pending.
+- Phase 5: pending.
+- Phase 6: pending.

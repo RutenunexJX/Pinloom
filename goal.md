@@ -26,6 +26,7 @@ Pinloom's long-term product shape is a personal knowledge locator and jump layer
 - Obsidian-friendly indexing: parse frontmatter aliases, inline tags, wikilinks, and block references while keeping Markdown support useful outside Obsidian.
 - PDF navigation: index PDF metadata and pages first, then add page and region jump targets.
 - Beacon/location indexing: index text files by paths, line beacons, user markers, URLs, warnings/errors, section-like lines, and project-relevant tags without language parsing.
+- Special-file reader roadmap: grow dedicated readers in phases for formats that are not simple text, while keeping every reader limited to beacon and location extraction.
 - Manual anchors and relationships: let users create aliases, manual anchors, and related-resource links from the UI.
 - Ranking and recall: combine match type, recency, usage frequency, pinned resources, tags, and active project context.
 - Packaging and reliability: make standalone launch, deployment, database upgrades, and diagnostics boringly dependable.
@@ -268,3 +269,20 @@ Remaining:
 - Wire the reusable panel into the actual ZeroSlack dock/global-control host.
 - Add fuller PDF content extraction for remaining unsupported filters, complex encodings, and OCR, plus broader web source support beyond local HTML/MHTML/WARC, shortcuts, bookmarks/XBEL/history/places with bookmark metadata, OPML, feeds, sitemaps/robots.txt hints, HAR/http archives, iCalendar/email files, text URL lists, JSON/JSONL, YAML/TOML/INI/config files, and CSV/TSV URL columns.
 - Improve generic text beacon extraction and special-file readers without pursuing richer source-code parsing.
+
+### Special-File Reader Roadmap
+
+Reader boundary:
+
+- Special readers exist only for formats that need format-aware extraction.
+- Reader output is still content, aliases, tags, relations, diagnostics, and anchors with positions.
+- Readers must not become document understanding, language semantics, or knowledge-modeling engines.
+
+Phases:
+
+1. Existing reader consolidation: keep PDF, browser SQLite, HTML/MHTML, HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, email, JSON/YAML/TOML/INI, and CSV/TSV readers described and tested as beacon/location readers.
+2. Office baseline readers: add Word/docx paragraphs/headings/tables/comments/links, Excel/xlsx sheets/cells/headers/formulas/error values/named ranges, and PowerPoint slide/title/body/notes/link beacons.
+3. Engineering and design special readers: add Visio/vsdx page/shape/text/link beacons, generic SQLite table/column/URL/sample-value beacons, and archive manifest/file-list/text-preview beacons.
+4. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
+5. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
+6. Experience and performance: add reader toggles, incremental indexing, cancellation, failure UI, jump fallback behavior, deduplication, and ranking/noise tuning.
