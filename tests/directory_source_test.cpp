@@ -70,6 +70,7 @@ private slots:
     void keepsNonSqliteBrowserDatabaseNamesAsUnifiedText();
     void extractsGenericSqliteBeaconMetadata();
     void extractsOpmlLinks();
+    void keepsNonOpmlFilesAsUnifiedText();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
     void keepsNonFeedSitemapXmlFilesAsUnifiedText();
@@ -6165,6 +6166,90 @@ void DirectorySourceTest::extractsOpmlLinks()
         return relation.sourceResourceId == opmlIt->id
             && relation.targetResourceId == feedOnlyIt->id
             && relation.label == QLatin1String("links-to");
+    }));
+}
+
+void DirectorySourceTest::keepsNonOpmlFilesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/feeds")));
+    writeFile(dir.filePath(QStringLiteral("library/feeds/notes.opml")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<notes>\n"
+                         "NOTE: plain OPML suffix text remains unified text\n"
+                         "ANCHOR: opml_text_anchor\n"
+                         "https://docs.example.com/plain/opml#text\n"
+                         "</notes>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto fileIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::File
+            && resource.title == QLatin1String("notes.opml");
+    });
+    QVERIFY(fileIt != resources.cend());
+    QVERIFY(!fileIt->tags.contains(QStringLiteral("opml")));
+    QVERIFY(!fileIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+    QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+    QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("NOTE: plain OPML suffix text remains unified text")
+            && anchor.line == 3;
+    }));
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("marker: opml_text_anchor")
+            && anchor.line == 4;
+    }));
+    QVERIFY(std::any_of(fileIt->anchors.cbegin(), fileIt->anchors.cend(), [](const Anchor &anchor) {
+        return anchor.type == AnchorType::FileLine
+            && anchor.target == QLatin1String("url: https://docs.example.com/plain/opml#text")
+            && anchor.line == 5;
+    }));
+
+    auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [](const Resource &resource) {
+        return resource.kind == ResourceKind::Url
+            && resource.location == QLatin1String("https://docs.example.com/plain/opml#text");
+    });
+    QVERIFY(urlIt != resources.cend());
+    QVERIFY(!urlIt->tags.contains(QStringLiteral("opml")));
+    QVERIFY(!urlIt->tags.contains(QStringLiteral("feed")));
+    QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+        return relation.label == QLatin1String("links-to")
+            && relation.targetResourceId == urlIt->id;
+    }));
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    const QList<SearchResult> markerResults = repository.search(SearchQuery{QStringLiteral("opml_text_anchor")});
+    QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::File
+            && result.resource.title == QLatin1String("notes.opml")
+            && !result.resource.tags.contains(QStringLiteral("opml"))
+            && result.matchedAnchor.has_value()
+            && result.matchedAnchor->type == AnchorType::FileLine
+            && result.matchedAnchor->target == QLatin1String("marker: opml_text_anchor");
+    }));
+
+    const QList<SearchResult> urlResults = repository.search(SearchQuery{QStringLiteral("https://docs.example.com/plain/opml#text")});
+    QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [](const SearchResult &result) {
+        return result.resource.kind == ResourceKind::Url
+            && result.resource.location == QLatin1String("https://docs.example.com/plain/opml#text")
+            && !result.resource.tags.contains(QStringLiteral("opml"));
     }));
 }
 

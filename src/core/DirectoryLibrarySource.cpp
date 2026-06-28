@@ -745,16 +745,16 @@ bool isEmailFileCandidate(const QFileInfo &fileInfo)
         && fileInfo.suffix().compare(QStringLiteral("eml"), Qt::CaseInsensitive) == 0;
 }
 
-bool hasFeedOrSitemapXmlRoot(const QFileInfo &fileInfo)
+QString xmlRootElementNameFromFile(const QFileInfo &fileInfo)
 {
     QFile file(fileInfo.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly)) {
-        return false;
+        return {};
     }
 
     const QByteArray sample = file.read(64 * 1024);
     if (sample.contains('\0')) {
-        return false;
+        return {};
     }
 
     QXmlStreamReader reader(sample);
@@ -764,15 +764,20 @@ bool hasFeedOrSitemapXmlRoot(const QFileInfo &fileInfo)
             continue;
         }
 
-        const QString rootName = reader.name().toString().toLower();
-        return rootName == QLatin1String("rss")
-            || rootName == QLatin1String("rdf")
-            || rootName == QLatin1String("feed")
-            || rootName == QLatin1String("urlset")
-            || rootName == QLatin1String("sitemapindex");
+        return reader.name().toString().toLower();
     }
 
-    return false;
+    return {};
+}
+
+bool hasFeedOrSitemapXmlRoot(const QFileInfo &fileInfo)
+{
+    const QString rootName = xmlRootElementNameFromFile(fileInfo);
+    return rootName == QLatin1String("rss")
+        || rootName == QLatin1String("rdf")
+        || rootName == QLatin1String("feed")
+        || rootName == QLatin1String("urlset")
+        || rootName == QLatin1String("sitemapindex");
 }
 
 bool isFeedXmlCandidate(const QFileInfo &fileInfo)
@@ -786,6 +791,14 @@ bool isFeedXmlCandidate(const QFileInfo &fileInfo)
         || suffix == QLatin1String("atom")
         || suffix == QLatin1String("xml");
     return feedXmlSuffix && hasFeedOrSitemapXmlRoot(fileInfo);
+}
+
+bool isOpmlFileCandidate(const QFileInfo &fileInfo)
+{
+    return !fileInfo.isDir()
+        && fileInfo.size() <= 4 * 1024 * 1024
+        && fileInfo.suffix().compare(QStringLiteral("opml"), Qt::CaseInsensitive) == 0
+        && xmlRootElementNameFromFile(fileInfo) == QLatin1String("opml");
 }
 
 QString stripYamlQuotes(QString value)
@@ -6874,6 +6887,10 @@ void appendRobotsSitemapLineSourceMetadata(Resource &sourceResource,
 
 QList<OpmlLink> opmlLinksFromFile(const QFileInfo &fileInfo)
 {
+    if (!isOpmlFileCandidate(fileInfo)) {
+        return {};
+    }
+
     QFile file(fileInfo.absoluteFilePath());
     if (!file.open(QIODevice::ReadOnly)) {
         return {};
@@ -7608,7 +7625,7 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
             xbelBookmarkResourcesFromLinks(fileInfo, xbelBookmarkLinks);
         appendXbelBookmarkSourceMetadata(primary, xbelBookmarkLinks, xbelBookmarkResources);
         derivedResources.append(xbelBookmarkResources);
-    } else if (suffix == QLatin1String("opml")) {
+    } else if (isOpmlFileCandidate(fileInfo)) {
         const QList<OpmlLink> opmlLinks = deduplicatedOpmlLinks(opmlLinksFromFile(fileInfo));
         const QList<Resource> opmlResources = opmlResourcesFromLinks(fileInfo, opmlLinks);
         appendOpmlSourceMetadata(primary, opmlLinks, opmlResources);
@@ -7648,8 +7665,8 @@ QList<Resource> DirectoryLibrarySource::resourcesFromFileInfo(const QFileInfo &f
         || (primary.kind == ResourceKind::File && isHarFileCandidate(fileInfo))
         || (primary.kind == ResourceKind::File && isWarcFileCandidate(fileInfo))
         || (primary.kind == ResourceKind::File && isXbelBookmarkCandidate(fileInfo))
-        || (primary.kind == ResourceKind::File && isFeedXmlCandidate(fileInfo))
-        || (primary.kind == ResourceKind::File && fileInfo.suffix().compare(QStringLiteral("opml"), Qt::CaseInsensitive) == 0);
+        || (primary.kind == ResourceKind::File && isOpmlFileCandidate(fileInfo))
+        || (primary.kind == ResourceKind::File && isFeedXmlCandidate(fileInfo));
     if (primary.kind == ResourceKind::File && !specializedUrlResourceCandidate && isTextUrlResourceCandidate(fileInfo)) {
         const QList<HtmlLink> textLinkUrlBeacons = textLinkUrlBeaconsFromFile(fileInfo);
         const QList<Resource> textLinkUrlResources = textLinkUrlResourcesFromLinks(fileInfo, textLinkUrlBeacons);
