@@ -745,6 +745,36 @@ bool isEmailFileCandidate(const QFileInfo &fileInfo)
         && fileInfo.suffix().compare(QStringLiteral("eml"), Qt::CaseInsensitive) == 0;
 }
 
+bool hasFeedOrSitemapXmlRoot(const QFileInfo &fileInfo)
+{
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly)) {
+        return false;
+    }
+
+    const QByteArray sample = file.read(64 * 1024);
+    if (sample.contains('\0')) {
+        return false;
+    }
+
+    QXmlStreamReader reader(sample);
+    while (!reader.atEnd()) {
+        reader.readNext();
+        if (!reader.isStartElement()) {
+            continue;
+        }
+
+        const QString rootName = reader.name().toString().toLower();
+        return rootName == QLatin1String("rss")
+            || rootName == QLatin1String("rdf")
+            || rootName == QLatin1String("feed")
+            || rootName == QLatin1String("urlset")
+            || rootName == QLatin1String("sitemapindex");
+    }
+
+    return false;
+}
+
 bool isFeedXmlCandidate(const QFileInfo &fileInfo)
 {
     if (fileInfo.isDir() || fileInfo.size() > 4 * 1024 * 1024) {
@@ -752,9 +782,10 @@ bool isFeedXmlCandidate(const QFileInfo &fileInfo)
     }
 
     const QString suffix = fileInfo.suffix().toLower();
-    return suffix == QLatin1String("rss")
+    const bool feedXmlSuffix = suffix == QLatin1String("rss")
         || suffix == QLatin1String("atom")
         || suffix == QLatin1String("xml");
+    return feedXmlSuffix && hasFeedOrSitemapXmlRoot(fileInfo);
 }
 
 QString stripYamlQuotes(QString value)

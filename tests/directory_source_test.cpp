@@ -72,6 +72,7 @@ private slots:
     void extractsOpmlLinks();
     void extractsFeedXmlLinks();
     void extractsSitemapXmlLinks();
+    void keepsNonFeedSitemapXmlFilesAsUnifiedText();
     void extractsRobotsTxtSitemapLineLinks();
     void fetchesRemoteWebShortcutContent();
     void indexRootFetchesRemoteWebShortcutContent();
@@ -6489,6 +6490,136 @@ void DirectorySourceTest::extractsSitemapXmlLinks()
     const QList<ResourceRelation> sitemapIndexRelations = repository.resourceRelations(sitemapIndexFileIt->id);
     QCOMPARE(sitemapIndexRelations.size(), 1);
     QCOMPARE(sitemapIndexRelations.first().targetResourceId, indexIt->id);
+}
+
+void DirectorySourceTest::keepsNonFeedSitemapXmlFilesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/xml")));
+    writeFile(dir.filePath(QStringLiteral("library/xml/notes.xml")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<notes>\n"
+                         "NOTE: plain XML suffix text remains unified text\n"
+                         "ANCHOR: xml_text_anchor\n"
+                         "https://docs.example.com/plain/xml#text\n"
+                         "</notes>\n"));
+    writeFile(dir.filePath(QStringLiteral("library/xml/notes.rss")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<notes>\n"
+                         "NOTE: plain RSS suffix text remains unified text\n"
+                         "ANCHOR: rss_text_anchor\n"
+                         "https://docs.example.com/plain/rss#text\n"
+                         "</notes>\n"));
+    writeFile(dir.filePath(QStringLiteral("library/xml/notes.atom")),
+              QByteArray("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+                         "<notes>\n"
+                         "NOTE: plain Atom suffix text remains unified text\n"
+                         "ANCHOR: atom_text_anchor\n"
+                         "https://docs.example.com/plain/atom#text\n"
+                         "</notes>\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    struct ExpectedXmlText {
+        QString title;
+        QString noteAnchor;
+        QString markerAnchor;
+        QString urlAnchor;
+        QString url;
+    };
+    const QList<ExpectedXmlText> expectedFiles{
+        {QStringLiteral("notes.xml"),
+         QStringLiteral("NOTE: plain XML suffix text remains unified text"),
+         QStringLiteral("marker: xml_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/xml#text"),
+         QStringLiteral("https://docs.example.com/plain/xml#text")},
+        {QStringLiteral("notes.rss"),
+         QStringLiteral("NOTE: plain RSS suffix text remains unified text"),
+         QStringLiteral("marker: rss_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/rss#text"),
+         QStringLiteral("https://docs.example.com/plain/rss#text")},
+        {QStringLiteral("notes.atom"),
+         QStringLiteral("NOTE: plain Atom suffix text remains unified text"),
+         QStringLiteral("marker: atom_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/atom#text"),
+         QStringLiteral("https://docs.example.com/plain/atom#text")}
+    };
+
+    for (const ExpectedXmlText &expected : expectedFiles) {
+        const auto fileIt = findFile(expected.title);
+        QVERIFY(fileIt != resources.cend());
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("feed")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("sitemap")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("sitemap-index")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+        QVERIFY(hasLineAnchor(*fileIt, expected.noteAnchor, 3));
+        QVERIFY(hasLineAnchor(*fileIt, expected.markerAnchor, 4));
+        QVERIFY(hasLineAnchor(*fileIt, expected.urlAnchor, 5));
+
+        auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::Url
+                && resource.location == expected.url;
+        });
+        QVERIFY(urlIt != resources.cend());
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("feed")));
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("feed-entry")));
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("sitemap")));
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("sitemap-index")));
+        QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+            return relation.label == QLatin1String("links-to")
+                && relation.targetResourceId == urlIt->id;
+        }));
+    }
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    for (const ExpectedXmlText &expected : expectedFiles) {
+        const QList<SearchResult> markerResults = repository.search(SearchQuery{expected.markerAnchor});
+        QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::File
+                && result.resource.title == expected.title
+                && !result.resource.tags.contains(QStringLiteral("feed"))
+                && !result.resource.tags.contains(QStringLiteral("sitemap"))
+                && result.matchedAnchor.has_value()
+                && result.matchedAnchor->type == AnchorType::FileLine
+                && result.matchedAnchor->target == expected.markerAnchor;
+        }));
+
+        const QList<SearchResult> urlResults = repository.search(SearchQuery{expected.url});
+        QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::Url
+                && result.resource.location == expected.url
+                && !result.resource.tags.contains(QStringLiteral("feed-entry"))
+                && !result.resource.tags.contains(QStringLiteral("sitemap"));
+        }));
+    }
 }
 
 void DirectorySourceTest::extractsRobotsTxtSitemapLineLinks()
