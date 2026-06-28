@@ -52,6 +52,7 @@ private slots:
     void extractsContentSniffedTextUrlResources();
     void extractsEmailMessageUrlResources();
     void extractsIcalendarEventUrlResources();
+    void keepsNonCalendarIcsFilesAsUnifiedText();
     void extractsJsonUrlResources();
     void extractsHarEntryUrlResources();
     void extractsWarcResponseUrlResources();
@@ -4073,6 +4074,112 @@ void DirectorySourceTest::extractsIcalendarEventUrlResources()
         return relation.targetResourceId == meetingIt->id
             && relation.note == QLatin1String("calendar line 8: url: ZeroSlack Dock Planning -> https://meet.example.com/pinloom#agenda");
     }));
+}
+
+void DirectorySourceTest::keepsNonCalendarIcsFilesAsUnifiedText()
+{
+    QTemporaryDir temp;
+    QVERIFY(temp.isValid());
+
+    QDir dir(temp.path());
+    QVERIFY(dir.mkpath(QStringLiteral("library/calendar")));
+    writeFile(dir.filePath(QStringLiteral("library/calendar/notes.ics")),
+              QByteArray("NOTE: plain ICS suffix text remains unified text\n"
+                         "ANCHOR: ics_text_anchor\n"
+                         "https://docs.example.com/plain/ics#text\n"));
+    writeFile(dir.filePath(QStringLiteral("library/calendar/notes.ical")),
+              QByteArray("NOTE: plain ICAL suffix text remains unified text\n"
+                         "ANCHOR: ical_text_anchor\n"
+                         "https://docs.example.com/plain/ical#text\n"));
+
+    DirectoryLibrarySource source(dir.filePath(QStringLiteral("library")));
+    QString error;
+    const QList<Resource> resources = source.scan(&error);
+    QVERIFY2(error.isEmpty(), qPrintable(error));
+
+    auto findFile = [&](const QString &title) {
+        return std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::File && resource.title == title;
+        });
+    };
+    auto hasLineAnchor = [](const Resource &resource, const QString &target, int line) {
+        return std::any_of(resource.anchors.cbegin(), resource.anchors.cend(), [&](const Anchor &anchor) {
+            return anchor.type == AnchorType::FileLine
+                && anchor.target == target
+                && anchor.line == line;
+        });
+    };
+
+    struct ExpectedCalendarText {
+        QString title;
+        QString noteAnchor;
+        QString markerAnchor;
+        QString urlAnchor;
+        QString url;
+    };
+    const QList<ExpectedCalendarText> expectedFiles{
+        {QStringLiteral("notes.ics"),
+         QStringLiteral("NOTE: plain ICS suffix text remains unified text"),
+         QStringLiteral("marker: ics_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/ics#text"),
+         QStringLiteral("https://docs.example.com/plain/ics#text")},
+        {QStringLiteral("notes.ical"),
+         QStringLiteral("NOTE: plain ICAL suffix text remains unified text"),
+         QStringLiteral("marker: ical_text_anchor"),
+         QStringLiteral("url: https://docs.example.com/plain/ical#text"),
+         QStringLiteral("https://docs.example.com/plain/ical#text")}
+    };
+
+    for (const ExpectedCalendarText &expected : expectedFiles) {
+        const auto fileIt = findFile(expected.title);
+        QVERIFY(fileIt != resources.cend());
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("calendar")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("calendar-link")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("special-reader")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("path-only")));
+        QVERIFY(!fileIt->tags.contains(QStringLiteral("package-container")));
+        QVERIFY(hasLineAnchor(*fileIt, expected.noteAnchor, 1));
+        QVERIFY(hasLineAnchor(*fileIt, expected.markerAnchor, 2));
+        QVERIFY(hasLineAnchor(*fileIt, expected.urlAnchor, 3));
+
+        auto urlIt = std::find_if(resources.cbegin(), resources.cend(), [&](const Resource &resource) {
+            return resource.kind == ResourceKind::Url
+                && resource.location == expected.url;
+        });
+        QVERIFY(urlIt != resources.cend());
+        QVERIFY(!urlIt->tags.contains(QStringLiteral("calendar-link")));
+        QVERIFY(std::any_of(fileIt->relations.cbegin(), fileIt->relations.cend(), [&](const ResourceRelation &relation) {
+            return relation.label == QLatin1String("links-to")
+                && relation.targetResourceId == urlIt->id;
+        }));
+    }
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    IndexingService indexer(repository);
+    QVERIFY2(indexer.index(source), qPrintable(indexer.lastError()));
+
+    for (const ExpectedCalendarText &expected : expectedFiles) {
+        const QList<SearchResult> markerResults = repository.search(SearchQuery{expected.markerAnchor});
+        QVERIFY(std::any_of(markerResults.cbegin(), markerResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::File
+                && result.resource.title == expected.title
+                && !result.resource.tags.contains(QStringLiteral("calendar"))
+                && result.matchedAnchor.has_value()
+                && result.matchedAnchor->type == AnchorType::FileLine
+                && result.matchedAnchor->target == expected.markerAnchor;
+        }));
+
+        const QList<SearchResult> urlResults = repository.search(SearchQuery{expected.url});
+        QVERIFY(std::any_of(urlResults.cbegin(), urlResults.cend(), [&](const SearchResult &result) {
+            return result.resource.kind == ResourceKind::Url
+                && result.resource.location == expected.url
+                && !result.resource.tags.contains(QStringLiteral("calendar-link"));
+        }));
+    }
 }
 
 void DirectorySourceTest::extractsJsonUrlResources()

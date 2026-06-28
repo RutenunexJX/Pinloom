@@ -7130,7 +7130,23 @@ bool isIcalendarFileCandidate(const QFileInfo &fileInfo)
     }
 
     const QString suffix = fileInfo.suffix().toLower();
-    return suffix == QLatin1String("ics") || suffix == QLatin1String("ical");
+    if (suffix != QLatin1String("ics") && suffix != QLatin1String("ical")) {
+        return false;
+    }
+
+    QFile file(fileInfo.absoluteFilePath());
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return false;
+    }
+
+    const QByteArray bytes = file.readAll();
+    if (bytes.contains('\0')) {
+        return false;
+    }
+
+    const QString text = QString::fromUtf8(bytes);
+    return text.contains(QStringLiteral("BEGIN:VCALENDAR"), Qt::CaseInsensitive)
+        && text.contains(QStringLiteral("BEGIN:VEVENT"), Qt::CaseInsensitive);
 }
 
 QString unescapeIcalendarText(const QString &value)

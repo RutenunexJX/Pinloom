@@ -265,7 +265,7 @@ Completed:
 - Index `robots.txt` Sitemap lines as individual URL resources with searchable robots/sitemap tags, source line anchors, and `links-to` relations back to the source file.
 - Index content-verified HAR/http capture entry URL resources with page-title aliases, HTTP method/status tags, fragment anchors, source line anchors, and `links-to` relations back to the capture file; non-HAR `.har` text stays on the unified text path.
 - Index content-verified WARC response URL resources with extracted HTML content, fragment anchors, source line anchors, and `links-to` relations back to the WARC file; non-WARC `.warc` text stays on the unified text path.
-- Index iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar.
+- Index content-verified iCalendar event files with event/time/location anchors plus event URL resources, fragment anchors, and `links-to` relations back to the source calendar; non-calendar `.ics`/`.ical` text stays on the unified text path.
 - Index email `.eml` message files with subject/from/to/date line anchors, searchable message content, body URL resources, fragment anchors, and `links-to` relations back to the source message.
 - Index bare URLs found in `.md/.markdown` and small content-sniffed text files as individual URL resources with host aliases, fragment anchors, source line anchors, and `links-to` relations back to the source file.
 - Index CSV/TSV URL columns as individual URL resources with host aliases, table aliases, category/tag aliases, fragment anchors, source row anchors, and `links-to` relations back to the source table.
@@ -290,7 +290,7 @@ Reader boundary:
 
 Phases:
 
-1. Existing reader consolidation: keep PDF, header-verified browser SQLite, HTML, content-verified MHTML/HAR/WARC, OPML/RSS, sitemap/robots, iCalendar, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
+1. Existing reader consolidation: keep PDF, header-verified browser SQLite, HTML, content-verified MHTML/HAR/WARC/iCalendar, OPML/RSS, sitemap/robots, and email described and tested as beacon/location readers; keep JSON/YAML/TOML/INI and CSV/TSV coverage described as text beacon rules, not special readers.
 2. Engineering and design special readers: generic SQLite table/column/URL/sample-value beacons are in place for header-verified `.db`/`.sqlite`/`.sqlite3` databases; non-SQLite `.db` text stays on the unified text path. SQLite URL values remain database line anchors rather than derived URL resources or inferred `links-to` relations. Archive-like package containers and compound/package document-design containers such as doc/docx, xls/xlsx, ppt/pptx, vsd/vsdx, odt/ods/odp, Pages/Numbers/Sketch packages, and epub are not reader targets; they remain ordinary path-only package-container file resources, including compressed/package-wrapped reader-looking files such as `.har.gz`, `.warc.gz`, `.sqlite.gz`, and `.mhtml.zip`.
 3. Scanned/OCR readers: add OCR text, page/region anchors, confidence diagnostics, and fallback page-level jumps for scanned PDFs and image-heavy documents.
 4. Reader contract and quality layer: standardize reader input limits, output schema, position types, diagnostics, partial extraction, unsupported/encrypted/too-large states, and timeout behavior.
