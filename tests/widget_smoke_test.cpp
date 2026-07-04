@@ -5,6 +5,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/ClipPickerPanel.h"
 #include "pinloom/widgets/ClipResidentApp.h"
+#include "pinloom/widgets/ClipResidentAppConfigStore.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
@@ -55,6 +56,12 @@ private slots:
     void clipResidentAppCreatesStartsStopsSqliteHostWithOptions();
     void clipResidentAppForwardsRequestQuitAndReportsStartErrors();
     void clipResidentAppPreservesHostRuntimeWorkflow();
+    void clipResidentAppConfigStoreRoundTripsExplicitJsonFile();
+    void clipResidentAppConfigStoreReturnsDefaultForMissingExplicitFile();
+    void clipResidentAppConfigStoreReportsInvalidJsonAndFields();
+    void clipResidentAppConfigStoreRejectsInvalidConfigAndWriteFailures();
+    void clipResidentAppConfigStoreConfiguresAppFromExplicitFile();
+    void clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -1376,6 +1383,232 @@ void WidgetSmokeTest::clipResidentAppPreservesHostRuntimeWorkflow()
 
     QVERIFY(!runtime->captureService().suppressingNextChange());
     QCOMPARE(repository->clips().size(), 2);
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreRoundTripsExplicitJsonFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString configPath = dir.filePath(QStringLiteral("resident-config.json"));
+    const QString databasePath = dir.filePath(QStringLiteral("clip.sqlite3"));
+
+    ClipResidentAppConfig config = clipResidentSqliteAppConfig(databasePath);
+    config.initializeSqlite = false;
+    config.hotkeyConfig.key = Qt::Key_F2;
+    config.hotkeyConfig.modifiers = Qt::ControlModifier | Qt::AltModifier;
+    config.pickerSearchOptions.includeSaved = false;
+    config.pickerSearchOptions.includeTemporary = true;
+    config.pickerSearchOptions.emptyQueryReturnsPinnedAndRecent = false;
+    config.pickerSearchOptions.limit = 11;
+    config.insertionOptions.restoreOriginalClipboardOnSuccess = false;
+    config.insertionOptions.markClipUsedOnSuccess = false;
+    config.closePickerOnActivationSuccess = false;
+    config.showTrayOnStart = false;
+    config.hideTrayOnStop = false;
+    config.hidePickerOnStop = false;
+    config.stopOnQuitRequested = false;
+
+    ClipResidentAppConfigStore store;
+    QString error;
+    QVERIFY2(store.save(configPath, config, &error), qPrintable(error));
+    QVERIFY(QFile::exists(configPath));
+
+    const ClipResidentAppConfigLoadResult loaded = store.load(configPath);
+    QVERIFY2(loaded.succeeded(), qPrintable(loaded.error));
+    QVERIFY(loaded.loadedFromFile);
+
+    QCOMPARE(static_cast<int>(loaded.config.repositoryKind), static_cast<int>(config.repositoryKind));
+    QCOMPARE(loaded.config.sqliteDatabasePath, databasePath);
+    QVERIFY(!loaded.config.initializeSqlite);
+    QCOMPARE(loaded.config.hotkeyConfig.key, Qt::Key_F2);
+    QCOMPARE(static_cast<int>(loaded.config.hotkeyConfig.modifiers),
+             static_cast<int>(Qt::ControlModifier | Qt::AltModifier));
+    QVERIFY(!loaded.config.pickerSearchOptions.includeSaved);
+    QVERIFY(loaded.config.pickerSearchOptions.includeTemporary);
+    QVERIFY(!loaded.config.pickerSearchOptions.emptyQueryReturnsPinnedAndRecent);
+    QCOMPARE(loaded.config.pickerSearchOptions.limit, 11);
+    QVERIFY(!loaded.config.insertionOptions.restoreOriginalClipboardOnSuccess);
+    QVERIFY(!loaded.config.insertionOptions.markClipUsedOnSuccess);
+    QVERIFY(!loaded.config.closePickerOnActivationSuccess);
+    QVERIFY(!loaded.config.showTrayOnStart);
+    QVERIFY(!loaded.config.hideTrayOnStop);
+    QVERIFY(!loaded.config.hidePickerOnStop);
+    QVERIFY(!loaded.config.stopOnQuitRequested);
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreReturnsDefaultForMissingExplicitFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString missingPath = dir.filePath(QStringLiteral("missing-resident-config.json"));
+    QVERIFY(!QFile::exists(missingPath));
+
+    ClipResidentAppConfigStore store;
+    const ClipResidentAppConfigLoadResult loaded = store.load(missingPath);
+
+    QVERIFY2(loaded.succeeded(), qPrintable(loaded.error));
+    QVERIFY(!loaded.loadedFromFile);
+    QVERIFY(!QFile::exists(missingPath));
+    QCOMPARE(static_cast<int>(loaded.config.repositoryKind), static_cast<int>(ClipResidentRepositoryKind::InMemory));
+    QVERIFY(loaded.config.sqliteDatabasePath.isEmpty());
+    QVERIFY(loaded.config.initializeSqlite);
+    QCOMPARE(loaded.config.hotkeyConfig.key, Qt::Key_V);
+    QCOMPARE(static_cast<int>(loaded.config.hotkeyConfig.modifiers),
+             static_cast<int>(Qt::ControlModifier | Qt::ShiftModifier));
+    QVERIFY(loaded.config.pickerSearchOptions.includeSaved);
+    QVERIFY(!loaded.config.pickerSearchOptions.includeTemporary);
+    QVERIFY(loaded.config.pickerSearchOptions.emptyQueryReturnsPinnedAndRecent);
+    QCOMPARE(loaded.config.pickerSearchOptions.limit, 20);
+    QVERIFY(loaded.config.insertionOptions.restoreOriginalClipboardOnSuccess);
+    QVERIFY(loaded.config.insertionOptions.markClipUsedOnSuccess);
+    QVERIFY(loaded.config.closePickerOnActivationSuccess);
+    QVERIFY(loaded.config.showTrayOnStart);
+    QVERIFY(loaded.config.hideTrayOnStop);
+    QVERIFY(loaded.config.hidePickerOnStop);
+    QVERIFY(loaded.config.stopOnQuitRequested);
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreReportsInvalidJsonAndFields()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    ClipResidentAppConfigStore store;
+
+    const QString invalidJsonPath = dir.filePath(QStringLiteral("invalid-json.json"));
+    writeTestFile(invalidJsonPath, QByteArray("{ broken json"));
+    ClipResidentAppConfigLoadResult loaded = store.load(invalidJsonPath);
+    QVERIFY(!loaded.succeeded());
+    QVERIFY(loaded.error.contains(QStringLiteral("Invalid clip resident app config JSON")));
+
+    const QString unknownRepositoryPath = dir.filePath(QStringLiteral("unknown-repository.json"));
+    writeTestFile(unknownRepositoryPath, QByteArray(R"({"repository":{"kind":"registry"}})"));
+    loaded = store.load(unknownRepositoryPath);
+    QVERIFY(!loaded.succeeded());
+    QCOMPARE(loaded.error, QStringLiteral("Unknown clip repository kind: registry"));
+
+    const QString invalidHotkeyPath = dir.filePath(QStringLiteral("invalid-hotkey.json"));
+    writeTestFile(invalidHotkeyPath, QByteArray(R"({"hotkey":{"key":""}})"));
+    loaded = store.load(invalidHotkeyPath);
+    QVERIFY(!loaded.succeeded());
+    QCOMPARE(loaded.error, QStringLiteral("Hotkey key is required"));
+
+    const QString invalidFieldPath = dir.filePath(QStringLiteral("invalid-field.json"));
+    writeTestFile(invalidFieldPath, QByteArray(R"({"pickerSearchOptions":{"includeSaved":"yes"}})"));
+    loaded = store.load(invalidFieldPath);
+    QVERIFY(!loaded.succeeded());
+    QCOMPARE(loaded.error, QStringLiteral("includeSaved must be a bool"));
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreRejectsInvalidConfigAndWriteFailures()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    ClipResidentAppConfigStore store;
+    QString error;
+
+    ClipResidentAppConfig invalidHotkeyConfig;
+    invalidHotkeyConfig.hotkeyConfig.key = Qt::Key_unknown;
+    QVERIFY(!store.save(dir.filePath(QStringLiteral("invalid-hotkey-save.json")), invalidHotkeyConfig, &error));
+    QCOMPARE(error, QStringLiteral("Hotkey key is required"));
+
+    ClipResidentAppConfig unsupportedRepositoryConfig;
+    unsupportedRepositoryConfig.repositoryKind = static_cast<ClipResidentRepositoryKind>(999);
+    QVERIFY(!store.save(dir.filePath(QStringLiteral("unsupported-repository-save.json")),
+                        unsupportedRepositoryConfig,
+                        &error));
+    QCOMPARE(error, QStringLiteral("Unsupported clip repository kind"));
+
+    const QString missingParentPath = dir.filePath(QStringLiteral("missing-parent/resident-config.json"));
+    QVERIFY(!store.save(missingParentPath, ClipResidentAppConfig{}, &error));
+    QVERIFY(error.contains(QStringLiteral("Unable to write clip resident app config file")));
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreConfiguresAppFromExplicitFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString configPath = dir.filePath(QStringLiteral("resident-config.json"));
+    const QString databasePath = dir.filePath(QStringLiteral("clip.sqlite3"));
+
+    ClipResidentAppConfig config = clipResidentSqliteAppConfig(databasePath);
+    config.hotkeyConfig.key = Qt::Key_B;
+    config.hotkeyConfig.modifiers = Qt::ControlModifier | Qt::AltModifier;
+    config.pickerSearchOptions.includeTemporary = true;
+    config.pickerSearchOptions.limit = 3;
+    config.insertionOptions.restoreOriginalClipboardOnSuccess = false;
+    config.closePickerOnActivationSuccess = false;
+    config.showTrayOnStart = false;
+
+    ClipResidentAppConfigStore store;
+    QString error;
+    QVERIFY2(store.save(configPath, config, &error), qPrintable(error));
+
+    FakeClipboardTextSource captureClipboard;
+    FakeClipboardTextAccessor insertionClipboard;
+    FakeClipHotkeyBackend hotkeyBackend;
+    FakeClipTrayBackend trayBackend;
+    int pasteCalls = 0;
+    ClipResidentApp app(makeResidentRuntimeDependencies(captureClipboard,
+                                                        insertionClipboard,
+                                                        hotkeyBackend,
+                                                        trayBackend,
+                                                        pasteCalls));
+
+    QVERIFY2(configureClipResidentAppFromConfigFile(app, configPath, store, &error), qPrintable(error));
+
+    QVERIFY(app.status() == ClipResidentAppStatus::Ready);
+    QVERIFY(!app.host());
+    QCOMPARE(static_cast<int>(app.config().repositoryKind), static_cast<int>(ClipResidentRepositoryKind::SQLite));
+    QCOMPARE(app.config().sqliteDatabasePath, databasePath);
+    QCOMPARE(app.config().hotkeyConfig.key, Qt::Key_B);
+    QCOMPARE(static_cast<int>(app.config().hotkeyConfig.modifiers),
+             static_cast<int>(Qt::ControlModifier | Qt::AltModifier));
+    QVERIFY(app.config().pickerSearchOptions.includeTemporary);
+    QCOMPARE(app.config().pickerSearchOptions.limit, 3);
+    QVERIFY(!app.config().insertionOptions.restoreOriginalClipboardOnSuccess);
+    QVERIFY(!app.config().closePickerOnActivationSuccess);
+    QVERIFY(!app.config().showTrayOnStart);
+    QCOMPARE(hotkeyBackend.registerCalls(), 0);
+    QVERIFY(!trayBackend.visible());
+    QCOMPARE(pasteCalls, 0);
+}
+
+void WidgetSmokeTest::clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback()
+{
+    ClipResidentAppConfigStore store;
+
+    ClipResidentAppConfigLoadResult loaded = store.load(QStringLiteral("   "));
+    QVERIFY(!loaded.succeeded());
+    QCOMPARE(loaded.error, QStringLiteral("Clip resident app config path is required"));
+    QVERIFY(!loaded.loadedFromFile);
+
+    QString error;
+    QVERIFY(!store.save(QString(), ClipResidentAppConfig{}, &error));
+    QCOMPARE(error, QStringLiteral("Clip resident app config path is required"));
+
+    FakeClipboardTextSource captureClipboard;
+    FakeClipboardTextAccessor insertionClipboard;
+    FakeClipHotkeyBackend hotkeyBackend;
+    FakeClipTrayBackend trayBackend;
+    int pasteCalls = 0;
+    ClipResidentApp app(makeResidentRuntimeDependencies(captureClipboard,
+                                                        insertionClipboard,
+                                                        hotkeyBackend,
+                                                        trayBackend,
+                                                        pasteCalls));
+
+    QVERIFY(!configureClipResidentAppFromConfigFile(app, QString(), store, &error));
+    QCOMPARE(error, QStringLiteral("Clip resident app config path is required"));
+    QVERIFY(app.status() == ClipResidentAppStatus::Ready);
+    QVERIFY(!app.host());
+    QCOMPARE(hotkeyBackend.registerCalls(), 0);
+    QVERIFY(!trayBackend.visible());
+    QCOMPARE(pasteCalls, 0);
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

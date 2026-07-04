@@ -271,6 +271,28 @@ foreground-window recovery, real focus/timing orchestration, target-window
 selection, rich content capture or insertion, image insertion, HTML/RTF/blob
 handling, or the final Listary-style paste workflow.
 
+## Resident App Config Persistence Skeleton
+
+Pinloom Clip now has a small widgets-layer JSON config persistence skeleton for
+the resident app. `ClipResidentAppConfigStore` can save and load
+`ClipResidentAppConfig` from an explicitly supplied JSON file path, including
+the repository kind, explicit SQLite database path and initialization flag,
+hotkey key/modifiers, picker search options, insertion options, and the current
+tray/picker/quit behavior booleans.
+
+The store deliberately has no implicit default location and does not read or
+write the user's real app data directory. Missing explicit config files load
+the safe default in-memory resident config, while invalid JSON, unknown
+repository kinds, invalid hotkeys, invalid field types, and write failures
+return clear errors. Tests use `QTemporaryDir` paths only. A thin helper can
+load a config through the store and pass it to `ClipResidentApp::configure()`
+without starting the resident runtime or touching tray, hotkey, or clipboard
+services.
+
+This is still not a settings UI, autostart registration, an installed resident
+application entry, user-profile config migration, cloud sync, policy UI, or a
+final persistence contract for future settings.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:

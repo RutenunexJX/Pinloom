@@ -92,6 +92,7 @@ endif()
 
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/ClipResidentApp.h
+    include/pinloom/widgets/ClipResidentAppConfigStore.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipPickerPanel.h
@@ -99,6 +100,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/ClipResidentApp.cpp
+    src/widgets/ClipResidentAppConfigStore.cpp
     src/widgets/ClipResidentHost.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipPickerPanel.cpp

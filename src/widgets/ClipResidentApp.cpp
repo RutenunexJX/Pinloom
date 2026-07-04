@@ -79,6 +79,8 @@ QString validateClipResidentAppConfig(const ClipResidentAppConfig &config)
             return QStringLiteral("SQLite database path is required");
         }
         break;
+    default:
+        return QStringLiteral("Unsupported clip repository kind");
     }
 
     if (!config.hotkeyConfig.isValid()) {
