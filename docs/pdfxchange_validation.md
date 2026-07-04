@@ -8,8 +8,10 @@ The Phase 4 manual creation slice now covers the local creation loop: explicit
 name, file, page, rectangle, zoom, aliases, tags, pinned, unit, and source
 inputs can be normalized through the manual PDF-XChange rect provider, saved in
 the repository, searched by name/alias/tag, and launched by the Phase 3
-executor. `Ctrl+K` has an injectable manual request provider hook for hosts, but
-the built-in dialog/picker remains a follow-up.
+executor. `Ctrl+K` still supports an injectable manual request provider hook for
+hosts, and now falls back to a built-in manual PDF anchor dialog/picker when no
+host provider is installed. Automatic reading of PDF-XChange's current page,
+view, selection, annotations, or live coordinates remains a later research item.
 
 ## Automated Coverage
 
@@ -29,6 +31,9 @@ The current automated tests cover:
   name/alias/tag, stable locator JSON, executor compatibility, and SQLite
   reopen/read-back.
 - `Ctrl+K` routing through an injected manual PDF anchor request provider.
+- `Ctrl+K` fallback through the built-in manual PDF anchor dialog path using a
+  test hook, including success, cancellation, invalid request errors, and
+  launcher result selection/search visibility.
 
 Run the automated checks with:
 

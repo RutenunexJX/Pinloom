@@ -74,6 +74,7 @@ struct PinloomPanelOptions {
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     std::function<std::optional<ManualPdfAnchorCreationRequest>()> manualPdfAnchorRequestProvider;
+    std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
     std::function<QString()> pdfXChangeExecutablePathProvider;
     std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
     bool showLibraryRootControls = false;

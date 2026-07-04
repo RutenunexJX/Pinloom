@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include "pinloom/core/IndexingService.h"
+#include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QDateTime>
@@ -1111,30 +1112,39 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
 
 bool PinloomPanel::captureCurrentAppPosition()
 {
+    std::optional<ManualPdfAnchorCreationRequest> request;
     if (options_.manualPdfAnchorRequestProvider) {
-        const std::optional<ManualPdfAnchorCreationRequest> request =
-            options_.manualPdfAnchorRequestProvider();
-        if (!request.has_value()) {
-            updateStatus(tr("Capture canceled"));
-            return false;
+        request = options_.manualPdfAnchorRequestProvider();
+    } else if (options_.manualPdfAnchorDialogHandler) {
+        request = options_.manualPdfAnchorDialogHandler(this);
+    } else {
+        ManualPdfAnchorDialog dialog(this);
+        updateStatus(tr("Creating PDF anchor"));
+        if (dialog.exec() == QDialog::Accepted) {
+            request = dialog.request();
         }
-
-        ManualPdfAnchorCreationService creationService(repository_);
-        const ManualPdfAnchorCreationResult result =
-            creationService.createManualPdfXChangeRectAnchor(request.value());
-        if (!result.success()) {
-            updateStatus(result.error);
-            return false;
-        }
-
-        refreshResults();
-        selectResultResource(result.resource.id);
-        updateStatus(tr("Created PDF anchor \"%1\"").arg(result.anchor.name));
-        return true;
     }
 
-    updateStatus(tr("Capture current app position is not implemented yet"));
-    return false;
+    if (!request.has_value()) {
+        updateStatus(tr("Capture canceled"));
+        return false;
+    }
+
+    ManualPdfAnchorCreationService creationService(repository_);
+    const ManualPdfAnchorCreationResult result =
+        creationService.createManualPdfXChangeRectAnchor(request.value());
+    if (!result.success()) {
+        updateStatus(result.error);
+        return false;
+    }
+
+    refreshResults();
+    if (!selectResultResource(result.resource.id)) {
+        setSearchText(result.anchor.name);
+        selectResultResource(result.resource.id);
+    }
+    updateStatus(tr("Created PDF anchor \"%1\"").arg(result.anchor.name));
+    return true;
 }
 
 bool PinloomPanel::addAliasToSelectedTarget(const QString &alias)

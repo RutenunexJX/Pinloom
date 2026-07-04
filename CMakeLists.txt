@@ -59,8 +59,10 @@ target_link_libraries(pinloom_core
 )
 
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/ManualPdfAnchorDialog.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
+    src/widgets/ManualPdfAnchorDialog.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/TextPreviewDialog.cpp
 )

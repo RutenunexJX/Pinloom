@@ -55,6 +55,9 @@ private slots:
     void panelAllowsHostToHandleOpenTarget();
     void panelKeyboardShortcutsHaveLauncherResponses();
     void panelRoutesCtrlKThroughManualPdfAnchorRequestProvider();
+    void panelCreatesManualPdfAnchorThroughDialogHook();
+    void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
+    void panelReportsInvalidManualPdfAnchorDialogHookRequest();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -1742,6 +1745,11 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     options.statusChangedHandler = [&](const QString &statusText) {
         statusNotifications.append(statusText);
     };
+    bool dialogParentProvided = false;
+    options.manualPdfAnchorDialogHandler = [&](QWidget *parent) -> std::optional<ManualPdfAnchorCreationRequest> {
+        dialogParentProvided = parent != nullptr;
+        return std::nullopt;
+    };
 
     PinloomPanel panel(repository, options);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
@@ -1757,7 +1765,8 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     QCOMPARE(activationCount, 1);
 
     QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
-    QVERIFY(statusNotifications.last().contains(QStringLiteral("not implemented yet")));
+    QVERIFY(dialogParentProvided);
+    QCOMPARE(statusNotifications.last(), QStringLiteral("Capture canceled"));
 
     QTest::keyClick(searchEdit, Qt::Key_A, Qt::AltModifier);
     std::optional<Resource> withAlias = repository.findResource(resource.id);
@@ -1845,6 +1854,125 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()
     QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
     QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase4")});
     QVERIFY(results.first().matchedAnchor->pinned);
+}
+
+void WidgetSmokeTest::panelCreatesManualPdfAnchorThroughDialogHook()
+{
+    InMemoryLibraryRepository repository;
+
+    int dialogCount = 0;
+    bool parentProvided = false;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPdfAnchorDialogHandler = [&](QWidget *parent) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++dialogCount;
+        parentProvided = parent != nullptr;
+        ManualPdfAnchorCreationRequest request;
+        request.name = QStringLiteral("Dialog pick window");
+        request.file = QStringLiteral("E:/docs/dialog-pick.pdf");
+        request.page = 7;
+        request.rect = {12.0, 24.0, 220.0, 140.0};
+        request.zoom = 150.0;
+        request.aliases = {QStringLiteral("dialog alias")};
+        request.tags = {QStringLiteral("#dialog-tag")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    panel.setSearchText(QStringLiteral("unrelated-filter"));
+    QCOMPARE(panel.resultCount(), 0);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(dialogCount, 1);
+    QVERIFY(parentProvided);
+    QCOMPARE(panel.statusText(), QStringLiteral("Created PDF anchor \"Dialog pick window\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QCOMPARE(panel.searchText(), QStringLiteral("Dialog pick window"));
+    QCOMPARE(panel.resultCount(), 1);
+    QCOMPARE(panel.currentOpenTarget().resourceKind, ResourceKind::Pdf);
+    QVERIFY(panel.currentOpenTarget().anchor.has_value());
+    QCOMPARE(panel.currentOpenTarget().anchor->name, QStringLiteral("Dialog pick window"));
+    QCOMPARE(panel.currentOpenTarget().anchor->targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(panel.currentOpenTarget().anchor->targetFile, QStringLiteral("E:/docs/dialog-pick.pdf"));
+    QCOMPARE(panel.currentOpenTarget().anchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QVERIFY(panel.currentOpenTarget().anchor->pinned);
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("dialog alias")});
+    QCOMPARE(aliasResults.size(), 1);
+    QVERIFY(aliasResults.first().matchedAnchor.has_value());
+    QCOMPARE(aliasResults.first().matchedAnchor->tags, QStringList{QStringLiteral("dialog-tag")});
+}
+
+void WidgetSmokeTest::panelCancelsManualPdfAnchorDialogHookWithoutSaving()
+{
+    InMemoryLibraryRepository repository;
+
+    int dialogCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPdfAnchorDialogHandler = [&](QWidget *parent) -> std::optional<ManualPdfAnchorCreationRequest> {
+        Q_UNUSED(parent);
+        ++dialogCount;
+        return std::nullopt;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(dialogCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Capture canceled"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QCOMPARE(panel.resultCount(), 0);
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void WidgetSmokeTest::panelReportsInvalidManualPdfAnchorDialogHookRequest()
+{
+    InMemoryLibraryRepository repository;
+
+    int dialogCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPdfAnchorDialogHandler = [&](QWidget *parent) -> std::optional<ManualPdfAnchorCreationRequest> {
+        Q_UNUSED(parent);
+        ++dialogCount;
+        ManualPdfAnchorCreationRequest request;
+        request.name = QStringLiteral("Invalid dialog request");
+        request.file = QStringLiteral("E:/docs/invalid-dialog.pdf");
+        request.page = 0;
+        request.rect = {10.0, 20.0, 110.0, 80.0};
+        request.zoom = 125.0;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(dialogCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("PDF-XChange capture page is missing"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QCOMPARE(panel.resultCount(), 0);
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
 }
 
 void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()

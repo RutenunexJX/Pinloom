@@ -160,7 +160,8 @@ Status:
   are normalized through the manual PDF-XChange rect capture provider, saved as
   searchable PDF anchors, and remain compatible with the Phase 3 executor.
 - `Ctrl+K` can now be wired by hosts through an injectable manual PDF anchor
-  request provider; a built-in dialog/picker is still a follow-up UI task.
+  request provider, and the default widget now falls back to a built-in manual
+  PDF anchor dialog/picker when no host provider is installed.
 - This slice intentionally does not read PDF-XChange's current view, current
   page, selection, annotations, or live coordinates. Native PDF-XChange capture
   and any calibration mode remain research items for a later Phase 4 step.
