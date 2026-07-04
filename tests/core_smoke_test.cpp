@@ -2,6 +2,7 @@
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/Schema.h"
+#include "pinloom/core/VisioCommand.h"
 
 #include <QByteArray>
 #include <QDateTime>
@@ -24,6 +25,10 @@ private slots:
     void buildsExcelNamedRangeCommand();
     void reportsExcelCommandInputErrors();
     void recognizesExcelTargetAppAliases();
+    void buildsVisioShapeCommand();
+    void buildsVisioShapeCommandWithAliasAndFallbacks();
+    void reportsVisioCommandInputErrors();
+    void recognizesVisioTargetAppAliases();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -315,6 +320,142 @@ void CoreSmokeTest::recognizesExcelTargetAppAliases()
     excel.targetApp.clear();
     excel.locatorType = QStringLiteral("EXCEL.RANGE");
     QVERIFY(isExcelAnchor(excel));
+}
+
+void CoreSmokeTest::buildsVisioShapeCommand()
+{
+    const QString shapeId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
+
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Microsoft Visio");
+    anchor.targetFile = QStringLiteral("E:/drawings/power.vsdx");
+    anchor.locatorType = QStringLiteral("visio.shape");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"visio.shape\",\"page\":\"Page-1\",\"shape_unique_id\":\"%1\"}")
+                             .arg(shapeId);
+
+    QVERIFY(isVisioAnchor(anchor));
+    const VisioJumpCommandResult result = buildVisioJumpCommand(anchor, QString());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.executablePath, QStringLiteral("powershell.exe"));
+    QCOMPARE(result.command.documentPath, anchor.targetFile);
+    QCOMPARE(result.command.locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(result.command.pageName, QStringLiteral("Page-1"));
+    QCOMPARE(result.command.shapeUniqueId, shapeId);
+    QCOMPARE(result.command.arguments.at(0), QStringLiteral("-NoProfile"));
+    QVERIFY(result.command.arguments.contains(QStringLiteral("-Command")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/drawings/power.vsdx')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Pages.ItemU('Page-1')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("ItemFromUniqueID('%1')").arg(shapeId)));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$window.Select($shape, 2)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$window.Activate()")));
+}
+
+void CoreSmokeTest::buildsVisioShapeCommandWithAliasAndFallbacks()
+{
+    const QString shapeId = QStringLiteral("{11111111-2222-3333-4444-555555555555}");
+
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Visio");
+    anchor.targetFile = QStringLiteral("E:/drawings/anchor-field.vsdx");
+    anchor.locatorJson =
+        QStringLiteral("{\"type\":\"visio.shape\",\"page\":\"Page-2\",\"shapeUniqueId\":\"%1\","
+                       "\"document\":\"E:/drawings/document-fallback.vsdx\","
+                       "\"target_file\":\"E:/drawings/target-file-fallback.vsdx\"}")
+            .arg(shapeId);
+
+    QVERIFY(isVisioAnchor(anchor));
+    VisioJumpCommandResult result = buildVisioJumpCommand(anchor, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/drawings/anchor-field.vsdx"));
+    QCOMPARE(result.command.shapeUniqueId, shapeId);
+
+    Anchor targetUriWins = anchor;
+    targetUriWins.targetFile.clear();
+    targetUriWins.targetUri = QStringLiteral("E:/drawings/target-uri.vsdx");
+    result = buildVisioJumpCommand(targetUriWins, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/drawings/target-uri.vsdx"));
+
+    Anchor locatorDocumentFallback = anchor;
+    locatorDocumentFallback.targetFile.clear();
+    result = buildVisioJumpCommand(locatorDocumentFallback, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/drawings/document-fallback.vsdx"));
+
+    Anchor locationFallback = anchor;
+    locationFallback.targetFile.clear();
+    locationFallback.locatorJson =
+        QStringLiteral("{\"type\":\"visio.shape\",\"page\":\"Page-2\",\"shapeUniqueId\":\"%1\"}")
+            .arg(shapeId);
+    result = buildVisioJumpCommand(locationFallback, QStringLiteral("E:/drawings/location-fallback.vsdx"));
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/drawings/location-fallback.vsdx"));
+}
+
+void CoreSmokeTest::reportsVisioCommandInputErrors()
+{
+    const QString shapeId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
+
+    Anchor base;
+    base.targetApp = QStringLiteral("Visio");
+    base.targetFile = QStringLiteral("E:/drawings/power.vsdx");
+    base.locatorType = QStringLiteral("visio.shape");
+    base.locatorJson = QStringLiteral("{\"page\":\"Page-1\",\"shape_unique_id\":\"%1\"}").arg(shapeId);
+
+    Anchor missingFile = base;
+    missingFile.targetFile.clear();
+    VisioJumpCommandResult result = buildVisioJumpCommand(missingFile, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio document path is missing"));
+
+    Anchor invalidJson = base;
+    invalidJson.locatorJson = QStringLiteral("{\"page\":");
+    result = buildVisioJumpCommand(invalidJson, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio locator JSON is invalid"));
+
+    Anchor unsupported = base;
+    unsupported.locatorType = QStringLiteral("visio.page");
+    result = buildVisioJumpCommand(unsupported, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio locator type is unsupported"));
+
+    Anchor missingPage = base;
+    missingPage.locatorJson = QStringLiteral("{\"shape_unique_id\":\"%1\"}").arg(shapeId);
+    result = buildVisioJumpCommand(missingPage, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio locator page is missing"));
+
+    Anchor missingShape = base;
+    missingShape.locatorJson = QStringLiteral("{\"page\":\"Page-1\"}");
+    result = buildVisioJumpCommand(missingShape, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio shape UniqueID is missing"));
+}
+
+void CoreSmokeTest::recognizesVisioTargetAppAliases()
+{
+    Anchor visio;
+    visio.targetApp = QStringLiteral("vIsIo");
+    QVERIFY(isVisioAnchor(visio));
+
+    visio.targetApp = QStringLiteral("Microsoft Visio");
+    QVERIFY(isVisioAnchor(visio));
+
+    visio.targetApp = QStringLiteral("MS Visio");
+    QVERIFY(isVisioAnchor(visio));
+
+    visio.targetApp = QStringLiteral("Word");
+    QVERIFY(!isVisioAnchor(visio));
+
+    visio.targetApp.clear();
+    visio.locatorType = QStringLiteral("VISIO.SHAPE");
+    QVERIFY(isVisioAnchor(visio));
+
+    visio.locatorType.clear();
+    visio.locatorJson = QStringLiteral("{\"type\":\"visio.shape\"}");
+    QVERIFY(isVisioAnchor(visio));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()

@@ -184,8 +184,13 @@ Status:
   with `excel.range` and `excel.name` locators now build a deterministic
   PowerShell/COM command object and route through an injectable Excel launcher
   before generic file fallback.
+- Visio jump executor skeleton and launcher dispatch are implemented: anchors
+  with `visio.shape` locators now build a deterministic PowerShell/COM command
+  object for document, page, and shape UniqueID jumps and route through an
+  injectable Visio launcher before generic file fallback.
 - Excel capture remains pending.
-- Word, PowerPoint, and Visio executors remain pending.
+- Visio capture remains pending.
+- Word and PowerPoint executors remain pending.
 
 ## Phase 6: Experience Completion
 

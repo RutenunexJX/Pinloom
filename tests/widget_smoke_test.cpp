@@ -60,6 +60,8 @@ private slots:
     void panelReportsInvalidManualPdfAnchorDialogHookRequest();
     void panelLaunchesExcelAnchorWithInjectedExecutor();
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
+    void panelLaunchesVisioAnchorWithInjectedExecutor();
+    void panelReportsInvalidVisioLocatorWithoutGenericOpen();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -2092,6 +2094,131 @@ void WidgetSmokeTest::panelReportsInvalidExcelLocatorWithoutGenericOpen()
 
         QVERIFY(!panel.activateCurrentOpenTarget());
         QCOMPARE(panel.statusText(), QStringLiteral("Excel range address is missing"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+}
+
+void WidgetSmokeTest::panelLaunchesVisioAnchorWithInjectedExecutor()
+{
+    InMemoryLibraryRepository repository;
+
+    const QString shapeId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
+
+    Resource resource;
+    resource.id = QStringLiteral("visio-power");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Power Drawing");
+    resource.location = QStringLiteral("E:/drawings/power.vsdx");
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = QStringLiteral("Power gate symbol");
+    anchor.targetApp = QStringLiteral("MS Visio");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("visio.shape");
+    anchor.locatorJson = QStringLiteral("{\"page\":\"Page-1\",\"shape_unique_id\":\"%1\"}").arg(shapeId);
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool launched = false;
+    VisioJumpCommand capturedCommand;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.visioLaunchHandler = [&](const VisioJumpCommand &command, QString *error) {
+        Q_UNUSED(error);
+        launched = true;
+        capturedCommand = command;
+        return true;
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    panel.setSearchText(QStringLiteral("Power gate"));
+    QCOMPARE(panel.resultCount(), 1);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QVERIFY(launched);
+    QCOMPARE(capturedCommand.documentPath, resource.location);
+    QCOMPARE(capturedCommand.locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(capturedCommand.pageName, QStringLiteral("Page-1"));
+    QCOMPARE(capturedCommand.shapeUniqueId, shapeId);
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Visio target"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelReportsInvalidVisioLocatorWithoutGenericOpen()
+{
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("visio-unsupported");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Unsupported Visio Drawing");
+        resource.location = QStringLiteral("E:/drawings/unsupported.vsdx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Unsupported Visio jump");
+        anchor.targetApp = QStringLiteral("Visio");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("visio.page");
+        anchor.locatorJson =
+            QStringLiteral("{\"page\":\"Page-1\",\"shape_unique_id\":\"{00000000-0000-0000-0000-000000000000}\"}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Unsupported Visio"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Visio locator type is unsupported"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("visio-missing-shape");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Missing Shape Visio Drawing");
+        resource.location = QStringLiteral("E:/drawings/missing-shape.vsdx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Missing Visio shape");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("visio.shape");
+        anchor.locatorJson = QStringLiteral("{\"page\":\"Page-1\"}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Missing Visio"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Visio shape UniqueID is missing"));
         QCOMPARE(fileHandler.openCount, 0);
         QVERIFY(!repository.resourceUsage(resource.id).has_value());
     }

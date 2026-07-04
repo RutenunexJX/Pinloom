@@ -505,6 +505,19 @@ bool isExcelComAutomationAvailable()
 #endif
 }
 
+bool isVisioComAutomationAvailable()
+{
+#ifdef Q_OS_WIN
+    QSettings visioApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Visio.Application"),
+                                  QSettings::NativeFormat);
+    const QString classId = visioApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
+    const QString currentVersion = visioApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
+    return !classId.isEmpty() || !currentVersion.isEmpty();
+#else
+    return false;
+#endif
+}
+
 } // namespace
 
 PinloomPanel::PinloomPanel(ILibraryRepository &repository, QWidget *parent)
@@ -1767,6 +1780,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
+    if (target.anchor.has_value() && isVisioAnchor(target.anchor.value())) {
+        if (activateVisioTarget(target)) {
+            recordOpen();
+            return true;
+        }
+        return false;
+    }
+
     if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
         if (activatePdfXChangeTarget(target)) {
             recordOpen();
@@ -1844,6 +1865,51 @@ bool PinloomPanel::activateExcelTarget(const PinloomOpenTarget &target)
     }
 
     updateStatus(tr("Opened Excel target"));
+    return true;
+#endif
+}
+
+bool PinloomPanel::activateVisioTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        updateStatus(tr("No Visio anchor selected"));
+        return false;
+    }
+
+    const VisioJumpCommandResult buildResult =
+        buildVisioJumpCommand(target.anchor.value(), target.location);
+    if (!buildResult.success()) {
+        updateStatus(buildResult.error);
+        return false;
+    }
+
+    if (options_.visioLaunchHandler) {
+        QString error;
+        if (!options_.visioLaunchHandler(buildResult.command, &error)) {
+            updateStatus(error.trimmed().isEmpty()
+                             ? tr("Unable to launch Visio")
+                             : error.trimmed());
+            return false;
+        }
+        updateStatus(tr("Opened Visio target"));
+        return true;
+    }
+
+#ifndef Q_OS_WIN
+    updateStatus(tr("Visio jump requires Windows COM automation"));
+    return false;
+#else
+    if (!isVisioComAutomationAvailable()) {
+        updateStatus(tr("Microsoft Visio COM automation is not available"));
+        return false;
+    }
+
+    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
+        updateStatus(tr("Unable to launch Visio"));
+        return false;
+    }
+
+    updateStatus(tr("Opened Visio target"));
     return true;
 #endif
 }
