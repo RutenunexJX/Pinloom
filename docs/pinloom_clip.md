@@ -38,6 +38,18 @@ The current skeleton models text clips with:
 - created_at, updated_at, used_at, and expires_at timestamps
 - optional source_app
 
+## SQLite Persistence
+
+The Clip companion now has a SQLite repository skeleton for plain-text clips.
+It stores the same metadata as the in-memory model in a dedicated `clips` table:
+id, kind, temporary/saved state, text, preview, content hash, saved name,
+aliases, tags, pinned state, timestamps, source app, and byte size.
+
+The first persistent slice is intentionally text-only. It does not create a
+blob directory, does not store images, and does not attempt rich text, HTML, or
+RTF fidelity yet. Future clipboard listeners should still pass through the same
+capture policy checks before writing rows.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:

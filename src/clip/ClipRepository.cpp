@@ -1,10 +1,15 @@
 #include "pinloom/clip/ClipRepository.h"
 
 #include <QCryptographicHash>
+#include <QDir>
+#include <QFileInfo>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSet>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QUuid>
+#include <QVariant>
 #include <algorithm>
 
 namespace Pinloom {
@@ -64,6 +69,99 @@ bool containsExcludedSourceApp(const QStringList &excludedSourceApps, const QStr
     return false;
 }
 
+QString clipKindToString(ClipKind kind)
+{
+    switch (kind) {
+    case ClipKind::Text:
+        return QStringLiteral("text");
+    }
+    return QStringLiteral("text");
+}
+
+ClipKind clipKindFromString(const QString &kind)
+{
+    Q_UNUSED(kind);
+    return ClipKind::Text;
+}
+
+QString clipStateToString(ClipState state)
+{
+    switch (state) {
+    case ClipState::Temporary:
+        return QStringLiteral("temporary");
+    case ClipState::Saved:
+        return QStringLiteral("saved");
+    }
+    return QStringLiteral("temporary");
+}
+
+ClipState clipStateFromString(const QString &state)
+{
+    if (state == QLatin1String("saved")) {
+        return ClipState::Saved;
+    }
+    return ClipState::Temporary;
+}
+
+QStringList listFromStorage(const QString &stored)
+{
+    return cleanStringList(stored.split(QLatin1Char('\n'), Qt::SkipEmptyParts));
+}
+
+QString listToStorage(const QStringList &values)
+{
+    return cleanStringList(values).join(QLatin1Char('\n'));
+}
+
+QVariant dateTimeToStorageValue(const QDateTime &dateTime)
+{
+    if (!dateTime.isValid()) {
+        return {};
+    }
+    return dateTime.toUTC().toString(Qt::ISODateWithMs);
+}
+
+QDateTime dateTimeFromStorageValue(const QVariant &value)
+{
+    if (value.isNull() || value.toString().trimmed().isEmpty()) {
+        return {};
+    }
+    return QDateTime::fromString(value.toString(), Qt::ISODate).toUTC();
+}
+
+QStringList clipSchemaStatements()
+{
+    return {
+        QStringLiteral("CREATE TABLE IF NOT EXISTS clip_schema_migrations ("
+                       "version INTEGER PRIMARY KEY,"
+                       "name TEXT NOT NULL,"
+                       "applied_at TEXT NOT NULL"
+                       ");"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS clips ("
+                       "id TEXT PRIMARY KEY,"
+                       "kind TEXT NOT NULL,"
+                       "state TEXT NOT NULL,"
+                       "text TEXT NOT NULL,"
+                       "preview TEXT NOT NULL,"
+                       "content_hash TEXT NOT NULL UNIQUE,"
+                       "name TEXT,"
+                       "aliases TEXT,"
+                       "tags TEXT,"
+                       "pinned INTEGER NOT NULL DEFAULT 0,"
+                       "created_at TEXT NOT NULL,"
+                       "updated_at TEXT NOT NULL,"
+                       "used_at TEXT,"
+                       "expires_at TEXT,"
+                       "source_app TEXT,"
+                       "size_bytes INTEGER NOT NULL DEFAULT 0"
+                       ");"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_clips_state_created_at "
+                       "ON clips(state, created_at);"),
+        QStringLiteral("CREATE INDEX IF NOT EXISTS idx_clips_state_expires_at "
+                       "ON clips(state, expires_at);")
+    };
+}
+
 int clipIndexById(const QList<Clip> &clips, const QString &id)
 {
     for (int index = 0; index < clips.size(); ++index) {
@@ -88,6 +186,451 @@ QString insertModeToString(ClipInsertMode mode)
 bool ClipCaptureResult::captured() const
 {
     return status == ClipCaptureStatus::Captured && clip.has_value();
+}
+
+SqliteClipRepository::SqliteClipRepository()
+    : connectionName_(QStringLiteral("pinloom_clip_%1").arg(QUuid::createUuid().toString(QUuid::Id128)))
+{
+}
+
+SqliteClipRepository::~SqliteClipRepository()
+{
+    if (database_.isValid()) {
+        database_.close();
+        database_ = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName_);
+    }
+}
+
+bool SqliteClipRepository::open(const QString &path)
+{
+    if (path.trimmed().isEmpty()) {
+        setLastError(QStringLiteral("Database path is required"));
+        return false;
+    }
+
+    if (path != QLatin1String(":memory:")) {
+        const QFileInfo databaseFile(path);
+        QDir parentDir(databaseFile.absolutePath());
+        if (!parentDir.exists() && !parentDir.mkpath(QStringLiteral("."))) {
+            setLastError(QStringLiteral("Unable to create database directory: %1").arg(parentDir.absolutePath()));
+            return false;
+        }
+    }
+
+    if (database_.isValid()) {
+        database_.close();
+        database_ = QSqlDatabase();
+        QSqlDatabase::removeDatabase(connectionName_);
+    }
+
+    database_ = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName_);
+    database_.setDatabaseName(path);
+
+    if (!database_.open()) {
+        setLastError(database_.lastError().text());
+        return false;
+    }
+
+    if (!execute(QStringLiteral("PRAGMA foreign_keys = ON;"))) {
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteClipRepository::initialize()
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    if (!database_.transaction()) {
+        setLastError(database_.lastError().text());
+        return false;
+    }
+
+    for (const QString &statement : clipSchemaStatements()) {
+        if (!execute(statement)) {
+            database_.rollback();
+            return false;
+        }
+    }
+
+    if (!recordMigration(1, QStringLiteral("initial_clip_text_schema"))) {
+        database_.rollback();
+        return false;
+    }
+
+    if (!database_.commit()) {
+        setLastError(database_.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteClipRepository::isOpen() const
+{
+    return database_.isValid() && database_.isOpen();
+}
+
+QString SqliteClipRepository::lastError() const
+{
+    return lastError_;
+}
+
+ClipCaptureResult SqliteClipRepository::captureText(const QString &text,
+                                                    const ClipCapturePolicy &policy,
+                                                    const QString &sourceApp,
+                                                    const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return {ClipCaptureStatus::IgnoredBlank, std::nullopt};
+    }
+
+    const QDateTime capturedAt = effectiveUtcNow(now);
+    if (!pruneTemporaryHistoryInternal(policy, capturedAt)) {
+        return {ClipCaptureStatus::IgnoredBlank, std::nullopt};
+    }
+
+    if (policy.capturePaused) {
+        return {ClipCaptureStatus::IgnoredPaused, std::nullopt};
+    }
+
+    if (containsExcludedSourceApp(policy.excludedSourceApps, sourceApp)) {
+        return {ClipCaptureStatus::IgnoredExcludedSource, std::nullopt};
+    }
+
+    if (text.trimmed().isEmpty()) {
+        return {ClipCaptureStatus::IgnoredBlank, std::nullopt};
+    }
+
+    const QByteArray bytes = text.toUtf8();
+    if (policy.maxTextBytes >= 0 && bytes.size() > policy.maxTextBytes) {
+        return {ClipCaptureStatus::IgnoredTooLarge, std::nullopt};
+    }
+
+    const QString contentHash = contentHashForBytes(bytes);
+    if (hasContentHash(contentHash)) {
+        return {ClipCaptureStatus::IgnoredDuplicate, std::nullopt};
+    }
+
+    Clip clip;
+    clip.id = makeClipId();
+    clip.kind = ClipKind::Text;
+    clip.state = ClipState::Temporary;
+    clip.text = text;
+    clip.preview = previewForText(text);
+    clip.contentHash = contentHash;
+    clip.createdAt = capturedAt;
+    clip.updatedAt = capturedAt;
+    clip.usedAt = capturedAt;
+    clip.sourceApp = sourceApp.trimmed();
+    clip.sizeBytes = bytes.size();
+    if (policy.temporaryTtlSeconds > 0) {
+        clip.expiresAt = capturedAt.addSecs(policy.temporaryTtlSeconds);
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("INSERT INTO clips(id, kind, state, text, preview, content_hash, name, aliases, tags, "
+                                 "pinned, created_at, updated_at, used_at, expires_at, source_app, size_bytes) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(clip.id);
+    query.addBindValue(clipKindToString(clip.kind));
+    query.addBindValue(clipStateToString(clip.state));
+    query.addBindValue(clip.text);
+    query.addBindValue(clip.preview);
+    query.addBindValue(clip.contentHash);
+    query.addBindValue(clip.name);
+    query.addBindValue(listToStorage(clip.aliases));
+    query.addBindValue(listToStorage(clip.tags));
+    query.addBindValue(clip.pinned ? 1 : 0);
+    query.addBindValue(dateTimeToStorageValue(clip.createdAt));
+    query.addBindValue(dateTimeToStorageValue(clip.updatedAt));
+    query.addBindValue(dateTimeToStorageValue(clip.usedAt));
+    query.addBindValue(dateTimeToStorageValue(clip.expiresAt));
+    query.addBindValue(clip.sourceApp);
+    query.addBindValue(static_cast<qlonglong>(clip.sizeBytes));
+    if (!query.exec()) {
+        const QString errorText = query.lastError().text();
+        setLastError(errorText);
+        if (errorText.contains(QLatin1String("UNIQUE"), Qt::CaseInsensitive)) {
+            return {ClipCaptureStatus::IgnoredDuplicate, std::nullopt};
+        }
+        return {ClipCaptureStatus::IgnoredBlank, std::nullopt};
+    }
+
+    if (!pruneTemporaryHistoryInternal(policy, capturedAt)) {
+        return {ClipCaptureStatus::IgnoredBlank, std::nullopt};
+    }
+
+    lastError_.clear();
+    return {ClipCaptureStatus::Captured, clip};
+}
+
+bool SqliteClipRepository::saveClip(const QString &id,
+                                    const QString &name,
+                                    const QStringList &aliases,
+                                    const QStringList &tags,
+                                    bool pinned,
+                                    const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    const std::optional<Clip> stored = findClip(id);
+    if (!stored.has_value()) {
+        setLastError(QStringLiteral("Clip not found"));
+        return false;
+    }
+
+    const QString trimmedName = name.trimmed();
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE clips SET "
+                                 "state = ?,"
+                                 "name = ?,"
+                                 "aliases = ?,"
+                                 "tags = ?,"
+                                 "pinned = ?,"
+                                 "updated_at = ?,"
+                                 "expires_at = NULL "
+                                 "WHERE id = ?"));
+    query.addBindValue(clipStateToString(ClipState::Saved));
+    query.addBindValue(trimmedName.isEmpty() ? stored->preview : trimmedName);
+    query.addBindValue(listToStorage(aliases));
+    query.addBindValue(listToStorage(tags));
+    query.addBindValue(pinned ? 1 : 0);
+    query.addBindValue(dateTimeToStorageValue(effectiveUtcNow(now)));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteClipRepository::markClipUsed(const QString &id, const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    if (!findClip(id).has_value()) {
+        setLastError(QStringLiteral("Clip not found"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE clips SET used_at = ? WHERE id = ?"));
+    query.addBindValue(dateTimeToStorageValue(effectiveUtcNow(now)));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+void SqliteClipRepository::pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now)
+{
+    pruneTemporaryHistoryInternal(policy, now);
+}
+
+QList<Clip> SqliteClipRepository::clips() const
+{
+    return readClips();
+}
+
+QList<Clip> SqliteClipRepository::temporaryClips() const
+{
+    return readClips(QStringLiteral("state = 'temporary'"));
+}
+
+QList<Clip> SqliteClipRepository::savedClips() const
+{
+    return readClips(QStringLiteral("state = 'saved'"));
+}
+
+std::optional<Clip> SqliteClipRepository::findClip(const QString &id) const
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return std::nullopt;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("SELECT id, kind, state, text, preview, content_hash, name, aliases, tags, "
+                                 "pinned, created_at, updated_at, used_at, expires_at, source_app, size_bytes "
+                                 "FROM clips WHERE id = ?"));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return std::nullopt;
+    }
+    if (!query.next()) {
+        return std::nullopt;
+    }
+
+    return hydrateClip(query);
+}
+
+bool SqliteClipRepository::execute(const QString &sql)
+{
+    QSqlQuery query(database_);
+    if (!query.exec(sql)) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool SqliteClipRepository::recordMigration(int version, const QString &name)
+{
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("INSERT OR IGNORE INTO clip_schema_migrations(version, name, applied_at) "
+                                 "VALUES (?, ?, ?)"));
+    query.addBindValue(version);
+    query.addBindValue(name);
+    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool SqliteClipRepository::hasContentHash(const QString &contentHash) const
+{
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("SELECT 1 FROM clips WHERE content_hash = ? LIMIT 1"));
+    query.addBindValue(contentHash);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    return query.next();
+}
+
+bool SqliteClipRepository::pruneTemporaryHistoryInternal(const ClipCapturePolicy &policy, const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    if (!database_.transaction()) {
+        setLastError(database_.lastError().text());
+        return false;
+    }
+
+    const QDateTime pruneAt = effectiveUtcNow(now);
+    QSqlQuery deleteExpired(database_);
+    deleteExpired.prepare(QStringLiteral("DELETE FROM clips "
+                                         "WHERE state = ? "
+                                         "AND expires_at IS NOT NULL "
+                                         "AND expires_at <= ?"));
+    deleteExpired.addBindValue(clipStateToString(ClipState::Temporary));
+    deleteExpired.addBindValue(dateTimeToStorageValue(pruneAt));
+    if (!deleteExpired.exec()) {
+        setLastError(deleteExpired.lastError().text());
+        database_.rollback();
+        return false;
+    }
+
+    if (policy.maxTemporaryClips >= 0) {
+        QSqlQuery deleteOverflow(database_);
+        deleteOverflow.prepare(QStringLiteral("DELETE FROM clips "
+                                             "WHERE state = ? "
+                                             "AND id NOT IN ("
+                                             "SELECT id FROM clips "
+                                             "WHERE state = ? "
+                                             "ORDER BY created_at DESC, id DESC "
+                                             "LIMIT ?)"));
+        deleteOverflow.addBindValue(clipStateToString(ClipState::Temporary));
+        deleteOverflow.addBindValue(clipStateToString(ClipState::Temporary));
+        deleteOverflow.addBindValue(policy.maxTemporaryClips);
+        if (!deleteOverflow.exec()) {
+            setLastError(deleteOverflow.lastError().text());
+            database_.rollback();
+            return false;
+        }
+    }
+
+    if (!database_.commit()) {
+        setLastError(database_.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+QList<Clip> SqliteClipRepository::readClips(const QString &whereClause) const
+{
+    QList<Clip> results;
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return results;
+    }
+
+    QString sql = QStringLiteral("SELECT id, kind, state, text, preview, content_hash, name, aliases, tags, "
+                                 "pinned, created_at, updated_at, used_at, expires_at, source_app, size_bytes "
+                                 "FROM clips");
+    if (!whereClause.trimmed().isEmpty()) {
+        sql += QStringLiteral(" WHERE ") + whereClause;
+    }
+    sql += QStringLiteral(" ORDER BY created_at ASC, id ASC");
+
+    QSqlQuery query(database_);
+    if (!query.exec(sql)) {
+        setLastError(query.lastError().text());
+        return results;
+    }
+
+    while (query.next()) {
+        results.append(hydrateClip(query));
+    }
+
+    return results;
+}
+
+Clip SqliteClipRepository::hydrateClip(QSqlQuery &query) const
+{
+    Clip clip;
+    clip.id = query.value(0).toString();
+    clip.kind = clipKindFromString(query.value(1).toString());
+    clip.state = clipStateFromString(query.value(2).toString());
+    clip.text = query.value(3).toString();
+    clip.preview = query.value(4).toString();
+    clip.contentHash = query.value(5).toString();
+    clip.name = query.value(6).toString();
+    clip.aliases = listFromStorage(query.value(7).toString());
+    clip.tags = listFromStorage(query.value(8).toString());
+    clip.pinned = query.value(9).toInt() != 0;
+    clip.createdAt = dateTimeFromStorageValue(query.value(10));
+    clip.updatedAt = dateTimeFromStorageValue(query.value(11));
+    clip.usedAt = dateTimeFromStorageValue(query.value(12));
+    clip.expiresAt = dateTimeFromStorageValue(query.value(13));
+    clip.sourceApp = query.value(14).toString();
+    clip.sizeBytes = static_cast<qsizetype>(query.value(15).toLongLong());
+    return clip;
+}
+
+void SqliteClipRepository::setLastError(const QString &message) const
+{
+    lastError_ = message;
 }
 
 ClipCaptureResult InMemoryClipRepository::captureText(const QString &text,

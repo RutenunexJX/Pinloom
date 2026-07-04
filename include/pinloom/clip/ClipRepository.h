@@ -4,10 +4,13 @@
 
 #include <QDateTime>
 #include <QList>
+#include <QSqlDatabase>
 #include <QString>
 #include <QStringList>
 #include <QtGlobal>
 #include <optional>
+
+class QSqlQuery;
 
 namespace Pinloom {
 
@@ -90,6 +93,49 @@ public:
 
 private:
     QList<Clip> clips_;
+};
+
+class SqliteClipRepository {
+public:
+    SqliteClipRepository();
+    ~SqliteClipRepository();
+
+    bool open(const QString &path);
+    bool initialize();
+    bool isOpen() const;
+    QString lastError() const;
+
+    ClipCaptureResult captureText(const QString &text,
+                                  const ClipCapturePolicy &policy = {},
+                                  const QString &sourceApp = {},
+                                  const QDateTime &now = {});
+
+    bool saveClip(const QString &id,
+                  const QString &name,
+                  const QStringList &aliases = {},
+                  const QStringList &tags = {},
+                  bool pinned = false,
+                  const QDateTime &now = {});
+    bool markClipUsed(const QString &id, const QDateTime &now = {});
+    void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
+
+    QList<Clip> clips() const;
+    QList<Clip> temporaryClips() const;
+    QList<Clip> savedClips() const;
+    std::optional<Clip> findClip(const QString &id) const;
+
+private:
+    bool execute(const QString &sql);
+    bool recordMigration(int version, const QString &name);
+    bool hasContentHash(const QString &contentHash) const;
+    bool pruneTemporaryHistoryInternal(const ClipCapturePolicy &policy, const QDateTime &now);
+    QList<Clip> readClips(const QString &whereClause = {}) const;
+    Clip hydrateClip(QSqlQuery &query) const;
+    void setLastError(const QString &message) const;
+
+    QString connectionName_;
+    QSqlDatabase database_;
+    mutable QString lastError_;
 };
 
 QString clipTargetApp();

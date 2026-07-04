@@ -66,6 +66,7 @@ target_link_libraries(pinloom_clip_core
     PUBLIC
         pinloom_core
         Qt6::Core
+        Qt6::Sql
 )
 
 add_library(pinloom_widgets STATIC
