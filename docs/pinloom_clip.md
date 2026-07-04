@@ -142,6 +142,26 @@ This is still not the tray app, global hotkey flow, Windows foreground-window
 orchestration, rich text insertion, image insertion, HTML/RTF/blob handling, or
 a full window-targeting paste workflow.
 
+## Global Hotkey Service Skeleton
+
+Pinloom Clip now has a small global hotkey service skeleton for the future
+Ctrl+Shift+V picker summon flow. The core models a hotkey configuration with a
+key and Qt keyboard modifiers, defaults to `Ctrl+Shift+V`, and can expose a
+display string for settings or status surfaces.
+
+The service is dependency-injected around a backend interface. Tests use a fake
+backend, so they can verify registration state, activation signals, failure
+errors, and duplicate start/stop behavior without registering a real global
+hotkey. The default platform backend is intentionally thin: on Windows it is
+structured around Win32 `RegisterHotKey`/`UnregisterHotKey` plus a Qt native
+event filter for `WM_HOTKEY`; on non-Windows platforms it reports unavailable.
+
+A tiny picker hotkey controller can adapt the service activation signal into an
+injected show/focus handler. It does not own a tray app, does not auto-start
+with the system, does not coordinate foreground windows, and does not decide
+paste timing. Those remain app-layer responsibilities for the later
+tray/hotkey/picker workflow.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:

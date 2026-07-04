@@ -1,4 +1,5 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
@@ -130,6 +131,83 @@ private:
     PasteKeySequence sentKeys_;
 };
 
+class FakeClipHotkeyBackend : public ClipHotkeyBackend {
+public:
+    bool isAvailable() const override
+    {
+        return available_;
+    }
+
+    bool registerHotkey(const ClipHotkeyConfig &config, QString *error) override
+    {
+        ++registerCalls_;
+        registeredConfig_ = config;
+        if (!registerResult_) {
+            if (error) {
+                *error = registerError_;
+            }
+            return false;
+        }
+
+        registered_ = true;
+        if (error) {
+            error->clear();
+        }
+        return true;
+    }
+
+    void unregisterHotkey() override
+    {
+        ++unregisterCalls_;
+        registered_ = false;
+    }
+
+    void setAvailable(bool available)
+    {
+        available_ = available;
+    }
+
+    void setRegisterResult(bool registerResult, const QString &error)
+    {
+        registerResult_ = registerResult;
+        registerError_ = error;
+    }
+
+    void activate()
+    {
+        emit hotkeyActivated();
+    }
+
+    int registerCalls() const
+    {
+        return registerCalls_;
+    }
+
+    int unregisterCalls() const
+    {
+        return unregisterCalls_;
+    }
+
+    bool registered() const
+    {
+        return registered_;
+    }
+
+    ClipHotkeyConfig registeredConfig() const
+    {
+        return registeredConfig_;
+    }
+
+private:
+    bool available_ = true;
+    bool registerResult_ = true;
+    bool registered_ = false;
+    int registerCalls_ = 0;
+    int unregisterCalls_ = 0;
+    QString registerError_ = QStringLiteral("fake hotkey registration failed");
+    ClipHotkeyConfig registeredConfig_;
+};
+
 void verifyCtrlVPasteSequence(const PasteKeySequence &sequence)
 {
     const PasteKeySequence expected = PlatformPasteInvoker::ctrlVPasteSequence();
@@ -187,6 +265,13 @@ private slots:
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
     void clipboardServiceSuppressesNextChange();
     void clipboardServicePersistsCapturedTextWithSqliteRepository();
+    void hotkeyConfigDefaultsToCtrlShiftV();
+    void hotkeyServiceRegistersWithFakeBackend();
+    void hotkeyServiceActivationEmitsSignalAndHandler();
+    void hotkeyServiceStopUnregisters();
+    void hotkeyServiceReportsRegisterFailure();
+    void hotkeyServiceDuplicateStartStopIsStable();
+    void clipPickerHotkeyControllerRequestsShow();
     void platformPasteInvokerSendsCtrlVSequence();
     void platformPasteInvokerReportsSenderFailure();
     void platformPasteInvokerReportsUnavailableSender();
@@ -1010,6 +1095,138 @@ void ClipTest::clipboardServicePersistsCapturedTextWithSqliteRepository()
     QCOMPARE(stored->text, QStringLiteral("Persistent clipboard service text"));
     QCOMPARE(stored->sourceApp, QStringLiteral("terminal.exe"));
     QVERIFY(stored->state == ClipState::Temporary);
+}
+
+void ClipTest::hotkeyConfigDefaultsToCtrlShiftV()
+{
+    const ClipHotkeyConfig config = defaultClipHotkeyConfig();
+
+    QVERIFY(config.isValid());
+    QCOMPARE(config.key, Qt::Key_V);
+    QVERIFY(config.modifiers.testFlag(Qt::ControlModifier));
+    QVERIFY(config.modifiers.testFlag(Qt::ShiftModifier));
+    QCOMPARE(config.displayText(), QStringLiteral("Ctrl+Shift+V"));
+}
+
+void ClipTest::hotkeyServiceRegistersWithFakeBackend()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    QList<bool> registeredChanges;
+    QObject::connect(&service, &ClipHotkeyService::registeredChanged, [&](bool registered) {
+        registeredChanges.append(registered);
+    });
+
+    QVERIFY(service.start());
+
+    QVERIFY(service.isRegistered());
+    QVERIFY(backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 0);
+    QVERIFY(backend.registeredConfig() == defaultClipHotkeyConfig());
+    QCOMPARE(service.displayText(), QStringLiteral("Ctrl+Shift+V"));
+    QVERIFY(service.lastError().isEmpty());
+    QCOMPARE(registeredChanges, (QList<bool>{true}));
+}
+
+void ClipTest::hotkeyServiceActivationEmitsSignalAndHandler()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    int signalCount = 0;
+    int handlerCount = 0;
+    QObject::connect(&service, &ClipHotkeyService::activated, [&]() {
+        ++signalCount;
+    });
+    service.setActivationHandler([&]() {
+        ++handlerCount;
+    });
+
+    QVERIFY(service.start());
+    backend.activate();
+
+    QCOMPARE(handlerCount, 1);
+    QCOMPARE(signalCount, 1);
+
+    service.stop();
+    backend.activate();
+
+    QCOMPARE(handlerCount, 1);
+    QCOMPARE(signalCount, 1);
+}
+
+void ClipTest::hotkeyServiceStopUnregisters()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    QList<bool> registeredChanges;
+    QObject::connect(&service, &ClipHotkeyService::registeredChanged, [&](bool registered) {
+        registeredChanges.append(registered);
+    });
+
+    QVERIFY(service.start());
+    service.stop();
+
+    QVERIFY(!service.isRegistered());
+    QVERIFY(!backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 1);
+    QCOMPARE(registeredChanges, (QList<bool>{true, false}));
+}
+
+void ClipTest::hotkeyServiceReportsRegisterFailure()
+{
+    FakeClipHotkeyBackend backend;
+    backend.setRegisterResult(false, QStringLiteral("fake hotkey already registered"));
+    ClipHotkeyService service(&backend);
+
+    QVERIFY(!service.start());
+
+    QVERIFY(!service.isRegistered());
+    QVERIFY(!backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 0);
+    QCOMPARE(service.lastError(), QStringLiteral("fake hotkey already registered"));
+}
+
+void ClipTest::hotkeyServiceDuplicateStartStopIsStable()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+
+    QVERIFY(service.start());
+    QVERIFY(service.start());
+
+    QVERIFY(service.isRegistered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 0);
+
+    service.stop();
+    service.stop();
+
+    QVERIFY(!service.isRegistered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 1);
+}
+
+void ClipTest::clipPickerHotkeyControllerRequestsShow()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    int showHandlerCount = 0;
+    ClipPickerHotkeyController controller(service, [&]() {
+        ++showHandlerCount;
+    });
+    int showSignalCount = 0;
+    QObject::connect(&controller, &ClipPickerHotkeyController::showRequested, [&]() {
+        ++showSignalCount;
+    });
+
+    QVERIFY(service.start());
+    backend.activate();
+
+    QCOMPARE(showHandlerCount, 1);
+    QCOMPARE(showSignalCount, 1);
 }
 
 void ClipTest::platformPasteInvokerSendsCtrlVSequence()
