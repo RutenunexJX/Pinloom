@@ -243,6 +243,34 @@ foreground-window recovery, real focus/timing orchestration, target-window
 selection, rich content capture or insertion, image insertion, HTML/RTF/blob
 handling, or the final Listary-style paste workflow.
 
+## Resident App Entry And Config Skeleton
+
+Pinloom Clip now has a small widgets-layer `ClipResidentApp` and
+`ClipResidentAppConfig` skeleton above `ClipResidentHost` and
+`ClipResidentRuntimeFactory`. The app skeleton stores and validates resident
+configuration, selects the repository kind and explicit SQLite database path,
+applies hotkey, picker search, insertion, tray visibility, and quit behavior
+options, creates the host through an injected host builder/factory, and exposes
+start/stop/requestQuit, status, and lastError for a future executable entry.
+
+The default config remains in-memory so it does not touch real user clipboard
+history or app data. SQLite use requires an explicit database path, and tests
+use temporary paths only. The resident app tests continue to inject fake
+clipboard source/accessor, fake paste invoker, fake hotkey backend, and fake
+tray backend, so they do not register real global hotkeys, create a real system
+tray icon, touch the real clipboard, or send Ctrl+V.
+
+This layer deliberately still goes through `ClipResidentHost` and
+`ClipResidentRuntime`: hotkey and tray show requests, capture pause/resume,
+picker activation, insertion suppression, and quit handling remain owned by
+the lower runtime composition instead of being reimplemented in the app
+skeleton.
+
+This is still not autostart registration, an installed resident application,
+foreground-window recovery, real focus/timing orchestration, target-window
+selection, rich content capture or insertion, image insertion, HTML/RTF/blob
+handling, or the final Listary-style paste workflow.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
