@@ -123,10 +123,24 @@ exact saved-name matches rank ahead of alias matches, then tag matches, then
 preview/text prefix or contains matches. Pinned clips and recent usage break
 ties before updated/created timestamps and clip id.
 
-The picker UI is still a future layer. It should pass the selected search
-result's clip id to `ClipInsertionService`, which already owns staging text on
-the clipboard, invoking paste, optional clipboard restore, and marking clips as
-used.
+## Clip Picker UI Skeleton
+
+Pinloom Clip now has a lightweight Qt `ClipPickerPanel` skeleton for the
+Listary-style picker surface. It is intentionally compact and keyboard-first:
+a search box, a result list, and a status line. The panel uses
+`ClipSearchService`, keeps the conservative saved-only default scope, refreshes
+results as the query changes, and exposes row data for display name, preview,
+matched field/value, tags, aliases, pinned state, rank, and score.
+
+The picker activates the selected result by passing its clip id to an injected
+insertion handler. A small helper can adapt `ClipInsertionService` into that
+handler, but widget tests use fakes and do not touch the system clipboard or
+send real paste keys. Successful activation updates the picker status and can
+close the widget; failures surface the error and leave the clip unchanged.
+
+This is still not the tray app, global hotkey flow, Windows foreground-window
+orchestration, rich text insertion, image insertion, HTML/RTF/blob handling, or
+a full window-targeting paste workflow.
 
 ## Privacy And Limits
 

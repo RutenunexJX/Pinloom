@@ -87,8 +87,10 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/ClipPickerPanel.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
+    src/widgets/ClipPickerPanel.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/TextPreviewDialog.cpp
 )
@@ -100,6 +102,7 @@ target_include_directories(pinloom_widgets
 
 target_link_libraries(pinloom_widgets
     PUBLIC
+        pinloom_clip_core
         pinloom_core
         Qt6::Widgets
 )

@@ -1,4 +1,7 @@
+#include "pinloom/clip/ClipRepository.h"
+#include "pinloom/clip/ClipSearch.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/widgets/ClipPickerPanel.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
@@ -25,6 +28,11 @@ class WidgetSmokeTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void clipPickerEmptyQueryShowsSavedPinnedRecentOnly();
+    void clipPickerRefreshesForNameAliasTagAndHashTag();
+    void clipPickerEnterActivatesInjectedInsertionHandler();
+    void clipPickerShowsErrorAndStaysOpenOnInsertionFailure();
+    void clipPickerCanIncludeTemporaryResults();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -74,12 +82,273 @@ public:
     int openCount = 0;
 };
 
+static QString saveWidgetClip(InMemoryClipRepository &repository,
+                              const QString &text,
+                              const QString &name,
+                              const QStringList &aliases,
+                              const QStringList &tags,
+                              bool pinned,
+                              const QDateTime &capturedAt,
+                              const QDateTime &savedAt)
+{
+    const ClipCaptureResult captured = repository.captureText(text, {}, {}, capturedAt);
+    if (!captured.captured() || !captured.clip.has_value()) {
+        return {};
+    }
+
+    if (!repository.saveClip(captured.clip->id, name, aliases, tags, pinned, savedAt)) {
+        return {};
+    }
+
+    return captured.clip->id;
+}
+
 static void writeTestFile(const QString &path, const QByteArray &content)
 {
     QFile file(path);
     QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
     QCOMPARE(file.write(content), static_cast<qint64>(content.size()));
     file.close();
+}
+
+void WidgetSmokeTest::clipPickerEmptyQueryShowsSavedPinnedRecentOnly()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary picker private text"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString pinnedId = saveWidgetClip(repository,
+                                            QStringLiteral("empty picker pinned text"),
+                                            QStringLiteral("Pinned picker"),
+                                            {},
+                                            {QStringLiteral("favorite")},
+                                            true,
+                                            base.addSecs(1),
+                                            base.addSecs(2));
+    const QString recentId = saveWidgetClip(repository,
+                                            QStringLiteral("empty picker recent text"),
+                                            QStringLiteral("Recent picker"),
+                                            {QStringLiteral("fresh")},
+                                            {},
+                                            false,
+                                            base.addSecs(3),
+                                            base.addSecs(4));
+    const QString staleId = saveWidgetClip(repository,
+                                           QStringLiteral("empty picker stale text"),
+                                           QStringLiteral("Stale picker"),
+                                           {},
+                                           {},
+                                           false,
+                                           base.addSecs(5),
+                                           base.addSecs(6));
+    QVERIFY(!pinnedId.isEmpty());
+    QVERIFY(!recentId.isEmpty());
+    QVERIFY(!staleId.isEmpty());
+    QVERIFY(repository.markClipUsed(staleId, base.addSecs(10)));
+    QVERIFY(repository.markClipUsed(recentId, base.addSecs(100)));
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    auto *resultsList = picker.findChild<QListWidget *>(QStringLiteral("clipPickerResultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(resultsList);
+
+    QCOMPARE(searchEdit->text(), QString());
+    QCOMPARE(picker.resultCount(), 3);
+    const QList<ClipSearchResult> results = picker.currentResults();
+    QCOMPARE(results.at(0).clipId, pinnedId);
+    QCOMPARE(results.at(1).clipId, recentId);
+    QCOMPARE(results.at(2).clipId, staleId);
+    QVERIFY(results.at(0).pinned);
+    QVERIFY(std::none_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == temporary.clip->id;
+    }));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("Pinned picker")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("#favorite")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("rank 1")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("score")));
+}
+
+void WidgetSmokeTest::clipPickerRefreshesForNameAliasTagAndHashTag()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(repository,
+                                          QStringLiteral("Reusable launch command body"),
+                                          QStringLiteral("Launch Command"),
+                                          {QStringLiteral("launcher alias")},
+                                          {QStringLiteral("ops")},
+                                          true,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    auto *resultsList = picker.findChild<QListWidget *>(QStringLiteral("clipPickerResultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(resultsList);
+
+    searchEdit->setText(QStringLiteral("Launch Command"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, clipId);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("name"));
+    QCOMPARE(picker.currentResult().matchedValue, QStringLiteral("Launch Command"));
+    QVERIFY(picker.currentResult().pinned);
+    QCOMPARE(picker.currentResult().rank, 1);
+    QVERIFY(picker.currentResult().score > 0.0);
+
+    searchEdit->setText(QStringLiteral("launcher alias"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, clipId);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("alias"));
+
+    searchEdit->setText(QStringLiteral("ops"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, clipId);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("tag"));
+
+    searchEdit->setText(QStringLiteral("#ops"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, clipId);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("tag"));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("aliases: launcher alias")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("#ops")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("rank 1")));
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("score")));
+}
+
+void WidgetSmokeTest::clipPickerEnterActivatesInjectedInsertionHandler()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(repository,
+                                          QStringLiteral("Insertable clip text"),
+                                          QStringLiteral("Insertable clip"),
+                                          {},
+                                          {},
+                                          false,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+
+    QStringList activatedIds;
+    ClipPickerOptions options;
+    options.closeOnActivationSuccess = false;
+    options.insertionHandler = [&](const QString &selectedClipId, QString *error) {
+        if (error) {
+            error->clear();
+        }
+        activatedIds.append(selectedClipId);
+        return true;
+    };
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search, options);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    QVERIFY(searchEdit);
+    QCOMPARE(picker.currentResult().clipId, clipId);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(activatedIds, QStringList{clipId});
+    QVERIFY(picker.lastActivationSucceeded());
+    QVERIFY(picker.lastError().isEmpty());
+    QCOMPARE(picker.statusText(), QStringLiteral("Inserted clip"));
+}
+
+void WidgetSmokeTest::clipPickerShowsErrorAndStaysOpenOnInsertionFailure()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(repository,
+                                          QStringLiteral("Failing insert clip text"),
+                                          QStringLiteral("Failing insert"),
+                                          {},
+                                          {},
+                                          false,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+
+    QStringList failedIds;
+    ClipPickerOptions options;
+    options.insertionHandler = [&](const QString &selectedClipId, QString *error) {
+        failedIds.append(selectedClipId);
+        if (error) {
+            *error = QStringLiteral("paste target unavailable");
+        }
+        return false;
+    };
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search, options);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    auto *status = picker.findChild<QLabel *>(QStringLiteral("clipPickerStatusLabel"));
+    QVERIFY(searchEdit);
+    QVERIFY(status);
+    picker.show();
+    QVERIFY(picker.isVisible());
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(failedIds, QStringList{clipId});
+    QVERIFY(!picker.lastActivationSucceeded());
+    QCOMPARE(picker.lastError(), QStringLiteral("paste target unavailable"));
+    QCOMPARE(status->text(), QStringLiteral("paste target unavailable"));
+    QVERIFY(picker.isVisible());
+}
+
+void WidgetSmokeTest::clipPickerCanIncludeTemporaryResults()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary visible needle"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+    const QString savedId = saveWidgetClip(repository,
+                                           QStringLiteral("saved visible needle"),
+                                           QStringLiteral("Saved visible"),
+                                           {},
+                                           {},
+                                           false,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    ClipSearchService search(repository);
+    ClipPickerPanel defaultPicker(search);
+    defaultPicker.setQuery(QStringLiteral("visible needle"));
+    QCOMPARE(defaultPicker.resultCount(), 1);
+    QCOMPARE(defaultPicker.currentResult().clipId, savedId);
+    QVERIFY(defaultPicker.currentResult().state == ClipState::Saved);
+
+    ClipSearchOptions searchOptions;
+    searchOptions.includeTemporary = true;
+    ClipPickerOptions options;
+    options.searchOptions = searchOptions;
+    ClipPickerPanel temporaryPicker(search, options);
+    temporaryPicker.setQuery(QStringLiteral("visible needle"));
+    const QList<ClipSearchResult> results = temporaryPicker.currentResults();
+    QCOMPARE(results.size(), 2);
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == temporary.clip->id && result.state == ClipState::Temporary;
+    }));
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == savedId && result.state == ClipState::Saved;
+    }));
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()
