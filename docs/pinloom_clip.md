@@ -66,6 +66,29 @@ the existing Clip repository policy layer.
 This is still not the tray app, global hotkey flow, floating picker, simulated
 paste insertion, rich text capture, image capture, or blob storage.
 
+## Text Clip Insertion
+
+Pinloom Clip now has a small text insertion service for closing the MVP loop
+from a selected clip id to a paste attempt. The service can load a clip from the
+in-memory or SQLite repository, remember the current clipboard text, write the
+target clip text, call an injected paste invoker, and optionally restore the
+original clipboard text after success.
+
+The insertion path is intentionally dependency-injected: tests use fake
+clipboard accessors and fake paste invokers, and the core service does not need
+to touch the real system clipboard or an active window. It also accepts a
+suppression callback, so callers can wire it to
+`ClipboardCaptureService::suppressNextChange()` before self-written clipboard
+changes and avoid recapturing the text it just staged for paste.
+
+The current insertion service reports last inserted id, last status, and last
+error for missing clips, empty or non-text clips, clipboard unavailability,
+clipboard write failure, paste failure, and restore failure.
+
+This is still not the tray app, global hotkey flow, Listary-style floating
+picker, rich text insertion, image insertion, HTML/RTF/blob handling, or a
+platform SendInput default paste implementation.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
@@ -78,8 +101,9 @@ Privacy constraints are part of the first implementation layer:
 - temporary history can be pruned by TTL and maximum count
 - saved clips do not expire through temporary-history retention
 
-Tray UI, global hotkey capture, paste insertion, and blacklist persistence
-should continue to call into these same policy checks before storing anything.
+Tray UI, global hotkey capture, floating picker selection, and blacklist
+persistence should continue to call into these same policy checks before storing
+anything.
 
 ## Worktree Isolation
 

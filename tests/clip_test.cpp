@@ -1,4 +1,5 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
 
 #include <QJsonDocument>
@@ -28,6 +29,63 @@ private:
     QString text_;
 };
 
+class FakeClipboardTextAccessor : public ClipboardTextAccessor {
+public:
+    QString text() const override
+    {
+        return text_;
+    }
+
+    bool setText(const QString &text) override
+    {
+        if (failNextSetText_ || failSetText_) {
+            failNextSetText_ = false;
+            return false;
+        }
+
+        text_ = text;
+        writes_.append(text);
+        return true;
+    }
+
+    bool isAvailable() const override
+    {
+        return available_;
+    }
+
+    void setInitialText(const QString &text)
+    {
+        text_ = text;
+    }
+
+    void setAvailable(bool available)
+    {
+        available_ = available;
+    }
+
+    void setFailSetText(bool failSetText)
+    {
+        failSetText_ = failSetText;
+    }
+
+    void setFailNextSetText()
+    {
+        failNextSetText_ = true;
+    }
+
+    QStringList writes() const
+    {
+        return writes_;
+    }
+
+private:
+    QString text_;
+    QStringList writes_;
+    bool available_ = true;
+    bool failSetText_ = false;
+    bool failNextSetText_ = false;
+};
+
 class ClipTest : public QObject {
     Q_OBJECT
 
@@ -49,6 +107,11 @@ private slots:
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
     void clipboardServiceSuppressesNextChange();
     void clipboardServicePersistsCapturedTextWithSqliteRepository();
+    void insertionServiceInsertsTextById();
+    void insertionServiceSuppressesCaptureBeforeOwnClipboardWrites();
+    void insertionServiceRestoresOriginalClipboardOnSuccess();
+    void insertionServiceReportsErrors();
+    void insertionServiceInsertsSqliteTemporaryAndSavedClips();
 };
 
 void ClipTest::ignoresBlankText()
@@ -541,6 +604,249 @@ void ClipTest::clipboardServicePersistsCapturedTextWithSqliteRepository()
     QCOMPARE(stored->text, QStringLiteral("Persistent clipboard service text"));
     QCOMPARE(stored->sourceApp, QStringLiteral("terminal.exe"));
     QVERIFY(stored->state == ClipState::Temporary);
+}
+
+void ClipTest::insertionServiceInsertsTextById()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Insert this text"));
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    int pasteCalls = 0;
+    ClipInsertionService service(&clipboard, repository, [&]() {
+        ++pasteCalls;
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.restoreOriginalClipboardOnSuccess = false;
+    service.setOptions(options);
+
+    int insertedSignals = 0;
+    QString insertedSignalId;
+    QObject::connect(&service, &ClipInsertionService::inserted, [&](const Clip &clip) {
+        ++insertedSignals;
+        insertedSignalId = clip.id;
+    });
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+
+    QVERIFY(result.inserted());
+    QVERIFY(result.status == ClipInsertionStatus::Inserted);
+    QCOMPARE(result.clipId, captured.clip->id);
+    QCOMPARE(clipboard.text(), QStringLiteral("Insert this text"));
+    QCOMPARE(clipboard.writes(), QStringList{QStringLiteral("Insert this text")});
+    QCOMPARE(pasteCalls, 1);
+    QCOMPARE(insertedSignals, 1);
+    QCOMPARE(insertedSignalId, captured.clip->id);
+    QCOMPARE(service.lastInsertedId(), captured.clip->id);
+    QVERIFY(service.lastInsertedClip().has_value());
+    QVERIFY(service.lastStatus() == ClipInsertionStatus::Inserted);
+    QVERIFY(service.lastError().isEmpty());
+}
+
+void ClipTest::insertionServiceSuppressesCaptureBeforeOwnClipboardWrites()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Self-written text"));
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    ClipInsertionService service(&clipboard, repository, []() {
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.restoreOriginalClipboardOnSuccess = false;
+    service.setOptions(options);
+
+    QStringList clipboardTextAtSuppression;
+    service.setSuppressClipboardCaptureCallback([&]() {
+        clipboardTextAtSuppression.append(clipboard.text());
+    });
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+
+    QVERIFY(result.inserted());
+    QCOMPARE(clipboardTextAtSuppression, QStringList{QStringLiteral("original clipboard")});
+    QCOMPARE(clipboard.writes(), QStringList{QStringLiteral("Self-written text")});
+}
+
+void ClipTest::insertionServiceRestoresOriginalClipboardOnSuccess()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Temporary paste text"));
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    int pasteCalls = 0;
+    ClipInsertionService service(&clipboard, repository, [&]() {
+        ++pasteCalls;
+        return true;
+    });
+
+    int suppressCalls = 0;
+    service.setSuppressClipboardCaptureCallback([&]() {
+        ++suppressCalls;
+    });
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+
+    QVERIFY(result.inserted());
+    QCOMPARE(pasteCalls, 1);
+    QCOMPARE(suppressCalls, 2);
+    QCOMPARE(clipboard.text(), QStringLiteral("original clipboard"));
+    QCOMPARE(clipboard.writes(),
+             (QStringList{QStringLiteral("Temporary paste text"), QStringLiteral("original clipboard")}));
+}
+
+void ClipTest::insertionServiceReportsErrors()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Failure text"));
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+
+    FakeClipboardTextAccessor missingClipboard;
+    int missingPasteCalls = 0;
+    ClipInsertionService missingService(&missingClipboard, repository, [&]() {
+        ++missingPasteCalls;
+        return true;
+    });
+
+    const ClipInsertionResult missing = missingService.insertClip(QStringLiteral("missing-id"));
+    QVERIFY(!missing.inserted());
+    QVERIFY(missing.status == ClipInsertionStatus::MissingClip);
+    QVERIFY(missingService.lastStatus() == ClipInsertionStatus::MissingClip);
+    QVERIFY(!missingService.lastError().isEmpty());
+    QCOMPARE(missingPasteCalls, 0);
+    QVERIFY(missingClipboard.writes().isEmpty());
+
+    FakeClipboardTextAccessor pasteClipboard;
+    ClipInsertionService pasteService(&pasteClipboard, repository, []() {
+        return false;
+    });
+    ClipInsertionOptions noRestore;
+    noRestore.restoreOriginalClipboardOnSuccess = false;
+    pasteService.setOptions(noRestore);
+
+    const ClipInsertionResult pasteFailed = pasteService.insertClip(captured.clip->id);
+    QVERIFY(!pasteFailed.inserted());
+    QVERIFY(pasteFailed.status == ClipInsertionStatus::PasteFailed);
+    QVERIFY(pasteService.lastStatus() == ClipInsertionStatus::PasteFailed);
+    QVERIFY(!pasteService.lastError().isEmpty());
+    QCOMPARE(pasteClipboard.writes(), QStringList{QStringLiteral("Failure text")});
+
+    FakeClipboardTextAccessor unavailableClipboard;
+    unavailableClipboard.setAvailable(false);
+    int unavailablePasteCalls = 0;
+    ClipInsertionService unavailableService(&unavailableClipboard, repository, [&]() {
+        ++unavailablePasteCalls;
+        return true;
+    });
+
+    const ClipInsertionResult unavailable = unavailableService.insertClip(captured.clip->id);
+    QVERIFY(!unavailable.inserted());
+    QVERIFY(unavailable.status == ClipInsertionStatus::ClipboardUnavailable);
+    QVERIFY(unavailableService.lastStatus() == ClipInsertionStatus::ClipboardUnavailable);
+    QVERIFY(!unavailableService.lastError().isEmpty());
+    QCOMPARE(unavailablePasteCalls, 0);
+    QVERIFY(unavailableClipboard.writes().isEmpty());
+
+    FakeClipboardTextAccessor directClipboard;
+    ClipInsertionService directService(&directClipboard,
+                                       [](const QString &) -> std::optional<Clip> {
+                                           return std::nullopt;
+                                       },
+                                       []() {
+                                           return true;
+                                       });
+    Clip emptyClip;
+    emptyClip.id = QStringLiteral("empty");
+    emptyClip.text = QStringLiteral(" \n\t ");
+    const ClipInsertionResult empty = directService.insertClip(emptyClip);
+    QVERIFY(!empty.inserted());
+    QVERIFY(empty.status == ClipInsertionStatus::EmptyText);
+    QVERIFY(directService.lastStatus() == ClipInsertionStatus::EmptyText);
+
+    Clip unsupportedClip;
+    unsupportedClip.id = QStringLiteral("unsupported");
+    unsupportedClip.kind = static_cast<ClipKind>(999);
+    unsupportedClip.text = QStringLiteral("non-text bytes");
+    const ClipInsertionResult unsupported = directService.insertClip(unsupportedClip);
+    QVERIFY(!unsupported.inserted());
+    QVERIFY(unsupported.status == ClipInsertionStatus::UnsupportedKind);
+    QVERIFY(directService.lastStatus() == ClipInsertionStatus::UnsupportedKind);
+
+    FakeClipboardTextAccessor writeClipboard;
+    writeClipboard.setFailSetText(true);
+    ClipInsertionService writeService(&writeClipboard, repository, []() {
+        return true;
+    });
+
+    const ClipInsertionResult writeFailed = writeService.insertClip(captured.clip->id);
+    QVERIFY(!writeFailed.inserted());
+    QVERIFY(writeFailed.status == ClipInsertionStatus::ClipboardWriteFailed);
+    QVERIFY(writeService.lastStatus() == ClipInsertionStatus::ClipboardWriteFailed);
+    QVERIFY(!writeService.lastError().isEmpty());
+}
+
+void ClipTest::insertionServiceInsertsSqliteTemporaryAndSavedClips()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteClipRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom_clip.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    const QDateTime now = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("SQLite temporary insert"), {}, {}, now);
+    QVERIFY2(temporary.captured(), qPrintable(repository.lastError()));
+    QVERIFY(temporary.clip.has_value());
+
+    const ClipCaptureResult saved = repository.captureText(QStringLiteral("SQLite saved insert"), {}, {}, now.addSecs(1));
+    QVERIFY2(saved.captured(), qPrintable(repository.lastError()));
+    QVERIFY(saved.clip.has_value());
+    QVERIFY2(repository.saveClip(saved.clip->id, QStringLiteral("Saved insert"), {}, {}, false, now.addSecs(2)),
+             qPrintable(repository.lastError()));
+
+    FakeClipboardTextAccessor clipboard;
+    int pasteCalls = 0;
+    ClipInsertionService service(&clipboard, repository, [&]() {
+        ++pasteCalls;
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.restoreOriginalClipboardOnSuccess = false;
+    service.setOptions(options);
+
+    const ClipInsertionResult temporaryResult = service.insertClip(temporary.clip->id);
+    QVERIFY2(temporaryResult.inserted(), qPrintable(temporaryResult.error));
+    QCOMPARE(clipboard.text(), QStringLiteral("SQLite temporary insert"));
+
+    const ClipInsertionResult savedResult = service.insertClip(saved.clip->id);
+    QVERIFY2(savedResult.inserted(), qPrintable(savedResult.error));
+    QCOMPARE(clipboard.text(), QStringLiteral("SQLite saved insert"));
+
+    QCOMPARE(pasteCalls, 2);
+    QCOMPARE(service.lastInsertedId(), saved.clip->id);
+    QVERIFY(service.lastStatus() == ClipInsertionStatus::Inserted);
+
+    const std::optional<Clip> usedTemporary = repository.findClip(temporary.clip->id);
+    QVERIFY(usedTemporary.has_value());
+    QVERIFY(usedTemporary->usedAt != temporary.clip->usedAt);
+
+    const std::optional<Clip> usedSaved = repository.findClip(saved.clip->id);
+    QVERIFY(usedSaved.has_value());
+    QVERIFY(usedSaved->usedAt != saved.clip->usedAt);
+    QVERIFY(usedSaved->state == ClipState::Saved);
 }
 
 QTEST_MAIN(ClipTest)
