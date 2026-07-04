@@ -215,6 +215,34 @@ focus/timing orchestration, target-window selection, rich content capture or
 insertion, image insertion, HTML/RTF/blob handling, or the final resident
 application entry point.
 
+## Resident Host And Factory Skeleton
+
+Pinloom Clip now has a small widgets-layer resident host/factory skeleton above
+`ClipResidentRuntime`. `ClipResidentRuntimeFactory` validates required runtime
+dependencies, constructs an in-memory repository by default, can open and
+initialize an explicitly configured SQLite database path, and returns a
+`ClipResidentHost` that owns the repository and the runtime. Tests can also
+inject an already constructed in-memory or SQLite repository so no test needs
+to touch user clipboard history or app data.
+
+`ClipResidentHost` is intentionally thin. It starts, stops, and requests quit
+through the held `ClipResidentRuntime`, forwards runtime signals, and exposes
+the held runtime/repository for app-layer status surfaces and tests. Picker
+search options and insertion options are still applied by the runtime, so the
+host/factory layer does not bypass suppression, capture pause, tray show, or
+picker insertion behavior.
+
+A default-platform host builder exists only as a thin construction hook for a
+future resident entry point. The test suite continues to use fake clipboard
+source/accessor, fake paste invoker, fake hotkey backend, and fake tray backend,
+so it does not register real global hotkeys, create a real system tray icon,
+touch the real clipboard, or send Ctrl+V.
+
+This is still not autostart registration, the final resident app entry point,
+foreground-window recovery, real focus/timing orchestration, target-window
+selection, rich content capture or insertion, image insertion, HTML/RTF/blob
+handling, or the final Listary-style paste workflow.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
