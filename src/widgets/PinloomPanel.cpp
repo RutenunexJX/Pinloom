@@ -1165,6 +1165,31 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
 
 bool PinloomPanel::captureCurrentAppPosition()
 {
+    if (options_.manualExcelAnchorRequestProvider) {
+        const std::optional<ManualExcelAnchorCreationRequest> excelRequest =
+            options_.manualExcelAnchorRequestProvider();
+        if (!excelRequest.has_value()) {
+            updateStatus(tr("Capture canceled"));
+            return false;
+        }
+
+        ManualExcelAnchorCreationService creationService(repository_);
+        const ManualExcelAnchorCreationResult result =
+            creationService.createManualExcelAnchor(excelRequest.value());
+        if (!result.success()) {
+            updateStatus(result.error);
+            return false;
+        }
+
+        refreshResults();
+        if (!selectResultResource(result.resource.id)) {
+            setSearchText(result.anchor.name);
+            selectResultResource(result.resource.id);
+        }
+        updateStatus(tr("Created Excel anchor \"%1\"").arg(result.anchor.name));
+        return true;
+    }
+
     std::optional<ManualPdfAnchorCreationRequest> request;
     if (options_.manualPdfAnchorRequestProvider) {
         request = options_.manualPdfAnchorRequestProvider();

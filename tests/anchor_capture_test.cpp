@@ -1,5 +1,7 @@
 #include "pinloom/core/AnchorCapture.h"
+#include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
@@ -19,6 +21,11 @@ private slots:
     void reportsMissingPdfXChangeCaptureInputs();
     void keepsPdfXChangeLocatorJsonStable();
     void buildsAnchorCompatibleWithPdfXChangeExecutor();
+    void buildsManualExcelRangeAnchor();
+    void buildsManualExcelNamedRangeAnchor();
+    void savesManualExcelRangeAnchorInRepository();
+    void rejectsInvalidManualExcelAnchorInputsWithoutSaving();
+    void createsManualExcelAnchorCompatibleWithExcelExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
@@ -81,6 +88,30 @@ static ManualPdfAnchorCreationRequest validCreationRequest()
     request.zoom = 250.0;
     request.aliases = {QStringLiteral("cdc zoom"), QStringLiteral("CDC Zoom")};
     request.tags = {QStringLiteral("#reviewpoint"), QStringLiteral("reviewpoint")};
+    request.pinned = true;
+    return request;
+}
+
+static ExcelCaptureRequest validExcelRangeCaptureRequest()
+{
+    ExcelCaptureRequest request;
+    request.anchorName = QStringLiteral("Q3 budget table");
+    request.targetFile = QStringLiteral("E:/books/budget.xlsx");
+    request.sheet = QStringLiteral(" Sheet1 ");
+    request.rangeAddress = QStringLiteral(" B12:D18 ");
+    request.namedRange = QStringLiteral("BudgetTable");
+    return request;
+}
+
+static ManualExcelAnchorCreationRequest validExcelRangeCreationRequest()
+{
+    ManualExcelAnchorCreationRequest request;
+    request.name = QStringLiteral("Q3 budget table");
+    request.file = QStringLiteral("E:/books/budget.xlsx");
+    request.sheet = QStringLiteral("Sheet1");
+    request.rangeAddress = QStringLiteral("B12:D18");
+    request.aliases = {QStringLiteral("worksheet slice"), QStringLiteral("Worksheet Slice")};
+    request.tags = {QStringLiteral("#finance"), QStringLiteral("finance")};
     request.pinned = true;
     return request;
 }
@@ -169,6 +200,153 @@ void AnchorCaptureTest::buildsAnchorCompatibleWithPdfXChangeExecutor()
     QVERIFY2(command.success(), qPrintable(command.error));
     QCOMPARE(command.command.filePath, QStringLiteral("E:/docs/clock.pdf"));
     QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+}
+
+void AnchorCaptureTest::buildsManualExcelRangeAnchor()
+{
+    const ExcelCaptureResult result = captureManualExcelAnchor(validExcelRangeCaptureRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.targetApp, QStringLiteral("Microsoft Excel"));
+    QCOMPARE(result.targetFile, QStringLiteral("E:/books/budget.xlsx"));
+    QCOMPARE(result.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(result.sheet, QStringLiteral("Sheet1"));
+    QCOMPARE(result.rangeAddress, QStringLiteral("B12:D18"));
+    QCOMPARE(result.namedRange, QStringLiteral("BudgetTable"));
+    QCOMPARE(result.source, QStringLiteral("manual"));
+
+    QCOMPARE(result.anchor.type, AnchorType::Manual);
+    QCOMPARE(result.anchor.name, QStringLiteral("Q3 budget table"));
+    QCOMPARE(result.anchor.target, QStringLiteral("Q3 budget table"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Excel"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/books/budget.xlsx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(result.anchor.locatorJson,
+             QStringLiteral("{\"name\":\"BudgetTable\",\"range\":\"B12:D18\",\"sheet\":\"Sheet1\",\"source\":\"manual\",\"target_file\":\"E:/books/budget.xlsx\",\"type\":\"excel.range\"}"));
+}
+
+void AnchorCaptureTest::buildsManualExcelNamedRangeAnchor()
+{
+    ExcelCaptureRequest request;
+    request.anchorName = QStringLiteral("Revenue table");
+    request.targetFile = QStringLiteral("E:/books/revenue.xlsx");
+    request.namedRange = QStringLiteral(" RevenueTable ");
+
+    const ExcelCaptureResult result = captureManualExcelAnchor(request);
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.locatorType, QStringLiteral("excel.name"));
+    QCOMPARE(result.namedRange, QStringLiteral("RevenueTable"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.name"));
+    QCOMPARE(result.anchor.locatorJson,
+             QStringLiteral("{\"name\":\"RevenueTable\",\"source\":\"manual\",\"target_file\":\"E:/books/revenue.xlsx\",\"type\":\"excel.name\"}"));
+    QVERIFY(isExcelAnchor(result.anchor));
+
+    const ExcelJumpCommandResult command = buildExcelJumpCommand(result.anchor, QString());
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.workbookPath, QStringLiteral("E:/books/revenue.xlsx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("excel.name"));
+    QCOMPARE(command.command.namedRange, QStringLiteral("RevenueTable"));
+}
+
+void AnchorCaptureTest::savesManualExcelRangeAnchorInRepository()
+{
+    InMemoryLibraryRepository repository;
+    ManualExcelAnchorCreationService service(repository);
+
+    const ManualExcelAnchorCreationResult result =
+        service.createManualExcelAnchor(validExcelRangeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(!result.resource.id.isEmpty());
+    QCOMPARE(result.resource.kind, ResourceKind::File);
+    QCOMPARE(result.resource.title, QStringLiteral("budget.xlsx"));
+    QCOMPARE(result.resource.location, QStringLiteral("E:/books/budget.xlsx"));
+    QCOMPARE(result.anchor.name, QStringLiteral("Q3 budget table"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Excel"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/books/budget.xlsx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("worksheet slice")});
+    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("finance")});
+    QVERIFY(result.anchor.pinned);
+    QVERIFY(result.anchor.createdAt.isValid());
+    QVERIFY(result.anchor.updatedAt.isValid());
+
+    const std::optional<Resource> stored = repository.findResource(result.resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().id, result.anchor.id);
+    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("worksheet slice")});
+    QVERIFY(hasAnchorSearchResult(aliasResults,
+                                  QStringLiteral("anchor_alias"),
+                                  QStringLiteral("Q3 budget table")));
+
+    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("finance")});
+    QVERIFY(hasAnchorSearchResult(tagResults,
+                                  QStringLiteral("anchor_tag"),
+                                  QStringLiteral("Q3 budget table")));
+}
+
+void AnchorCaptureTest::rejectsInvalidManualExcelAnchorInputsWithoutSaving()
+{
+    InMemoryLibraryRepository repository;
+    ManualExcelAnchorCreationService service(repository);
+
+    ManualExcelAnchorCreationRequest request = validExcelRangeCreationRequest();
+    request.name = QStringLiteral(" ");
+    ManualExcelAnchorCreationResult result = service.createManualExcelAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Excel anchor name is missing"));
+
+    request = validExcelRangeCreationRequest();
+    request.file.clear();
+    result = service.createManualExcelAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Excel anchor file is missing"));
+
+    request = validExcelRangeCreationRequest();
+    request.rangeAddress.clear();
+    result = service.createManualExcelAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel capture range or named range is missing"));
+
+    request = validExcelRangeCreationRequest();
+    request.sheet.clear();
+    result = service.createManualExcelAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel capture range sheet is missing"));
+
+    request = validExcelRangeCreationRequest();
+    request.locatorType = QStringLiteral("excel.cell");
+    result = service.createManualExcelAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel capture locator type is unsupported"));
+
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void AnchorCaptureTest::createsManualExcelAnchorCompatibleWithExcelExecutor()
+{
+    InMemoryLibraryRepository repository;
+    ManualExcelAnchorCreationService service(repository);
+    const ManualExcelAnchorCreationResult result =
+        service.createManualExcelAnchor(validExcelRangeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(isExcelAnchor(result.anchor));
+
+    const ExcelJumpCommandResult command = buildExcelJumpCommand(result.anchor, QString());
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.workbookPath, QStringLiteral("E:/books/budget.xlsx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(command.command.sheetName, QStringLiteral("Sheet1"));
+    QCOMPARE(command.command.rangeAddress, QStringLiteral("B12:D18"));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Workbooks.Open('E:/books/budget.xlsx')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Worksheets.Item('Sheet1')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Range('B12:D18')")));
 }
 
 void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()

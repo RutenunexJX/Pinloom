@@ -27,6 +27,17 @@ struct PdfXChangeCaptureRequest {
     QString anchorName;
 };
 
+struct ExcelCaptureRequest {
+    QString targetApp = QStringLiteral("Microsoft Excel");
+    QString targetFile;
+    QString locatorType;
+    QString sheet;
+    QString rangeAddress;
+    QString namedRange;
+    QString source = QStringLiteral("manual");
+    QString anchorName;
+};
+
 struct AnchorCaptureResult {
     Anchor anchor;
     QString targetApp;
@@ -36,6 +47,20 @@ struct AnchorCaptureResult {
     PdfCaptureRect rect;
     double zoom = -1.0;
     QString unit;
+    QString source;
+    QString error;
+
+    bool success() const;
+};
+
+struct ExcelCaptureResult {
+    Anchor anchor;
+    QString targetApp;
+    QString targetFile;
+    QString locatorType;
+    QString sheet;
+    QString rangeAddress;
+    QString namedRange;
     QString source;
     QString error;
 
@@ -56,7 +81,23 @@ public:
     AnchorCaptureResult capture(const PdfXChangeCaptureRequest &request) const override;
 };
 
+class ExcelCaptureProvider {
+public:
+    virtual ~ExcelCaptureProvider() = default;
+
+    virtual QString source() const = 0;
+    virtual ExcelCaptureResult capture(const ExcelCaptureRequest &request) const = 0;
+};
+
+class ManualExcelAnchorCaptureProvider final : public ExcelCaptureProvider {
+public:
+    QString source() const override;
+    ExcelCaptureResult capture(const ExcelCaptureRequest &request) const override;
+};
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request);
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request);
+QString excelLocatorJson(const ExcelCaptureRequest &request);
+ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request);
 
 } // namespace Pinloom

@@ -1,5 +1,7 @@
 #include "pinloom/core/AnchorCapture.h"
 
+#include "pinloom/core/ExcelCommand.h"
+
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -34,6 +36,31 @@ QString effectiveSource(const PdfXChangeCaptureRequest &request, const QString &
     return source.isEmpty() ? fallback : source;
 }
 
+QString effectiveSource(const ExcelCaptureRequest &request, const QString &fallback)
+{
+    const QString source = request.source.trimmed().toLower();
+    return source.isEmpty() ? fallback : source;
+}
+
+QString effectiveExcelTargetApp(const ExcelCaptureRequest &request)
+{
+    const QString targetApp = request.targetApp.trimmed();
+    return targetApp.isEmpty() ? QStringLiteral("Microsoft Excel") : targetApp;
+}
+
+QString effectiveExcelLocatorType(const ExcelCaptureRequest &request)
+{
+    const QString locatorType = request.locatorType.trimmed().toLower();
+    if (!locatorType.isEmpty()) {
+        return locatorType;
+    }
+
+    if (!request.rangeAddress.trimmed().isEmpty()) {
+        return QStringLiteral("excel.range");
+    }
+    return QStringLiteral("excel.name");
+}
+
 QString defaultAnchorName(const PdfXChangeCaptureRequest &request)
 {
     const QString fileName = QFileInfo(request.targetFile.trimmed()).fileName();
@@ -55,6 +82,20 @@ AnchorCaptureResult resultForRequest(const PdfXChangeCaptureRequest &request,
     result.rect = request.rect;
     result.zoom = request.zoom;
     result.unit = effectiveUnit(request);
+    result.source = effectiveSource(request, source);
+    return result;
+}
+
+ExcelCaptureResult resultForRequest(const ExcelCaptureRequest &request,
+                                    const QString &source)
+{
+    ExcelCaptureResult result;
+    result.targetApp = effectiveExcelTargetApp(request);
+    result.targetFile = request.targetFile.trimmed();
+    result.locatorType = effectiveExcelLocatorType(request);
+    result.sheet = request.sheet.trimmed();
+    result.rangeAddress = request.rangeAddress.trimmed();
+    result.namedRange = request.namedRange.trimmed();
     result.source = effectiveSource(request, source);
     return result;
 }
@@ -82,6 +123,11 @@ bool PdfCaptureRect::isValid() const
 }
 
 bool AnchorCaptureResult::success() const
+{
+    return error.isEmpty();
+}
+
+bool ExcelCaptureResult::success() const
 {
     return error.isEmpty();
 }
@@ -133,6 +179,58 @@ AnchorCaptureResult ManualPdfXChangeRectCaptureProvider::capture(const PdfXChang
     return result;
 }
 
+QString ManualExcelAnchorCaptureProvider::source() const
+{
+    return QStringLiteral("manual");
+}
+
+ExcelCaptureResult ManualExcelAnchorCaptureProvider::capture(const ExcelCaptureRequest &request) const
+{
+    ExcelCaptureResult result = resultForRequest(request, source());
+
+    if (request.anchorName.trimmed().isEmpty()) {
+        result.error = QStringLiteral("Excel capture anchor name is missing");
+        return result;
+    }
+    if (result.targetFile.isEmpty()) {
+        result.error = QStringLiteral("Excel capture target file is missing");
+        return result;
+    }
+    if (!isExcelLocatorType(result.locatorType)) {
+        result.error = QStringLiteral("Excel capture locator type is unsupported");
+        return result;
+    }
+    if (result.rangeAddress.isEmpty() && result.namedRange.isEmpty()) {
+        result.error = QStringLiteral("Excel capture range or named range is missing");
+        return result;
+    }
+
+    if (result.locatorType == QLatin1String("excel.range")) {
+        if (result.sheet.isEmpty()) {
+            result.error = QStringLiteral("Excel capture range sheet is missing");
+            return result;
+        }
+        if (result.rangeAddress.isEmpty()) {
+            result.error = QStringLiteral("Excel capture range address is missing");
+            return result;
+        }
+    } else if (result.namedRange.isEmpty()) {
+        result.error = QStringLiteral("Excel capture named range is missing");
+        return result;
+    }
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = request.anchorName.trimmed();
+    anchor.target = anchor.name;
+    anchor.targetApp = result.targetApp;
+    anchor.targetFile = result.targetFile;
+    anchor.locatorType = result.locatorType;
+    anchor.locatorJson = excelLocatorJson(request);
+    result.anchor = anchor;
+    return result;
+}
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
 {
     QJsonObject locator;
@@ -148,9 +246,36 @@ QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
 
+QString excelLocatorJson(const ExcelCaptureRequest &request)
+{
+    const QString locatorType = effectiveExcelLocatorType(request);
+
+    QJsonObject locator;
+    locator.insert(QStringLiteral("type"), locatorType);
+    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
+    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
+    if (locatorType == QLatin1String("excel.range")) {
+        locator.insert(QStringLiteral("sheet"), request.sheet.trimmed());
+        locator.insert(QStringLiteral("range"), request.rangeAddress.trimmed());
+        const QString namedRange = request.namedRange.trimmed();
+        if (!namedRange.isEmpty()) {
+            locator.insert(QStringLiteral("name"), namedRange);
+        }
+    } else {
+        locator.insert(QStringLiteral("name"), request.namedRange.trimmed());
+    }
+
+    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+}
+
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request)
 {
     return ManualPdfXChangeRectCaptureProvider{}.capture(request);
+}
+
+ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request)
+{
+    return ManualExcelAnchorCaptureProvider{}.capture(request);
 }
 
 } // namespace Pinloom

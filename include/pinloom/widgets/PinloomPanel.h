@@ -3,6 +3,7 @@
 #include "pinloom/core/Anchor.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/LibraryRepository.h"
+#include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
@@ -77,6 +78,7 @@ struct PinloomPanelOptions {
     std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
+    std::function<std::optional<ManualExcelAnchorCreationRequest>()> manualExcelAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>()> manualPdfAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;

@@ -58,6 +58,7 @@ private slots:
     void panelCreatesManualPdfAnchorThroughDialogHook();
     void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
     void panelReportsInvalidManualPdfAnchorDialogHookRequest();
+    void panelRoutesCtrlKThroughManualExcelAnchorRequestProvider();
     void panelLaunchesExcelAnchorWithInjectedExecutor();
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesVisioAnchorWithInjectedExecutor();
@@ -1981,6 +1982,50 @@ void WidgetSmokeTest::panelReportsInvalidManualPdfAnchorDialogHookRequest()
     QCOMPARE(statusNotifications.last(), panel.statusText());
     QCOMPARE(panel.resultCount(), 0);
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void WidgetSmokeTest::panelRoutesCtrlKThroughManualExcelAnchorRequestProvider()
+{
+    InMemoryLibraryRepository repository;
+
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualExcelAnchorRequestProvider = [&]() -> std::optional<ManualExcelAnchorCreationRequest> {
+        ++requestCount;
+        ManualExcelAnchorCreationRequest request;
+        request.name = QStringLiteral("Manual Excel budget table");
+        request.file = QStringLiteral("E:/books/manual-budget.xlsx");
+        request.sheet = QStringLiteral("Sheet1");
+        request.rangeAddress = QStringLiteral("B12:D18");
+        request.aliases = {QStringLiteral("manual budget")};
+        request.tags = {QStringLiteral("#phase5")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Created Excel anchor \"Manual Excel budget table\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("manual budget")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual Excel budget table"));
+    QCOMPARE(results.first().matchedAnchor->targetApp, QStringLiteral("Microsoft Excel"));
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/books/manual-budget.xlsx"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(results.first().matchedAnchor->pinned);
 }
 
 void WidgetSmokeTest::panelLaunchesExcelAnchorWithInjectedExecutor()

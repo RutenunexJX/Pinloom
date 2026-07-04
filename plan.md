@@ -199,7 +199,13 @@ Status:
   fallback.
 - Phase 5 jump executor coverage now includes Excel, Word, PowerPoint, and
   Visio.
-- Excel capture remains pending.
+- Manual Excel anchor capture is now implemented in core: explicit name, file,
+  sheet/range or named range, aliases, tags, pinned, source, and target app
+  inputs are normalized through a manual Excel capture provider, saved as
+  searchable workbook anchors, and remain compatible with the Excel executor's
+  `excel.range` and `excel.name` command builder. `Ctrl+K` can route through an
+  injectable manual Excel request provider; native Excel current-selection
+  capture and a default Excel dialog remain pending.
 - Visio capture remains pending.
 - Word capture/bookmark creation remains pending.
 - PowerPoint capture remains pending.
