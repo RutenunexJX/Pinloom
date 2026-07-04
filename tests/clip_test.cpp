@@ -1,3 +1,4 @@
+#include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipRepository.h"
 
 #include <QJsonDocument>
@@ -7,6 +8,25 @@
 #include <optional>
 
 using namespace Pinloom;
+
+class FakeClipboardTextSource : public ClipboardTextSource {
+    Q_OBJECT
+
+public:
+    QString text() const override
+    {
+        return text_;
+    }
+
+    void setText(const QString &text)
+    {
+        text_ = text;
+        emit textChanged();
+    }
+
+private:
+    QString text_;
+};
 
 class ClipTest : public QObject {
     Q_OBJECT
@@ -24,6 +44,11 @@ private slots:
     void sqlitePersistsSavedClipMetadataAcrossRepositoryRestart();
     void sqlitePrunesTemporaryHistoryPersistently();
     void sqliteCreatesSavedClipLocatorAnchorAfterRestart();
+    void clipboardServiceCapturesTextIntoRepository();
+    void clipboardServicePauseAndResumeCapture();
+    void clipboardServiceUsesRepositoryPolicyForIgnoredText();
+    void clipboardServiceSuppressesNextChange();
+    void clipboardServicePersistsCapturedTextWithSqliteRepository();
 };
 
 void ClipTest::ignoresBlankText()
@@ -372,6 +397,150 @@ void ClipTest::sqliteCreatesSavedClipLocatorAnchorAfterRestart()
     QVERIFY(locator.isObject());
     QCOMPARE(locator.object().value(QStringLiteral("clip_id")).toString(), saved->id);
     QCOMPARE(locator.object().value(QStringLiteral("mode")).toString(), QStringLiteral("paste"));
+}
+
+void ClipTest::clipboardServiceCapturesTextIntoRepository()
+{
+    FakeClipboardTextSource clipboard;
+    InMemoryClipRepository repository;
+    ClipboardCaptureService service(&clipboard, repository);
+    service.setSourceApp(QStringLiteral(" notepad.exe "));
+
+    int capturedSignals = 0;
+    QString capturedId;
+    QObject::connect(&service, &ClipboardCaptureService::captured, [&](const Clip &clip) {
+        ++capturedSignals;
+        capturedId = clip.id;
+    });
+
+    QVERIFY(service.start());
+    clipboard.setText(QStringLiteral("Qt clipboard text"));
+
+    const QList<Clip> clips = repository.clips();
+    QCOMPARE(clips.size(), 1);
+    QCOMPARE(clips.first().text, QStringLiteral("Qt clipboard text"));
+    QCOMPARE(clips.first().sourceApp, QStringLiteral("notepad.exe"));
+    QCOMPARE(service.lastCapturedId(), clips.first().id);
+    QCOMPARE(capturedId, clips.first().id);
+    QCOMPARE(capturedSignals, 1);
+    QVERIFY(service.lastCapturedClip().has_value());
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::Captured);
+    QVERIFY(service.lastError().isEmpty());
+}
+
+void ClipTest::clipboardServicePauseAndResumeCapture()
+{
+    FakeClipboardTextSource clipboard;
+    InMemoryClipRepository repository;
+    ClipboardCaptureService service(&clipboard, repository);
+
+    QVERIFY(service.start());
+    service.pauseCapture();
+    QVERIFY(service.capturePaused());
+    clipboard.setText(QStringLiteral("paused clipboard text"));
+
+    QVERIFY(repository.clips().isEmpty());
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::IgnoredPaused);
+
+    service.resumeCapture();
+    QVERIFY(!service.capturePaused());
+    clipboard.setText(QStringLiteral("resumed clipboard text"));
+
+    const QList<Clip> clips = repository.clips();
+    QCOMPARE(clips.size(), 1);
+    QCOMPARE(clips.first().text, QStringLiteral("resumed clipboard text"));
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::Captured);
+}
+
+void ClipTest::clipboardServiceUsesRepositoryPolicyForIgnoredText()
+{
+    FakeClipboardTextSource clipboard;
+    InMemoryClipRepository repository;
+    ClipboardCaptureService service(&clipboard, repository);
+
+    ClipCapturePolicy policy;
+    policy.maxTextBytes = 5;
+    service.setPolicy(policy);
+
+    int ignoredSignals = 0;
+    QObject::connect(&service, &ClipboardCaptureService::captureIgnored, [&](ClipCaptureStatus) {
+        ++ignoredSignals;
+    });
+
+    QVERIFY(service.start());
+
+    clipboard.setText(QStringLiteral(" \n\t "));
+    QVERIFY(repository.clips().isEmpty());
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::IgnoredBlank);
+
+    clipboard.setText(QStringLiteral("123456"));
+    QVERIFY(repository.clips().isEmpty());
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::IgnoredTooLarge);
+
+    clipboard.setText(QStringLiteral("same"));
+    QCOMPARE(repository.clips().size(), 1);
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::Captured);
+
+    clipboard.setText(QStringLiteral("same"));
+    QCOMPARE(repository.clips().size(), 1);
+    QVERIFY(service.lastStatus() == ClipCaptureStatus::IgnoredDuplicate);
+    QCOMPARE(ignoredSignals, 3);
+}
+
+void ClipTest::clipboardServiceSuppressesNextChange()
+{
+    FakeClipboardTextSource clipboard;
+    InMemoryClipRepository repository;
+    ClipboardCaptureService service(&clipboard, repository);
+
+    QVERIFY(service.start());
+    service.suppressNextChange();
+    QVERIFY(service.suppressingNextChange());
+    clipboard.setText(QStringLiteral("self-written clipboard text"));
+
+    QVERIFY(!service.suppressingNextChange());
+    QVERIFY(repository.clips().isEmpty());
+
+    clipboard.setText(QStringLiteral("external clipboard text"));
+
+    const QList<Clip> clips = repository.clips();
+    QCOMPARE(clips.size(), 1);
+    QCOMPARE(clips.first().text, QStringLiteral("external clipboard text"));
+}
+
+void ClipTest::clipboardServicePersistsCapturedTextWithSqliteRepository()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom_clip.sqlite3"));
+
+    QString capturedId;
+    {
+        FakeClipboardTextSource clipboard;
+        SqliteClipRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+        ClipboardCaptureService service(&clipboard, repository);
+        service.setSourceApp(QStringLiteral("terminal.exe"));
+        QVERIFY(service.start());
+
+        clipboard.setText(QStringLiteral("Persistent clipboard service text"));
+        QVERIFY2(service.lastError().isEmpty(), qPrintable(service.lastError()));
+        capturedId = service.lastCapturedId();
+        QVERIFY(!capturedId.isEmpty());
+        QCOMPARE(repository.clips().size(), 1);
+    }
+
+    SqliteClipRepository restarted;
+    QVERIFY2(restarted.open(databasePath), qPrintable(restarted.lastError()));
+    QVERIFY2(restarted.initialize(), qPrintable(restarted.lastError()));
+
+    const std::optional<Clip> stored = restarted.findClip(capturedId);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->text, QStringLiteral("Persistent clipboard service text"));
+    QCOMPARE(stored->sourceApp, QStringLiteral("terminal.exe"));
+    QVERIFY(stored->state == ClipState::Temporary);
 }
 
 QTEST_MAIN(ClipTest)

@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network Sql Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -53,7 +53,9 @@ target_link_libraries(pinloom_core
 )
 
 add_library(pinloom_clip_core STATIC
+    include/pinloom/clip/ClipboardCaptureService.h
     include/pinloom/clip/ClipRepository.h
+    src/clip/ClipboardCaptureService.cpp
     src/clip/ClipRepository.cpp
 )
 
@@ -67,6 +69,8 @@ target_link_libraries(pinloom_clip_core
         pinloom_core
         Qt6::Core
         Qt6::Sql
+    PRIVATE
+        Qt6::Gui
 )
 
 add_library(pinloom_widgets STATIC

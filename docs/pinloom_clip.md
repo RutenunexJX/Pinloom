@@ -50,6 +50,22 @@ blob directory, does not store images, and does not attempt rich text, HTML, or
 RTF fidelity yet. Future clipboard listeners should still pass through the same
 capture policy checks before writing rows.
 
+## Qt Text Clipboard Capture
+
+Pinloom Clip now has a lightweight Qt clipboard capture service for the MVP
+text loop. It listens to `QClipboard` text changes through a small injectable
+clipboard source, so the real app can use `QGuiApplication::clipboard()` while
+tests can drive the same capture path without touching the user's clipboard.
+
+The service supports start/stop, pause/resume capture, source-app metadata,
+one-shot suppression for future self-written clipboard changes, last captured
+id/status/error state, and a captured signal. It only captures plain text and
+delegates blank, size, duplicate, pause, and source-app exclusion decisions to
+the existing Clip repository policy layer.
+
+This is still not the tray app, global hotkey flow, floating picker, simulated
+paste insertion, rich text capture, image capture, or blob storage.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
@@ -62,9 +78,8 @@ Privacy constraints are part of the first implementation layer:
 - temporary history can be pruned by TTL and maximum count
 - saved clips do not expire through temporary-history retention
 
-Future platform clipboard listeners, tray UI, global hotkey capture, and
-blacklist persistence should call into these same policy checks before storing
-anything.
+Tray UI, global hotkey capture, paste insertion, and blacklist persistence
+should continue to call into these same policy checks before storing anything.
 
 ## Worktree Isolation
 
