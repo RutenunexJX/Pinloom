@@ -91,10 +91,12 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipPickerPanel.h
     include/pinloom/widgets/ClipTrayPresenter.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
+    src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipPickerPanel.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/PinloomPanel.cpp

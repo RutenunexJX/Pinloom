@@ -191,6 +191,30 @@ not Windows foreground-window orchestration, and not paste timing, focus
 recovery, or rich content handling. Those remain app-layer work for the later
 resident tray workflow.
 
+## Resident Runtime Composition Skeleton
+
+Pinloom Clip now has a small widgets-layer `ClipResidentRuntime` composition
+skeleton. It wires an injected repository together with clipboard capture,
+saved-clip search, text insertion, the picker panel, hotkey service, tray
+controller, tray presenter, and tray backend. The runtime starts and stops
+capture, hotkey registration, and tray presentation as one unit; routes hotkey
+and tray show actions through the same picker show/focus path; adapts picker
+activation into `ClipInsertionService`; connects insertion self-writes to
+`ClipboardCaptureService::suppressNextChange()`; connects tray pause/resume to
+capture pause state; and converts tray quit into a runtime quit signal plus
+optional stop.
+
+The resident runtime remains dependency-injected by design. Tests pass fake
+clipboard sources/accessors, fake paste invokers, fake hotkey backends, and
+fake tray backends, so the runtime can be exercised without touching the real
+system clipboard, registering a real global hotkey, creating a real system tray
+icon, or sending Ctrl+V.
+
+This is still not autostart registration, foreground-window recovery, real
+focus/timing orchestration, target-window selection, rich content capture or
+insertion, image insertion, HTML/RTF/blob handling, or the final resident
+application entry point.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
