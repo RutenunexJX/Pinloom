@@ -1,5 +1,9 @@
 #include "pinloom/core/LegacyCompatibility.h"
 
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+
 #include <algorithm>
 
 namespace Pinloom {
@@ -24,17 +28,109 @@ AnchorType normalizedAnchorType(AnchorType type)
     }
 }
 
+namespace {
+
+QString locatorTypeFromAnchorType(AnchorType type)
+{
+    switch (normalizedAnchorType(type)) {
+    case AnchorType::FileLine:
+        return QStringLiteral("file.line");
+    case AnchorType::TextHeading:
+        return QStringLiteral("text.heading");
+    case AnchorType::TextBlock:
+        return QStringLiteral("text.block");
+    case AnchorType::Marker:
+        return QStringLiteral("marker");
+    case AnchorType::PdfPage:
+        return QStringLiteral("pdf.page");
+    case AnchorType::PdfRegion:
+        return QStringLiteral("pdf.region");
+    case AnchorType::UrlFragment:
+        return QStringLiteral("url.fragment");
+    case AnchorType::Manual:
+        return QStringLiteral("manual");
+    case AnchorType::MarkdownHeading:
+    case AnchorType::MarkdownBlock:
+    case AnchorType::None:
+        break;
+    }
+    return {};
+}
+
+QString locatorJsonFromLegacyFields(const Anchor &anchor)
+{
+    QJsonObject locator;
+    if (anchor.line >= 0) {
+        locator.insert(QStringLiteral("line"), anchor.line);
+    }
+    if (anchor.page >= 0) {
+        locator.insert(QStringLiteral("page"), anchor.page);
+    }
+    if (anchor.region.isValid()) {
+        QJsonArray region;
+        region.append(anchor.region.x());
+        region.append(anchor.region.y());
+        region.append(anchor.region.width());
+        region.append(anchor.region.height());
+        locator.insert(QStringLiteral("region"), region);
+    }
+
+    if (locator.isEmpty()) {
+        return {};
+    }
+
+    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+}
+
+bool looksLikeUri(const QString &location)
+{
+    return location.startsWith(QStringLiteral("http://"), Qt::CaseInsensitive)
+        || location.startsWith(QStringLiteral("https://"), Qt::CaseInsensitive)
+        || location.startsWith(QStringLiteral("file://"), Qt::CaseInsensitive);
+}
+
+} // namespace
+
 Anchor normalizedAnchor(Anchor anchor)
 {
     anchor.type = normalizedAnchorType(anchor.type);
+    if (anchor.target.trimmed().isEmpty() && !anchor.name.trimmed().isEmpty()) {
+        anchor.target = anchor.name;
+    }
+    if (anchor.locatorType.trimmed().isEmpty()) {
+        anchor.locatorType = locatorTypeFromAnchorType(anchor.type);
+    }
+    if (anchor.locatorJson.trimmed().isEmpty()) {
+        anchor.locatorJson = locatorJsonFromLegacyFields(anchor);
+    }
     return anchor;
 }
 
 Resource normalizedResource(Resource resource)
 {
     resource.kind = normalizedResourceKind(resource.kind);
-    for (Anchor &anchor : resource.anchors) {
+    for (int i = 0; i < resource.anchors.size(); ++i) {
+        Anchor &anchor = resource.anchors[i];
         anchor = normalizedAnchor(anchor);
+        if (anchor.id.trimmed().isEmpty() && !resource.id.trimmed().isEmpty()) {
+            anchor.id = QStringLiteral("%1#anchor-%2").arg(resource.id, QString::number(i));
+        }
+        if (anchor.targetFile.trimmed().isEmpty()
+            && anchor.targetUri.trimmed().isEmpty()
+            && !resource.location.trimmed().isEmpty()) {
+            if (resource.kind == ResourceKind::Url || looksLikeUri(resource.location)) {
+                anchor.targetUri = resource.location;
+            } else {
+                anchor.targetFile = resource.location;
+            }
+        }
+        if (anchor.targetApp.trimmed().isEmpty()) {
+            if (resource.kind == ResourceKind::Pdf) {
+                anchor.targetApp = QStringLiteral("pdf");
+            } else if (resource.kind == ResourceKind::Url) {
+                anchor.targetApp = QStringLiteral("browser");
+            }
+        }
     }
     return resource;
 }

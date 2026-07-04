@@ -1,6 +1,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/Schema.h"
 
+#include <QDateTime>
 #include <QTest>
 #include <optional>
 
@@ -11,6 +12,8 @@ class CoreSmokeTest : public QObject {
 
 private slots:
     void searchesAliasesAndTags();
+    void persistsAndSearchesAnchorLocatorFields();
+    void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
     void ranksExactMatchesWithinMatchType();
@@ -47,6 +50,143 @@ void CoreSmokeTest::searchesAliasesAndTags()
     taggedQuery.requiredTags = {QStringLiteral("fpga")};
     const QList<SearchResult> tagResults = repository.search(taggedQuery);
     QCOMPARE(tagResults.size(), 1);
+}
+
+void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
+{
+    InMemoryLibraryRepository repository;
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.id = QStringLiteral("anchor:clock-domain");
+    anchor.name = QStringLiteral("Clock domain window");
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = QStringLiteral("E:/specs/clocking.pdf");
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250}");
+    anchor.aliases = {QStringLiteral("cdc zoom")};
+    anchor.tags = {QStringLiteral("review-point")};
+    anchor.pinned = true;
+    anchor.createdAt = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    anchor.updatedAt = QDateTime::fromString(QStringLiteral("2026-01-02T00:00:00Z"), Qt::ISODate);
+    anchor.usedAt = QDateTime::currentDateTimeUtc();
+
+    Resource resource;
+    resource.id = QStringLiteral("clocking-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Clocking PDF");
+    resource.location = QStringLiteral("E:/specs/clocking.pdf");
+    resource.anchors = {anchor};
+
+    QVERIFY(repository.upsertResource(resource));
+
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().id, anchor.id);
+    QCOMPARE(stored->anchors.first().name, anchor.name);
+    QCOMPARE(stored->anchors.first().target, anchor.name);
+    QCOMPARE(stored->anchors.first().targetApp, anchor.targetApp);
+    QCOMPARE(stored->anchors.first().targetFile, anchor.targetFile);
+    QCOMPARE(stored->anchors.first().locatorType, anchor.locatorType);
+    QCOMPARE(stored->anchors.first().locatorJson, anchor.locatorJson);
+    QCOMPARE(stored->anchors.first().aliases, anchor.aliases);
+    QCOMPARE(stored->anchors.first().tags, anchor.tags);
+    QVERIFY(stored->anchors.first().pinned);
+
+    const QList<SearchResult> nameResults = repository.search(SearchQuery{QStringLiteral("Clock domain window")});
+    QCOMPARE(nameResults.size(), 1);
+    QCOMPARE(nameResults.first().matchedField, QStringLiteral("anchor_name"));
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("cdc zoom")});
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().matchedField, QStringLiteral("anchor_alias"));
+
+    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("review-point")});
+    QCOMPARE(tagResults.size(), 1);
+    QCOMPARE(tagResults.first().matchedField, QStringLiteral("anchor_tag"));
+
+    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("pdfxchange.rect")});
+    QCOMPARE(metadataResults.size(), 1);
+    QCOMPARE(metadataResults.first().matchedField, QStringLiteral("anchor_metadata"));
+}
+
+void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource nameResource;
+    nameResource.id = QStringLiteral("name-anchor");
+    nameResource.kind = ResourceKind::ManualAnchor;
+    nameResource.title = QStringLiteral("Zulu");
+    nameResource.location = QStringLiteral("name.pinloom");
+    Anchor nameAnchor;
+    nameAnchor.type = AnchorType::Manual;
+    nameAnchor.name = QStringLiteral("shared");
+    nameResource.anchors = {nameAnchor};
+    QVERIFY(repository.upsertResource(nameResource));
+
+    Resource aliasResource;
+    aliasResource.id = QStringLiteral("alias-anchor");
+    aliasResource.kind = ResourceKind::ManualAnchor;
+    aliasResource.title = QStringLiteral("Alpha");
+    aliasResource.location = QStringLiteral("alias.pinloom");
+    Anchor aliasAnchor;
+    aliasAnchor.type = AnchorType::Manual;
+    aliasAnchor.name = QStringLiteral("alias carrier");
+    aliasAnchor.aliases = {QStringLiteral("shared")};
+    aliasResource.anchors = {aliasAnchor};
+    QVERIFY(repository.upsertResource(aliasResource));
+
+    Resource tagResource;
+    tagResource.id = QStringLiteral("tag-anchor");
+    tagResource.kind = ResourceKind::ManualAnchor;
+    tagResource.title = QStringLiteral("Beta");
+    tagResource.location = QStringLiteral("tag.pinloom");
+    Anchor tagAnchor;
+    tagAnchor.type = AnchorType::Manual;
+    tagAnchor.name = QStringLiteral("tag carrier");
+    tagAnchor.tags = {QStringLiteral("shared")};
+    tagResource.anchors = {tagAnchor};
+    QVERIFY(repository.upsertResource(tagResource));
+
+    Resource hotMetadataResource;
+    hotMetadataResource.id = QStringLiteral("hot-metadata-anchor");
+    hotMetadataResource.kind = ResourceKind::ManualAnchor;
+    hotMetadataResource.title = QStringLiteral("Gamma");
+    hotMetadataResource.location = QStringLiteral("hot-meta.pinloom");
+    Anchor hotMetadataAnchor;
+    hotMetadataAnchor.type = AnchorType::Manual;
+    hotMetadataAnchor.name = QStringLiteral("hot metadata carrier");
+    hotMetadataAnchor.targetFile = QStringLiteral("E:/targets/shared-target.pdf");
+    hotMetadataAnchor.pinned = true;
+    hotMetadataResource.anchors = {hotMetadataAnchor};
+    QVERIFY(repository.upsertResource(hotMetadataResource));
+
+    Resource coldMetadataResource;
+    coldMetadataResource.id = QStringLiteral("cold-metadata-anchor");
+    coldMetadataResource.kind = ResourceKind::ManualAnchor;
+    coldMetadataResource.title = QStringLiteral("Delta");
+    coldMetadataResource.location = QStringLiteral("cold-meta.pinloom");
+    Anchor coldMetadataAnchor;
+    coldMetadataAnchor.type = AnchorType::Manual;
+    coldMetadataAnchor.name = QStringLiteral("cold metadata carrier");
+    coldMetadataAnchor.targetFile = QStringLiteral("E:/targets/shared-target.pdf");
+    coldMetadataResource.anchors = {coldMetadataAnchor};
+    QVERIFY(repository.upsertResource(coldMetadataResource));
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("shared")});
+    QCOMPARE(results.size(), 5);
+    QCOMPARE(results.at(0).resource.id, nameResource.id);
+    QCOMPARE(results.at(0).matchedField, QStringLiteral("anchor_name"));
+    QCOMPARE(results.at(1).resource.id, aliasResource.id);
+    QCOMPARE(results.at(1).matchedField, QStringLiteral("anchor_alias"));
+    QCOMPARE(results.at(2).resource.id, tagResource.id);
+    QCOMPARE(results.at(2).matchedField, QStringLiteral("anchor_tag"));
+    QCOMPARE(results.at(3).resource.id, hotMetadataResource.id);
+    QCOMPARE(results.at(3).matchedField, QStringLiteral("anchor_metadata"));
+    QCOMPARE(results.at(4).resource.id, coldMetadataResource.id);
+    QCOMPARE(results.at(4).matchedField, QStringLiteral("anchor_metadata"));
 }
 
 void CoreSmokeTest::normalizesLegacyTextResourceInputs()

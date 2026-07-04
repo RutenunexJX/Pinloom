@@ -91,8 +91,9 @@ The current codebase already has useful foundations:
 
 - C++17 / Qt6 / CMake project split into `pinloom_core`, `pinloom_widgets`, and
   `pinloom_app`.
-- SQLite persistence with resources, aliases, tags, anchors, anchor FTS,
-  ranking, pinned state, recent-use signals, and library roots.
+- SQLite persistence with resources, aliases, tags, anchors, anchor locator
+  fields, anchor FTS, ranking, pinned state, recent-use signals, and library
+  roots.
 - In-memory and SQLite repositories used by tests.
 - Search ranking that already considers anchors, aliases, tags, pinned items,
   recent use, and contextual signals.
@@ -102,8 +103,8 @@ The current codebase already has useful foundations:
 The mismatch is intentional technical debt for the reset:
 
 - `Resource` is still the primary persisted object.
-- `Anchor` is currently stored as a child of a resource with enum fields such as
-  line, page, and rectangle.
+- `Anchor` now carries the v1 locator fields, but it is still exposed through
+  the resource-attached compatibility API while the UI converges.
 - Search still indexes resource content and broad source metadata.
 - The Qt panel still exposes folder management and resource-library controls.
 - PDF opening currently uses generic URL fragments rather than a dedicated

@@ -1,6 +1,7 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 
 #include <QDir>
+#include <QDateTime>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -19,6 +20,7 @@ class SqliteRepositoryTest : public QObject {
 private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
+    void persistsAndSearchesAnchorLocatorFields();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
@@ -32,6 +34,7 @@ private slots:
     void managesLibraryRoots();
     void upgradesVersionOneDatabase();
     void upgradesVersionTwoDatabaseWithRoots();
+    void upgradesVersionSevenDatabaseWithLegacyAnchors();
 };
 
 static void createVersionOneDatabase(const QString &path)
@@ -99,6 +102,63 @@ static void createVersionTwoDatabase(const QString &path)
                                       "VALUES ('legacy', 'markdown', 'Legacy Note', 'legacy.md', '2026-01-01T00:00:00Z');")));
     QVERIFY(query.exec(QStringLiteral("INSERT INTO library_roots(id, path, display_name, enabled, last_indexed_at) "
                                       "VALUES ('dir:test', 'E:/test', 'test', 1, NULL);")));
+
+    database.close();
+    database = QSqlDatabase();
+    QSqlDatabase::removeDatabase(connectionName);
+}
+
+static void createVersionSevenDatabaseWithLegacyAnchor(const QString &path)
+{
+    const QString connectionName = QStringLiteral("v7_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+    database.setDatabaseName(path);
+    QVERIFY(database.open());
+
+    QSqlQuery query(database);
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE schema_migrations ("
+                                      "version INTEGER PRIMARY KEY,"
+                                      "name TEXT NOT NULL,"
+                                      "applied_at TEXT NOT NULL"
+                                      ");")));
+    for (int version = 1; version <= 7; ++version) {
+        query.prepare(QStringLiteral("INSERT INTO schema_migrations(version, name, applied_at) "
+                                     "VALUES (?, ?, '2026-01-01T00:00:00Z')"));
+        query.addBindValue(version);
+        query.addBindValue(QStringLiteral("legacy_%1").arg(version));
+        QVERIFY(query.exec());
+    }
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE resources ("
+                                      "id TEXT PRIMARY KEY,"
+                                      "kind TEXT NOT NULL,"
+                                      "title TEXT NOT NULL,"
+                                      "location TEXT NOT NULL,"
+                                      "updated_at TEXT"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("CREATE TABLE anchors ("
+                                      "resource_id TEXT NOT NULL,"
+                                      "anchor_order INTEGER NOT NULL,"
+                                      "type TEXT NOT NULL,"
+                                      "target TEXT,"
+                                      "line INTEGER,"
+                                      "page INTEGER,"
+                                      "x REAL,"
+                                      "y REAL,"
+                                      "width REAL,"
+                                      "height REAL,"
+                                      "PRIMARY KEY (resource_id, anchor_order),"
+                                      "FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE"
+                                      ");")));
+    QVERIFY(query.exec(QStringLiteral("CREATE VIRTUAL TABLE resource_fts "
+                                      "USING fts5(resource_id UNINDEXED, title, aliases, tags, location, content);")));
+    QVERIFY(query.exec(QStringLiteral("CREATE VIRTUAL TABLE anchor_fts "
+                                      "USING fts5(resource_id UNINDEXED, anchor_order UNINDEXED, type, target);")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO resources(id, kind, title, location, updated_at) "
+                                      "VALUES ('legacy', 'markdown', 'Legacy Note', 'legacy.md', '2026-01-01T00:00:00Z');")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO anchors(resource_id, anchor_order, type, target, line, page, x, y, width, height) "
+                                      "VALUES ('legacy', 0, 'markdown_heading', 'Legacy Jump', 17, NULL, 0, 0, 0, 0);")));
+    QVERIFY(query.exec(QStringLiteral("INSERT INTO anchor_fts(resource_id, anchor_order, type, target) "
+                                      "VALUES ('legacy', 0, 'markdown_heading', 'Legacy Jump');")));
 
     database.close();
     database = QSqlDatabase();
@@ -308,6 +368,97 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
     const std::optional<Resource> updatedStored = repository.findResource(resource.id);
     QVERIFY(updatedStored.has_value());
     QCOMPARE(updatedStored->aliases.size(), 1);
+}
+
+void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.id = QStringLiteral("anchor:clock-domain");
+    anchor.name = QStringLiteral("Clock domain window");
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = QStringLiteral("E:/specs/clocking.pdf");
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250}");
+    anchor.aliases = {QStringLiteral("cdc zoom")};
+    anchor.tags = {QStringLiteral("review-point")};
+    anchor.pinned = true;
+    anchor.createdAt = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    anchor.updatedAt = QDateTime::fromString(QStringLiteral("2026-01-02T00:00:00Z"), Qt::ISODate);
+    anchor.usedAt = QDateTime::fromString(QStringLiteral("2026-01-03T00:00:00Z"), Qt::ISODate);
+
+    Resource resource;
+    resource.id = QStringLiteral("clocking-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Launcher Row");
+    resource.location = QStringLiteral("E:/specs/clocking.pdf");
+    resource.anchors = {anchor};
+
+    QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    const Anchor storedAnchor = stored->anchors.first();
+    QCOMPARE(storedAnchor.id, anchor.id);
+    QCOMPARE(storedAnchor.name, anchor.name);
+    QCOMPARE(storedAnchor.target, anchor.name);
+    QCOMPARE(storedAnchor.targetApp, anchor.targetApp);
+    QCOMPARE(storedAnchor.targetFile, anchor.targetFile);
+    QCOMPARE(storedAnchor.locatorType, anchor.locatorType);
+    QCOMPARE(storedAnchor.locatorJson, anchor.locatorJson);
+    QCOMPARE(storedAnchor.aliases, anchor.aliases);
+    QCOMPARE(storedAnchor.tags, anchor.tags);
+    QVERIFY(storedAnchor.pinned);
+    QCOMPARE(storedAnchor.createdAt, anchor.createdAt);
+    QCOMPARE(storedAnchor.updatedAt, anchor.updatedAt);
+    QCOMPARE(storedAnchor.usedAt, anchor.usedAt);
+
+    const QList<SearchResult> nameResults = repository.search(SearchQuery{QStringLiteral("Clock domain window")});
+    QCOMPARE(nameResults.size(), 1);
+    QCOMPARE(nameResults.first().matchedField, QStringLiteral("anchor_name"));
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("cdc zoom")});
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().matchedField, QStringLiteral("anchor_alias"));
+
+    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("review-point")});
+    QCOMPARE(tagResults.size(), 1);
+    QCOMPARE(tagResults.first().matchedField, QStringLiteral("anchor_tag"));
+
+    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("pdfxchange.rect")});
+    QCOMPARE(metadataResults.size(), 1);
+    QCOMPARE(metadataResults.first().matchedField, QStringLiteral("anchor_metadata"));
+
+    const QString rawConnectionName =
+        QStringLiteral("pinloom_raw_anchor_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase rawDatabase = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), rawConnectionName);
+    rawDatabase.setDatabaseName(dir.filePath(QStringLiteral("pinloom.sqlite3")));
+    QVERIFY(rawDatabase.open());
+    QSqlQuery rawQuery(rawDatabase);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT id, name, target_app, target_file, locator_type, aliases, tags, pinned "
+                                         "FROM anchors WHERE resource_id = 'clocking-pdf'")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toString(), anchor.id);
+    QCOMPARE(rawQuery.value(1).toString(), anchor.name);
+    QCOMPARE(rawQuery.value(2).toString(), anchor.targetApp);
+    QCOMPARE(rawQuery.value(3).toString(), anchor.targetFile);
+    QCOMPARE(rawQuery.value(4).toString(), anchor.locatorType);
+    QCOMPARE(rawQuery.value(5).toString(), QStringLiteral("cdc zoom"));
+    QCOMPARE(rawQuery.value(6).toString(), QStringLiteral("review-point"));
+    QCOMPARE(rawQuery.value(7).toInt(), 1);
+    rawQuery = QSqlQuery();
+    rawDatabase.close();
+    rawDatabase = QSqlDatabase();
+    QSqlDatabase::removeDatabase(rawConnectionName);
 }
 
 void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
@@ -913,6 +1064,60 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     QCOMPARE(results.size(), 1);
     QVERIFY(results.first().matchedAnchor.has_value());
     QCOMPARE(results.first().matchedAnchor->line, 7);
+}
+
+void SqliteRepositoryTest::upgradesVersionSevenDatabaseWithLegacyAnchors()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    createVersionSevenDatabaseWithLegacyAnchor(databasePath);
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
+    QVERIFY(legacy.has_value());
+    QCOMPARE(legacy->kind, ResourceKind::File);
+    QCOMPARE(legacy->anchors.size(), 1);
+    QCOMPARE(legacy->anchors.first().type, AnchorType::TextHeading);
+    QCOMPARE(legacy->anchors.first().target, QStringLiteral("Legacy Jump"));
+    QCOMPARE(legacy->anchors.first().line, 17);
+    QCOMPARE(legacy->anchors.first().id, QStringLiteral("legacy#anchor-0"));
+    QCOMPARE(legacy->anchors.first().targetFile, QStringLiteral("legacy.md"));
+    QCOMPARE(legacy->anchors.first().locatorType, QStringLiteral("text.heading"));
+    QVERIFY(!legacy->anchors.first().locatorJson.isEmpty());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("Legacy Jump")});
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().resource.id, QStringLiteral("legacy"));
+    QCOMPARE(results.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->line, 17);
+
+    const QString rawConnectionName =
+        QStringLiteral("pinloom_raw_migration_%1").arg(QUuid::createUuid().toString(QUuid::Id128));
+    QSqlDatabase rawDatabase = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), rawConnectionName);
+    rawDatabase.setDatabaseName(databasePath);
+    QVERIFY(rawDatabase.open());
+    QSqlQuery rawQuery(rawDatabase);
+    QVERIFY(rawQuery.exec(QStringLiteral("PRAGMA table_info(anchors)")));
+    QStringList columns;
+    while (rawQuery.next()) {
+        columns.append(rawQuery.value(1).toString());
+    }
+    QVERIFY(columns.contains(QStringLiteral("locator_json")));
+    QVERIFY(columns.contains(QStringLiteral("target_app")));
+    QVERIFY(columns.contains(QStringLiteral("used_at")));
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 8")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    rawQuery = QSqlQuery();
+    rawDatabase.close();
+    rawDatabase = QSqlDatabase();
+    QSqlDatabase::removeDatabase(rawConnectionName);
 }
 
 QTEST_MAIN(SqliteRepositoryTest)

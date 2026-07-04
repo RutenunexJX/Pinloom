@@ -1,6 +1,8 @@
 #pragma once
 
+#include <QDateTime>
 #include <QString>
+#include <QStringList>
 #include <QRectF>
 
 namespace Pinloom {
@@ -25,6 +27,19 @@ struct Anchor {
     int line = -1;
     int page = -1;
     QRectF region;
+    QString id;
+    QString name;
+    QString targetApp;
+    QString targetFile;
+    QString targetUri;
+    QString locatorType;
+    QString locatorJson;
+    QStringList aliases;
+    QStringList tags;
+    bool pinned = false;
+    QDateTime createdAt;
+    QDateTime updatedAt;
+    QDateTime usedAt;
 };
 
 } // namespace Pinloom

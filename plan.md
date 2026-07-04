@@ -53,7 +53,17 @@ Search ranking:
 exact name > alias > tag > recent/pinned > target metadata
 ```
 
-Status: pending.
+Status:
+
+- Anchor structure extended with first-class locator fields while preserving
+  the resource-attached compatibility API.
+- SQLite migration v8 adds anchor locator columns without rebuilding existing
+  tables or deleting legacy anchor data.
+- In-memory and SQLite repositories both persist, hydrate, and search anchor
+  name, aliases, tags, and explicit target metadata.
+- Legacy anchors still read through `type`/`target`/line/page/region fallback.
+- Build and full `ctest --test-dir build --output-on-failure` passed for the
+  phase implementation.
 
 ## Phase 2: Listary-Style Overlay UI
 

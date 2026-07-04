@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 7;
+    return 8;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -37,6 +37,19 @@ QStringList Schema::sqliteFts5Draft()
         QStringLiteral("CREATE TABLE IF NOT EXISTS anchors ("
                        "resource_id TEXT NOT NULL,"
                        "anchor_order INTEGER NOT NULL,"
+                       "id TEXT,"
+                       "name TEXT,"
+                       "target_app TEXT,"
+                       "target_file TEXT,"
+                       "target_uri TEXT,"
+                       "locator_type TEXT,"
+                       "locator_json TEXT,"
+                       "aliases TEXT,"
+                       "tags TEXT,"
+                       "pinned INTEGER NOT NULL DEFAULT 0,"
+                       "created_at TEXT,"
+                       "updated_at TEXT,"
+                       "used_at TEXT,"
                        "type TEXT NOT NULL,"
                        "target TEXT,"
                        "line INTEGER,"

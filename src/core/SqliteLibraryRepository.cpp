@@ -12,6 +12,7 @@
 #include <QUuid>
 #include <QVariant>
 #include <algorithm>
+#include <tuple>
 
 namespace Pinloom {
 
@@ -203,6 +204,101 @@ double exactMatchScoreAdjustment(const QString &value, const QString &queryText)
     return exactMatchScoreAdjustment(QStringList{value}, queryText);
 }
 
+QStringList nonEmptyValues(const QStringList &values)
+{
+    QStringList filtered;
+    for (const QString &value : values) {
+        if (!value.trimmed().isEmpty()) {
+            filtered.append(value);
+        }
+    }
+    return filtered;
+}
+
+QString effectiveAnchorName(const Anchor &anchor)
+{
+    return anchor.name.trimmed().isEmpty() ? anchor.target : anchor.name;
+}
+
+QStringList anchorMetadataValues(const Anchor &anchor)
+{
+    QStringList values;
+    if (!anchor.name.trimmed().isEmpty()) {
+        values = nonEmptyValues({anchor.targetApp,
+                                 anchor.targetFile,
+                                 anchor.targetUri,
+                                 anchor.locatorType,
+                                 anchor.locatorJson});
+    }
+    if (!anchor.target.trimmed().isEmpty()
+        && !equalsQueryText(anchor.target, effectiveAnchorName(anchor))) {
+        values.append(anchor.target);
+    }
+    return values;
+}
+
+struct AnchorMatch {
+    bool matched = false;
+    double score = 100.0;
+    QString field;
+};
+
+std::optional<AnchorMatch> matchAnchorValues(const QStringList &values,
+                                             const QString &field,
+                                             double score,
+                                             const QStringList &tokens,
+                                             const QString &queryText)
+{
+    const QString text = values.join(QLatin1Char('\n'));
+    if (containsAllTokens(text, tokens)) {
+        return AnchorMatch{true, score + exactMatchScoreAdjustment(values, queryText), field};
+    }
+    if (containsAnyToken(text, tokens)) {
+        return AnchorMatch{true, score + 15.0 + exactMatchScoreAdjustment(values, queryText), field};
+    }
+    return std::nullopt;
+}
+
+AnchorMatch classifyAnchorMatch(const Anchor &anchor, const QStringList &tokens, const QString &queryText)
+{
+    if (tokens.isEmpty()) {
+        return {};
+    }
+
+    const QString nameField = anchor.name.trimmed().isEmpty()
+        ? QStringLiteral("anchor")
+        : QStringLiteral("anchor_name");
+    const QList<std::tuple<QStringList, QString, double>> candidates = {
+        {QStringList{effectiveAnchorName(anchor)}, nameField, 0.0},
+        {anchor.aliases, QStringLiteral("anchor_alias"), 5.0},
+        {anchor.tags, QStringLiteral("anchor_tag"), 8.0},
+        {anchorMetadataValues(anchor), QStringLiteral("anchor_metadata"), 40.0},
+    };
+
+    for (const auto &candidate : candidates) {
+        const std::optional<AnchorMatch> match = matchAnchorValues(std::get<0>(candidate),
+                                                                   std::get<1>(candidate),
+                                                                   std::get<2>(candidate),
+                                                                   tokens,
+                                                                   queryText);
+        if (match.has_value()) {
+            return match.value();
+        }
+    }
+
+    return {};
+}
+
+QString anchorSearchText(const Anchor &anchor)
+{
+    QStringList values = nonEmptyValues({effectiveAnchorName(anchor)});
+    values.append(anchor.aliases);
+    values.append(anchor.tags);
+    values.append(anchorMetadataValues(anchor));
+    values.removeDuplicates();
+    return values.join(QLatin1Char('\n'));
+}
+
 double classifyResourceMatch(const Resource &resource,
                              const QStringList &tokens,
                              const QString &queryText,
@@ -266,42 +362,39 @@ SearchResult resourceSearchResult(const Resource &resource, const QStringList &t
     return SearchResult{resource, score, matchedField, std::nullopt};
 }
 
-SearchResult anchorSearchResult(const Resource &resource, const Anchor &anchor, const QString &queryText)
+SearchResult anchorSearchResult(const Resource &resource,
+                                const Anchor &anchor,
+                                const QStringList &tokens,
+                                const QString &queryText)
 {
-    return SearchResult{resource,
-                        exactMatchScoreAdjustment(anchor.target, queryText),
-                        QStringLiteral("anchor"),
-                        anchor};
+    const AnchorMatch match = classifyAnchorMatch(anchor, tokens, queryText);
+    return SearchResult{resource, match.score, match.field, anchor};
 }
 
-bool shouldIndexAnchorTarget(const Anchor &anchor)
+bool shouldIndexAnchor(const Anchor &anchor)
 {
-    if (anchor.target.trimmed().isEmpty()) {
+    if (anchorSearchText(anchor).trimmed().isEmpty()) {
         return false;
     }
 
-    switch (normalizedAnchorType(anchor.type)) {
-    case AnchorType::FileLine:
-    case AnchorType::TextHeading:
-    case AnchorType::TextBlock:
-    case AnchorType::Marker:
-    case AnchorType::PdfPage:
-    case AnchorType::PdfRegion:
-    case AnchorType::UrlFragment:
-    case AnchorType::Manual:
+    if (normalizedAnchorType(anchor.type) != AnchorType::None) {
         return true;
-    case AnchorType::MarkdownHeading:
-    case AnchorType::MarkdownBlock:
-    case AnchorType::None:
-        break;
     }
-    return false;
+
+    return !anchor.name.trimmed().isEmpty()
+        || !anchor.aliases.isEmpty()
+        || !anchor.tags.isEmpty()
+        || !anchor.targetApp.trimmed().isEmpty()
+        || !anchor.targetFile.trimmed().isEmpty()
+        || !anchor.targetUri.trimmed().isEmpty()
+        || !anchor.locatorType.trimmed().isEmpty()
+        || !anchor.locatorJson.trimmed().isEmpty();
 }
 
-QString anchorUsageKey(const Anchor &anchor)
+QString anchorFieldUsageKey(const Anchor &anchor, const QString &type)
 {
     return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
-        .arg(anchorTypeToString(anchor.type),
+        .arg(type,
              anchor.target,
              QString::number(anchor.line),
              QString::number(anchor.page),
@@ -309,6 +402,14 @@ QString anchorUsageKey(const Anchor &anchor)
              QString::number(anchor.region.y(), 'f', 2),
              QString::number(anchor.region.width(), 'f', 2),
              QString::number(anchor.region.height(), 'f', 2));
+}
+
+QString anchorUsageKey(const Anchor &anchor)
+{
+    if (!anchor.id.trimmed().isEmpty()) {
+        return QStringLiteral("id|%1").arg(anchor.id);
+    }
+    return anchorFieldUsageKey(anchor, anchorTypeToString(anchor.type));
 }
 
 QString legacyAnchorTypeToString(AnchorType type)
@@ -327,16 +428,19 @@ QString legacyAnchorTypeToString(AnchorType type)
 
 QString legacyAnchorUsageKey(Anchor anchor)
 {
-    const QString normalizedType = legacyAnchorTypeToString(anchor.type);
-    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8")
-        .arg(normalizedType,
-             anchor.target,
-             QString::number(anchor.line),
-             QString::number(anchor.page),
-             QString::number(anchor.region.x(), 'f', 2),
-             QString::number(anchor.region.y(), 'f', 2),
-             QString::number(anchor.region.width(), 'f', 2),
-             QString::number(anchor.region.height(), 'f', 2));
+    return anchorFieldUsageKey(anchor, legacyAnchorTypeToString(anchor.type));
+}
+
+QStringList anchorUsageKeys(const Anchor &anchor)
+{
+    QStringList keys;
+    if (!anchor.id.trimmed().isEmpty()) {
+        keys.append(QStringLiteral("id|%1").arg(anchor.id));
+    }
+    keys.append(anchorFieldUsageKey(anchor, anchorTypeToString(anchor.type)));
+    keys.append(legacyAnchorUsageKey(anchor));
+    keys.removeDuplicates();
+    return keys;
 }
 
 double usageScoreAdjustment(const ResourceUsage &usage)
@@ -363,6 +467,23 @@ double anchorUsageScoreAdjustment(const AnchorUsage &usage)
     adjustment -= std::min(usage.openCount, 10) * 0.04;
     if (usage.lastOpenedAt.isValid()) {
         const qint64 secondsAgo = usage.lastOpenedAt.toUTC().secsTo(QDateTime::currentDateTimeUtc());
+        if (secondsAgo >= 0 && secondsAgo <= 7 * 24 * 60 * 60) {
+            adjustment -= 0.25;
+        } else if (secondsAgo > 0 && secondsAgo <= 30 * 24 * 60 * 60) {
+            adjustment -= 0.12;
+        }
+    }
+    return adjustment;
+}
+
+double anchorScoreAdjustment(const Anchor &anchor)
+{
+    double adjustment = 0.0;
+    if (anchor.pinned) {
+        adjustment -= 0.6;
+    }
+    if (anchor.usedAt.isValid()) {
+        const qint64 secondsAgo = anchor.usedAt.toUTC().secsTo(QDateTime::currentDateTimeUtc());
         if (secondsAgo >= 0 && secondsAgo <= 7 * 24 * 60 * 60) {
             adjustment -= 0.25;
         } else if (secondsAgo > 0 && secondsAgo <= 30 * 24 * 60 * 60) {
@@ -556,13 +677,19 @@ bool SqliteLibraryRepository::initialize()
         return false;
     }
 
+    if (!ensureAnchorLocatorColumns()) {
+        rollbackTransaction();
+        return false;
+    }
+
     if (!recordMigration(1, QStringLiteral("initial_sqlite_fts5_schema"))
         || !recordMigration(2, QStringLiteral("library_roots"))
         || !recordMigration(3, QStringLiteral("anchor_fts"))
         || !recordMigration(4, QStringLiteral("resource_relations"))
         || !recordMigration(5, QStringLiteral("resource_usage"))
         || !recordMigration(6, QStringLiteral("anchor_usage"))
-        || !recordMigration(7, QStringLiteral("pinned_library_roots"))) {
+        || !recordMigration(7, QStringLiteral("pinned_library_roots"))
+        || !recordMigration(8, QStringLiteral("anchor_locator_fields"))) {
         rollbackTransaction();
         return false;
     }
@@ -591,6 +718,8 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         return false;
     }
 
+    const Resource storedResource = normalizedResource(resource);
+
     if (!beginTransaction()) {
         return false;
     }
@@ -603,12 +732,12 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
                                  "title = excluded.title,"
                                  "location = excluded.location,"
                                  "updated_at = excluded.updated_at"));
-    query.addBindValue(resource.id);
-    query.addBindValue(resourceKindToString(resource.kind));
-    query.addBindValue(resource.title);
-    query.addBindValue(resource.location);
-    query.addBindValue(resource.updatedAt.isValid()
-                           ? resource.updatedAt.toUTC().toString(Qt::ISODate)
+    query.addBindValue(storedResource.id);
+    query.addBindValue(resourceKindToString(storedResource.kind));
+    query.addBindValue(storedResource.title);
+    query.addBindValue(storedResource.location);
+    query.addBindValue(storedResource.updatedAt.isValid()
+                           ? storedResource.updatedAt.toUTC().toString(Qt::ISODate)
                            : QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
     if (!query.exec()) {
         setLastError(query.lastError().text());
@@ -623,7 +752,7 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
                                 QStringLiteral("anchor_fts")}) {
         QSqlQuery deleteQuery(database_);
         deleteQuery.prepare(QStringLiteral("DELETE FROM %1 WHERE resource_id = ?").arg(table));
-        deleteQuery.addBindValue(resource.id);
+        deleteQuery.addBindValue(storedResource.id);
         if (!deleteQuery.exec()) {
             setLastError(deleteQuery.lastError().text());
             rollbackTransaction();
@@ -631,10 +760,10 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         }
     }
 
-    for (const QString &tag : resource.tags) {
+    for (const QString &tag : storedResource.tags) {
         QSqlQuery tagQuery(database_);
         tagQuery.prepare(QStringLiteral("INSERT OR IGNORE INTO resource_tags(resource_id, tag) VALUES (?, ?)"));
-        tagQuery.addBindValue(resource.id);
+        tagQuery.addBindValue(storedResource.id);
         tagQuery.addBindValue(tag);
         if (!tagQuery.exec()) {
             setLastError(tagQuery.lastError().text());
@@ -643,10 +772,10 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         }
     }
 
-    for (const QString &alias : resource.aliases) {
+    for (const QString &alias : storedResource.aliases) {
         QSqlQuery aliasQuery(database_);
         aliasQuery.prepare(QStringLiteral("INSERT OR IGNORE INTO resource_aliases(resource_id, alias) VALUES (?, ?)"));
-        aliasQuery.addBindValue(resource.id);
+        aliasQuery.addBindValue(storedResource.id);
         aliasQuery.addBindValue(alias);
         if (!aliasQuery.exec()) {
             setLastError(aliasQuery.lastError().text());
@@ -655,13 +784,35 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         }
     }
 
-    for (int i = 0; i < resource.anchors.size(); ++i) {
-        const Anchor &anchor = resource.anchors.at(i);
+    for (int i = 0; i < storedResource.anchors.size(); ++i) {
+        const Anchor &anchor = storedResource.anchors.at(i);
         QSqlQuery anchorQuery(database_);
-        anchorQuery.prepare(QStringLiteral("INSERT INTO anchors(resource_id, anchor_order, type, target, line, page, "
-                                           "x, y, width, height) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
-        anchorQuery.addBindValue(resource.id);
+        anchorQuery.prepare(QStringLiteral("INSERT INTO anchors(resource_id, anchor_order, id, name, target_app, "
+                                           "target_file, target_uri, locator_type, locator_json, aliases, tags, "
+                                           "pinned, created_at, updated_at, used_at, type, target, line, page, "
+                                           "x, y, width, height) "
+                                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+        anchorQuery.addBindValue(storedResource.id);
         anchorQuery.addBindValue(i);
+        anchorQuery.addBindValue(anchor.id);
+        anchorQuery.addBindValue(anchor.name);
+        anchorQuery.addBindValue(anchor.targetApp);
+        anchorQuery.addBindValue(anchor.targetFile);
+        anchorQuery.addBindValue(anchor.targetUri);
+        anchorQuery.addBindValue(anchor.locatorType);
+        anchorQuery.addBindValue(anchor.locatorJson);
+        anchorQuery.addBindValue(anchor.aliases.join(QLatin1Char('\n')));
+        anchorQuery.addBindValue(anchor.tags.join(QLatin1Char('\n')));
+        anchorQuery.addBindValue(anchor.pinned ? 1 : 0);
+        anchorQuery.addBindValue(anchor.createdAt.isValid()
+                                     ? anchor.createdAt.toUTC().toString(Qt::ISODate)
+                                     : QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        anchorQuery.addBindValue(anchor.updatedAt.isValid()
+                                     ? anchor.updatedAt.toUTC().toString(Qt::ISODate)
+                                     : QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+        anchorQuery.addBindValue(anchor.usedAt.isValid()
+                                     ? anchor.usedAt.toUTC().toString(Qt::ISODate)
+                                     : QVariant());
         anchorQuery.addBindValue(anchorTypeToString(anchor.type));
         anchorQuery.addBindValue(anchor.target);
         anchorQuery.addBindValue(anchor.line >= 0 ? QVariant(anchor.line) : QVariant());
@@ -676,14 +827,14 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
             return false;
         }
 
-        if (shouldIndexAnchorTarget(anchor)) {
+        if (shouldIndexAnchor(anchor)) {
             QSqlQuery anchorFtsQuery(database_);
             anchorFtsQuery.prepare(QStringLiteral("INSERT INTO anchor_fts(resource_id, anchor_order, type, target) "
                                                   "VALUES (?, ?, ?, ?)"));
-            anchorFtsQuery.addBindValue(resource.id);
+            anchorFtsQuery.addBindValue(storedResource.id);
             anchorFtsQuery.addBindValue(i);
             anchorFtsQuery.addBindValue(anchorTypeToString(anchor.type));
-            anchorFtsQuery.addBindValue(anchor.target);
+            anchorFtsQuery.addBindValue(anchorSearchText(anchor));
             if (!anchorFtsQuery.exec()) {
                 setLastError(anchorFtsQuery.lastError().text());
                 rollbackTransaction();
@@ -695,12 +846,12 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     QSqlQuery ftsQuery(database_);
     ftsQuery.prepare(QStringLiteral("INSERT INTO resource_fts(resource_id, title, aliases, tags, location, content) "
                                     "VALUES (?, ?, ?, ?, ?, ?)"));
-    ftsQuery.addBindValue(resource.id);
-    ftsQuery.addBindValue(resource.title);
-    ftsQuery.addBindValue(resource.aliases.join(QLatin1Char(' ')));
-    ftsQuery.addBindValue(resource.tags.join(QLatin1Char(' ')));
-    ftsQuery.addBindValue(resource.location);
-    ftsQuery.addBindValue(resource.content);
+    ftsQuery.addBindValue(storedResource.id);
+    ftsQuery.addBindValue(storedResource.title);
+    ftsQuery.addBindValue(storedResource.aliases.join(QLatin1Char(' ')));
+    ftsQuery.addBindValue(storedResource.tags.join(QLatin1Char(' ')));
+    ftsQuery.addBindValue(storedResource.location);
+    ftsQuery.addBindValue(storedResource.content);
     if (!ftsQuery.exec()) {
         setLastError(ftsQuery.lastError().text());
         rollbackTransaction();
@@ -831,7 +982,10 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             if (!matchesRequiredKinds(resource->kind, query.requiredKinds)) {
                 continue;
             }
-            SearchResult result = anchorSearchResult(resource.value(), resource->anchors.at(anchorOrder), query.text);
+            SearchResult result = anchorSearchResult(resource.value(),
+                                                     resource->anchors.at(anchorOrder),
+                                                     plainTokens,
+                                                     query.text);
             applyRankingSignals(result, query);
             results.append(result);
         }
@@ -1058,6 +1212,8 @@ bool SqliteLibraryRepository::recordAnchorOpen(const QString &resourceId, const 
         return false;
     }
 
+    const Anchor normalized = normalizedAnchor(anchor);
+    const QString openedAt = QDateTime::currentDateTimeUtc().toString(Qt::ISODate);
     QSqlQuery query(database_);
     query.prepare(QStringLiteral("INSERT INTO anchor_usage(resource_id, anchor_key, type, target, line, page, "
                                  "x, y, width, height, open_count, last_opened_at) "
@@ -1066,19 +1222,31 @@ bool SqliteLibraryRepository::recordAnchorOpen(const QString &resourceId, const 
                                  "open_count = anchor_usage.open_count + 1,"
                                  "last_opened_at = excluded.last_opened_at"));
     query.addBindValue(resourceId);
-    query.addBindValue(anchorUsageKey(anchor));
-    query.addBindValue(anchorTypeToString(anchor.type));
-    query.addBindValue(anchor.target);
-    query.addBindValue(anchor.line >= 0 ? QVariant(anchor.line) : QVariant());
-    query.addBindValue(anchor.page >= 0 ? QVariant(anchor.page) : QVariant());
-    query.addBindValue(anchor.region.x());
-    query.addBindValue(anchor.region.y());
-    query.addBindValue(anchor.region.width());
-    query.addBindValue(anchor.region.height());
-    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    query.addBindValue(anchorUsageKey(normalized));
+    query.addBindValue(anchorTypeToString(normalized.type));
+    query.addBindValue(normalized.target);
+    query.addBindValue(normalized.line >= 0 ? QVariant(normalized.line) : QVariant());
+    query.addBindValue(normalized.page >= 0 ? QVariant(normalized.page) : QVariant());
+    query.addBindValue(normalized.region.x());
+    query.addBindValue(normalized.region.y());
+    query.addBindValue(normalized.region.width());
+    query.addBindValue(normalized.region.height());
+    query.addBindValue(openedAt);
     if (!query.exec()) {
         setLastError(query.lastError().text());
         return false;
+    }
+
+    if (!normalized.id.trimmed().isEmpty()) {
+        QSqlQuery updateAnchor(database_);
+        updateAnchor.prepare(QStringLiteral("UPDATE anchors SET used_at = ? WHERE resource_id = ? AND id = ?"));
+        updateAnchor.addBindValue(openedAt);
+        updateAnchor.addBindValue(resourceId);
+        updateAnchor.addBindValue(normalized.id);
+        if (!updateAnchor.exec()) {
+            setLastError(updateAnchor.lastError().text());
+            return false;
+        }
     }
     return true;
 }
@@ -1090,38 +1258,23 @@ std::optional<AnchorUsage> SqliteLibraryRepository::anchorUsage(const QString &r
         return std::nullopt;
     }
 
-    QSqlQuery query(database_);
-    query.prepare(QStringLiteral("SELECT resource_id, type, target, line, page, x, y, width, height, open_count, last_opened_at "
-                                 "FROM anchor_usage WHERE resource_id = ? AND anchor_key = ?"));
-    query.addBindValue(resourceId);
-    query.addBindValue(anchorUsageKey(anchor));
-    if (!query.exec()) {
-        setLastError(query.lastError().text());
-        return std::nullopt;
-    }
-    if (query.next()) {
-        return hydrateAnchorUsage(query);
-    }
-
-    const QString legacyKey = legacyAnchorUsageKey(anchor);
-    if (legacyKey == anchorUsageKey(anchor)) {
-        return std::nullopt;
+    const Anchor normalized = normalizedAnchor(anchor);
+    for (const QString &key : anchorUsageKeys(normalized)) {
+        QSqlQuery query(database_);
+        query.prepare(QStringLiteral("SELECT resource_id, type, target, line, page, x, y, width, height, open_count, last_opened_at "
+                                     "FROM anchor_usage WHERE resource_id = ? AND anchor_key = ?"));
+        query.addBindValue(resourceId);
+        query.addBindValue(key);
+        if (!query.exec()) {
+            setLastError(query.lastError().text());
+            return std::nullopt;
+        }
+        if (query.next()) {
+            return hydrateAnchorUsage(query);
+        }
     }
 
-    QSqlQuery legacyQuery(database_);
-    legacyQuery.prepare(QStringLiteral("SELECT resource_id, type, target, line, page, x, y, width, height, open_count, last_opened_at "
-                                       "FROM anchor_usage WHERE resource_id = ? AND anchor_key = ?"));
-    legacyQuery.addBindValue(resourceId);
-    legacyQuery.addBindValue(legacyKey);
-    if (!legacyQuery.exec()) {
-        setLastError(legacyQuery.lastError().text());
-        return std::nullopt;
-    }
-    if (!legacyQuery.next()) {
-        return std::nullopt;
-    }
-
-    return hydrateAnchorUsage(legacyQuery);
+    return std::nullopt;
 }
 
 bool SqliteLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)
@@ -1301,6 +1454,52 @@ bool SqliteLibraryRepository::ensureLibraryRootPinnedColumn()
     return execute(QStringLiteral("ALTER TABLE library_roots ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"));
 }
 
+bool SqliteLibraryRepository::ensureAnchorLocatorColumns()
+{
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("PRAGMA table_info(anchors)"))) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    QStringList columns;
+    while (query.next()) {
+        columns.append(query.value(1).toString());
+    }
+
+    struct ColumnDefinition {
+        QString name;
+        QString definition;
+    };
+
+    const QList<ColumnDefinition> requiredColumns = {
+        {QStringLiteral("id"), QStringLiteral("TEXT")},
+        {QStringLiteral("name"), QStringLiteral("TEXT")},
+        {QStringLiteral("target_app"), QStringLiteral("TEXT")},
+        {QStringLiteral("target_file"), QStringLiteral("TEXT")},
+        {QStringLiteral("target_uri"), QStringLiteral("TEXT")},
+        {QStringLiteral("locator_type"), QStringLiteral("TEXT")},
+        {QStringLiteral("locator_json"), QStringLiteral("TEXT")},
+        {QStringLiteral("aliases"), QStringLiteral("TEXT")},
+        {QStringLiteral("tags"), QStringLiteral("TEXT")},
+        {QStringLiteral("pinned"), QStringLiteral("INTEGER NOT NULL DEFAULT 0")},
+        {QStringLiteral("created_at"), QStringLiteral("TEXT")},
+        {QStringLiteral("updated_at"), QStringLiteral("TEXT")},
+        {QStringLiteral("used_at"), QStringLiteral("TEXT")},
+    };
+
+    for (const ColumnDefinition &column : requiredColumns) {
+        if (columns.contains(column.name)) {
+            continue;
+        }
+        if (!execute(QStringLiteral("ALTER TABLE anchors ADD COLUMN %1 %2").arg(column.name, column.definition))) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 bool SqliteLibraryRepository::recordMigration(int version, const QString &name)
 {
     QSqlQuery query(database_);
@@ -1360,7 +1559,7 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     resource.aliases = readStrings(QStringLiteral("resource_aliases"), QStringLiteral("alias"), id);
     resource.anchors = readAnchors(id);
 
-    return resource;
+    return normalizedResource(resource);
 }
 
 LibraryRoot SqliteLibraryRepository::hydrateLibraryRoot(QSqlQuery &query) const
@@ -1439,6 +1638,7 @@ void SqliteLibraryRepository::applyRankingSignals(SearchResult &result, const Se
     }
 
     if (result.matchedAnchor.has_value()) {
+        result.score += anchorScoreAdjustment(result.matchedAnchor.value());
         const std::optional<AnchorUsage> anchorUsageValue = anchorUsage(result.resource.id, result.matchedAnchor.value());
         if (anchorUsageValue.has_value()) {
             result.score += anchorUsageScoreAdjustment(anchorUsageValue.value());
@@ -1470,7 +1670,9 @@ QList<Anchor> SqliteLibraryRepository::readAnchors(const QString &resourceId) co
     QList<Anchor> anchors;
 
     QSqlQuery query(database_);
-    query.prepare(QStringLiteral("SELECT type, target, line, page, x, y, width, height "
+    query.prepare(QStringLiteral("SELECT id, name, target_app, target_file, target_uri, locator_type, "
+                                 "locator_json, aliases, tags, pinned, created_at, updated_at, used_at, "
+                                 "type, target, line, page, x, y, width, height "
                                  "FROM anchors WHERE resource_id = ? ORDER BY anchor_order"));
     query.addBindValue(resourceId);
     if (!query.exec()) {
@@ -1480,14 +1682,27 @@ QList<Anchor> SqliteLibraryRepository::readAnchors(const QString &resourceId) co
 
     while (query.next()) {
         Anchor anchor;
-        anchor.type = anchorTypeFromString(query.value(0).toString());
-        anchor.target = query.value(1).toString();
-        anchor.line = query.value(2).isNull() ? -1 : query.value(2).toInt();
-        anchor.page = query.value(3).isNull() ? -1 : query.value(3).toInt();
-        anchor.region = QRectF(query.value(4).toDouble(),
-                               query.value(5).toDouble(),
-                               query.value(6).toDouble(),
-                               query.value(7).toDouble());
+        anchor.id = query.value(0).toString();
+        anchor.name = query.value(1).toString();
+        anchor.targetApp = query.value(2).toString();
+        anchor.targetFile = query.value(3).toString();
+        anchor.targetUri = query.value(4).toString();
+        anchor.locatorType = query.value(5).toString();
+        anchor.locatorJson = query.value(6).toString();
+        anchor.aliases = query.value(7).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        anchor.tags = query.value(8).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+        anchor.pinned = query.value(9).toInt() != 0;
+        anchor.createdAt = QDateTime::fromString(query.value(10).toString(), Qt::ISODate);
+        anchor.updatedAt = QDateTime::fromString(query.value(11).toString(), Qt::ISODate);
+        anchor.usedAt = QDateTime::fromString(query.value(12).toString(), Qt::ISODate);
+        anchor.type = anchorTypeFromString(query.value(13).toString());
+        anchor.target = query.value(14).toString();
+        anchor.line = query.value(15).isNull() ? -1 : query.value(15).toInt();
+        anchor.page = query.value(16).isNull() ? -1 : query.value(16).toInt();
+        anchor.region = QRectF(query.value(17).toDouble(),
+                               query.value(18).toDouble(),
+                               query.value(19).toDouble(),
+                               query.value(20).toDouble());
         anchors.append(anchor);
     }
 

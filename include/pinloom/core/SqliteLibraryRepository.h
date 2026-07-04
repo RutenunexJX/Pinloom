@@ -45,6 +45,7 @@ public:
 private:
     bool execute(const QString &sql);
     bool ensureLibraryRootPinnedColumn();
+    bool ensureAnchorLocatorColumns();
     bool recordMigration(int version, const QString &name);
     bool beginTransaction();
     bool commitTransaction();
