@@ -130,8 +130,11 @@ Status:
   priority.
 - Executable lookup supports `PINLOOM_PDFXCHANGE_PATH`, common Windows install
   paths, and widget-level injection for tests or embedding.
-- Build and full `ctest --test-dir build --output-on-failure` passed for the
-  phase implementation.
+- Command construction, environment path resolution, and UI activation status
+  are covered by automated tests; end-to-end GUI verification requires a local
+  PDF-XChange install and is documented in `docs/pdfxchange_validation.md`.
+- Build and full `ctest --test-dir build --output-on-failure` passed again for
+  the validation hardening changes.
 
 ## Phase 4: PDF Anchor Capture
 

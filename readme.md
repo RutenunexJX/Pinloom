@@ -106,7 +106,8 @@ The current codebase already has useful foundations:
 - PDF-XChange manual jump execution now has a tested command builder for page
   and rectangle locators, launcher activation integration, and executable path
   resolution through `PINLOOM_PDFXCHANGE_PATH`, common install paths, or host
-  injection.
+  injection. The local validation flow and environment-blocked result are
+  documented in `docs/pdfxchange_validation.md`.
 
 The mismatch is intentional technical debt for the reset:
 

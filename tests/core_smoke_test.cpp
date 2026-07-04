@@ -2,6 +2,7 @@
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/Schema.h"
 
+#include <QByteArray>
 #include <QDateTime>
 #include <QTest>
 #include <optional>
@@ -17,6 +18,7 @@ private slots:
     void buildsPdfXChangeRectCommand();
     void buildsPdfXChangePageCommandFromLegacyAnchor();
     void reportsMissingPdfXChangeTargetPath();
+    void resolvesPdfXChangeExecutableFromEnvironment();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -172,6 +174,23 @@ void CoreSmokeTest::reportsMissingPdfXChangeTargetPath()
 
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("PDF-XChange target file is missing"));
+}
+
+void CoreSmokeTest::resolvesPdfXChangeExecutableFromEnvironment()
+{
+    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_PDFXCHANGE_PATH");
+    const QByteArray previous = qgetenv("PINLOOM_PDFXCHANGE_PATH");
+
+    QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", "C:/Portable PDF/PDFXEdit.exe"));
+    const QString resolved = resolvePdfXChangeExecutablePath();
+
+    if (hadValue) {
+        QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", previous));
+    } else {
+        qunsetenv("PINLOOM_PDFXCHANGE_PATH");
+    }
+
+    QCOMPARE(resolved, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
