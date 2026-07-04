@@ -54,6 +54,8 @@ private slots:
     void panelAllowsHostToActivateResourceById();
     void panelAllowsHostToHandleOpenTarget();
     void panelKeyboardShortcutsHaveLauncherResponses();
+    void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
+    void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
     void textPreviewLoadsTargetFile();
@@ -1799,6 +1801,103 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     panel.setSearchText(QStringLiteral("Edited keyboard command"));
     QTest::keyClick(searchEdit, Qt::Key_Delete);
     QVERIFY(statusNotifications.last().contains(QStringLiteral("Anchor deletion is not implemented yet")));
+}
+
+void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf-clock");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Clock Spec");
+    resource.location = QStringLiteral("E:/docs/clock.pdf");
+    Anchor anchor;
+    anchor.type = AnchorType::PdfRegion;
+    anchor.name = QStringLiteral("PLL jitter budget");
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool launched = false;
+    PdfXChangeCommand capturedCommand;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.pdfXChangeExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/PDFXEdit.exe");
+    };
+    options.pdfXChangeLaunchHandler = [&](const PdfXChangeCommand &command, QString *error) {
+        Q_UNUSED(error);
+        launched = true;
+        capturedCommand = command;
+        return true;
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("PLL jitter"));
+    QVERIFY(panel.selectFirstResult());
+
+    QVERIFY(panel.activateCurrentOpenTarget());
+    QVERIFY(launched);
+    QCOMPARE(capturedCommand.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    QCOMPARE(capturedCommand.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(capturedCommand.arguments,
+             QStringList({QStringLiteral("/A"),
+                          QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"),
+                          resource.location}));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened PDF-XChange target"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelReportsMissingPdfXChangeExecutable()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf-page");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Spec");
+    resource.location = QStringLiteral("E:/docs/spec.pdf");
+    Anchor anchor;
+    anchor.type = AnchorType::PdfPage;
+    anchor.target = QStringLiteral("Page 7");
+    anchor.page = 7;
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.pdfXChangeExecutablePathProvider = []() {
+        return QString();
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(QStringLiteral("Page 7"));
+    QVERIFY(panel.selectFirstResult());
+
+    QVERIFY(!panel.activateCurrentOpenTarget());
+    QCOMPARE(panel.statusText(), QStringLiteral("PDF-XChange executable is not configured/found"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
 }
 
 void WidgetSmokeTest::panelAllowsHostToHandleUrlTarget()

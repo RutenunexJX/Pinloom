@@ -1,4 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/Schema.h"
 
 #include <QDateTime>
@@ -13,6 +14,9 @@ class CoreSmokeTest : public QObject {
 private slots:
     void searchesAliasesAndTags();
     void persistsAndSearchesAnchorLocatorFields();
+    void buildsPdfXChangeRectCommand();
+    void buildsPdfXChangePageCommandFromLegacyAnchor();
+    void reportsMissingPdfXChangeTargetPath();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -109,6 +113,65 @@ void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
     const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("pdfxchange.rect")});
     QCOMPARE(metadataResults.size(), 1);
     QCOMPARE(metadataResults.first().matchedField, QStringLiteral("anchor_metadata"));
+}
+
+void CoreSmokeTest::buildsPdfXChangeRectCommand()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"pdfxchange.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+
+    QVERIFY(isPdfXChangeAnchor(anchor));
+    const PdfXChangeCommandResult result =
+        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    QCOMPARE(result.command.filePath, anchor.targetFile);
+    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(result.command.arguments,
+             QStringList({QStringLiteral("/A"),
+                          QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"),
+                          anchor.targetFile}));
+}
+
+void CoreSmokeTest::buildsPdfXChangePageCommandFromLegacyAnchor()
+{
+    Anchor anchor;
+    anchor.type = AnchorType::PdfPage;
+    anchor.targetApp = QStringLiteral("pdf");
+    anchor.page = 3;
+    anchor.locatorJson = QStringLiteral("{\"zoom\":175}");
+
+    QVERIFY(isPdfXChangeAnchor(anchor));
+    const PdfXChangeCommandResult result =
+        buildPdfXChangeCommand(anchor,
+                               QStringLiteral("E:/docs/spec.pdf"),
+                               QStringLiteral("C:/Tools/PDFXEdit.exe"));
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.filePath, QStringLiteral("E:/docs/spec.pdf"));
+    QCOMPARE(result.command.action, QStringLiteral("page=3;zoom=175"));
+    QCOMPARE(result.command.arguments,
+             QStringList({QStringLiteral("/A"),
+                          QStringLiteral("page=3;zoom=175"),
+                          QStringLiteral("E:/docs/spec.pdf")}));
+}
+
+void CoreSmokeTest::reportsMissingPdfXChangeTargetPath()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("pdfxchange");
+    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.locatorJson = QStringLiteral("{\"page\":4}");
+
+    const PdfXChangeCommandResult result =
+        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PDF-XChange target file is missing"));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()

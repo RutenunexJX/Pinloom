@@ -121,7 +121,17 @@ Acceptance:
 - A manually entered locator can open a scanned or text PDF at the specified
   page and region, with highlighting when available.
 
-Status: pending.
+Status:
+
+- PDF-XChange command building is implemented in core and covered by tests for
+  `pdfxchange.rect`, legacy `PdfPage` fallback, and missing target paths.
+- Launcher activation dispatches PDF-XChange/pdf/pdfxchange anchors through the
+  executor before generic URL/file fallback, while preserving host handler
+  priority.
+- Executable lookup supports `PINLOOM_PDFXCHANGE_PATH`, common Windows install
+  paths, and widget-level injection for tests or embedding.
+- Build and full `ctest --test-dir build --output-on-failure` passed for the
+  phase implementation.
 
 ## Phase 4: PDF Anchor Capture
 

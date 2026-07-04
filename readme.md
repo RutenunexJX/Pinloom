@@ -103,6 +103,10 @@ The current codebase already has useful foundations:
   search-first, compact result list, anchor locator summaries, keyboard
   activation, alias/tag editing, capture placeholder, edit entry, and delete
   placeholder.
+- PDF-XChange manual jump execution now has a tested command builder for page
+  and rectangle locators, launcher activation integration, and executable path
+  resolution through `PINLOOM_PDFXCHANGE_PATH`, common install paths, or host
+  injection.
 
 The mismatch is intentional technical debt for the reset:
 
@@ -112,8 +116,8 @@ The mismatch is intentional technical debt for the reset:
 - Search still indexes resource content and broad source metadata.
 - Folder management and resource-library controls still exist for
   compatibility, but they are no longer the default first surface.
-- PDF opening currently uses generic URL fragments rather than a dedicated
-  PDF-XChange command executor.
+- PDF anchor capture is still pending; current PDF-XChange support executes
+  manually stored locators only.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.

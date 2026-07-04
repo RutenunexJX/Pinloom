@@ -2,6 +2,7 @@
 
 #include "pinloom/core/Anchor.h"
 #include "pinloom/core/LibraryRepository.h"
+#include "pinloom/core/PdfXChangeCommand.h"
 
 #include <QDateTime>
 #include <QList>
@@ -71,6 +72,8 @@ struct PinloomPanelOptions {
     std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
+    std::function<QString()> pdfXChangeExecutablePathProvider;
+    std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
     bool showLibraryRootControls = false;
     bool showManualEditControls = true;
     bool showPinControls = true;
@@ -201,6 +204,7 @@ private:
     QString selectedLocation() const;
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     bool activateOpenTarget(const PinloomOpenTarget &target);
+    bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;
 

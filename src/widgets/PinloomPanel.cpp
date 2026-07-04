@@ -10,6 +10,7 @@
 #include <QDialogButtonBox>
 #include <QEvent>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -20,6 +21,7 @@
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMessageBox>
+#include <QProcess>
 #include <QPushButton>
 #include <QShortcut>
 #include <QSignalBlocker>
@@ -1711,6 +1713,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return true;
     }
 
+    if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
+        if (activatePdfXChangeTarget(target)) {
+            recordOpen();
+            return true;
+        }
+        return false;
+    }
+
     if (target.anchor.has_value() && target.anchor->line > 0) {
         TextPreviewDialog preview(target.location, target.anchor->line, this);
         if (!preview.load()) {
@@ -1737,6 +1747,50 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         updateStatus(tr("Unable to open %1").arg(target.location));
     }
     return false;
+}
+
+bool PinloomPanel::activatePdfXChangeTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        updateStatus(tr("No PDF-XChange anchor selected"));
+        return false;
+    }
+
+    const QString executablePath = options_.pdfXChangeExecutablePathProvider
+        ? options_.pdfXChangeExecutablePathProvider().trimmed()
+        : resolvePdfXChangeExecutablePath();
+    const PdfXChangeCommandResult buildResult =
+        buildPdfXChangeCommand(target.anchor.value(), target.location, executablePath);
+    if (!buildResult.success()) {
+        updateStatus(buildResult.error);
+        return false;
+    }
+
+    if (options_.pdfXChangeLaunchHandler) {
+        QString error;
+        if (!options_.pdfXChangeLaunchHandler(buildResult.command, &error)) {
+            updateStatus(error.trimmed().isEmpty()
+                             ? tr("Unable to launch PDF-XChange")
+                             : error.trimmed());
+            return false;
+        }
+        updateStatus(tr("Opened PDF-XChange target"));
+        return true;
+    }
+
+    const QFileInfo executable(buildResult.command.executablePath);
+    if (!executable.exists() || !executable.isFile()) {
+        updateStatus(tr("PDF-XChange executable is not configured/found"));
+        return false;
+    }
+
+    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
+        updateStatus(tr("Unable to launch PDF-XChange"));
+        return false;
+    }
+
+    updateStatus(tr("Opened PDF-XChange target"));
+    return true;
 }
 
 void PinloomPanel::openSelectedResource()
