@@ -62,6 +62,8 @@ private slots:
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesVisioAnchorWithInjectedExecutor();
     void panelReportsInvalidVisioLocatorWithoutGenericOpen();
+    void panelLaunchesWordAnchorWithInjectedExecutor();
+    void panelReportsInvalidWordLocatorWithoutGenericOpen();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -2219,6 +2221,127 @@ void WidgetSmokeTest::panelReportsInvalidVisioLocatorWithoutGenericOpen()
 
         QVERIFY(!panel.activateCurrentOpenTarget());
         QCOMPARE(panel.statusText(), QStringLiteral("Visio shape UniqueID is missing"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+}
+
+void WidgetSmokeTest::panelLaunchesWordAnchorWithInjectedExecutor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("word-requirements");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Requirements Document");
+    resource.location = QStringLiteral("E:/docs/requirements.docx");
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = QStringLiteral("Requirement 12");
+    anchor.targetApp = QStringLiteral("MS Word");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("word.bookmark");
+    anchor.locatorJson = QStringLiteral("{\"bookmark\":\"Requirement_12\"}");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool launched = false;
+    WordJumpCommand capturedCommand;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.wordLaunchHandler = [&](const WordJumpCommand &command, QString *error) {
+        Q_UNUSED(error);
+        launched = true;
+        capturedCommand = command;
+        return true;
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    panel.setSearchText(QStringLiteral("Requirement 12"));
+    QCOMPARE(panel.resultCount(), 1);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QVERIFY(launched);
+    QCOMPARE(capturedCommand.documentPath, resource.location);
+    QCOMPARE(capturedCommand.locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(capturedCommand.bookmarkName, QStringLiteral("Requirement_12"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Word target"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelReportsInvalidWordLocatorWithoutGenericOpen()
+{
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("word-unsupported");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Unsupported Word Document");
+        resource.location = QStringLiteral("E:/docs/unsupported.docx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Unsupported Word jump");
+        anchor.targetApp = QStringLiteral("Word");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("word.heading");
+        anchor.locatorJson = QStringLiteral("{\"bookmark\":\"Requirement_12\"}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Unsupported Word"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Word locator type is unsupported"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("word-missing-bookmark");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Missing Bookmark Word Document");
+        resource.location = QStringLiteral("E:/docs/missing-bookmark.docx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Missing Word bookmark");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("word.bookmark");
+        anchor.locatorJson = QStringLiteral("{}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Missing Word"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Word bookmark is missing"));
         QCOMPARE(fileHandler.openCount, 0);
         QVERIFY(!repository.resourceUsage(resource.id).has_value());
     }

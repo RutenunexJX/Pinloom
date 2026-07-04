@@ -36,6 +36,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/Search.h
     include/pinloom/core/SqliteLibraryRepository.h
     include/pinloom/core/VisioCommand.h
+    include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
     src/core/DirectoryLibrarySource.cpp
     src/core/ExcelCommand.cpp
@@ -48,6 +49,7 @@ add_library(pinloom_core STATIC
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
     src/core/VisioCommand.cpp
+    src/core/WordCommand.cpp
 )
 
 target_include_directories(pinloom_core

@@ -6,6 +6,7 @@
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/VisioCommand.h"
+#include "pinloom/core/WordCommand.h"
 
 #include <QDateTime>
 #include <QList>
@@ -81,6 +82,7 @@ struct PinloomPanelOptions {
     std::function<QString()> pdfXChangeExecutablePathProvider;
     std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
+    std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
     bool showLibraryRootControls = false;
     bool showManualEditControls = true;
     bool showPinControls = true;
@@ -214,6 +216,7 @@ private:
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
     bool activateVisioTarget(const PinloomOpenTarget &target);
+    bool activateWordTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;
 

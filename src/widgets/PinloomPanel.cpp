@@ -518,6 +518,19 @@ bool isVisioComAutomationAvailable()
 #endif
 }
 
+bool isWordComAutomationAvailable()
+{
+#ifdef Q_OS_WIN
+    QSettings wordApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Word.Application"),
+                                 QSettings::NativeFormat);
+    const QString classId = wordApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
+    const QString currentVersion = wordApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
+    return !classId.isEmpty() || !currentVersion.isEmpty();
+#else
+    return false;
+#endif
+}
+
 } // namespace
 
 PinloomPanel::PinloomPanel(ILibraryRepository &repository, QWidget *parent)
@@ -1788,6 +1801,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
+    if (target.anchor.has_value() && isWordAnchor(target.anchor.value())) {
+        if (activateWordTarget(target)) {
+            recordOpen();
+            return true;
+        }
+        return false;
+    }
+
     if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
         if (activatePdfXChangeTarget(target)) {
             recordOpen();
@@ -1910,6 +1931,51 @@ bool PinloomPanel::activateVisioTarget(const PinloomOpenTarget &target)
     }
 
     updateStatus(tr("Opened Visio target"));
+    return true;
+#endif
+}
+
+bool PinloomPanel::activateWordTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        updateStatus(tr("No Word anchor selected"));
+        return false;
+    }
+
+    const WordJumpCommandResult buildResult =
+        buildWordJumpCommand(target.anchor.value(), target.location);
+    if (!buildResult.success()) {
+        updateStatus(buildResult.error);
+        return false;
+    }
+
+    if (options_.wordLaunchHandler) {
+        QString error;
+        if (!options_.wordLaunchHandler(buildResult.command, &error)) {
+            updateStatus(error.trimmed().isEmpty()
+                             ? tr("Unable to launch Word")
+                             : error.trimmed());
+            return false;
+        }
+        updateStatus(tr("Opened Word target"));
+        return true;
+    }
+
+#ifndef Q_OS_WIN
+    updateStatus(tr("Word jump requires Windows COM automation"));
+    return false;
+#else
+    if (!isWordComAutomationAvailable()) {
+        updateStatus(tr("Microsoft Word COM automation is not available"));
+        return false;
+    }
+
+    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
+        updateStatus(tr("Unable to launch Word"));
+        return false;
+    }
+
+    updateStatus(tr("Opened Word target"));
     return true;
 #endif
 }

@@ -3,6 +3,7 @@
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
+#include "pinloom/core/WordCommand.h"
 
 #include <QByteArray>
 #include <QDateTime>
@@ -29,6 +30,10 @@ private slots:
     void buildsVisioShapeCommandWithAliasAndFallbacks();
     void reportsVisioCommandInputErrors();
     void recognizesVisioTargetAppAliases();
+    void buildsWordBookmarkCommand();
+    void buildsWordBookmarkCommandWithAliasAndFallbacks();
+    void reportsWordCommandInputErrors();
+    void recognizesWordTargetAppAliases();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -456,6 +461,135 @@ void CoreSmokeTest::recognizesVisioTargetAppAliases()
     visio.locatorType.clear();
     visio.locatorJson = QStringLiteral("{\"type\":\"visio.shape\"}");
     QVERIFY(isVisioAnchor(visio));
+}
+
+void CoreSmokeTest::buildsWordBookmarkCommand()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Microsoft Word");
+    anchor.targetFile = QStringLiteral("E:/docs/spec.docx");
+    anchor.locatorType = QStringLiteral("word.bookmark");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"word.bookmark\",\"bookmark\":\"Requirement_12\"}");
+
+    QVERIFY(isWordAnchor(anchor));
+    const WordJumpCommandResult result = buildWordJumpCommand(anchor, QString());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.executablePath, QStringLiteral("powershell.exe"));
+    QCOMPARE(result.command.documentPath, anchor.targetFile);
+    QCOMPARE(result.command.locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(result.command.bookmarkName, QStringLiteral("Requirement_12"));
+    QCOMPARE(result.command.arguments.at(0), QStringLiteral("-NoProfile"));
+    QVERIFY(result.command.arguments.contains(QStringLiteral("-Command")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/docs/spec.docx')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Bookmarks.Item('Requirement_12')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$range.Select()")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$word.Selection.GoTo(-1, 1, $null, 'Requirement_12')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$word.Activate()")));
+}
+
+void CoreSmokeTest::buildsWordBookmarkCommandWithAliasAndFallbacks()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Word");
+    anchor.targetFile = QStringLiteral("E:/docs/anchor-field.docx");
+    anchor.locatorJson =
+        QStringLiteral("{\"type\":\"word.bookmark\",\"name\":\"Requirement_12\","
+                       "\"document\":\"E:/docs/document-fallback.docx\","
+                       "\"target_file\":\"E:/docs/target-file-fallback.docx\"}");
+
+    QVERIFY(isWordAnchor(anchor));
+    WordJumpCommandResult result = buildWordJumpCommand(anchor, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/docs/anchor-field.docx"));
+    QCOMPARE(result.command.bookmarkName, QStringLiteral("Requirement_12"));
+
+    Anchor targetUriWins = anchor;
+    targetUriWins.targetFile.clear();
+    targetUriWins.targetUri = QStringLiteral("E:/docs/target-uri.docx");
+    result = buildWordJumpCommand(targetUriWins, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/docs/target-uri.docx"));
+
+    Anchor locatorDocumentFallback = anchor;
+    locatorDocumentFallback.targetFile.clear();
+    result = buildWordJumpCommand(locatorDocumentFallback, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/docs/document-fallback.docx"));
+
+    Anchor locatorTargetFileFallback = anchor;
+    locatorTargetFileFallback.targetFile.clear();
+    locatorTargetFileFallback.locatorJson =
+        QStringLiteral("{\"type\":\"word.bookmark\",\"name\":\"Requirement_12\","
+                       "\"target_file\":\"E:/docs/target-file-fallback.docx\"}");
+    result = buildWordJumpCommand(locatorTargetFileFallback, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/docs/target-file-fallback.docx"));
+
+    Anchor locationFallback = anchor;
+    locationFallback.targetFile.clear();
+    locationFallback.locatorJson =
+        QStringLiteral("{\"type\":\"word.bookmark\",\"name\":\"Requirement_12\"}");
+    result = buildWordJumpCommand(locationFallback, QStringLiteral("E:/docs/location-fallback.docx"));
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.documentPath, QStringLiteral("E:/docs/location-fallback.docx"));
+}
+
+void CoreSmokeTest::reportsWordCommandInputErrors()
+{
+    Anchor base;
+    base.targetApp = QStringLiteral("Word");
+    base.targetFile = QStringLiteral("E:/docs/spec.docx");
+    base.locatorType = QStringLiteral("word.bookmark");
+    base.locatorJson = QStringLiteral("{\"bookmark\":\"Requirement_12\"}");
+
+    Anchor missingFile = base;
+    missingFile.targetFile.clear();
+    WordJumpCommandResult result = buildWordJumpCommand(missingFile, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word document path is missing"));
+
+    Anchor invalidJson = base;
+    invalidJson.locatorJson = QStringLiteral("{\"bookmark\":");
+    result = buildWordJumpCommand(invalidJson, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word locator JSON is invalid"));
+
+    Anchor unsupported = base;
+    unsupported.locatorType = QStringLiteral("word.heading");
+    result = buildWordJumpCommand(unsupported, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word locator type is unsupported"));
+
+    Anchor missingBookmark = base;
+    missingBookmark.locatorJson = QStringLiteral("{}");
+    result = buildWordJumpCommand(missingBookmark, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word bookmark is missing"));
+}
+
+void CoreSmokeTest::recognizesWordTargetAppAliases()
+{
+    Anchor word;
+    word.targetApp = QStringLiteral("wOrD");
+    QVERIFY(isWordAnchor(word));
+
+    word.targetApp = QStringLiteral("Microsoft Word");
+    QVERIFY(isWordAnchor(word));
+
+    word.targetApp = QStringLiteral("MS Word");
+    QVERIFY(isWordAnchor(word));
+
+    word.targetApp = QStringLiteral("Excel");
+    QVERIFY(!isWordAnchor(word));
+
+    word.targetApp.clear();
+    word.locatorType = QStringLiteral("WORD.BOOKMARK");
+    QVERIFY(isWordAnchor(word));
+
+    word.locatorType.clear();
+    word.locatorJson = QStringLiteral("{\"type\":\"word.bookmark\"}");
+    QVERIFY(isWordAnchor(word));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()

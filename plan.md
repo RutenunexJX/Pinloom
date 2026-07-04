@@ -188,9 +188,14 @@ Status:
   with `visio.shape` locators now build a deterministic PowerShell/COM command
   object for document, page, and shape UniqueID jumps and route through an
   injectable Visio launcher before generic file fallback.
+- Word jump executor skeleton and launcher dispatch are implemented: anchors
+  with `word.bookmark` locators now build a deterministic PowerShell/COM
+  command object for document and bookmark range jumps and route through an
+  injectable Word launcher before generic file fallback.
 - Excel capture remains pending.
 - Visio capture remains pending.
-- Word and PowerPoint executors remain pending.
+- Word capture/bookmark creation remains pending.
+- PowerPoint executor remains pending.
 
 ## Phase 6: Experience Completion
 
