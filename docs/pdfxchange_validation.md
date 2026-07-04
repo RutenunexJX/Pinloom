@@ -1,13 +1,15 @@
 # PDF-XChange Validation
 
 Pinloom's PDF-XChange executor is intentionally limited to launching manually
-stored PDF anchors. It does not capture PDF anchors and it does not provide a
-built-in PDF reader.
+stored PDF anchors. It does not inspect PDF-XChange's current view and it does
+not provide a built-in PDF reader.
 
-The Phase 4 pre-closure adds only a capture contract and manual rect provider:
-explicit file, page, rectangle, zoom, unit, and source inputs can be normalized
-into a `pdfxchange.rect` anchor compatible with the executor. It still does not
-inspect or automate PDF-XChange's current view.
+The Phase 4 manual creation slice now covers the local creation loop: explicit
+name, file, page, rectangle, zoom, aliases, tags, pinned, unit, and source
+inputs can be normalized through the manual PDF-XChange rect provider, saved in
+the repository, searched by name/alias/tag, and launched by the Phase 3
+executor. `Ctrl+K` has an injectable manual request provider hook for hosts, but
+the built-in dialog/picker remains a follow-up.
 
 ## Automated Coverage
 
@@ -22,6 +24,11 @@ The current automated tests cover:
 - Missing executable reporting in the launcher UI.
 - Manual PDF-XChange rect capture contract construction, missing input
   diagnostics, stable locator JSON, and executor compatibility.
+- Manual PDF rect anchor creation service validation for missing name/file,
+  invalid page/rect, repository save failure, successful persistence, search by
+  name/alias/tag, stable locator JSON, executor compatibility, and SQLite
+  reopen/read-back.
+- `Ctrl+K` routing through an injected manual PDF anchor request provider.
 
 Run the automated checks with:
 

@@ -54,6 +54,7 @@ private slots:
     void panelAllowsHostToActivateResourceById();
     void panelAllowsHostToHandleOpenTarget();
     void panelKeyboardShortcutsHaveLauncherResponses();
+    void panelRoutesCtrlKThroughManualPdfAnchorRequestProvider();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -1801,6 +1802,49 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     panel.setSearchText(QStringLiteral("Edited keyboard command"));
     QTest::keyClick(searchEdit, Qt::Key_Delete);
     QVERIFY(statusNotifications.last().contains(QStringLiteral("Anchor deletion is not implemented yet")));
+}
+
+void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()
+{
+    InMemoryLibraryRepository repository;
+
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPdfAnchorRequestProvider = [&]() -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++requestCount;
+        ManualPdfAnchorCreationRequest request;
+        request.name = QStringLiteral("Manual flow window");
+        request.file = QStringLiteral("E:/docs/manual-flow.pdf");
+        request.page = 3;
+        request.rect = {10.0, 20.0, 110.0, 80.0};
+        request.zoom = 175.0;
+        request.aliases = {QStringLiteral("flow alias")};
+        request.tags = {QStringLiteral("#phase4")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Created PDF anchor")));
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("flow alias")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual flow window"));
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/manual-flow.pdf"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase4")});
+    QVERIFY(results.first().matchedAnchor->pinned);
 }
 
 void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()

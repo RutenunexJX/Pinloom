@@ -1111,6 +1111,28 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
 
 bool PinloomPanel::captureCurrentAppPosition()
 {
+    if (options_.manualPdfAnchorRequestProvider) {
+        const std::optional<ManualPdfAnchorCreationRequest> request =
+            options_.manualPdfAnchorRequestProvider();
+        if (!request.has_value()) {
+            updateStatus(tr("Capture canceled"));
+            return false;
+        }
+
+        ManualPdfAnchorCreationService creationService(repository_);
+        const ManualPdfAnchorCreationResult result =
+            creationService.createManualPdfXChangeRectAnchor(request.value());
+        if (!result.success()) {
+            updateStatus(result.error);
+            return false;
+        }
+
+        refreshResults();
+        selectResultResource(result.resource.id);
+        updateStatus(tr("Created PDF anchor \"%1\"").arg(result.anchor.name));
+        return true;
+    }
+
     updateStatus(tr("Capture current app position is not implemented yet"));
     return false;
 }
