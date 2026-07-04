@@ -3,6 +3,7 @@
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
+#include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
 
 #include <QJsonDocument>
@@ -217,6 +218,17 @@ void verifyCtrlVPasteSequence(const PasteKeySequence &sequence)
     }
 }
 
+std::optional<ClipTrayAction> trayActionById(const QList<ClipTrayAction> &actions, const QString &id)
+{
+    const auto it = std::find_if(actions.cbegin(), actions.cend(), [&](const ClipTrayAction &action) {
+        return action.id == id;
+    });
+    if (it == actions.cend()) {
+        return std::nullopt;
+    }
+    return *it;
+}
+
 QString saveInMemoryClip(InMemoryClipRepository &repository,
                          const QString &text,
                          const QString &name,
@@ -272,6 +284,13 @@ private slots:
     void hotkeyServiceReportsRegisterFailure();
     void hotkeyServiceDuplicateStartStopIsStable();
     void clipPickerHotkeyControllerRequestsShow();
+    void trayControllerStartsHotkeyRuntime();
+    void trayControllerHotkeyActivationShowsPicker();
+    void trayControllerManualShowUsesSamePath();
+    void trayControllerHotkeyStartFailureDoesNotShowPicker();
+    void trayControllerPauseResumeToggleUpdatesActionsAndSignals();
+    void trayControllerQuitRequestEmitsSignal();
+    void trayControllerStopStopsHotkeyRuntime();
     void platformPasteInvokerSendsCtrlVSequence();
     void platformPasteInvokerReportsSenderFailure();
     void platformPasteInvokerReportsUnavailableSender();
@@ -1227,6 +1246,197 @@ void ClipTest::clipPickerHotkeyControllerRequestsShow()
 
     QCOMPARE(showHandlerCount, 1);
     QCOMPARE(showSignalCount, 1);
+}
+
+void ClipTest::trayControllerStartsHotkeyRuntime()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    ClipTrayController controller(service);
+    QList<bool> runningSignals;
+    QObject::connect(&controller, &ClipTrayController::runningChanged, [&](bool running) {
+        runningSignals.append(running);
+    });
+
+    QVERIFY(controller.start());
+
+    QVERIFY(controller.isRunning());
+    QVERIFY(service.isRegistered());
+    QVERIFY(backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 0);
+    QVERIFY(controller.lastError().isEmpty());
+    QCOMPARE(controller.status(), QStringLiteral("Running"));
+    QCOMPARE(runningSignals, (QList<bool>{true}));
+}
+
+void ClipTest::trayControllerHotkeyActivationShowsPicker()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    int showHandlerCount = 0;
+    ClipTrayControllerOptions options;
+    options.showPickerHandler = [&]() {
+        ++showHandlerCount;
+    };
+    ClipTrayController controller(service, options);
+    int showSignalCount = 0;
+    QObject::connect(&controller, &ClipTrayController::showPickerRequested, [&]() {
+        ++showSignalCount;
+    });
+
+    QVERIFY(controller.start());
+    backend.activate();
+
+    QCOMPARE(showHandlerCount, 1);
+    QCOMPARE(showSignalCount, 1);
+    QCOMPARE(controller.pickerShownCount(), 1);
+}
+
+void ClipTest::trayControllerManualShowUsesSamePath()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    int showHandlerCount = 0;
+    ClipTrayControllerOptions options;
+    options.showPickerHandler = [&]() {
+        ++showHandlerCount;
+    };
+    ClipTrayController controller(service, options);
+    int showSignalCount = 0;
+    QObject::connect(&controller, &ClipTrayController::showPickerRequested, [&]() {
+        ++showSignalCount;
+    });
+
+    controller.requestShowPicker();
+
+    QCOMPARE(showHandlerCount, 1);
+    QCOMPARE(showSignalCount, 1);
+    QCOMPARE(controller.pickerShownCount(), 1);
+
+    QVERIFY(controller.triggerAction(QStringLiteral("show_picker")));
+    QCOMPARE(showHandlerCount, 2);
+    QCOMPARE(showSignalCount, 2);
+    QCOMPARE(controller.pickerShownCount(), 2);
+}
+
+void ClipTest::trayControllerHotkeyStartFailureDoesNotShowPicker()
+{
+    FakeClipHotkeyBackend backend;
+    backend.setRegisterResult(false, QStringLiteral("fake hotkey already registered"));
+    ClipHotkeyService service(&backend);
+    int showHandlerCount = 0;
+    ClipTrayControllerOptions options;
+    options.showPickerHandler = [&]() {
+        ++showHandlerCount;
+    };
+    ClipTrayController controller(service, options);
+    int showSignalCount = 0;
+    QObject::connect(&controller, &ClipTrayController::showPickerRequested, [&]() {
+        ++showSignalCount;
+    });
+
+    QVERIFY(!controller.start());
+    backend.activate();
+
+    QVERIFY(!controller.isRunning());
+    QVERIFY(!service.isRegistered());
+    QVERIFY(!backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(controller.lastError(), QStringLiteral("fake hotkey already registered"));
+    QCOMPARE(controller.status(), QStringLiteral("Stopped: fake hotkey already registered"));
+    QCOMPARE(showHandlerCount, 0);
+    QCOMPARE(showSignalCount, 0);
+    QCOMPARE(controller.pickerShownCount(), 0);
+}
+
+void ClipTest::trayControllerPauseResumeToggleUpdatesActionsAndSignals()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    QList<bool> pausedHandlerStates;
+    ClipTrayControllerOptions options;
+    options.capturePausedHandler = [&](bool paused) {
+        pausedHandlerStates.append(paused);
+    };
+    ClipTrayController controller(service, options);
+    QList<bool> pausedSignals;
+    int actionsChanged = 0;
+    QObject::connect(&controller, &ClipTrayController::capturePausedChanged, [&](bool paused) {
+        pausedSignals.append(paused);
+    });
+    QObject::connect(&controller, &ClipTrayController::trayActionsChanged, [&]() {
+        ++actionsChanged;
+    });
+
+    std::optional<ClipTrayAction> toggleAction =
+        trayActionById(controller.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Pause Capture"));
+    QVERIFY(!toggleAction->checked);
+
+    controller.pauseCapture();
+
+    QVERIFY(controller.capturePaused());
+    toggleAction = trayActionById(controller.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Resume Capture"));
+    QVERIFY(toggleAction->checked);
+
+    controller.resumeCapture();
+    QVERIFY(!controller.capturePaused());
+    toggleAction = trayActionById(controller.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Pause Capture"));
+    QVERIFY(!toggleAction->checked);
+
+    controller.toggleCapturePaused();
+    QVERIFY(controller.capturePaused());
+    QVERIFY(controller.triggerAction(QStringLiteral("toggle_capture")));
+    QVERIFY(!controller.capturePaused());
+
+    QCOMPARE(pausedHandlerStates, (QList<bool>{true, false, true, false}));
+    QCOMPARE(pausedSignals, (QList<bool>{true, false, true, false}));
+    QCOMPARE(actionsChanged, 4);
+}
+
+void ClipTest::trayControllerQuitRequestEmitsSignal()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    ClipTrayController controller(service);
+    int quitSignalCount = 0;
+    QObject::connect(&controller, &ClipTrayController::quitRequested, [&]() {
+        ++quitSignalCount;
+    });
+
+    controller.requestQuit();
+    QVERIFY(controller.triggerAction(QStringLiteral("quit")));
+
+    QCOMPARE(quitSignalCount, 2);
+}
+
+void ClipTest::trayControllerStopStopsHotkeyRuntime()
+{
+    FakeClipHotkeyBackend backend;
+    ClipHotkeyService service(&backend);
+    ClipTrayController controller(service);
+    QList<bool> runningSignals;
+    QObject::connect(&controller, &ClipTrayController::runningChanged, [&](bool running) {
+        runningSignals.append(running);
+    });
+
+    QVERIFY(controller.start());
+    controller.stop();
+    controller.stop();
+
+    QVERIFY(!controller.isRunning());
+    QVERIFY(!service.isRegistered());
+    QVERIFY(!backend.registered());
+    QCOMPARE(backend.registerCalls(), 1);
+    QCOMPARE(backend.unregisterCalls(), 1);
+    QCOMPARE(controller.status(), QStringLiteral("Stopped"));
+    QCOMPARE(runningSignals, (QList<bool>{true, false}));
 }
 
 void ClipTest::platformPasteInvokerSendsCtrlVSequence()

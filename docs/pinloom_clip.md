@@ -156,11 +156,30 @@ hotkey. The default platform backend is intentionally thin: on Windows it is
 structured around Win32 `RegisterHotKey`/`UnregisterHotKey` plus a Qt native
 event filter for `WM_HOTKEY`; on non-Windows platforms it reports unavailable.
 
-A tiny picker hotkey controller can adapt the service activation signal into an
+A tiny picker hotkey adapter can adapt the service activation signal into an
 injected show/focus handler. It does not own a tray app, does not auto-start
 with the system, does not coordinate foreground windows, and does not decide
 paste timing. Those remain app-layer responsibilities for the later
 tray/hotkey/picker workflow.
+
+## Tray And Picker Host Controller Skeleton
+
+Pinloom Clip now has a lightweight tray/picker host controller skeleton for
+the future resident app. `ClipTrayController` is a QObject-based runtime layer
+that starts and stops the injected `ClipHotkeyService`, routes both hotkey
+activation and manual show requests through the same injected show/focus picker
+handler, and tracks status, last error, running state, capture pause state, and
+picker show count for tests and future status surfaces.
+
+The controller intentionally exposes only a simple tray action model instead
+of a real menu: show picker, pause/resume capture, and quit. Pause/resume is
+handler-injected so the future app can connect it to `ClipboardCaptureService`,
+while tests can verify state changes without touching the user's clipboard.
+Quit is exposed as a signal only.
+
+This is still not a real `QSystemTrayIcon`, not auto-start registration, not
+Windows foreground-window orchestration, and not paste timing or focus
+recovery. Those remain app-layer work for the later resident tray workflow.
 
 ## Privacy And Limits
 

@@ -1,0 +1,89 @@
+#pragma once
+
+#include <QList>
+#include <QObject>
+#include <QString>
+#include <functional>
+
+namespace Pinloom {
+
+class ClipHotkeyService;
+
+struct ClipTrayAction {
+    QString id;
+    QString title;
+    bool enabled = true;
+    bool checked = false;
+};
+
+using ClipTrayShowPickerHandler = std::function<void()>;
+using ClipTrayCapturePausedHandler = std::function<void(bool paused)>;
+
+struct ClipTrayControllerOptions {
+    ClipTrayShowPickerHandler showPickerHandler;
+    ClipTrayCapturePausedHandler capturePausedHandler;
+    bool capturePaused = false;
+};
+
+class ClipTrayController final : public QObject {
+    Q_OBJECT
+
+public:
+    using ShowPickerHandler = ClipTrayShowPickerHandler;
+    using CapturePausedHandler = ClipTrayCapturePausedHandler;
+
+    explicit ClipTrayController(ClipHotkeyService &hotkeyService, QObject *parent = nullptr);
+    ClipTrayController(ClipHotkeyService &hotkeyService,
+                       ClipTrayControllerOptions options,
+                       QObject *parent = nullptr);
+
+    void setShowPickerHandler(ShowPickerHandler handler);
+    void setCapturePausedHandler(CapturePausedHandler handler);
+
+    bool start();
+    void stop();
+    bool isRunning() const;
+
+    QString status() const;
+    QString lastError() const;
+    int pickerShownCount() const;
+
+    bool capturePaused() const;
+    QList<ClipTrayAction> actions() const;
+    bool triggerAction(const QString &actionId);
+
+public slots:
+    void requestShowPicker();
+    void pauseCapture();
+    void resumeCapture();
+    void setCapturePaused(bool paused);
+    void toggleCapturePaused();
+    void requestQuit();
+
+signals:
+    void runningChanged(bool running);
+    void statusChanged(const QString &status);
+    void errorChanged(const QString &error);
+    void showPickerRequested();
+    void pickerShownCountChanged(int count);
+    void capturePausedChanged(bool paused);
+    void trayActionsChanged();
+    void quitRequested();
+
+private:
+    void handleHotkeyActivated();
+    void handleHotkeyRegisteredChanged(bool registered);
+    void setRunning(bool running);
+    void setLastError(const QString &error);
+    QString currentStatusText() const;
+    void refreshStatus();
+
+    ClipHotkeyService &hotkeyService_;
+    ClipTrayControllerOptions options_;
+    QString status_;
+    QString lastError_;
+    int pickerShownCount_ = 0;
+    bool running_ = false;
+};
+
+} // namespace Pinloom
