@@ -1,5 +1,7 @@
 #include "pinloom/core/ExcelCommand.h"
 
+#include "pinloom/core/ApplicationLaunchSettings.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -157,6 +159,13 @@ bool isExcelAnchor(const Anchor &anchor)
 
 ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor, const QString &fallbackFilePath)
 {
+    return buildExcelJumpCommand(anchor, fallbackFilePath, ApplicationLaunchSettings{});
+}
+
+ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor,
+                                             const QString &fallbackFilePath,
+                                             const ApplicationLaunchSettings &settings)
+{
     ExcelJumpCommandResult result;
 
     QString parseError;
@@ -197,7 +206,7 @@ ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor, const QString
         }
     }
 
-    result.command.executablePath = QStringLiteral("powershell.exe");
+    result.command.executablePath = effectivePowerShellExecutablePath(settings);
     result.command.powerShellScript = powerShellScriptForCommand(result.command);
     result.command.arguments = powerShellArguments(result.command.powerShellScript);
     return result;

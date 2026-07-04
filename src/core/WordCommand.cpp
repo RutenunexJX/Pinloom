@@ -1,5 +1,7 @@
 #include "pinloom/core/WordCommand.h"
 
+#include "pinloom/core/ApplicationLaunchSettings.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -157,6 +159,13 @@ bool isWordAnchor(const Anchor &anchor)
 
 WordJumpCommandResult buildWordJumpCommand(const Anchor &anchor, const QString &fallbackFilePath)
 {
+    return buildWordJumpCommand(anchor, fallbackFilePath, ApplicationLaunchSettings{});
+}
+
+WordJumpCommandResult buildWordJumpCommand(const Anchor &anchor,
+                                           const QString &fallbackFilePath,
+                                           const ApplicationLaunchSettings &settings)
+{
     WordJumpCommandResult result;
 
     QString parseError;
@@ -184,7 +193,7 @@ WordJumpCommandResult buildWordJumpCommand(const Anchor &anchor, const QString &
         return result;
     }
 
-    result.command.executablePath = QStringLiteral("powershell.exe");
+    result.command.executablePath = effectivePowerShellExecutablePath(settings);
     result.command.powerShellScript = powerShellScriptForCommand(result.command);
     result.command.arguments = powerShellArguments(result.command.powerShellScript);
     return result;

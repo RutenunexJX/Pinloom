@@ -7,6 +7,8 @@
 
 namespace Pinloom {
 
+struct ApplicationLaunchSettings;
+
 struct PdfXChangeCommand {
     QString executablePath;
     QString action;
@@ -24,6 +26,10 @@ struct PdfXChangeCommandResult {
 bool isPdfXChangeLocatorType(const QString &locatorType);
 bool isPdfXChangeAnchor(const Anchor &anchor);
 QString resolvePdfXChangeExecutablePath();
+QString resolvePdfXChangeExecutablePath(const ApplicationLaunchSettings &settings);
+PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+                                               const QString &fallbackFilePath,
+                                               const ApplicationLaunchSettings &settings);
 PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
                                                const QString &fallbackFilePath,
                                                const QString &executablePath);

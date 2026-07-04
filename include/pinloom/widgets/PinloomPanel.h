@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/Anchor.h"
+#include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/ManualExcelAnchorCreation.h"
@@ -87,6 +88,7 @@ struct PinloomPanelOptions {
     std::function<std::optional<ManualPowerPointAnchorCreationRequest>()> manualPowerPointAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>()> manualPdfAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
+    ApplicationLaunchSettings applicationLaunchSettings;
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
     std::function<QString()> pdfXChangeExecutablePathProvider;
     std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;

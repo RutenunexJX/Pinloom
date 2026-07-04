@@ -1,5 +1,7 @@
 #include "pinloom/core/VisioCommand.h"
 
+#include "pinloom/core/ApplicationLaunchSettings.h"
+
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
@@ -161,6 +163,13 @@ bool isVisioAnchor(const Anchor &anchor)
 
 VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor, const QString &fallbackFilePath)
 {
+    return buildVisioJumpCommand(anchor, fallbackFilePath, ApplicationLaunchSettings{});
+}
+
+VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor,
+                                             const QString &fallbackFilePath,
+                                             const ApplicationLaunchSettings &settings)
+{
     VisioJumpCommandResult result;
 
     QString parseError;
@@ -194,7 +203,7 @@ VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor, const QString
         return result;
     }
 
-    result.command.executablePath = QStringLiteral("powershell.exe");
+    result.command.executablePath = effectivePowerShellExecutablePath(settings);
     result.command.powerShellScript = powerShellScriptForCommand(result.command);
     result.command.arguments = powerShellArguments(result.command.powerShellScript);
     return result;

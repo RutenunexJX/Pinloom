@@ -1,4 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
@@ -23,6 +24,8 @@ private slots:
     void buildsPdfXChangePageCommandFromLegacyAnchor();
     void reportsMissingPdfXChangeTargetPath();
     void resolvesPdfXChangeExecutableFromEnvironment();
+    void defaultsApplicationLaunchSettings();
+    void appliesExplicitApplicationLaunchSettings();
     void buildsExcelRangeCommand();
     void buildsExcelNamedRangeCommand();
     void reportsExcelCommandInputErrors();
@@ -212,6 +215,109 @@ void CoreSmokeTest::resolvesPdfXChangeExecutableFromEnvironment()
     }
 
     QCOMPARE(resolved, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+}
+
+void CoreSmokeTest::defaultsApplicationLaunchSettings()
+{
+    ApplicationLaunchSettings settings;
+
+    QCOMPARE(defaultPowerShellExecutablePath(), QStringLiteral("powershell.exe"));
+    QCOMPARE(effectivePowerShellExecutablePath(settings), QStringLiteral("powershell.exe"));
+
+    settings.powerShellExecutablePath = QStringLiteral("   ");
+    QCOMPARE(effectivePowerShellExecutablePath(settings), QStringLiteral("powershell.exe"));
+    QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::Excel));
+    QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::Word));
+    QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::PowerPoint));
+    QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::Visio));
+    QVERIFY(!usesPowerShellLauncher(ExternalApplicationTarget::PdfXChange));
+    QCOMPARE(externalApplicationLabel(ExternalApplicationTarget::PdfXChange),
+             QStringLiteral("PDF-XChange Editor"));
+
+    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_PDFXCHANGE_PATH");
+    const QByteArray previous = qgetenv("PINLOOM_PDFXCHANGE_PATH");
+
+    QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", "C:/Portable PDF/PDFXEdit.exe"));
+    QCOMPARE(resolvePdfXChangeExecutablePath(settings),
+             QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+
+    Anchor anchor;
+    anchor.targetFile = QStringLiteral("E:/docs/spec.pdf");
+    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.locatorJson = QStringLiteral("{\"page\":4}");
+    const PdfXChangeCommandResult command = buildPdfXChangeCommand(anchor, QString(), settings);
+
+    if (hadValue) {
+        QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", previous));
+    } else {
+        qunsetenv("PINLOOM_PDFXCHANGE_PATH");
+    }
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.executablePath, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+}
+
+void CoreSmokeTest::appliesExplicitApplicationLaunchSettings()
+{
+    ApplicationLaunchSettings settings;
+    settings.pdfXChangeExecutablePath = QStringLiteral(" C:/Pinned/PDFXEdit.exe ");
+    settings.powerShellExecutablePath = QStringLiteral(" C:/Tools/PowerShell/powershell.exe ");
+
+    QCOMPARE(resolvePdfXChangeExecutablePath(settings), QStringLiteral("C:/Pinned/PDFXEdit.exe"));
+    QCOMPARE(effectivePowerShellExecutablePath(settings),
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
+
+    Anchor pdfAnchor;
+    pdfAnchor.targetFile = QStringLiteral("E:/docs/spec.pdf");
+    pdfAnchor.locatorType = QStringLiteral("pdfxchange.page");
+    pdfAnchor.locatorJson = QStringLiteral("{\"page\":4}");
+    const PdfXChangeCommandResult pdfCommand =
+        buildPdfXChangeCommand(pdfAnchor, QString(), settings);
+    QVERIFY2(pdfCommand.success(), qPrintable(pdfCommand.error));
+    QCOMPARE(pdfCommand.command.executablePath, QStringLiteral("C:/Pinned/PDFXEdit.exe"));
+
+    Anchor excelAnchor;
+    excelAnchor.targetFile = QStringLiteral("E:/books/budget.xlsx");
+    excelAnchor.locatorType = QStringLiteral("excel.range");
+    excelAnchor.locatorJson =
+        QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"B12:D18\"}");
+    const ExcelJumpCommandResult excelCommand =
+        buildExcelJumpCommand(excelAnchor, QString(), settings);
+    QVERIFY2(excelCommand.success(), qPrintable(excelCommand.error));
+    QCOMPARE(excelCommand.command.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
+
+    Anchor wordAnchor;
+    wordAnchor.targetFile = QStringLiteral("E:/docs/spec.docx");
+    wordAnchor.locatorType = QStringLiteral("word.bookmark");
+    wordAnchor.locatorJson = QStringLiteral("{\"bookmark\":\"Requirement_12\"}");
+    const WordJumpCommandResult wordCommand =
+        buildWordJumpCommand(wordAnchor, QString(), settings);
+    QVERIFY2(wordCommand.success(), qPrintable(wordCommand.error));
+    QCOMPARE(wordCommand.command.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
+
+    Anchor powerPointAnchor;
+    powerPointAnchor.targetFile = QStringLiteral("E:/slides/process.pptx");
+    powerPointAnchor.locatorType = QStringLiteral("powerpoint.shape");
+    powerPointAnchor.locatorJson = QStringLiteral("{\"slide\":12,\"shape_id\":42}");
+    const PowerPointJumpCommandResult powerPointCommand =
+        buildPowerPointJumpCommand(powerPointAnchor, QString(), settings);
+    QVERIFY2(powerPointCommand.success(), qPrintable(powerPointCommand.error));
+    QCOMPARE(powerPointCommand.command.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
+
+    Anchor visioAnchor;
+    visioAnchor.targetFile = QStringLiteral("E:/drawings/power.vsdx");
+    visioAnchor.locatorType = QStringLiteral("visio.shape");
+    visioAnchor.locatorJson =
+        QStringLiteral("{\"page\":\"Page-1\","
+                       "\"shape_unique_id\":\"{00000000-0000-0000-0000-000000000000}\"}");
+    const VisioJumpCommandResult visioCommand =
+        buildVisioJumpCommand(visioAnchor, QString(), settings);
+    QVERIFY2(visioCommand.success(), qPrintable(visioCommand.error));
+    QCOMPARE(visioCommand.command.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
 }
 
 void CoreSmokeTest::buildsExcelRangeCommand()

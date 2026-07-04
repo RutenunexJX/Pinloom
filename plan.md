@@ -244,7 +244,17 @@ Scope:
 - Recent and pinned anchor polish.
 - Fast alias/tag editing.
 
-Status: pending.
+Status:
+
+- External application path settings skeleton is implemented in core via
+  launch settings for PDF-XChange and shared PowerShell automation paths.
+- PDF-XChange, Excel, Word, PowerPoint, and Visio executors can consume the
+  injected settings while preserving existing default/legacy builder behavior.
+- `PinloomPanelOptions` can host-inject the launch settings, and launcher
+  activation passes the configured paths through to the command builders.
+- This is intentionally not a complete settings UI or persistence layer.
+- Build and full `ctest --test-dir build --output-on-failure` passed for this
+  first Phase 6 slice.
 
 ## Frozen Or Demoted Work
 

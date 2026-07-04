@@ -1974,7 +1974,7 @@ bool PinloomPanel::activateExcelTarget(const PinloomOpenTarget &target)
     }
 
     const ExcelJumpCommandResult buildResult =
-        buildExcelJumpCommand(target.anchor.value(), target.location);
+        buildExcelJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
     if (!buildResult.success()) {
         updateStatus(buildResult.error);
         return false;
@@ -2019,7 +2019,7 @@ bool PinloomPanel::activateVisioTarget(const PinloomOpenTarget &target)
     }
 
     const VisioJumpCommandResult buildResult =
-        buildVisioJumpCommand(target.anchor.value(), target.location);
+        buildVisioJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
     if (!buildResult.success()) {
         updateStatus(buildResult.error);
         return false;
@@ -2064,7 +2064,7 @@ bool PinloomPanel::activateWordTarget(const PinloomOpenTarget &target)
     }
 
     const WordJumpCommandResult buildResult =
-        buildWordJumpCommand(target.anchor.value(), target.location);
+        buildWordJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
     if (!buildResult.success()) {
         updateStatus(buildResult.error);
         return false;
@@ -2109,7 +2109,7 @@ bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
     }
 
     const PowerPointJumpCommandResult buildResult =
-        buildPowerPointJumpCommand(target.anchor.value(), target.location);
+        buildPowerPointJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
     if (!buildResult.success()) {
         updateStatus(buildResult.error);
         return false;
@@ -2153,11 +2153,13 @@ bool PinloomPanel::activatePdfXChangeTarget(const PinloomOpenTarget &target)
         return false;
     }
 
-    const QString executablePath = options_.pdfXChangeExecutablePathProvider
-        ? options_.pdfXChangeExecutablePathProvider().trimmed()
-        : resolvePdfXChangeExecutablePath();
-    const PdfXChangeCommandResult buildResult =
-        buildPdfXChangeCommand(target.anchor.value(), target.location, executablePath);
+    const PdfXChangeCommandResult buildResult = options_.pdfXChangeExecutablePathProvider
+        ? buildPdfXChangeCommand(target.anchor.value(),
+                                 target.location,
+                                 options_.pdfXChangeExecutablePathProvider().trimmed())
+        : buildPdfXChangeCommand(target.anchor.value(),
+                                 target.location,
+                                 options_.applicationLaunchSettings);
     if (!buildResult.success()) {
         updateStatus(buildResult.error);
         return false;

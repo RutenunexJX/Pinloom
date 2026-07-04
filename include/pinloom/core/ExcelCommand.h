@@ -7,6 +7,8 @@
 
 namespace Pinloom {
 
+struct ApplicationLaunchSettings;
+
 struct ExcelJumpCommand {
     QString executablePath;
     QString workbookPath;
@@ -28,5 +30,8 @@ struct ExcelJumpCommandResult {
 bool isExcelLocatorType(const QString &locatorType);
 bool isExcelAnchor(const Anchor &anchor);
 ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor, const QString &fallbackFilePath);
+ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor,
+                                             const QString &fallbackFilePath,
+                                             const ApplicationLaunchSettings &settings);
 
 } // namespace Pinloom

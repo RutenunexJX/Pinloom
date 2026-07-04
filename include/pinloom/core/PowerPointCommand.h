@@ -7,6 +7,8 @@
 
 namespace Pinloom {
 
+struct ApplicationLaunchSettings;
+
 struct PowerPointJumpCommand {
     QString executablePath;
     QString presentationPath;
@@ -28,5 +30,8 @@ struct PowerPointJumpCommandResult {
 bool isPowerPointLocatorType(const QString &locatorType);
 bool isPowerPointAnchor(const Anchor &anchor);
 PowerPointJumpCommandResult buildPowerPointJumpCommand(const Anchor &anchor, const QString &fallbackFilePath);
+PowerPointJumpCommandResult buildPowerPointJumpCommand(const Anchor &anchor,
+                                                       const QString &fallbackFilePath,
+                                                       const ApplicationLaunchSettings &settings);
 
 } // namespace Pinloom

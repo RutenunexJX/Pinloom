@@ -2191,6 +2191,8 @@ void WidgetSmokeTest::panelLaunchesExcelAnchorWithInjectedExecutor()
     ExcelJumpCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
+    options.applicationLaunchSettings.powerShellExecutablePath =
+        QStringLiteral("C:/Tools/PowerShell/powershell.exe");
     options.excelLaunchHandler = [&](const ExcelJumpCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;
@@ -2211,6 +2213,8 @@ void WidgetSmokeTest::panelLaunchesExcelAnchorWithInjectedExecutor()
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QVERIFY(launched);
+    QCOMPARE(capturedCommand.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
     QCOMPARE(capturedCommand.workbookPath, resource.location);
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("excel.range"));
     QCOMPARE(capturedCommand.sheetName, QStringLiteral("Sheet1"));
@@ -2315,6 +2319,8 @@ void WidgetSmokeTest::panelLaunchesVisioAnchorWithInjectedExecutor()
     VisioJumpCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
+    options.applicationLaunchSettings.powerShellExecutablePath =
+        QStringLiteral("C:/Tools/PowerShell/powershell.exe");
     options.visioLaunchHandler = [&](const VisioJumpCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;
@@ -2335,6 +2341,8 @@ void WidgetSmokeTest::panelLaunchesVisioAnchorWithInjectedExecutor()
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QVERIFY(launched);
+    QCOMPARE(capturedCommand.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
     QCOMPARE(capturedCommand.documentPath, resource.location);
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("visio.shape"));
     QCOMPARE(capturedCommand.pageName, QStringLiteral("Page-1"));
@@ -2438,6 +2446,8 @@ void WidgetSmokeTest::panelLaunchesWordAnchorWithInjectedExecutor()
     WordJumpCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
+    options.applicationLaunchSettings.powerShellExecutablePath =
+        QStringLiteral("C:/Tools/PowerShell/powershell.exe");
     options.wordLaunchHandler = [&](const WordJumpCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;
@@ -2458,6 +2468,8 @@ void WidgetSmokeTest::panelLaunchesWordAnchorWithInjectedExecutor()
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QVERIFY(launched);
+    QCOMPARE(capturedCommand.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
     QCOMPARE(capturedCommand.documentPath, resource.location);
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("word.bookmark"));
     QCOMPARE(capturedCommand.bookmarkName, QStringLiteral("Requirement_12"));
@@ -2559,6 +2571,8 @@ void WidgetSmokeTest::panelLaunchesPowerPointAnchorWithInjectedExecutor()
     PowerPointJumpCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
+    options.applicationLaunchSettings.powerShellExecutablePath =
+        QStringLiteral("C:/Tools/PowerShell/powershell.exe");
     options.powerPointLaunchHandler = [&](const PowerPointJumpCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;
@@ -2579,6 +2593,8 @@ void WidgetSmokeTest::panelLaunchesPowerPointAnchorWithInjectedExecutor()
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QVERIFY(launched);
+    QCOMPARE(capturedCommand.executablePath,
+             QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
     QCOMPARE(capturedCommand.presentationPath, resource.location);
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("powerpoint.shape"));
     QCOMPARE(capturedCommand.slideIndex, 12);
@@ -2682,9 +2698,8 @@ void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
     PdfXChangeCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
-    options.pdfXChangeExecutablePathProvider = []() {
-        return QStringLiteral("C:/Tools/PDFXEdit.exe");
-    };
+    options.applicationLaunchSettings.pdfXChangeExecutablePath =
+        QStringLiteral("C:/Tools/PDFXEdit.exe");
     options.pdfXChangeLaunchHandler = [&](const PdfXChangeCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;

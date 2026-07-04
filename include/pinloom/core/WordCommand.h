@@ -7,6 +7,8 @@
 
 namespace Pinloom {
 
+struct ApplicationLaunchSettings;
+
 struct WordJumpCommand {
     QString executablePath;
     QString documentPath;
@@ -26,5 +28,8 @@ struct WordJumpCommandResult {
 bool isWordLocatorType(const QString &locatorType);
 bool isWordAnchor(const Anchor &anchor);
 WordJumpCommandResult buildWordJumpCommand(const Anchor &anchor, const QString &fallbackFilePath);
+WordJumpCommandResult buildWordJumpCommand(const Anchor &anchor,
+                                           const QString &fallbackFilePath,
+                                           const ApplicationLaunchSettings &settings);
 
 } // namespace Pinloom

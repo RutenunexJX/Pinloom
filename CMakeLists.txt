@@ -19,6 +19,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Network Sql Widgets Test)
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
     include/pinloom/core/AnchorCapture.h
+    include/pinloom/core/ApplicationLaunchSettings.h
     include/pinloom/core/ExcelCommand.h
     include/pinloom/core/InMemoryLibraryRepository.h
     include/pinloom/core/DirectoryLibrarySource.h
@@ -43,6 +44,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
+    src/core/ApplicationLaunchSettings.cpp
     src/core/DirectoryLibrarySource.cpp
     src/core/ExcelCommand.cpp
     src/core/IndexingService.cpp

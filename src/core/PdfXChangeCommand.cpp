@@ -1,5 +1,7 @@
 #include "pinloom/core/PdfXChangeCommand.h"
 
+#include "pinloom/core/ApplicationLaunchSettings.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -293,6 +295,21 @@ QString resolvePdfXChangeExecutablePath()
         }
     }
     return {};
+}
+
+QString resolvePdfXChangeExecutablePath(const ApplicationLaunchSettings &settings)
+{
+    const QString configured = settings.pdfXChangeExecutablePath.trimmed();
+    return configured.isEmpty() ? resolvePdfXChangeExecutablePath() : configured;
+}
+
+PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+                                               const QString &fallbackFilePath,
+                                               const ApplicationLaunchSettings &settings)
+{
+    return buildPdfXChangeCommand(anchor,
+                                  fallbackFilePath,
+                                  resolvePdfXChangeExecutablePath(settings));
 }
 
 PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,

@@ -7,6 +7,8 @@
 
 namespace Pinloom {
 
+struct ApplicationLaunchSettings;
+
 struct VisioJumpCommand {
     QString executablePath;
     QString documentPath;
@@ -27,5 +29,8 @@ struct VisioJumpCommandResult {
 bool isVisioLocatorType(const QString &locatorType);
 bool isVisioAnchor(const Anchor &anchor);
 VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor, const QString &fallbackFilePath);
+VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor,
+                                             const QString &fallbackFilePath,
+                                             const ApplicationLaunchSettings &settings);
 
 } // namespace Pinloom
