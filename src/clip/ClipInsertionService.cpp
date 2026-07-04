@@ -1,4 +1,5 @@
 #include "pinloom/clip/ClipInsertionService.h"
+#include "pinloom/clip/PlatformPasteInvoker.h"
 
 #include <QClipboard>
 #include <QCoreApplication>
@@ -105,6 +106,7 @@ ClipInsertionService::ClipInsertionService(InMemoryClipRepository &repository, Q
     , clipboard_(new QtClipboardTextAccessor(this))
     , findClip_(findClipCallback(repository))
     , markClipUsed_(markClipUsedCallback(repository))
+    , pasteInvoker_(createPlatformPasteInvoker())
 {
 }
 
@@ -114,6 +116,7 @@ ClipInsertionService::ClipInsertionService(SqliteClipRepository &repository, QOb
     , findClip_(findClipCallback(repository))
     , markClipUsed_(markClipUsedCallback(repository))
     , repositoryError_(repositoryErrorCallback(repository))
+    , pasteInvoker_(createPlatformPasteInvoker())
 {
 }
 

@@ -1,6 +1,7 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
+#include "pinloom/clip/PlatformPasteInvoker.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -86,6 +87,56 @@ private:
     bool failNextSetText_ = false;
 };
 
+class FakePasteKeySender : public PasteKeySender {
+public:
+    bool isAvailable() const override
+    {
+        return available_;
+    }
+
+    bool sendKeys(const PasteKeySequence &sequence) override
+    {
+        ++sendCalls_;
+        sentKeys_ = sequence;
+        return sendResult_;
+    }
+
+    void setAvailable(bool available)
+    {
+        available_ = available;
+    }
+
+    void setSendResult(bool sendResult)
+    {
+        sendResult_ = sendResult;
+    }
+
+    int sendCalls() const
+    {
+        return sendCalls_;
+    }
+
+    PasteKeySequence sentKeys() const
+    {
+        return sentKeys_;
+    }
+
+private:
+    bool available_ = true;
+    bool sendResult_ = true;
+    int sendCalls_ = 0;
+    PasteKeySequence sentKeys_;
+};
+
+void verifyCtrlVPasteSequence(const PasteKeySequence &sequence)
+{
+    const PasteKeySequence expected = PlatformPasteInvoker::ctrlVPasteSequence();
+    QCOMPARE(sequence.size(), expected.size());
+    for (qsizetype index = 0; index < expected.size(); ++index) {
+        QVERIFY(sequence.at(index) == expected.at(index));
+    }
+}
+
 class ClipTest : public QObject {
     Q_OBJECT
 
@@ -107,9 +158,16 @@ private slots:
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
     void clipboardServiceSuppressesNextChange();
     void clipboardServicePersistsCapturedTextWithSqliteRepository();
+    void platformPasteInvokerSendsCtrlVSequence();
+    void platformPasteInvokerReportsSenderFailure();
+    void platformPasteInvokerReportsUnavailableSender();
+#ifndef Q_OS_WIN
+    void platformPasteInvokerDefaultFallbackReturnsFalse();
+#endif
     void insertionServiceInsertsTextById();
     void insertionServiceSuppressesCaptureBeforeOwnClipboardWrites();
     void insertionServiceRestoresOriginalClipboardOnSuccess();
+    void insertionServiceUsesPlatformPasteInvoker();
     void insertionServiceReportsErrors();
     void insertionServiceInsertsSqliteTemporaryAndSavedClips();
 };
@@ -606,6 +664,63 @@ void ClipTest::clipboardServicePersistsCapturedTextWithSqliteRepository()
     QVERIFY(stored->state == ClipState::Temporary);
 }
 
+void ClipTest::platformPasteInvokerSendsCtrlVSequence()
+{
+    FakePasteKeySender sender;
+    PlatformPasteInvoker invoker(&sender);
+
+    const PlatformPasteResult result = invoker.invoke();
+
+    QVERIFY(result.pasted());
+    QVERIFY(result.status == PlatformPasteStatus::Invoked);
+    QVERIFY(result.error.isEmpty());
+    QCOMPARE(sender.sendCalls(), 1);
+    verifyCtrlVPasteSequence(sender.sentKeys());
+}
+
+void ClipTest::platformPasteInvokerReportsSenderFailure()
+{
+    FakePasteKeySender sender;
+    sender.setSendResult(false);
+    PlatformPasteInvoker invoker(&sender);
+
+    const PlatformPasteResult result = invoker.invoke();
+
+    QVERIFY(!result.pasted());
+    QVERIFY(result.status == PlatformPasteStatus::SendFailed);
+    QVERIFY(!result.error.isEmpty());
+    QCOMPARE(sender.sendCalls(), 1);
+    verifyCtrlVPasteSequence(sender.sentKeys());
+}
+
+void ClipTest::platformPasteInvokerReportsUnavailableSender()
+{
+    FakePasteKeySender sender;
+    sender.setAvailable(false);
+    PlatformPasteInvoker invoker(&sender);
+
+    const PlatformPasteResult result = invoker.invoke();
+
+    QVERIFY(!result.pasted());
+    QVERIFY(result.status == PlatformPasteStatus::Unavailable);
+    QVERIFY(!result.error.isEmpty());
+    QCOMPARE(sender.sendCalls(), 0);
+    QVERIFY(sender.sentKeys().isEmpty());
+}
+
+#ifndef Q_OS_WIN
+void ClipTest::platformPasteInvokerDefaultFallbackReturnsFalse()
+{
+    PlatformPasteInvoker invoker;
+
+    const PlatformPasteResult result = invoker.invoke();
+
+    QVERIFY(!result.pasted());
+    QVERIFY(result.status == PlatformPasteStatus::Unavailable);
+    QVERIFY(!result.error.isEmpty());
+}
+#endif
+
 void ClipTest::insertionServiceInsertsTextById()
 {
     InMemoryClipRepository repository;
@@ -703,6 +818,31 @@ void ClipTest::insertionServiceRestoresOriginalClipboardOnSuccess()
     QCOMPARE(clipboard.text(), QStringLiteral("original clipboard"));
     QCOMPARE(clipboard.writes(),
              (QStringList{QStringLiteral("Temporary paste text"), QStringLiteral("original clipboard")}));
+}
+
+void ClipTest::insertionServiceUsesPlatformPasteInvoker()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Platform paste text"));
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    FakePasteKeySender sender;
+    ClipInsertionService service(&clipboard, repository, createPlatformPasteInvoker(&sender));
+    ClipInsertionOptions options;
+    options.restoreOriginalClipboardOnSuccess = false;
+    service.setOptions(options);
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+
+    QVERIFY2(result.inserted(), qPrintable(result.error));
+    QCOMPARE(clipboard.text(), QStringLiteral("Platform paste text"));
+    QCOMPARE(clipboard.writes(), QStringList{QStringLiteral("Platform paste text")});
+    QCOMPARE(sender.sendCalls(), 1);
+    verifyCtrlVPasteSequence(sender.sentKeys());
+    QVERIFY(service.lastStatus() == ClipInsertionStatus::Inserted);
 }
 
 void ClipTest::insertionServiceReportsErrors()

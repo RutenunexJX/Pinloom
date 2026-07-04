@@ -56,9 +56,11 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
     include/pinloom/clip/ClipInsertionService.h
     include/pinloom/clip/ClipRepository.h
+    include/pinloom/clip/PlatformPasteInvoker.h
     src/clip/ClipboardCaptureService.cpp
     src/clip/ClipInsertionService.cpp
     src/clip/ClipRepository.cpp
+    src/clip/PlatformPasteInvoker.cpp
 )
 
 target_include_directories(pinloom_clip_core
@@ -74,6 +76,13 @@ target_link_libraries(pinloom_clip_core
     PRIVATE
         Qt6::Gui
 )
+
+if(WIN32)
+    target_link_libraries(pinloom_clip_core
+        PRIVATE
+            user32
+    )
+endif()
 
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomPanel.h

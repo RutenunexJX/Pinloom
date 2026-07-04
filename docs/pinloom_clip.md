@@ -63,8 +63,8 @@ id/status/error state, and a captured signal. It only captures plain text and
 delegates blank, size, duplicate, pause, and source-app exclusion decisions to
 the existing Clip repository policy layer.
 
-This is still not the tray app, global hotkey flow, floating picker, simulated
-paste insertion, rich text capture, image capture, or blob storage.
+This is still not the tray app, global hotkey flow, floating picker, rich text
+capture, image capture, or blob storage.
 
 ## Text Clip Insertion
 
@@ -85,9 +85,22 @@ The current insertion service reports last inserted id, last status, and last
 error for missing clips, empty or non-text clips, clipboard unavailability,
 clipboard write failure, paste failure, and restore failure.
 
+The core now also provides a default platform paste invoker. On Windows it uses
+an injectable key sender backed by Win32 `SendInput` to emit Ctrl down, V
+down/up, and Ctrl up after the insertion service stages the target text on the
+clipboard. Tests inject a fake key sender, so the test suite verifies the exact
+sequence without sending real keys to the active window. On non-Windows
+platforms the default sender is an unavailable fallback and paste attempts fail
+safely as `PasteFailed`.
+
+Window focus, activation timing, retry/backoff, and any delay between writing
+the clipboard and sending Ctrl+V are still app-layer responsibilities for the
+future tray/hotkey/picker flow. The platform invoker deliberately does not
+bypass the insertion service's suppression or optional clipboard restore logic.
+
 This is still not the tray app, global hotkey flow, Listary-style floating
 picker, rich text insertion, image insertion, HTML/RTF/blob handling, or a
-platform SendInput default paste implementation.
+full window-targeting paste workflow.
 
 ## Privacy And Limits
 
