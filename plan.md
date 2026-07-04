@@ -153,7 +153,15 @@ Acceptance:
 
 - The user can create a PDF anchor, search it, and jump back to the same region.
 
-Status: pending.
+Status:
+
+- Capture contract pre-closure is in progress for the low-risk slice: a core
+  PDF-XChange rect capture request/result shape and manual provider skeleton
+  produce `pdfxchange.rect` anchors from explicit file, page, rectangle, zoom,
+  unit, and source inputs.
+- This slice intentionally does not read PDF-XChange's current view or capture
+  live coordinates. Native PDF-XChange capture and any calibration mode remain
+  research items for a later Phase 4 step.
 
 ## Phase 5: Office And Visio Executors
 

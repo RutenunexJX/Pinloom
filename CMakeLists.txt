@@ -18,6 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
+    include/pinloom/core/AnchorCapture.h
     include/pinloom/core/InMemoryLibraryRepository.h
     include/pinloom/core/DirectoryLibrarySource.h
     include/pinloom/core/IndexingService.h
@@ -32,6 +33,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
     include/pinloom/core/SqliteLibraryRepository.h
+    src/core/AnchorCapture.cpp
     src/core/DirectoryLibrarySource.cpp
     src/core/IndexingService.cpp
     src/core/InMemoryLibraryRepository.cpp
@@ -116,6 +118,18 @@ target_link_libraries(pinloom_core_smoke_test
 )
 
 pinloom_add_test(pinloom_core_smoke_test)
+
+add_executable(pinloom_anchor_capture_test
+    tests/anchor_capture_test.cpp
+)
+
+target_link_libraries(pinloom_anchor_capture_test
+    PRIVATE
+        pinloom_core
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_anchor_capture_test)
 
 add_executable(pinloom_sqlite_repository_test
     tests/sqlite_repository_test.cpp

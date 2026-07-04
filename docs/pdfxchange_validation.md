@@ -4,6 +4,11 @@ Pinloom's PDF-XChange executor is intentionally limited to launching manually
 stored PDF anchors. It does not capture PDF anchors and it does not provide a
 built-in PDF reader.
 
+The Phase 4 pre-closure adds only a capture contract and manual rect provider:
+explicit file, page, rectangle, zoom, unit, and source inputs can be normalized
+into a `pdfxchange.rect` anchor compatible with the executor. It still does not
+inspect or automate PDF-XChange's current view.
+
 ## Automated Coverage
 
 The current automated tests cover:
@@ -15,6 +20,8 @@ The current automated tests cover:
 - `PINLOOM_PDFXCHANGE_PATH` executable resolution.
 - Widget activation through an injected PDF-XChange launcher.
 - Missing executable reporting in the launcher UI.
+- Manual PDF-XChange rect capture contract construction, missing input
+  diagnostics, stable locator JSON, and executor compatibility.
 
 Run the automated checks with:
 
