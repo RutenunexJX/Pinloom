@@ -3,9 +3,11 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
+#include "pinloom/core/ManualPowerPointAnchorCreation.h"
 #include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
@@ -40,6 +42,11 @@ private slots:
     void savesManualWordBookmarkAnchorInRepository();
     void rejectsInvalidManualWordBookmarkAnchorInputsWithoutSaving();
     void createsManualWordBookmarkAnchorCompatibleWithWordExecutor();
+    void buildsManualPowerPointShapeIdAnchor();
+    void buildsManualPowerPointShapeNameAnchor();
+    void savesManualPowerPointShapeAnchorInRepository();
+    void rejectsInvalidManualPowerPointAnchorInputsWithoutSaving();
+    void createsManualPowerPointShapeAnchorCompatibleWithPowerPointExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
@@ -173,6 +180,42 @@ static ManualWordAnchorCreationRequest validWordBookmarkCreationRequest()
     request.targetApp = QStringLiteral("MS Word");
     request.source = QStringLiteral("Host");
     request.aliases = {QStringLiteral("word bookmark"), QStringLiteral("Word Bookmark")};
+    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
+    request.pinned = true;
+    return request;
+}
+
+static PowerPointCaptureRequest validPowerPointShapeIdCaptureRequest()
+{
+    PowerPointCaptureRequest request;
+    request.anchorName = QStringLiteral("Valve A callout");
+    request.targetApp = QStringLiteral(" PPT ");
+    request.targetFile = QStringLiteral("E:/slides/process.pptx");
+    request.slide = 12;
+    request.shapeId = 42;
+    request.shapeName = QStringLiteral(" Valve A ");
+    request.source = QStringLiteral(" Host ");
+    return request;
+}
+
+static PowerPointCaptureRequest validPowerPointShapeNameCaptureRequest()
+{
+    PowerPointCaptureRequest request;
+    request.anchorName = QStringLiteral("Pump curve note");
+    request.targetFile = QStringLiteral("E:/slides/process.pptx");
+    request.slide = 7;
+    request.shapeName = QStringLiteral(" Pump Curve ");
+    return request;
+}
+
+static ManualPowerPointAnchorCreationRequest validPowerPointShapeCreationRequest()
+{
+    ManualPowerPointAnchorCreationRequest request;
+    request.name = QStringLiteral("Valve A callout");
+    request.file = QStringLiteral("E:/slides/process.pptx");
+    request.slide = 12;
+    request.shapeId = 42;
+    request.aliases = {QStringLiteral("slide callout"), QStringLiteral("Slide Callout")};
     request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
     request.pinned = true;
     return request;
@@ -677,6 +720,186 @@ void AnchorCaptureTest::createsManualWordBookmarkAnchorCompatibleWithWordExecuto
     QCOMPARE(command.command.bookmarkName, QStringLiteral("Requirement_12"));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/docs/requirements.docx')")));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Bookmarks.Item('Requirement_12')")));
+}
+
+void AnchorCaptureTest::buildsManualPowerPointShapeIdAnchor()
+{
+    const PowerPointCaptureResult result =
+        captureManualPowerPointShapeAnchor(validPowerPointShapeIdCaptureRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.targetApp, QStringLiteral("PPT"));
+    QCOMPARE(result.targetFile, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(result.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(result.slide, 12);
+    QCOMPARE(result.shapeId, 42);
+    QCOMPARE(result.shapeName, QStringLiteral("Valve A"));
+    QCOMPARE(result.source, QStringLiteral("host"));
+
+    QCOMPARE(result.anchor.type, AnchorType::Manual);
+    QCOMPARE(result.anchor.name, QStringLiteral("Valve A callout"));
+    QCOMPARE(result.anchor.target, QStringLiteral("Valve A callout"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("PPT"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
+
+    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
+    QVERIFY(locatorDocument.isObject());
+    const QJsonObject locator = locatorDocument.object();
+    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("powerpoint.shape"));
+    QCOMPARE(locator.value(QStringLiteral("slide")).toInt(), 12);
+    QCOMPARE(locator.value(QStringLiteral("slide_index")).toInt(), 12);
+    QCOMPARE(locator.value(QStringLiteral("shape_id")).toInt(), 42);
+    QCOMPARE(locator.value(QStringLiteral("shapeId")).toInt(), 42);
+    QCOMPARE(locator.value(QStringLiteral("shape_name")).toString(), QStringLiteral("Valve A"));
+    QCOMPARE(locator.value(QStringLiteral("shapeName")).toString(), QStringLiteral("Valve A"));
+    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("host"));
+    QCOMPARE(locator.value(QStringLiteral("target_app")).toString(), QStringLiteral("PPT"));
+}
+
+void AnchorCaptureTest::buildsManualPowerPointShapeNameAnchor()
+{
+    const PowerPointCaptureResult result =
+        captureManualPowerPointShapeAnchor(validPowerPointShapeNameCaptureRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.targetApp, QStringLiteral("Microsoft PowerPoint"));
+    QCOMPARE(result.targetFile, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(result.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(result.slide, 7);
+    QCOMPARE(result.shapeId, -1);
+    QCOMPARE(result.shapeName, QStringLiteral("Pump Curve"));
+    QCOMPARE(result.source, QStringLiteral("manual"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
+
+    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
+    QVERIFY(locatorDocument.isObject());
+    const QJsonObject locator = locatorDocument.object();
+    QCOMPARE(locator.value(QStringLiteral("slide")).toInt(), 7);
+    QCOMPARE(locator.value(QStringLiteral("slide_index")).toInt(), 7);
+    QVERIFY(locator.value(QStringLiteral("shape_id")).isUndefined());
+    QCOMPARE(locator.value(QStringLiteral("shape_name")).toString(), QStringLiteral("Pump Curve"));
+    QVERIFY(isPowerPointAnchor(result.anchor));
+
+    const PowerPointJumpCommandResult command = buildPowerPointJumpCommand(result.anchor, QString());
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.presentationPath, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(command.command.slideIndex, 7);
+    QCOMPARE(command.command.shapeId, -1);
+    QCOMPARE(command.command.shapeName, QStringLiteral("Pump Curve"));
+}
+
+void AnchorCaptureTest::savesManualPowerPointShapeAnchorInRepository()
+{
+    InMemoryLibraryRepository repository;
+    ManualPowerPointAnchorCreationService service(repository);
+
+    const ManualPowerPointAnchorCreationResult result =
+        service.createManualPowerPointShapeAnchor(validPowerPointShapeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(!result.resource.id.isEmpty());
+    QCOMPARE(result.resource.kind, ResourceKind::File);
+    QCOMPARE(result.resource.title, QStringLiteral("process.pptx"));
+    QCOMPARE(result.resource.location, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(result.anchor.name, QStringLiteral("Valve A callout"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft PowerPoint"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("slide callout")});
+    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(result.anchor.pinned);
+    QVERIFY(result.anchor.createdAt.isValid());
+    QVERIFY(result.anchor.updatedAt.isValid());
+
+    const std::optional<Resource> stored = repository.findResource(result.resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().id, result.anchor.id);
+    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
+
+    const QList<SearchResult> nameResults =
+        repository.search(SearchQuery{QStringLiteral("Valve A callout")});
+    QVERIFY(hasAnchorSearchResult(nameResults,
+                                  QStringLiteral("anchor_name"),
+                                  QStringLiteral("Valve A callout")));
+
+    const QList<SearchResult> aliasResults =
+        repository.search(SearchQuery{QStringLiteral("slide callout")});
+    QVERIFY(hasAnchorSearchResult(aliasResults,
+                                  QStringLiteral("anchor_alias"),
+                                  QStringLiteral("Valve A callout")));
+
+    const QList<SearchResult> tagResults =
+        repository.search(SearchQuery{QStringLiteral("phase5")});
+    QVERIFY(hasAnchorSearchResult(tagResults,
+                                  QStringLiteral("anchor_tag"),
+                                  QStringLiteral("Valve A callout")));
+}
+
+void AnchorCaptureTest::rejectsInvalidManualPowerPointAnchorInputsWithoutSaving()
+{
+    InMemoryLibraryRepository repository;
+    ManualPowerPointAnchorCreationService service(repository);
+
+    ManualPowerPointAnchorCreationRequest request = validPowerPointShapeCreationRequest();
+    request.name = QStringLiteral(" ");
+    ManualPowerPointAnchorCreationResult result = service.createManualPowerPointShapeAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual PowerPoint anchor name is missing"));
+
+    request = validPowerPointShapeCreationRequest();
+    request.file.clear();
+    result = service.createManualPowerPointShapeAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual PowerPoint anchor file is missing"));
+
+    request = validPowerPointShapeCreationRequest();
+    request.slide = 0;
+    result = service.createManualPowerPointShapeAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint capture slide is missing"));
+
+    request = validPowerPointShapeCreationRequest();
+    request.shapeId = -1;
+    request.shapeName.clear();
+    result = service.createManualPowerPointShapeAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint capture shape id or name is missing"));
+
+    request = validPowerPointShapeCreationRequest();
+    request.locatorType = QStringLiteral("powerpoint.slide");
+    result = service.createManualPowerPointShapeAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint capture locator type is unsupported"));
+
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void AnchorCaptureTest::createsManualPowerPointShapeAnchorCompatibleWithPowerPointExecutor()
+{
+    InMemoryLibraryRepository repository;
+    ManualPowerPointAnchorCreationService service(repository);
+    const ManualPowerPointAnchorCreationResult result =
+        service.createManualPowerPointShapeAnchor(validPowerPointShapeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(isPowerPointAnchor(result.anchor));
+
+    const PowerPointJumpCommandResult command =
+        buildPowerPointJumpCommand(result.anchor, QString());
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.presentationPath, QStringLiteral("E:/slides/process.pptx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(command.command.slideIndex, 12);
+    QCOMPARE(command.command.shapeId, 42);
+    QVERIFY(command.command.shapeName.isEmpty());
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Presentations.Open('E:/slides/process.pptx')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Slides.Item(12)")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(42)")));
 }
 
 void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()

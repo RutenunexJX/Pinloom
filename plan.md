@@ -221,7 +221,14 @@ Status:
   manual Word request provider. This is manual/injectable Word bookmark capture
   only; native current-selection capture and automatic bookmark insertion
   through live Word COM remain pending.
-- PowerPoint capture remains pending.
+- Manual PowerPoint shape anchor capture is now implemented in core: explicit
+  name, file, slide, shape id or shape name, aliases, tags, pinned, source, and
+  target app inputs are normalized through a manual PowerPoint shape capture
+  provider, saved as searchable PowerPoint file anchors, and remain compatible
+  with the PowerPoint executor's `powerpoint.shape` command builder. `Ctrl+K`
+  can route through an injectable manual PowerPoint request provider. This is
+  manual/injectable PowerPoint shape capture only; native current-selection
+  capture through live PowerPoint COM remains pending.
 
 ## Phase 6: Experience Completion
 

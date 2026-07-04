@@ -61,6 +61,7 @@ private slots:
     void panelRoutesCtrlKThroughManualExcelAnchorRequestProvider();
     void panelRoutesCtrlKThroughManualVisioAnchorRequestProvider();
     void panelRoutesCtrlKThroughManualWordAnchorRequestProvider();
+    void panelRoutesCtrlKThroughManualPowerPointAnchorRequestProvider();
     void panelLaunchesExcelAnchorWithInjectedExecutor();
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesVisioAnchorWithInjectedExecutor();
@@ -2117,6 +2118,53 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualWordAnchorRequestProvider()
     QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("word.bookmark"));
     QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("Requirement_12")));
+    QVERIFY(results.first().matchedAnchor->pinned);
+}
+
+void WidgetSmokeTest::panelRoutesCtrlKThroughManualPowerPointAnchorRequestProvider()
+{
+    InMemoryLibraryRepository repository;
+
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPowerPointAnchorRequestProvider = [&]() -> std::optional<ManualPowerPointAnchorCreationRequest> {
+        ++requestCount;
+        ManualPowerPointAnchorCreationRequest request;
+        request.name = QStringLiteral("Manual PowerPoint valve callout");
+        request.file = QStringLiteral("E:/slides/manual-process.pptx");
+        request.slide = 12;
+        request.shapeName = QStringLiteral("Valve A");
+        request.targetApp = QStringLiteral("MS PowerPoint");
+        request.aliases = {QStringLiteral("manual ppt shape")};
+        request.tags = {QStringLiteral("#phase5")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Created PowerPoint anchor \"Manual PowerPoint valve callout\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("manual ppt shape")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual PowerPoint valve callout"));
+    QCOMPARE(results.first().matchedAnchor->targetApp, QStringLiteral("MS PowerPoint"));
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/slides/manual-process.pptx"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("shape_name")));
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("Valve A")));
     QVERIFY(results.first().matchedAnchor->pinned);
 }
 

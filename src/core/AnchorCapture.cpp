@@ -1,6 +1,7 @@
 #include "pinloom/core/AnchorCapture.h"
 
 #include "pinloom/core/ExcelCommand.h"
+#include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 
@@ -56,6 +57,12 @@ QString effectiveSource(const WordCaptureRequest &request, const QString &fallba
     return source.isEmpty() ? fallback : source;
 }
 
+QString effectiveSource(const PowerPointCaptureRequest &request, const QString &fallback)
+{
+    const QString source = request.source.trimmed().toLower();
+    return source.isEmpty() ? fallback : source;
+}
+
 QString effectiveExcelTargetApp(const ExcelCaptureRequest &request)
 {
     const QString targetApp = request.targetApp.trimmed();
@@ -97,6 +104,18 @@ QString effectiveWordLocatorType(const WordCaptureRequest &request)
 {
     const QString locatorType = request.locatorType.trimmed().toLower();
     return locatorType.isEmpty() ? QStringLiteral("word.bookmark") : locatorType;
+}
+
+QString effectivePowerPointTargetApp(const PowerPointCaptureRequest &request)
+{
+    const QString targetApp = request.targetApp.trimmed();
+    return targetApp.isEmpty() ? QStringLiteral("Microsoft PowerPoint") : targetApp;
+}
+
+QString effectivePowerPointLocatorType(const PowerPointCaptureRequest &request)
+{
+    const QString locatorType = request.locatorType.trimmed().toLower();
+    return locatorType.isEmpty() ? QStringLiteral("powerpoint.shape") : locatorType;
 }
 
 QString defaultAnchorName(const PdfXChangeCaptureRequest &request)
@@ -163,6 +182,20 @@ WordCaptureResult resultForRequest(const WordCaptureRequest &request,
     return result;
 }
 
+PowerPointCaptureResult resultForRequest(const PowerPointCaptureRequest &request,
+                                         const QString &source)
+{
+    PowerPointCaptureResult result;
+    result.targetApp = effectivePowerPointTargetApp(request);
+    result.targetFile = request.targetFile.trimmed();
+    result.locatorType = effectivePowerPointLocatorType(request);
+    result.slide = request.slide;
+    result.shapeId = request.shapeId;
+    result.shapeName = request.shapeName.trimmed();
+    result.source = effectiveSource(request, source);
+    return result;
+}
+
 QJsonArray rectArray(const PdfCaptureRect &rect)
 {
     QJsonArray values;
@@ -201,6 +234,11 @@ bool VisioCaptureResult::success() const
 }
 
 bool WordCaptureResult::success() const
+{
+    return error.isEmpty();
+}
+
+bool PowerPointCaptureResult::success() const
 {
     return error.isEmpty();
 }
@@ -384,6 +422,49 @@ WordCaptureResult ManualWordBookmarkAnchorCaptureProvider::capture(const WordCap
     return result;
 }
 
+QString ManualPowerPointShapeAnchorCaptureProvider::source() const
+{
+    return QStringLiteral("manual");
+}
+
+PowerPointCaptureResult ManualPowerPointShapeAnchorCaptureProvider::capture(
+    const PowerPointCaptureRequest &request) const
+{
+    PowerPointCaptureResult result = resultForRequest(request, source());
+
+    if (request.anchorName.trimmed().isEmpty()) {
+        result.error = QStringLiteral("PowerPoint capture anchor name is missing");
+        return result;
+    }
+    if (result.targetFile.isEmpty()) {
+        result.error = QStringLiteral("PowerPoint capture target file is missing");
+        return result;
+    }
+    if (!isPowerPointLocatorType(result.locatorType)) {
+        result.error = QStringLiteral("PowerPoint capture locator type is unsupported");
+        return result;
+    }
+    if (result.slide <= 0) {
+        result.error = QStringLiteral("PowerPoint capture slide is missing");
+        return result;
+    }
+    if (result.shapeId <= 0 && result.shapeName.isEmpty()) {
+        result.error = QStringLiteral("PowerPoint capture shape id or name is missing");
+        return result;
+    }
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = request.anchorName.trimmed();
+    anchor.target = anchor.name;
+    anchor.targetApp = result.targetApp;
+    anchor.targetFile = result.targetFile;
+    anchor.locatorType = result.locatorType;
+    anchor.locatorJson = powerPointLocatorJson(request);
+    result.anchor = anchor;
+    return result;
+}
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
 {
     QJsonObject locator;
@@ -448,6 +529,29 @@ QString wordLocatorJson(const WordCaptureRequest &request)
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
 
+QString powerPointLocatorJson(const PowerPointCaptureRequest &request)
+{
+    const QString shapeName = request.shapeName.trimmed();
+
+    QJsonObject locator;
+    locator.insert(QStringLiteral("type"), effectivePowerPointLocatorType(request));
+    locator.insert(QStringLiteral("slide"), request.slide);
+    locator.insert(QStringLiteral("slide_index"), request.slide);
+    if (request.shapeId > 0) {
+        locator.insert(QStringLiteral("shape_id"), request.shapeId);
+        locator.insert(QStringLiteral("shapeId"), request.shapeId);
+    }
+    if (!shapeName.isEmpty()) {
+        locator.insert(QStringLiteral("shape_name"), shapeName);
+        locator.insert(QStringLiteral("shapeName"), shapeName);
+    }
+    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
+    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
+    locator.insert(QStringLiteral("target_app"), effectivePowerPointTargetApp(request));
+
+    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+}
+
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request)
 {
     return ManualPdfXChangeRectCaptureProvider{}.capture(request);
@@ -466,6 +570,11 @@ VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request)
 WordCaptureResult captureManualWordBookmarkAnchor(const WordCaptureRequest &request)
 {
     return ManualWordBookmarkAnchorCaptureProvider{}.capture(request);
+}
+
+PowerPointCaptureResult captureManualPowerPointShapeAnchor(const PowerPointCaptureRequest &request)
+{
+    return ManualPowerPointShapeAnchorCaptureProvider{}.capture(request);
 }
 
 } // namespace Pinloom

@@ -1240,6 +1240,31 @@ bool PinloomPanel::captureCurrentAppPosition()
         return true;
     }
 
+    if (options_.manualPowerPointAnchorRequestProvider) {
+        const std::optional<ManualPowerPointAnchorCreationRequest> powerPointRequest =
+            options_.manualPowerPointAnchorRequestProvider();
+        if (!powerPointRequest.has_value()) {
+            updateStatus(tr("Capture canceled"));
+            return false;
+        }
+
+        ManualPowerPointAnchorCreationService creationService(repository_);
+        const ManualPowerPointAnchorCreationResult result =
+            creationService.createManualPowerPointShapeAnchor(powerPointRequest.value());
+        if (!result.success()) {
+            updateStatus(result.error);
+            return false;
+        }
+
+        refreshResults();
+        if (!selectResultResource(result.resource.id)) {
+            setSearchText(result.anchor.name);
+            selectResultResource(result.resource.id);
+        }
+        updateStatus(tr("Created PowerPoint anchor \"%1\"").arg(result.anchor.name));
+        return true;
+    }
+
     std::optional<ManualPdfAnchorCreationRequest> request;
     if (options_.manualPdfAnchorRequestProvider) {
         request = options_.manualPdfAnchorRequestProvider();

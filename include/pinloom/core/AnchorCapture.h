@@ -57,6 +57,17 @@ struct WordCaptureRequest {
     QString anchorName;
 };
 
+struct PowerPointCaptureRequest {
+    QString targetApp = QStringLiteral("Microsoft PowerPoint");
+    QString targetFile;
+    QString locatorType = QStringLiteral("powerpoint.shape");
+    int slide = -1;
+    int shapeId = -1;
+    QString shapeName;
+    QString source = QStringLiteral("manual");
+    QString anchorName;
+};
+
 struct AnchorCaptureResult {
     Anchor anchor;
     QString targetApp;
@@ -105,6 +116,20 @@ struct WordCaptureResult {
     QString targetFile;
     QString locatorType;
     QString bookmark;
+    QString source;
+    QString error;
+
+    bool success() const;
+};
+
+struct PowerPointCaptureResult {
+    Anchor anchor;
+    QString targetApp;
+    QString targetFile;
+    QString locatorType;
+    int slide = -1;
+    int shapeId = -1;
+    QString shapeName;
     QString source;
     QString error;
 
@@ -167,6 +192,20 @@ public:
     WordCaptureResult capture(const WordCaptureRequest &request) const override;
 };
 
+class PowerPointCaptureProvider {
+public:
+    virtual ~PowerPointCaptureProvider() = default;
+
+    virtual QString source() const = 0;
+    virtual PowerPointCaptureResult capture(const PowerPointCaptureRequest &request) const = 0;
+};
+
+class ManualPowerPointShapeAnchorCaptureProvider final : public PowerPointCaptureProvider {
+public:
+    QString source() const override;
+    PowerPointCaptureResult capture(const PowerPointCaptureRequest &request) const override;
+};
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request);
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request);
 QString excelLocatorJson(const ExcelCaptureRequest &request);
@@ -175,5 +214,7 @@ QString visioLocatorJson(const VisioCaptureRequest &request);
 VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request);
 QString wordLocatorJson(const WordCaptureRequest &request);
 WordCaptureResult captureManualWordBookmarkAnchor(const WordCaptureRequest &request);
+QString powerPointLocatorJson(const PowerPointCaptureRequest &request);
+PowerPointCaptureResult captureManualPowerPointShapeAnchor(const PowerPointCaptureRequest &request);
 
 } // namespace Pinloom
