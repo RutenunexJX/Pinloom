@@ -213,7 +213,14 @@ Status:
   command builder. `Ctrl+K` can route through an injectable manual Visio request
   provider. This is manual/injectable Visio capture only; native current-shape
   capture through live Visio COM remains pending.
-- Word capture/bookmark creation remains pending.
+- Manual Word bookmark anchor capture is now implemented in core: explicit
+  name, file, bookmark, aliases, tags, pinned, source, and target app inputs are
+  normalized through a manual Word bookmark capture provider, saved as
+  searchable Word file anchors, and remain compatible with the Word executor's
+  `word.bookmark` command builder. `Ctrl+K` can route through an injectable
+  manual Word request provider. This is manual/injectable Word bookmark capture
+  only; native current-selection capture and automatic bookmark insertion
+  through live Word COM remain pending.
 - PowerPoint capture remains pending.
 
 ## Phase 6: Experience Completion

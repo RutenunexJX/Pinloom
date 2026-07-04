@@ -4,9 +4,11 @@
 #include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/ManualVisioAnchorCreation.h"
+#include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/VisioCommand.h"
+#include "pinloom/core/WordCommand.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -34,6 +36,10 @@ private slots:
     void savesManualVisioShapeAnchorInRepository();
     void rejectsInvalidManualVisioAnchorInputsWithoutSaving();
     void createsManualVisioAnchorCompatibleWithVisioExecutor();
+    void buildsManualWordBookmarkAnchor();
+    void savesManualWordBookmarkAnchorInRepository();
+    void rejectsInvalidManualWordBookmarkAnchorInputsWithoutSaving();
+    void createsManualWordBookmarkAnchorCompatibleWithWordExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
@@ -142,6 +148,31 @@ static ManualVisioAnchorCreationRequest validVisioShapeCreationRequest()
     request.page = QStringLiteral("Page-1");
     request.shapeUniqueId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
     request.aliases = {QStringLiteral("gate mark"), QStringLiteral("Gate Mark")};
+    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
+    request.pinned = true;
+    return request;
+}
+
+static WordCaptureRequest validWordBookmarkCaptureRequest()
+{
+    WordCaptureRequest request;
+    request.anchorName = QStringLiteral("Requirement 12");
+    request.targetApp = QStringLiteral(" MS Word ");
+    request.targetFile = QStringLiteral("E:/docs/requirements.docx");
+    request.bookmark = QStringLiteral(" Requirement_12 ");
+    request.source = QStringLiteral(" Host ");
+    return request;
+}
+
+static ManualWordAnchorCreationRequest validWordBookmarkCreationRequest()
+{
+    ManualWordAnchorCreationRequest request;
+    request.name = QStringLiteral("Requirement 12");
+    request.file = QStringLiteral("E:/docs/requirements.docx");
+    request.bookmark = QStringLiteral("Requirement_12");
+    request.targetApp = QStringLiteral("MS Word");
+    request.source = QStringLiteral("Host");
+    request.aliases = {QStringLiteral("word bookmark"), QStringLiteral("Word Bookmark")};
     request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
     request.pinned = true;
     return request;
@@ -518,6 +549,134 @@ void AnchorCaptureTest::createsManualVisioAnchorCompatibleWithVisioExecutor()
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/drawings/power.vsdx')")));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Pages.ItemU('Page-1')")));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("ItemFromUniqueID('{00000000-0000-0000-0000-000000000000}')")));
+}
+
+void AnchorCaptureTest::buildsManualWordBookmarkAnchor()
+{
+    const WordCaptureResult result = captureManualWordBookmarkAnchor(validWordBookmarkCaptureRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.targetApp, QStringLiteral("MS Word"));
+    QCOMPARE(result.targetFile, QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(result.locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(result.bookmark, QStringLiteral("Requirement_12"));
+    QCOMPARE(result.source, QStringLiteral("host"));
+
+    QCOMPARE(result.anchor.type, AnchorType::Manual);
+    QCOMPARE(result.anchor.name, QStringLiteral("Requirement 12"));
+    QCOMPARE(result.anchor.target, QStringLiteral("Requirement 12"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("MS Word"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("word.bookmark"));
+
+    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
+    QVERIFY(locatorDocument.isObject());
+    const QJsonObject locator = locatorDocument.object();
+    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("word.bookmark"));
+    QCOMPARE(locator.value(QStringLiteral("bookmark")).toString(), QStringLiteral("Requirement_12"));
+    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("host"));
+    QCOMPARE(locator.value(QStringLiteral("target_app")).toString(), QStringLiteral("MS Word"));
+}
+
+void AnchorCaptureTest::savesManualWordBookmarkAnchorInRepository()
+{
+    InMemoryLibraryRepository repository;
+    ManualWordAnchorCreationService service(repository);
+
+    const ManualWordAnchorCreationResult result =
+        service.createManualWordBookmarkAnchor(validWordBookmarkCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(!result.resource.id.isEmpty());
+    QCOMPARE(result.resource.kind, ResourceKind::File);
+    QCOMPARE(result.resource.title, QStringLiteral("requirements.docx"));
+    QCOMPARE(result.resource.location, QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(result.anchor.name, QStringLiteral("Requirement 12"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("MS Word"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("word bookmark")});
+    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(result.anchor.pinned);
+    QVERIFY(result.anchor.createdAt.isValid());
+    QVERIFY(result.anchor.updatedAt.isValid());
+
+    const std::optional<Resource> stored = repository.findResource(result.resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().id, result.anchor.id);
+    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
+
+    const QList<SearchResult> nameResults =
+        repository.search(SearchQuery{QStringLiteral("Requirement 12")});
+    QVERIFY(hasAnchorSearchResult(nameResults,
+                                  QStringLiteral("anchor_name"),
+                                  QStringLiteral("Requirement 12")));
+
+    const QList<SearchResult> aliasResults =
+        repository.search(SearchQuery{QStringLiteral("word bookmark")});
+    QVERIFY(hasAnchorSearchResult(aliasResults,
+                                  QStringLiteral("anchor_alias"),
+                                  QStringLiteral("Requirement 12")));
+
+    const QList<SearchResult> tagResults =
+        repository.search(SearchQuery{QStringLiteral("phase5")});
+    QVERIFY(hasAnchorSearchResult(tagResults,
+                                  QStringLiteral("anchor_tag"),
+                                  QStringLiteral("Requirement 12")));
+}
+
+void AnchorCaptureTest::rejectsInvalidManualWordBookmarkAnchorInputsWithoutSaving()
+{
+    InMemoryLibraryRepository repository;
+    ManualWordAnchorCreationService service(repository);
+
+    ManualWordAnchorCreationRequest request = validWordBookmarkCreationRequest();
+    request.name = QStringLiteral(" ");
+    ManualWordAnchorCreationResult result = service.createManualWordBookmarkAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Word anchor name is missing"));
+
+    request = validWordBookmarkCreationRequest();
+    request.file.clear();
+    result = service.createManualWordBookmarkAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Word anchor file is missing"));
+
+    request = validWordBookmarkCreationRequest();
+    request.bookmark.clear();
+    result = service.createManualWordBookmarkAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word capture bookmark is missing"));
+
+    request = validWordBookmarkCreationRequest();
+    request.locatorType = QStringLiteral("word.heading");
+    result = service.createManualWordBookmarkAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Word capture locator type is unsupported"));
+
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void AnchorCaptureTest::createsManualWordBookmarkAnchorCompatibleWithWordExecutor()
+{
+    InMemoryLibraryRepository repository;
+    ManualWordAnchorCreationService service(repository);
+    const ManualWordAnchorCreationResult result =
+        service.createManualWordBookmarkAnchor(validWordBookmarkCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(isWordAnchor(result.anchor));
+
+    const WordJumpCommandResult command = buildWordJumpCommand(result.anchor, QString());
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.documentPath, QStringLiteral("E:/docs/requirements.docx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(command.command.bookmarkName, QStringLiteral("Requirement_12"));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/docs/requirements.docx')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Bookmarks.Item('Requirement_12')")));
 }
 
 void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()

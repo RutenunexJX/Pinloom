@@ -1215,6 +1215,31 @@ bool PinloomPanel::captureCurrentAppPosition()
         return true;
     }
 
+    if (options_.manualWordAnchorRequestProvider) {
+        const std::optional<ManualWordAnchorCreationRequest> wordRequest =
+            options_.manualWordAnchorRequestProvider();
+        if (!wordRequest.has_value()) {
+            updateStatus(tr("Capture canceled"));
+            return false;
+        }
+
+        ManualWordAnchorCreationService creationService(repository_);
+        const ManualWordAnchorCreationResult result =
+            creationService.createManualWordBookmarkAnchor(wordRequest.value());
+        if (!result.success()) {
+            updateStatus(result.error);
+            return false;
+        }
+
+        refreshResults();
+        if (!selectResultResource(result.resource.id)) {
+            setSearchText(result.anchor.name);
+            selectResultResource(result.resource.id);
+        }
+        updateStatus(tr("Created Word anchor \"%1\"").arg(result.anchor.name));
+        return true;
+    }
+
     std::optional<ManualPdfAnchorCreationRequest> request;
     if (options_.manualPdfAnchorRequestProvider) {
         request = options_.manualPdfAnchorRequestProvider();

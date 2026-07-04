@@ -48,6 +48,15 @@ struct VisioCaptureRequest {
     QString anchorName;
 };
 
+struct WordCaptureRequest {
+    QString targetApp = QStringLiteral("Microsoft Word");
+    QString targetFile;
+    QString locatorType = QStringLiteral("word.bookmark");
+    QString bookmark;
+    QString source = QStringLiteral("manual");
+    QString anchorName;
+};
+
 struct AnchorCaptureResult {
     Anchor anchor;
     QString targetApp;
@@ -84,6 +93,18 @@ struct VisioCaptureResult {
     QString locatorType;
     QString page;
     QString shapeUniqueId;
+    QString source;
+    QString error;
+
+    bool success() const;
+};
+
+struct WordCaptureResult {
+    Anchor anchor;
+    QString targetApp;
+    QString targetFile;
+    QString locatorType;
+    QString bookmark;
     QString source;
     QString error;
 
@@ -132,11 +153,27 @@ public:
     VisioCaptureResult capture(const VisioCaptureRequest &request) const override;
 };
 
+class WordCaptureProvider {
+public:
+    virtual ~WordCaptureProvider() = default;
+
+    virtual QString source() const = 0;
+    virtual WordCaptureResult capture(const WordCaptureRequest &request) const = 0;
+};
+
+class ManualWordBookmarkAnchorCaptureProvider final : public WordCaptureProvider {
+public:
+    QString source() const override;
+    WordCaptureResult capture(const WordCaptureRequest &request) const override;
+};
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request);
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request);
 QString excelLocatorJson(const ExcelCaptureRequest &request);
 ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request);
 QString visioLocatorJson(const VisioCaptureRequest &request);
 VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request);
+QString wordLocatorJson(const WordCaptureRequest &request);
+WordCaptureResult captureManualWordBookmarkAnchor(const WordCaptureRequest &request);
 
 } // namespace Pinloom

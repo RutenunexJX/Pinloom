@@ -30,6 +30,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ManualExcelAnchorCreation.h
     include/pinloom/core/ManualPdfAnchorCreation.h
     include/pinloom/core/ManualVisioAnchorCreation.h
+    include/pinloom/core/ManualWordAnchorCreation.h
     include/pinloom/core/PdfXChangeCommand.h
     include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/Resource.h
@@ -50,6 +51,7 @@ add_library(pinloom_core STATIC
     src/core/ManualExcelAnchorCreation.cpp
     src/core/ManualPdfAnchorCreation.cpp
     src/core/ManualVisioAnchorCreation.cpp
+    src/core/ManualWordAnchorCreation.cpp
     src/core/PdfXChangeCommand.cpp
     src/core/PowerPointCommand.cpp
     src/core/Schema.cpp

@@ -60,6 +60,7 @@ private slots:
     void panelReportsInvalidManualPdfAnchorDialogHookRequest();
     void panelRoutesCtrlKThroughManualExcelAnchorRequestProvider();
     void panelRoutesCtrlKThroughManualVisioAnchorRequestProvider();
+    void panelRoutesCtrlKThroughManualWordAnchorRequestProvider();
     void panelLaunchesExcelAnchorWithInjectedExecutor();
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesVisioAnchorWithInjectedExecutor();
@@ -2071,6 +2072,51 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualVisioAnchorRequestProvider()
     QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("visio.shape"));
     QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("shape_unique_id")));
+    QVERIFY(results.first().matchedAnchor->pinned);
+}
+
+void WidgetSmokeTest::panelRoutesCtrlKThroughManualWordAnchorRequestProvider()
+{
+    InMemoryLibraryRepository repository;
+
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualWordAnchorRequestProvider = [&]() -> std::optional<ManualWordAnchorCreationRequest> {
+        ++requestCount;
+        ManualWordAnchorCreationRequest request;
+        request.name = QStringLiteral("Manual Word requirement");
+        request.file = QStringLiteral("E:/docs/manual-requirements.docx");
+        request.bookmark = QStringLiteral("Requirement_12");
+        request.targetApp = QStringLiteral("MS Word");
+        request.aliases = {QStringLiteral("manual word bookmark")};
+        request.tags = {QStringLiteral("#phase5")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Created Word anchor \"Manual Word requirement\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("manual word bookmark")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual Word requirement"));
+    QCOMPARE(results.first().matchedAnchor->targetApp, QStringLiteral("MS Word"));
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/manual-requirements.docx"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("word.bookmark"));
+    QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("Requirement_12")));
     QVERIFY(results.first().matchedAnchor->pinned);
 }
 

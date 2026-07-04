@@ -2,6 +2,7 @@
 
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/VisioCommand.h"
+#include "pinloom/core/WordCommand.h"
 
 #include <QFileInfo>
 #include <QJsonArray>
@@ -49,6 +50,12 @@ QString effectiveSource(const VisioCaptureRequest &request, const QString &fallb
     return source.isEmpty() ? fallback : source;
 }
 
+QString effectiveSource(const WordCaptureRequest &request, const QString &fallback)
+{
+    const QString source = request.source.trimmed().toLower();
+    return source.isEmpty() ? fallback : source;
+}
+
 QString effectiveExcelTargetApp(const ExcelCaptureRequest &request)
 {
     const QString targetApp = request.targetApp.trimmed();
@@ -78,6 +85,18 @@ QString effectiveVisioLocatorType(const VisioCaptureRequest &request)
 {
     const QString locatorType = request.locatorType.trimmed().toLower();
     return locatorType.isEmpty() ? QStringLiteral("visio.shape") : locatorType;
+}
+
+QString effectiveWordTargetApp(const WordCaptureRequest &request)
+{
+    const QString targetApp = request.targetApp.trimmed();
+    return targetApp.isEmpty() ? QStringLiteral("Microsoft Word") : targetApp;
+}
+
+QString effectiveWordLocatorType(const WordCaptureRequest &request)
+{
+    const QString locatorType = request.locatorType.trimmed().toLower();
+    return locatorType.isEmpty() ? QStringLiteral("word.bookmark") : locatorType;
 }
 
 QString defaultAnchorName(const PdfXChangeCaptureRequest &request)
@@ -132,6 +151,18 @@ VisioCaptureResult resultForRequest(const VisioCaptureRequest &request,
     return result;
 }
 
+WordCaptureResult resultForRequest(const WordCaptureRequest &request,
+                                   const QString &source)
+{
+    WordCaptureResult result;
+    result.targetApp = effectiveWordTargetApp(request);
+    result.targetFile = request.targetFile.trimmed();
+    result.locatorType = effectiveWordLocatorType(request);
+    result.bookmark = request.bookmark.trimmed();
+    result.source = effectiveSource(request, source);
+    return result;
+}
+
 QJsonArray rectArray(const PdfCaptureRect &rect)
 {
     QJsonArray values;
@@ -165,6 +196,11 @@ bool ExcelCaptureResult::success() const
 }
 
 bool VisioCaptureResult::success() const
+{
+    return error.isEmpty();
+}
+
+bool WordCaptureResult::success() const
 {
     return error.isEmpty();
 }
@@ -310,6 +346,44 @@ VisioCaptureResult ManualVisioAnchorCaptureProvider::capture(const VisioCaptureR
     return result;
 }
 
+QString ManualWordBookmarkAnchorCaptureProvider::source() const
+{
+    return QStringLiteral("manual");
+}
+
+WordCaptureResult ManualWordBookmarkAnchorCaptureProvider::capture(const WordCaptureRequest &request) const
+{
+    WordCaptureResult result = resultForRequest(request, source());
+
+    if (request.anchorName.trimmed().isEmpty()) {
+        result.error = QStringLiteral("Word capture anchor name is missing");
+        return result;
+    }
+    if (result.targetFile.isEmpty()) {
+        result.error = QStringLiteral("Word capture target file is missing");
+        return result;
+    }
+    if (!isWordLocatorType(result.locatorType)) {
+        result.error = QStringLiteral("Word capture locator type is unsupported");
+        return result;
+    }
+    if (result.bookmark.isEmpty()) {
+        result.error = QStringLiteral("Word capture bookmark is missing");
+        return result;
+    }
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = request.anchorName.trimmed();
+    anchor.target = anchor.name;
+    anchor.targetApp = result.targetApp;
+    anchor.targetFile = result.targetFile;
+    anchor.locatorType = result.locatorType;
+    anchor.locatorJson = wordLocatorJson(request);
+    result.anchor = anchor;
+    return result;
+}
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
 {
     QJsonObject locator;
@@ -362,6 +436,18 @@ QString visioLocatorJson(const VisioCaptureRequest &request)
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
 
+QString wordLocatorJson(const WordCaptureRequest &request)
+{
+    QJsonObject locator;
+    locator.insert(QStringLiteral("type"), effectiveWordLocatorType(request));
+    locator.insert(QStringLiteral("bookmark"), request.bookmark.trimmed());
+    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
+    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
+    locator.insert(QStringLiteral("target_app"), effectiveWordTargetApp(request));
+
+    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+}
+
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request)
 {
     return ManualPdfXChangeRectCaptureProvider{}.capture(request);
@@ -375,6 +461,11 @@ ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request)
 VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request)
 {
     return ManualVisioAnchorCaptureProvider{}.capture(request);
+}
+
+WordCaptureResult captureManualWordBookmarkAnchor(const WordCaptureRequest &request)
+{
+    return ManualWordBookmarkAnchorCaptureProvider{}.capture(request);
 }
 
 } // namespace Pinloom
