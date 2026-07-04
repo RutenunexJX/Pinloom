@@ -52,6 +52,22 @@ target_link_libraries(pinloom_core
         Qt6::Sql
 )
 
+add_library(pinloom_clip_core STATIC
+    include/pinloom/clip/ClipRepository.h
+    src/clip/ClipRepository.cpp
+)
+
+target_include_directories(pinloom_clip_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(pinloom_clip_core
+    PUBLIC
+        pinloom_core
+        Qt6::Core
+)
+
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
@@ -138,6 +154,18 @@ target_link_libraries(pinloom_directory_source_test
 )
 
 pinloom_add_test(pinloom_directory_source_test)
+
+add_executable(pinloom_clip_test
+    tests/clip_test.cpp
+)
+
+target_link_libraries(pinloom_clip_test
+    PRIVATE
+        pinloom_clip_core
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_clip_test)
 
 add_executable(pinloom_widget_smoke_test
     tests/widget_smoke_test.cpp
