@@ -102,6 +102,32 @@ This is still not the tray app, global hotkey flow, Listary-style floating
 picker, rich text insertion, image insertion, HTML/RTF/blob handling, or a
 full window-targeting paste workflow.
 
+## Saved Clip Search And Picker Model
+
+Pinloom Clip now has a core saved-clip search model for the future
+Listary-style picker. The model is UI-free and works against both the
+in-memory and SQLite clip repositories. A query returns compact picker results
+with clip id, display name, preview, matched field/value, score, rank, saved or
+temporary state, aliases, tags, pinned state, and created/updated/used
+timestamps.
+
+The conservative default search scope is saved clips only. Temporary Clipboard
+History remains private working memory and is excluded from the default picker
+search unless the caller explicitly enables `includeTemporary`. Empty queries
+return pinned and recently used saved clips so the picker can open to useful
+defaults without exposing temporary history.
+
+Search is case-insensitive across saved clip name, aliases, tags, preview, and
+text. A `#tag` query is treated as tag-first search. Ranking is deterministic:
+exact saved-name matches rank ahead of alias matches, then tag matches, then
+preview/text prefix or contains matches. Pinned clips and recent usage break
+ties before updated/created timestamps and clip id.
+
+The picker UI is still a future layer. It should pass the selected search
+result's clip id to `ClipInsertionService`, which already owns staging text on
+the clipboard, invoking paste, optional clipboard restore, and marking clips as
+used.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:

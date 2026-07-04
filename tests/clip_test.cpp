@@ -1,12 +1,14 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
+#include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
+#include <algorithm>
 #include <optional>
 
 using namespace Pinloom;
@@ -137,6 +139,27 @@ void verifyCtrlVPasteSequence(const PasteKeySequence &sequence)
     }
 }
 
+QString saveInMemoryClip(InMemoryClipRepository &repository,
+                         const QString &text,
+                         const QString &name,
+                         const QStringList &aliases,
+                         const QStringList &tags,
+                         bool pinned,
+                         const QDateTime &capturedAt,
+                         const QDateTime &savedAt)
+{
+    const ClipCaptureResult captured = repository.captureText(text, {}, {}, capturedAt);
+    if (!captured.captured() || !captured.clip.has_value()) {
+        return {};
+    }
+
+    if (!repository.saveClip(captured.clip->id, name, aliases, tags, pinned, savedAt)) {
+        return {};
+    }
+
+    return captured.clip->id;
+}
+
 class ClipTest : public QObject {
     Q_OBJECT
 
@@ -153,6 +176,12 @@ private slots:
     void sqlitePersistsSavedClipMetadataAcrossRepositoryRestart();
     void sqlitePrunesTemporaryHistoryPersistently();
     void sqliteCreatesSavedClipLocatorAnchorAfterRestart();
+    void clipSearchRanksExactSavedNameFirst();
+    void clipSearchFindsAliasTagHashTagPreviewAndText();
+    void clipSearchUsesPinnedAndRecentForStableOrdering();
+    void clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary();
+    void clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips();
+    void sqliteSearchesSavedClipAfterRepositoryRestart();
     void clipboardServiceCapturesTextIntoRepository();
     void clipboardServicePauseAndResumeCapture();
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
@@ -518,6 +547,325 @@ void ClipTest::sqliteCreatesSavedClipLocatorAnchorAfterRestart()
     QVERIFY(locator.isObject());
     QCOMPARE(locator.object().value(QStringLiteral("clip_id")).toString(), saved->id);
     QCOMPARE(locator.object().value(QStringLiteral("mode")).toString(), QStringLiteral("paste"));
+}
+
+void ClipTest::clipSearchRanksExactSavedNameFirst()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString nameId = saveInMemoryClip(repository,
+                                            QStringLiteral("Text body for the exact-name deploy snippet"),
+                                            QStringLiteral("Deploy snippet"),
+                                            {},
+                                            {},
+                                            false,
+                                            base,
+                                            base.addSecs(1));
+    const QString aliasId = saveInMemoryClip(repository,
+                                             QStringLiteral("Alias body for deploy snippet"),
+                                             QStringLiteral("Alias holder"),
+                                             {QStringLiteral("Deploy snippet")},
+                                             {},
+                                             false,
+                                             base.addSecs(2),
+                                             base.addSecs(3));
+    const QString tagId = saveInMemoryClip(repository,
+                                           QStringLiteral("Tagged body for deploy snippet"),
+                                           QStringLiteral("Tag holder"),
+                                           {},
+                                           {QStringLiteral("Deploy snippet")},
+                                           false,
+                                           base.addSecs(4),
+                                           base.addSecs(5));
+    const QString textId = saveInMemoryClip(repository,
+                                            QStringLiteral("This body contains Deploy snippet as plain text"),
+                                            QStringLiteral("Text holder"),
+                                            {},
+                                            {},
+                                            false,
+                                            base.addSecs(6),
+                                            base.addSecs(7));
+    QVERIFY(!nameId.isEmpty());
+    QVERIFY(!aliasId.isEmpty());
+    QVERIFY(!tagId.isEmpty());
+    QVERIFY(!textId.isEmpty());
+
+    const QList<ClipSearchResult> results = ClipSearchService(repository).search(QStringLiteral("Deploy snippet"));
+
+    QCOMPARE(results.size(), 4);
+    QCOMPARE(results.first().clipId, nameId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("name"));
+    QCOMPARE(results.first().rank, 1);
+    QVERIFY(results.first().score > results.at(1).score);
+    QCOMPARE(results.at(1).clipId, aliasId);
+    QCOMPARE(results.at(1).matchedField, QStringLiteral("alias"));
+    QCOMPARE(results.at(2).clipId, tagId);
+    QCOMPARE(results.at(2).matchedField, QStringLiteral("tag"));
+}
+
+void ClipTest::clipSearchFindsAliasTagHashTagPreviewAndText()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString metadataId = saveInMemoryClip(repository,
+                                                QStringLiteral("Metadata clip body"),
+                                                QStringLiteral("Metadata holder"),
+                                                {QStringLiteral("quick alias")},
+                                                {QStringLiteral("ops")},
+                                                false,
+                                                base,
+                                                base.addSecs(1));
+    const QString previewId = saveInMemoryClip(repository,
+                                               QStringLiteral("Secret launch preview text for picker search"),
+                                               QStringLiteral("Preview holder"),
+                                               {},
+                                               {},
+                                               false,
+                                               base.addSecs(2),
+                                               base.addSecs(3));
+    const QString textId = saveInMemoryClip(
+        repository,
+        QStringLiteral("This clip begins with a deliberately long preview sentence that will be truncated before the "
+                       "hidden body needle appears near the end. body-needle-value"),
+        QStringLiteral("Body holder"),
+        {},
+        {},
+        false,
+        base.addSecs(4),
+        base.addSecs(5));
+    QVERIFY(!metadataId.isEmpty());
+    QVERIFY(!previewId.isEmpty());
+    QVERIFY(!textId.isEmpty());
+
+    const ClipSearchService search(repository);
+
+    QList<ClipSearchResult> results = search.search(QStringLiteral("quick alias"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, metadataId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("alias"));
+
+    results = search.search(QStringLiteral("ops"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, metadataId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+
+    results = search.search(QStringLiteral("#ops"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, metadataId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+
+    results = search.search(QStringLiteral("secret launch"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, previewId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("preview"));
+
+    results = search.search(QStringLiteral("body-needle-value"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, textId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("text"));
+}
+
+void ClipTest::clipSearchUsesPinnedAndRecentForStableOrdering()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString pinnedId = saveInMemoryClip(repository,
+                                              QStringLiteral("shared needle pinned result"),
+                                              QStringLiteral("Pinned result"),
+                                              {},
+                                              {},
+                                              true,
+                                              base,
+                                              base.addSecs(1));
+    const QString recentId = saveInMemoryClip(repository,
+                                              QStringLiteral("shared needle recent result"),
+                                              QStringLiteral("Recent result"),
+                                              {},
+                                              {},
+                                              false,
+                                              base.addSecs(2),
+                                              base.addSecs(3));
+    const QString staleId = saveInMemoryClip(repository,
+                                             QStringLiteral("shared needle stale result"),
+                                             QStringLiteral("Stale result"),
+                                             {},
+                                             {},
+                                             false,
+                                             base.addSecs(4),
+                                             base.addSecs(5));
+    QVERIFY(!pinnedId.isEmpty());
+    QVERIFY(!recentId.isEmpty());
+    QVERIFY(!staleId.isEmpty());
+
+    QVERIFY(repository.markClipUsed(staleId, base.addSecs(10)));
+    QVERIFY(repository.markClipUsed(recentId, base.addSecs(100)));
+
+    const QList<ClipSearchResult> results = ClipSearchService(repository).search(QStringLiteral("shared needle"));
+
+    QCOMPARE(results.size(), 3);
+    QCOMPARE(results.at(0).clipId, pinnedId);
+    QVERIFY(results.at(0).pinned);
+    QCOMPARE(results.at(1).clipId, recentId);
+    QCOMPARE(results.at(2).clipId, staleId);
+    QCOMPARE(results.at(0).rank, 1);
+    QCOMPARE(results.at(1).rank, 2);
+    QCOMPARE(results.at(2).rank, 3);
+}
+
+void ClipTest::clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary =
+        repository.captureText(QStringLiteral("temporary picker needle"), {}, {}, base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveInMemoryClip(repository,
+                                             QStringLiteral("saved picker needle"),
+                                             QStringLiteral("Saved picker needle"),
+                                             {},
+                                             {},
+                                             false,
+                                             base.addSecs(1),
+                                             base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    const ClipSearchService search(repository);
+    QList<ClipSearchResult> results = search.search(QStringLiteral("picker needle"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, savedId);
+    QVERIFY(results.first().state == ClipState::Saved);
+
+    ClipSearchOptions options;
+    options.includeTemporary = true;
+    results = search.search(QStringLiteral("picker needle"), options);
+    QCOMPARE(results.size(), 2);
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == temporary.clip->id && result.state == ClipState::Temporary;
+    }));
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == savedId && result.state == ClipState::Saved;
+    }));
+}
+
+void ClipTest::clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary empty-query text"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+
+    const QString pinnedId = saveInMemoryClip(repository,
+                                              QStringLiteral("empty query pinned"),
+                                              QStringLiteral("Pinned empty"),
+                                              {},
+                                              {},
+                                              true,
+                                              base.addSecs(1),
+                                              base.addSecs(2));
+    const QString recentId = saveInMemoryClip(repository,
+                                              QStringLiteral("empty query recent"),
+                                              QStringLiteral("Recent empty"),
+                                              {},
+                                              {},
+                                              false,
+                                              base.addSecs(3),
+                                              base.addSecs(4));
+    const QString staleId = saveInMemoryClip(repository,
+                                             QStringLiteral("empty query stale"),
+                                             QStringLiteral("Stale empty"),
+                                             {},
+                                             {},
+                                             false,
+                                             base.addSecs(5),
+                                             base.addSecs(6));
+    QVERIFY(!pinnedId.isEmpty());
+    QVERIFY(!recentId.isEmpty());
+    QVERIFY(!staleId.isEmpty());
+    QVERIFY(repository.markClipUsed(staleId, base.addSecs(10)));
+    QVERIFY(repository.markClipUsed(recentId, base.addSecs(100)));
+
+    const QList<ClipSearchResult> results = ClipSearchService(repository).search(QString());
+
+    QCOMPARE(results.size(), 3);
+    QCOMPARE(results.at(0).clipId, pinnedId);
+    QCOMPARE(results.at(0).matchedField, QStringLiteral("empty"));
+    QCOMPARE(results.at(1).clipId, recentId);
+    QCOMPARE(results.at(2).clipId, staleId);
+    QVERIFY(std::none_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == temporary.clip->id;
+    }));
+}
+
+void ClipTest::sqliteSearchesSavedClipAfterRepositoryRestart()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom_clip.sqlite3"));
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    QString clipId;
+    {
+        SqliteClipRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+        const ClipCaptureResult captured = repository.captureText(
+            QStringLiteral("SQLite clip starts with enough ordinary text to make the preview trim before the searchable "
+                           "persisted body token appears near the end. sqlite-body-token"),
+            {},
+            {},
+            base);
+        QVERIFY2(captured.captured(), qPrintable(repository.lastError()));
+        QVERIFY(captured.clip.has_value());
+        clipId = captured.clip->id;
+        QVERIFY2(repository.saveClip(clipId,
+                                     QStringLiteral("SQLite Search Clip"),
+                                     {QStringLiteral("sql alias")},
+                                     {QStringLiteral("database")},
+                                     true,
+                                     base.addSecs(1)),
+                 qPrintable(repository.lastError()));
+    }
+
+    SqliteClipRepository restarted;
+    QVERIFY2(restarted.open(databasePath), qPrintable(restarted.lastError()));
+    QVERIFY2(restarted.initialize(), qPrintable(restarted.lastError()));
+
+    const ClipSearchService search(restarted);
+    QList<ClipSearchResult> results = search.search(QStringLiteral("SQLite Search Clip"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, clipId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("name"));
+
+    results = search.search(QStringLiteral("sql alias"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, clipId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("alias"));
+
+    results = search.search(QStringLiteral("database"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, clipId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+
+    results = search.search(QStringLiteral("#database"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, clipId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+
+    results = search.search(QStringLiteral("sqlite-body-token"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, clipId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("text"));
 }
 
 void ClipTest::clipboardServiceCapturesTextIntoRepository()

@@ -56,10 +56,12 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
     include/pinloom/clip/ClipInsertionService.h
     include/pinloom/clip/ClipRepository.h
+    include/pinloom/clip/ClipSearch.h
     include/pinloom/clip/PlatformPasteInvoker.h
     src/clip/ClipboardCaptureService.cpp
     src/clip/ClipInsertionService.cpp
     src/clip/ClipRepository.cpp
+    src/clip/ClipSearch.cpp
     src/clip/PlatformPasteInvoker.cpp
 )
 
