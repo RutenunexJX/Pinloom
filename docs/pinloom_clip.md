@@ -162,7 +162,7 @@ with the system, does not coordinate foreground windows, and does not decide
 paste timing. Those remain app-layer responsibilities for the later
 tray/hotkey/picker workflow.
 
-## Tray And Picker Host Controller Skeleton
+## Tray Presenter And Picker Host Skeleton
 
 Pinloom Clip now has a lightweight tray/picker host controller skeleton for
 the future resident app. `ClipTrayController` is a QObject-based runtime layer
@@ -171,15 +171,25 @@ activation and manual show requests through the same injected show/focus picker
 handler, and tracks status, last error, running state, capture pause state, and
 picker show count for tests and future status surfaces.
 
-The controller intentionally exposes only a simple tray action model instead
-of a real menu: show picker, pause/resume capture, and quit. Pause/resume is
-handler-injected so the future app can connect it to `ClipboardCaptureService`,
-while tests can verify state changes without touching the user's clipboard.
-Quit is exposed as a signal only.
+The controller intentionally exposes only a simple tray action model: show
+picker, pause/resume capture, and quit. Pause/resume is handler-injected so the
+future app can connect it to `ClipboardCaptureService`, while tests can verify
+state changes without touching the user's clipboard. Quit is exposed as a
+signal only.
 
-This is still not a real `QSystemTrayIcon`, not auto-start registration, not
-Windows foreground-window orchestration, and not paste timing or focus
-recovery. Those remain app-layer work for the later resident tray workflow.
+The Qt Widgets layer now has a small `ClipTrayPresenter` and tray backend
+interface. The presenter maps controller status into the tray tooltip and maps
+the action model into backend menu actions. Widget tests use a fake tray backend
+to cover show picker, pause/resume labels and checked state, quit routing,
+start/stop status synchronization, and hotkey failure text without creating a
+real `QSystemTrayIcon` or touching the system tray. A thin
+`QtSystemTrayIconBackend` exists as the real host seam for the later resident
+entry point.
+
+This is still not a complete resident tray app, not auto-start registration,
+not Windows foreground-window orchestration, and not paste timing, focus
+recovery, or rich content handling. Those remain app-layer work for the later
+resident tray workflow.
 
 ## Privacy And Limits
 

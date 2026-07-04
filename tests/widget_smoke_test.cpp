@@ -1,7 +1,10 @@
+#include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
+#include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/ClipPickerPanel.h"
+#include "pinloom/widgets/ClipTrayPresenter.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
@@ -33,6 +36,9 @@ private slots:
     void clipPickerEnterActivatesInjectedInsertionHandler();
     void clipPickerShowsErrorAndStaysOpenOnInsertionFailure();
     void clipPickerCanIncludeTemporaryResults();
+    void clipTrayPresenterShowsAndRoutesTrayActions();
+    void clipTrayPresenterUpdatesPauseResumeState();
+    void clipTrayPresenterSyncsRuntimeStatusAndErrors();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -81,6 +87,148 @@ public:
     QUrl lastUrl;
     int openCount = 0;
 };
+
+class FakeClipHotkeyBackend : public ClipHotkeyBackend {
+public:
+    bool registerHotkey(const ClipHotkeyConfig &config, QString *error) override
+    {
+        ++registerCalls_;
+        registeredConfig_ = config;
+        if (!registerResult_) {
+            if (error) {
+                *error = registerError_;
+            }
+            return false;
+        }
+
+        registered_ = true;
+        if (error) {
+            error->clear();
+        }
+        return true;
+    }
+
+    void unregisterHotkey() override
+    {
+        ++unregisterCalls_;
+        registered_ = false;
+    }
+
+    void setRegisterResult(bool registerResult, const QString &error)
+    {
+        registerResult_ = registerResult;
+        registerError_ = error;
+    }
+
+    int registerCalls() const
+    {
+        return registerCalls_;
+    }
+
+    int unregisterCalls() const
+    {
+        return unregisterCalls_;
+    }
+
+    bool registered() const
+    {
+        return registered_;
+    }
+
+    ClipHotkeyConfig registeredConfig() const
+    {
+        return registeredConfig_;
+    }
+
+private:
+    bool registerResult_ = true;
+    bool registered_ = false;
+    int registerCalls_ = 0;
+    int unregisterCalls_ = 0;
+    QString registerError_ = QStringLiteral("fake hotkey registration failed");
+    ClipHotkeyConfig registeredConfig_;
+};
+
+class FakeClipTrayBackend : public ClipTrayBackend {
+public:
+    void setToolTip(const QString &toolTip) override
+    {
+        toolTip_ = toolTip;
+        ++toolTipChanges_;
+    }
+
+    void setActions(const QList<ClipTrayPresentedAction> &actions) override
+    {
+        actions_ = actions;
+        ++actionChanges_;
+    }
+
+    void setVisible(bool visible) override
+    {
+        visible_ = visible;
+        ++visibleChanges_;
+    }
+
+    void triggerAction(const QString &actionId)
+    {
+        emit actionTriggered(actionId);
+    }
+
+    void activatePrimary()
+    {
+        emit primaryActivated();
+    }
+
+    QString toolTip() const
+    {
+        return toolTip_;
+    }
+
+    QList<ClipTrayPresentedAction> actions() const
+    {
+        return actions_;
+    }
+
+    bool visible() const
+    {
+        return visible_;
+    }
+
+    int toolTipChanges() const
+    {
+        return toolTipChanges_;
+    }
+
+    int actionChanges() const
+    {
+        return actionChanges_;
+    }
+
+    int visibleChanges() const
+    {
+        return visibleChanges_;
+    }
+
+private:
+    QString toolTip_;
+    QList<ClipTrayPresentedAction> actions_;
+    bool visible_ = false;
+    int toolTipChanges_ = 0;
+    int actionChanges_ = 0;
+    int visibleChanges_ = 0;
+};
+
+static std::optional<ClipTrayPresentedAction> presentedActionById(const QList<ClipTrayPresentedAction> &actions,
+                                                                  const QString &id)
+{
+    const auto it = std::find_if(actions.cbegin(), actions.cend(), [&](const ClipTrayPresentedAction &action) {
+        return action.id == id;
+    });
+    if (it == actions.cend()) {
+        return std::nullopt;
+    }
+    return *it;
+}
 
 static QString saveWidgetClip(InMemoryClipRepository &repository,
                               const QString &text,
@@ -349,6 +497,130 @@ void WidgetSmokeTest::clipPickerCanIncludeTemporaryResults()
     QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
         return result.clipId == savedId && result.state == ClipState::Saved;
     }));
+}
+
+void WidgetSmokeTest::clipTrayPresenterShowsAndRoutesTrayActions()
+{
+    FakeClipHotkeyBackend hotkeyBackend;
+    ClipHotkeyService service(&hotkeyBackend);
+    int showHandlerCount = 0;
+    ClipTrayControllerOptions options;
+    options.showPickerHandler = [&]() {
+        ++showHandlerCount;
+    };
+    ClipTrayController controller(service, options);
+    FakeClipTrayBackend trayBackend;
+    ClipTrayPresenter presenter(controller, trayBackend);
+    int showSignalCount = 0;
+    int quitSignalCount = 0;
+    QObject::connect(&controller, &ClipTrayController::showPickerRequested, [&]() {
+        ++showSignalCount;
+    });
+    QObject::connect(&controller, &ClipTrayController::quitRequested, [&]() {
+        ++quitSignalCount;
+    });
+
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+    QVERIFY(!trayBackend.visible());
+    QCOMPARE(trayBackend.actionChanges(), 1);
+    QVERIFY(presentedActionById(trayBackend.actions(), QStringLiteral("show_picker")).has_value());
+
+    presenter.show();
+    QVERIFY(trayBackend.visible());
+    presenter.hide();
+    QVERIFY(!trayBackend.visible());
+    QCOMPARE(trayBackend.visibleChanges(), 2);
+
+    trayBackend.triggerAction(QStringLiteral("show_picker"));
+    QCOMPARE(showHandlerCount, 1);
+    QCOMPARE(showSignalCount, 1);
+    QCOMPARE(controller.pickerShownCount(), 1);
+
+    trayBackend.activatePrimary();
+    QCOMPARE(showHandlerCount, 2);
+    QCOMPARE(showSignalCount, 2);
+    QCOMPARE(controller.pickerShownCount(), 2);
+
+    trayBackend.triggerAction(QStringLiteral("quit"));
+    QCOMPARE(quitSignalCount, 1);
+}
+
+void WidgetSmokeTest::clipTrayPresenterUpdatesPauseResumeState()
+{
+    FakeClipHotkeyBackend hotkeyBackend;
+    ClipHotkeyService service(&hotkeyBackend);
+    QList<bool> pausedStates;
+    ClipTrayControllerOptions options;
+    options.capturePausedHandler = [&](bool paused) {
+        pausedStates.append(paused);
+    };
+    ClipTrayController controller(service, options);
+    FakeClipTrayBackend trayBackend;
+    ClipTrayPresenter presenter(controller, trayBackend);
+
+    std::optional<ClipTrayPresentedAction> toggleAction =
+        presentedActionById(trayBackend.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Pause Capture"));
+    QVERIFY(toggleAction->checkable);
+    QVERIFY(!toggleAction->checked);
+
+    QVERIFY(controller.start());
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+
+    trayBackend.triggerAction(QStringLiteral("toggle_capture"));
+
+    QCOMPARE(pausedStates, (QList<bool>{true}));
+    QVERIFY(controller.capturePaused());
+    toggleAction = presentedActionById(trayBackend.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Resume Capture"));
+    QVERIFY(toggleAction->checkable);
+    QVERIFY(toggleAction->checked);
+    QCOMPARE(controller.status(), QStringLiteral("Running, capture paused"));
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning, capture paused"));
+
+    trayBackend.triggerAction(QStringLiteral("toggle_capture"));
+
+    QCOMPARE(pausedStates, (QList<bool>{true, false}));
+    QVERIFY(!controller.capturePaused());
+    toggleAction = presentedActionById(trayBackend.actions(), QStringLiteral("toggle_capture"));
+    QVERIFY(toggleAction.has_value());
+    QCOMPARE(toggleAction->title, QStringLiteral("Pause Capture"));
+    QVERIFY(toggleAction->checkable);
+    QVERIFY(!toggleAction->checked);
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+}
+
+void WidgetSmokeTest::clipTrayPresenterSyncsRuntimeStatusAndErrors()
+{
+    FakeClipHotkeyBackend hotkeyBackend;
+    ClipHotkeyService service(&hotkeyBackend);
+    ClipTrayController controller(service);
+    FakeClipTrayBackend trayBackend;
+    ClipTrayPresenter presenter(controller, trayBackend);
+
+    QCOMPARE(presenter.toolTipText(), QStringLiteral("Pinloom Clip\nStopped"));
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+
+    QVERIFY(controller.start());
+    QVERIFY(controller.isRunning());
+    QVERIFY(hotkeyBackend.registered());
+    QCOMPARE(hotkeyBackend.registerCalls(), 1);
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+
+    controller.stop();
+    QVERIFY(!controller.isRunning());
+    QVERIFY(!hotkeyBackend.registered());
+    QCOMPARE(hotkeyBackend.unregisterCalls(), 1);
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+
+    hotkeyBackend.setRegisterResult(false, QStringLiteral("fake tray hotkey failure"));
+    QVERIFY(!controller.start());
+    QVERIFY(!controller.isRunning());
+    QCOMPARE(controller.lastError(), QStringLiteral("fake tray hotkey failure"));
+    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped: fake tray hotkey failure"));
+    QCOMPARE(presenter.toolTipText(), trayBackend.toolTip());
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

@@ -14,6 +14,7 @@ struct ClipTrayAction {
     QString title;
     bool enabled = true;
     bool checked = false;
+    bool checkable = false;
 };
 
 using ClipTrayShowPickerHandler = std::function<void()>;

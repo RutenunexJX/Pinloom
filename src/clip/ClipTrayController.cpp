@@ -102,7 +102,8 @@ QList<ClipTrayAction> ClipTrayController::actions() const
         {QStringLiteral("toggle_capture"),
          options_.capturePaused ? QStringLiteral("Resume Capture") : QStringLiteral("Pause Capture"),
          true,
-         options_.capturePaused},
+         options_.capturePaused,
+         true},
         {QStringLiteral("quit"), QStringLiteral("Quit"), true, false},
     };
 }
