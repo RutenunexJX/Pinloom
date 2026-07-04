@@ -58,6 +58,8 @@ private slots:
     void panelCreatesManualPdfAnchorThroughDialogHook();
     void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
     void panelReportsInvalidManualPdfAnchorDialogHookRequest();
+    void panelLaunchesExcelAnchorWithInjectedExecutor();
+    void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -1973,6 +1975,128 @@ void WidgetSmokeTest::panelReportsInvalidManualPdfAnchorDialogHookRequest()
     QCOMPARE(statusNotifications.last(), panel.statusText());
     QCOMPARE(panel.resultCount(), 0);
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void WidgetSmokeTest::panelLaunchesExcelAnchorWithInjectedExecutor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("excel-budget");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Budget Workbook");
+    resource.location = QStringLiteral("E:/books/budget.xlsx");
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = QStringLiteral("Q3 budget table");
+    anchor.targetApp = QStringLiteral("mIcRoSoFt Excel");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("excel.range");
+    anchor.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"B12:D18\"}");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool launched = false;
+    ExcelJumpCommand capturedCommand;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.excelLaunchHandler = [&](const ExcelJumpCommand &command, QString *error) {
+        Q_UNUSED(error);
+        launched = true;
+        capturedCommand = command;
+        return true;
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    panel.setSearchText(QStringLiteral("Q3 budget"));
+    QCOMPARE(panel.resultCount(), 1);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QVERIFY(launched);
+    QCOMPARE(capturedCommand.workbookPath, resource.location);
+    QCOMPARE(capturedCommand.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(capturedCommand.sheetName, QStringLiteral("Sheet1"));
+    QCOMPARE(capturedCommand.rangeAddress, QStringLiteral("B12:D18"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Excel target"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelReportsInvalidExcelLocatorWithoutGenericOpen()
+{
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("excel-unsupported");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Unsupported Workbook");
+        resource.location = QStringLiteral("E:/books/unsupported.xlsx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Unsupported Excel jump");
+        anchor.targetApp = QStringLiteral("Excel");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("excel.cell");
+        anchor.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"B12\"}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Unsupported Excel"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Excel locator type is unsupported"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("excel-missing-range");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Missing Range Workbook");
+        resource.location = QStringLiteral("E:/books/missing-range.xlsx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Missing Excel range");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("excel.range");
+        anchor.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\"}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Missing Excel"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("Excel range address is missing"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
 }
 
 void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()

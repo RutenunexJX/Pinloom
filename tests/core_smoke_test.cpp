@@ -1,4 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/Schema.h"
 
@@ -19,6 +20,10 @@ private slots:
     void buildsPdfXChangePageCommandFromLegacyAnchor();
     void reportsMissingPdfXChangeTargetPath();
     void resolvesPdfXChangeExecutableFromEnvironment();
+    void buildsExcelRangeCommand();
+    void buildsExcelNamedRangeCommand();
+    void reportsExcelCommandInputErrors();
+    void recognizesExcelTargetAppAliases();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -191,6 +196,125 @@ void CoreSmokeTest::resolvesPdfXChangeExecutableFromEnvironment()
     }
 
     QCOMPARE(resolved, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+}
+
+void CoreSmokeTest::buildsExcelRangeCommand()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Microsoft Excel");
+    anchor.targetFile = QStringLiteral("E:/books/budget.xlsx");
+    anchor.locatorType = QStringLiteral("excel.range");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"excel.range\",\"sheet\":\"Sheet1\",\"range\":\"B12:D18\"}");
+
+    QVERIFY(isExcelAnchor(anchor));
+    const ExcelJumpCommandResult result = buildExcelJumpCommand(anchor, QString());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.executablePath, QStringLiteral("powershell.exe"));
+    QCOMPARE(result.command.workbookPath, anchor.targetFile);
+    QCOMPARE(result.command.locatorType, QStringLiteral("excel.range"));
+    QCOMPARE(result.command.sheetName, QStringLiteral("Sheet1"));
+    QCOMPARE(result.command.rangeAddress, QStringLiteral("B12:D18"));
+    QVERIFY(result.command.namedRange.isEmpty());
+    QCOMPARE(result.command.arguments.at(0), QStringLiteral("-NoProfile"));
+    QVERIFY(result.command.arguments.contains(QStringLiteral("-Command")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Workbooks.Open('E:/books/budget.xlsx')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Worksheets.Item('Sheet1')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Range('B12:D18')")));
+}
+
+void CoreSmokeTest::buildsExcelNamedRangeCommand()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Excel");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"excel.name\",\"name\":\"RevenueTable\",\"workbook\":\"E:/books/revenue.xlsx\"}");
+
+    QVERIFY(isExcelAnchor(anchor));
+    const ExcelJumpCommandResult result = buildExcelJumpCommand(anchor, QStringLiteral("E:/books/fallback.xlsx"));
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.workbookPath, QStringLiteral("E:/books/revenue.xlsx"));
+    QCOMPARE(result.command.locatorType, QStringLiteral("excel.name"));
+    QVERIFY(result.command.sheetName.isEmpty());
+    QVERIFY(result.command.rangeAddress.isEmpty());
+    QCOMPARE(result.command.namedRange, QStringLiteral("RevenueTable"));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Names.Item('RevenueTable').RefersToRange")));
+
+    Anchor targetFileFallback = anchor;
+    targetFileFallback.locatorJson = QStringLiteral("{\"type\":\"excel.name\",\"name\":\"RevenueTable\",\"target_file\":\"E:/books/target-file.xlsx\"}");
+    const ExcelJumpCommandResult targetFileResult = buildExcelJumpCommand(targetFileFallback, QString());
+    QVERIFY2(targetFileResult.success(), qPrintable(targetFileResult.error));
+    QCOMPARE(targetFileResult.command.workbookPath, QStringLiteral("E:/books/target-file.xlsx"));
+
+    Anchor anchorFieldWins = anchor;
+    anchorFieldWins.targetFile = QStringLiteral("E:/books/anchor-field.xlsx");
+    const ExcelJumpCommandResult anchorFieldResult = buildExcelJumpCommand(anchorFieldWins, QString());
+    QVERIFY2(anchorFieldResult.success(), qPrintable(anchorFieldResult.error));
+    QCOMPARE(anchorFieldResult.command.workbookPath, QStringLiteral("E:/books/anchor-field.xlsx"));
+}
+
+void CoreSmokeTest::reportsExcelCommandInputErrors()
+{
+    Anchor missingFile;
+    missingFile.targetApp = QStringLiteral("Excel");
+    missingFile.locatorType = QStringLiteral("excel.range");
+    missingFile.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"B12\"}");
+    ExcelJumpCommandResult result = buildExcelJumpCommand(missingFile, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel workbook path is missing"));
+
+    Anchor invalidJson = missingFile;
+    invalidJson.targetFile = QStringLiteral("E:/books/budget.xlsx");
+    invalidJson.locatorJson = QStringLiteral("{\"sheet\":");
+    result = buildExcelJumpCommand(invalidJson, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel locator JSON is invalid"));
+
+    Anchor unsupported = invalidJson;
+    unsupported.locatorType = QStringLiteral("excel.cell");
+    unsupported.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"B12\"}");
+    result = buildExcelJumpCommand(unsupported, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel locator type is unsupported"));
+
+    Anchor missingSheet = invalidJson;
+    missingSheet.locatorJson = QStringLiteral("{\"range\":\"B12\"}");
+    result = buildExcelJumpCommand(missingSheet, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel range sheet is missing"));
+
+    Anchor missingRange = invalidJson;
+    missingRange.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\"}");
+    result = buildExcelJumpCommand(missingRange, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel range address is missing"));
+
+    Anchor missingName = invalidJson;
+    missingName.locatorType = QStringLiteral("excel.name");
+    missingName.locatorJson = QStringLiteral("{\"type\":\"excel.name\"}");
+    result = buildExcelJumpCommand(missingName, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Excel named range is missing"));
+}
+
+void CoreSmokeTest::recognizesExcelTargetAppAliases()
+{
+    Anchor excel;
+    excel.targetApp = QStringLiteral("eXcEl");
+    QVERIFY(isExcelAnchor(excel));
+
+    excel.targetApp = QStringLiteral("Microsoft Excel");
+    QVERIFY(isExcelAnchor(excel));
+
+    excel.targetApp = QStringLiteral("MS Excel");
+    QVERIFY(isExcelAnchor(excel));
+
+    excel.targetApp = QStringLiteral("Word");
+    QVERIFY(!isExcelAnchor(excel));
+
+    excel.targetApp.clear();
+    excel.locatorType = QStringLiteral("EXCEL.RANGE");
+    QVERIFY(isExcelAnchor(excel));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()

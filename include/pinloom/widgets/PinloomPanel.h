@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/Anchor.h"
+#include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
@@ -75,6 +76,7 @@ struct PinloomPanelOptions {
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     std::function<std::optional<ManualPdfAnchorCreationRequest>()> manualPdfAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
+    std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
     std::function<QString()> pdfXChangeExecutablePathProvider;
     std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
     bool showLibraryRootControls = false;
@@ -207,6 +209,7 @@ private:
     QString selectedLocation() const;
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     bool activateOpenTarget(const PinloomOpenTarget &target);
+    bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;

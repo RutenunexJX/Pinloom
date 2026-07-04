@@ -178,7 +178,14 @@ Scope:
 - Visio: file plus page plus shape UniqueID.
 - Implement jump executors first, then capture.
 
-Status: pending.
+Status:
+
+- Excel jump executor skeleton and launcher dispatch are implemented: anchors
+  with `excel.range` and `excel.name` locators now build a deterministic
+  PowerShell/COM command object and route through an injectable Excel launcher
+  before generic file fallback.
+- Excel capture remains pending.
+- Word, PowerPoint, and Visio executors remain pending.
 
 ## Phase 6: Experience Completion
 

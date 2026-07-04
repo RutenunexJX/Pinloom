@@ -27,6 +27,7 @@
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSize>
+#include <QSettings>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -489,6 +490,19 @@ QString pdfFragmentForAnchor(const Anchor &anchor)
     }
 
     return QStringLiteral("page=%1").arg(anchor.page);
+}
+
+bool isExcelComAutomationAvailable()
+{
+#ifdef Q_OS_WIN
+    QSettings excelApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Excel.Application"),
+                                  QSettings::NativeFormat);
+    const QString classId = excelApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
+    const QString currentVersion = excelApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
+    return !classId.isEmpty() || !currentVersion.isEmpty();
+#else
+    return false;
+#endif
 }
 
 } // namespace
@@ -1745,6 +1759,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return true;
     }
 
+    if (target.anchor.has_value() && isExcelAnchor(target.anchor.value())) {
+        if (activateExcelTarget(target)) {
+            recordOpen();
+            return true;
+        }
+        return false;
+    }
+
     if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
         if (activatePdfXChangeTarget(target)) {
             recordOpen();
@@ -1779,6 +1801,51 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         updateStatus(tr("Unable to open %1").arg(target.location));
     }
     return false;
+}
+
+bool PinloomPanel::activateExcelTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        updateStatus(tr("No Excel anchor selected"));
+        return false;
+    }
+
+    const ExcelJumpCommandResult buildResult =
+        buildExcelJumpCommand(target.anchor.value(), target.location);
+    if (!buildResult.success()) {
+        updateStatus(buildResult.error);
+        return false;
+    }
+
+    if (options_.excelLaunchHandler) {
+        QString error;
+        if (!options_.excelLaunchHandler(buildResult.command, &error)) {
+            updateStatus(error.trimmed().isEmpty()
+                             ? tr("Unable to launch Excel")
+                             : error.trimmed());
+            return false;
+        }
+        updateStatus(tr("Opened Excel target"));
+        return true;
+    }
+
+#ifndef Q_OS_WIN
+    updateStatus(tr("Excel jump requires Windows COM automation"));
+    return false;
+#else
+    if (!isExcelComAutomationAvailable()) {
+        updateStatus(tr("Microsoft Excel COM automation is not available"));
+        return false;
+    }
+
+    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
+        updateStatus(tr("Unable to launch Excel"));
+        return false;
+    }
+
+    updateStatus(tr("Opened Excel target"));
+    return true;
+#endif
 }
 
 bool PinloomPanel::activatePdfXChangeTarget(const PinloomOpenTarget &target)
