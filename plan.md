@@ -255,6 +255,11 @@ Status:
 - This is intentionally not a complete settings UI or persistence layer.
 - Build and full `ctest --test-dir build --output-on-failure` passed for this
   first Phase 6 slice.
+- Broken-anchor detection now has a core `AnchorHealthCheck` skeleton for
+  static, non-launching checks of local target existence, configured launcher
+  paths, non-local targets, and unsupported locators.
+- This is intentionally not yet wired into realtime UI scanning, background
+  monitoring, or a persisted health cache.
 
 ## Frozen Or Demoted Work
 

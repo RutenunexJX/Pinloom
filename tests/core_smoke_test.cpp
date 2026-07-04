@@ -1,4 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/AnchorHealthCheck.h"
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PdfXChangeCommand.h"
@@ -9,6 +10,8 @@
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QFile>
+#include <QTemporaryDir>
 #include <QTest>
 #include <optional>
 
@@ -26,6 +29,11 @@ private slots:
     void resolvesPdfXChangeExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
     void appliesExplicitApplicationLaunchSettings();
+    void checksExistingAnchorTargetHealth();
+    void reportsMissingAnchorTargetHealth();
+    void reportsMissingPdfXChangeLauncherHealth();
+    void reportsMissingExplicitPowerShellLauncherHealth();
+    void reportsUnsupportedAnchorHealthInputs();
     void buildsExcelRangeCommand();
     void buildsExcelNamedRangeCommand();
     void reportsExcelCommandInputErrors();
@@ -318,6 +326,136 @@ void CoreSmokeTest::appliesExplicitApplicationLaunchSettings()
     QVERIFY2(visioCommand.success(), qPrintable(visioCommand.error));
     QCOMPARE(visioCommand.command.executablePath,
              QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
+}
+
+void CoreSmokeTest::checksExistingAnchorTargetHealth()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString targetPath = tempDir.filePath(QStringLiteral("target.txt"));
+    QFile targetFile(targetPath);
+    QVERIFY(targetFile.open(QIODevice::WriteOnly));
+    QVERIFY(targetFile.write("anchor") > 0);
+    targetFile.close();
+
+    Anchor anchor;
+    anchor.targetFile = targetPath;
+    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
+
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
+    QVERIFY2(result.healthy(), qPrintable(result.message));
+    QCOMPARE(result.path, targetPath);
+
+    Anchor fallbackAnchor;
+    result = checkAnchorHealth(fallbackAnchor, targetPath);
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
+    QCOMPARE(result.path, targetPath);
+}
+
+void CoreSmokeTest::reportsMissingAnchorTargetHealth()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    Anchor anchor;
+    anchor.targetFile = tempDir.filePath(QStringLiteral("missing-target.txt"));
+    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
+
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingTarget));
+    QVERIFY(!result.healthy());
+    QCOMPARE(result.path, anchor.targetFile);
+
+    const QString missingFallback = tempDir.filePath(QStringLiteral("missing-fallback.txt"));
+    Anchor fallbackAnchor;
+    result = checkAnchorHealth(fallbackAnchor, missingFallback);
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingTarget));
+    QCOMPARE(result.path, missingFallback);
+}
+
+void CoreSmokeTest::reportsMissingPdfXChangeLauncherHealth()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString targetPath = tempDir.filePath(QStringLiteral("target.pdf"));
+    QFile targetFile(targetPath);
+    QVERIFY(targetFile.open(QIODevice::WriteOnly));
+    QVERIFY(targetFile.write("%PDF-1.7") > 0);
+    targetFile.close();
+
+    ApplicationLaunchSettings settings;
+    settings.pdfXChangeExecutablePath = tempDir.filePath(QStringLiteral("missing-PDFXEdit.exe"));
+
+    Anchor anchor;
+    anchor.targetFile = targetPath;
+    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.locatorJson = QStringLiteral("{\"page\":1}");
+
+    const AnchorHealthCheckResult result = checkAnchorHealth(anchor, QString(), settings);
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingLauncher));
+    QCOMPARE(result.path, targetPath);
+    QCOMPARE(result.launcherPath, settings.pdfXChangeExecutablePath);
+    QCOMPARE(result.app, QStringLiteral("PDF-XChange Editor"));
+    QCOMPARE(result.locatorType, QStringLiteral("pdfxchange.page"));
+}
+
+void CoreSmokeTest::reportsMissingExplicitPowerShellLauncherHealth()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QString targetPath = tempDir.filePath(QStringLiteral("target.xlsx"));
+    QFile targetFile(targetPath);
+    QVERIFY(targetFile.open(QIODevice::WriteOnly));
+    QVERIFY(targetFile.write("workbook") > 0);
+    targetFile.close();
+
+    Anchor anchor;
+    anchor.targetFile = targetPath;
+    anchor.locatorType = QStringLiteral("excel.range");
+    anchor.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"A1\"}");
+
+    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
+
+    ApplicationLaunchSettings settings;
+    settings.powerShellExecutablePath = tempDir.filePath(QStringLiteral("missing-powershell.exe"));
+    result = checkAnchorHealth(anchor, QString(), settings);
+
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingLauncher));
+    QCOMPARE(result.path, targetPath);
+    QCOMPARE(result.launcherPath, settings.powerShellExecutablePath);
+    QCOMPARE(result.app, QStringLiteral("Microsoft Excel"));
+    QCOMPARE(result.locatorType, QStringLiteral("excel.range"));
+}
+
+void CoreSmokeTest::reportsUnsupportedAnchorHealthInputs()
+{
+    Anchor remoteTarget;
+    remoteTarget.targetUri = QStringLiteral("https://example.com/spec.pdf");
+    AnchorHealthCheckResult result = checkAnchorHealth(remoteTarget);
+
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::UnsupportedTarget));
+    QCOMPARE(result.path, remoteTarget.targetUri);
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString targetPath = tempDir.filePath(QStringLiteral("target.bin"));
+    QFile targetFile(targetPath);
+    QVERIFY(targetFile.open(QIODevice::WriteOnly));
+    QVERIFY(targetFile.write("target") > 0);
+    targetFile.close();
+
+    Anchor unsupportedLocator;
+    unsupportedLocator.targetFile = targetPath;
+    unsupportedLocator.locatorType = QStringLiteral("cad.shape");
+    unsupportedLocator.locatorJson = QStringLiteral("{\"type\":\"cad.shape\"}");
+    result = checkAnchorHealth(unsupportedLocator);
+
+    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::UnsupportedLocator));
+    QCOMPARE(result.path, targetPath);
+    QCOMPARE(result.locatorType, QStringLiteral("cad.shape"));
 }
 
 void CoreSmokeTest::buildsExcelRangeCommand()
