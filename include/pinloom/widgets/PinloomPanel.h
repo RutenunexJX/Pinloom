@@ -5,6 +5,7 @@
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 
@@ -81,6 +82,7 @@ struct PinloomPanelOptions {
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
     std::function<QString()> pdfXChangeExecutablePathProvider;
     std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
+    std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
     bool showLibraryRootControls = false;
@@ -215,6 +217,7 @@ private:
     bool activateOpenTarget(const PinloomOpenTarget &target);
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
+    bool activatePowerPointTarget(const PinloomOpenTarget &target);
     bool activateVisioTarget(const PinloomOpenTarget &target);
     bool activateWordTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);

@@ -192,10 +192,17 @@ Status:
   with `word.bookmark` locators now build a deterministic PowerShell/COM
   command object for document and bookmark range jumps and route through an
   injectable Word launcher before generic file fallback.
+- PowerPoint jump executor skeleton and launcher dispatch are implemented:
+  anchors with `powerpoint.shape` locators now build a deterministic
+  PowerShell/COM command object for presentation, slide, and shape id/name
+  jumps and route through an injectable PowerPoint launcher before generic file
+  fallback.
+- Phase 5 jump executor coverage now includes Excel, Word, PowerPoint, and
+  Visio.
 - Excel capture remains pending.
 - Visio capture remains pending.
 - Word capture/bookmark creation remains pending.
-- PowerPoint executor remains pending.
+- PowerPoint capture remains pending.
 
 ## Phase 6: Experience Completion
 

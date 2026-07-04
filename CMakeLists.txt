@@ -29,6 +29,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/LibrarySource.h
     include/pinloom/core/ManualPdfAnchorCreation.h
     include/pinloom/core/PdfXChangeCommand.h
+    include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceRelation.h
     include/pinloom/core/ResourceUsage.h
@@ -46,6 +47,7 @@ add_library(pinloom_core STATIC
     src/core/LibraryRoot.cpp
     src/core/ManualPdfAnchorCreation.cpp
     src/core/PdfXChangeCommand.cpp
+    src/core/PowerPointCommand.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
     src/core/VisioCommand.cpp

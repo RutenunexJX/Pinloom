@@ -1,6 +1,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
@@ -34,6 +35,11 @@ private slots:
     void buildsWordBookmarkCommandWithAliasAndFallbacks();
     void reportsWordCommandInputErrors();
     void recognizesWordTargetAppAliases();
+    void buildsPowerPointShapeCommandWithId();
+    void buildsPowerPointShapeCommandWithName();
+    void buildsPowerPointShapeCommandWithAliasesAndFallbacks();
+    void reportsPowerPointCommandInputErrors();
+    void recognizesPowerPointTargetAppAliases();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -590,6 +596,174 @@ void CoreSmokeTest::recognizesWordTargetAppAliases()
     word.locatorType.clear();
     word.locatorJson = QStringLiteral("{\"type\":\"word.bookmark\"}");
     QVERIFY(isWordAnchor(word));
+}
+
+void CoreSmokeTest::buildsPowerPointShapeCommandWithId()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("Microsoft PowerPoint");
+    anchor.targetFile = QStringLiteral("E:/slides/process.pptx");
+    anchor.locatorType = QStringLiteral("powerpoint.shape");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"powerpoint.shape\",\"slide\":12,\"shape_id\":42}");
+
+    QVERIFY(isPowerPointAnchor(anchor));
+    const PowerPointJumpCommandResult result = buildPowerPointJumpCommand(anchor, QString());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.executablePath, QStringLiteral("powershell.exe"));
+    QCOMPARE(result.command.presentationPath, anchor.targetFile);
+    QCOMPARE(result.command.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(result.command.slideIndex, 12);
+    QCOMPARE(result.command.shapeId, 42);
+    QVERIFY(result.command.shapeName.isEmpty());
+    QCOMPARE(result.command.arguments.at(0), QStringLiteral("-NoProfile"));
+    QVERIFY(result.command.arguments.contains(QStringLiteral("-Command")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Presentations.Open('E:/slides/process.pptx')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Slides.Item(12)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("View.GotoSlide(12)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(42)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$shape.Select($true)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$powerPoint.Activate()")));
+}
+
+void CoreSmokeTest::buildsPowerPointShapeCommandWithName()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("PPT");
+    anchor.targetFile = QStringLiteral("E:/slides/process.pptx");
+    anchor.locatorType = QStringLiteral("powerpoint.shape");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"powerpoint.shape\",\"slide\":12,\"shape_name\":\"Valve A\"}");
+
+    QVERIFY(isPowerPointAnchor(anchor));
+    const PowerPointJumpCommandResult result = buildPowerPointJumpCommand(anchor, QString());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, anchor.targetFile);
+    QCOMPARE(result.command.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(result.command.slideIndex, 12);
+    QCOMPARE(result.command.shapeId, -1);
+    QCOMPARE(result.command.shapeName, QStringLiteral("Valve A"));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.Item('Valve A')")));
+    QVERIFY(!result.command.powerShellScript.contains(QStringLiteral("FindById")));
+}
+
+void CoreSmokeTest::buildsPowerPointShapeCommandWithAliasesAndFallbacks()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("PowerPoint");
+    anchor.targetFile = QStringLiteral("E:/slides/anchor-field.pptx");
+    anchor.locatorJson =
+        QStringLiteral("{\"type\":\"powerpoint.shape\",\"slide_index\":7,\"shapeId\":99,"
+                       "\"shapeName\":\"Ignored name\","
+                       "\"presentation\":\"E:/slides/presentation-fallback.pptx\","
+                       "\"target_file\":\"E:/slides/target-file-fallback.pptx\"}");
+
+    QVERIFY(isPowerPointAnchor(anchor));
+    PowerPointJumpCommandResult result = buildPowerPointJumpCommand(anchor, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, QStringLiteral("E:/slides/anchor-field.pptx"));
+    QCOMPARE(result.command.slideIndex, 7);
+    QCOMPARE(result.command.shapeId, 99);
+    QVERIFY(result.command.shapeName.isEmpty());
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(99)")));
+    QVERIFY(!result.command.powerShellScript.contains(QStringLiteral("Ignored name")));
+
+    Anchor targetUriWins = anchor;
+    targetUriWins.targetFile.clear();
+    targetUriWins.targetUri = QStringLiteral("E:/slides/target-uri.pptx");
+    result = buildPowerPointJumpCommand(targetUriWins, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, QStringLiteral("E:/slides/target-uri.pptx"));
+
+    Anchor locatorPresentationFallback = anchor;
+    locatorPresentationFallback.targetFile.clear();
+    result = buildPowerPointJumpCommand(locatorPresentationFallback, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, QStringLiteral("E:/slides/presentation-fallback.pptx"));
+
+    Anchor locatorTargetFileFallback = anchor;
+    locatorTargetFileFallback.targetFile.clear();
+    locatorTargetFileFallback.locatorJson =
+        QStringLiteral("{\"type\":\"powerpoint.shape\",\"slide_index\":7,\"shapeId\":99,"
+                       "\"target_file\":\"E:/slides/target-file-fallback.pptx\"}");
+    result = buildPowerPointJumpCommand(locatorTargetFileFallback, QString());
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, QStringLiteral("E:/slides/target-file-fallback.pptx"));
+
+    Anchor locationFallback = anchor;
+    locationFallback.targetFile.clear();
+    locationFallback.locatorJson =
+        QStringLiteral("{\"type\":\"powerpoint.shape\",\"slide_index\":7,\"shapeName\":\"Valve A\"}");
+    result = buildPowerPointJumpCommand(locationFallback, QStringLiteral("E:/slides/location-fallback.pptx"));
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.presentationPath, QStringLiteral("E:/slides/location-fallback.pptx"));
+    QCOMPARE(result.command.shapeName, QStringLiteral("Valve A"));
+}
+
+void CoreSmokeTest::reportsPowerPointCommandInputErrors()
+{
+    Anchor base;
+    base.targetApp = QStringLiteral("PowerPoint");
+    base.targetFile = QStringLiteral("E:/slides/process.pptx");
+    base.locatorType = QStringLiteral("powerpoint.shape");
+    base.locatorJson = QStringLiteral("{\"slide\":12,\"shape_id\":42}");
+
+    Anchor missingFile = base;
+    missingFile.targetFile.clear();
+    PowerPointJumpCommandResult result = buildPowerPointJumpCommand(missingFile, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint presentation path is missing"));
+
+    Anchor invalidJson = base;
+    invalidJson.locatorJson = QStringLiteral("{\"slide\":");
+    result = buildPowerPointJumpCommand(invalidJson, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint locator JSON is invalid"));
+
+    Anchor unsupported = base;
+    unsupported.locatorType = QStringLiteral("powerpoint.slide");
+    result = buildPowerPointJumpCommand(unsupported, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint locator type is unsupported"));
+
+    Anchor missingSlide = base;
+    missingSlide.locatorJson = QStringLiteral("{\"shape_id\":42}");
+    result = buildPowerPointJumpCommand(missingSlide, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint slide is missing"));
+
+    Anchor missingShape = base;
+    missingShape.locatorJson = QStringLiteral("{\"slide\":12}");
+    result = buildPowerPointJumpCommand(missingShape, QString());
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PowerPoint shape id or name is missing"));
+}
+
+void CoreSmokeTest::recognizesPowerPointTargetAppAliases()
+{
+    Anchor powerPoint;
+    powerPoint.targetApp = QStringLiteral("pOwErPoInT");
+    QVERIFY(isPowerPointAnchor(powerPoint));
+
+    powerPoint.targetApp = QStringLiteral("Microsoft PowerPoint");
+    QVERIFY(isPowerPointAnchor(powerPoint));
+
+    powerPoint.targetApp = QStringLiteral("MS PowerPoint");
+    QVERIFY(isPowerPointAnchor(powerPoint));
+
+    powerPoint.targetApp = QStringLiteral("PPT");
+    QVERIFY(isPowerPointAnchor(powerPoint));
+
+    powerPoint.targetApp = QStringLiteral("Excel");
+    QVERIFY(!isPowerPointAnchor(powerPoint));
+
+    powerPoint.targetApp.clear();
+    powerPoint.locatorType = QStringLiteral("POWERPOINT.SHAPE");
+    QVERIFY(isPowerPointAnchor(powerPoint));
+
+    powerPoint.locatorType.clear();
+    powerPoint.locatorJson = QStringLiteral("{\"type\":\"powerpoint.shape\"}");
+    QVERIFY(isPowerPointAnchor(powerPoint));
 }
 
 void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()

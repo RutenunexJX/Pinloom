@@ -64,6 +64,8 @@ private slots:
     void panelReportsInvalidVisioLocatorWithoutGenericOpen();
     void panelLaunchesWordAnchorWithInjectedExecutor();
     void panelReportsInvalidWordLocatorWithoutGenericOpen();
+    void panelLaunchesPowerPointAnchorWithInjectedExecutor();
+    void panelReportsInvalidPowerPointLocatorWithoutGenericOpen();
     void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
     void panelReportsMissingPdfXChangeExecutable();
     void panelAllowsHostToHandleUrlTarget();
@@ -2342,6 +2344,129 @@ void WidgetSmokeTest::panelReportsInvalidWordLocatorWithoutGenericOpen()
 
         QVERIFY(!panel.activateCurrentOpenTarget());
         QCOMPARE(panel.statusText(), QStringLiteral("Word bookmark is missing"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+}
+
+void WidgetSmokeTest::panelLaunchesPowerPointAnchorWithInjectedExecutor()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("powerpoint-process");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Process Presentation");
+    resource.location = QStringLiteral("E:/slides/process.pptx");
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = QStringLiteral("Valve A callout");
+    anchor.targetApp = QStringLiteral("MS PowerPoint");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("powerpoint.shape");
+    anchor.locatorJson = QStringLiteral("{\"slide\":12,\"shape_name\":\"Valve A\"}");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool launched = false;
+    PowerPointJumpCommand capturedCommand;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.powerPointLaunchHandler = [&](const PowerPointJumpCommand &command, QString *error) {
+        Q_UNUSED(error);
+        launched = true;
+        capturedCommand = command;
+        return true;
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    panel.setSearchText(QStringLiteral("Valve A"));
+    QCOMPARE(panel.resultCount(), 1);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QVERIFY(launched);
+    QCOMPARE(capturedCommand.presentationPath, resource.location);
+    QCOMPARE(capturedCommand.locatorType, QStringLiteral("powerpoint.shape"));
+    QCOMPARE(capturedCommand.slideIndex, 12);
+    QCOMPARE(capturedCommand.shapeId, -1);
+    QCOMPARE(capturedCommand.shapeName, QStringLiteral("Valve A"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened PowerPoint target"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
+    QVERIFY(anchorUsage.has_value());
+    QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::panelReportsInvalidPowerPointLocatorWithoutGenericOpen()
+{
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("powerpoint-unsupported");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Unsupported PowerPoint Deck");
+        resource.location = QStringLiteral("E:/slides/unsupported.pptx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Unsupported PowerPoint jump");
+        anchor.targetApp = QStringLiteral("PowerPoint");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("powerpoint.slide");
+        anchor.locatorJson = QStringLiteral("{\"slide\":12,\"shape_id\":42}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Unsupported PowerPoint"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("PowerPoint locator type is unsupported"));
+        QCOMPARE(fileHandler.openCount, 0);
+        QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    }
+
+    {
+        InMemoryLibraryRepository repository;
+
+        Resource resource;
+        resource.id = QStringLiteral("powerpoint-missing-shape");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Missing Shape PowerPoint Deck");
+        resource.location = QStringLiteral("E:/slides/missing-shape.pptx");
+        Anchor anchor;
+        anchor.type = AnchorType::Manual;
+        anchor.name = QStringLiteral("Missing PowerPoint shape");
+        anchor.targetFile = resource.location;
+        anchor.locatorType = QStringLiteral("powerpoint.shape");
+        anchor.locatorJson = QStringLiteral("{\"slide\":12}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Missing PowerPoint"));
+
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(), QStringLiteral("PowerPoint shape id or name is missing"));
         QCOMPARE(fileHandler.openCount, 0);
         QVERIFY(!repository.resourceUsage(resource.id).has_value());
     }

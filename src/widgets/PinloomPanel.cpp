@@ -531,6 +531,19 @@ bool isWordComAutomationAvailable()
 #endif
 }
 
+bool isPowerPointComAutomationAvailable()
+{
+#ifdef Q_OS_WIN
+    QSettings powerPointApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\PowerPoint.Application"),
+                                       QSettings::NativeFormat);
+    const QString classId = powerPointApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
+    const QString currentVersion = powerPointApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
+    return !classId.isEmpty() || !currentVersion.isEmpty();
+#else
+    return false;
+#endif
+}
+
 } // namespace
 
 PinloomPanel::PinloomPanel(ILibraryRepository &repository, QWidget *parent)
@@ -1809,6 +1822,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
+    if (target.anchor.has_value() && isPowerPointAnchor(target.anchor.value())) {
+        if (activatePowerPointTarget(target)) {
+            recordOpen();
+            return true;
+        }
+        return false;
+    }
+
     if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
         if (activatePdfXChangeTarget(target)) {
             recordOpen();
@@ -1976,6 +1997,51 @@ bool PinloomPanel::activateWordTarget(const PinloomOpenTarget &target)
     }
 
     updateStatus(tr("Opened Word target"));
+    return true;
+#endif
+}
+
+bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        updateStatus(tr("No PowerPoint anchor selected"));
+        return false;
+    }
+
+    const PowerPointJumpCommandResult buildResult =
+        buildPowerPointJumpCommand(target.anchor.value(), target.location);
+    if (!buildResult.success()) {
+        updateStatus(buildResult.error);
+        return false;
+    }
+
+    if (options_.powerPointLaunchHandler) {
+        QString error;
+        if (!options_.powerPointLaunchHandler(buildResult.command, &error)) {
+            updateStatus(error.trimmed().isEmpty()
+                             ? tr("Unable to launch PowerPoint")
+                             : error.trimmed());
+            return false;
+        }
+        updateStatus(tr("Opened PowerPoint target"));
+        return true;
+    }
+
+#ifndef Q_OS_WIN
+    updateStatus(tr("PowerPoint jump requires Windows COM automation"));
+    return false;
+#else
+    if (!isPowerPointComAutomationAvailable()) {
+        updateStatus(tr("Microsoft PowerPoint COM automation is not available"));
+        return false;
+    }
+
+    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
+        updateStatus(tr("Unable to launch PowerPoint"));
+        return false;
+    }
+
+    updateStatus(tr("Opened PowerPoint target"));
     return true;
 #endif
 }
