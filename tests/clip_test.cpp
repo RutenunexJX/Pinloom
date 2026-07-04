@@ -1,4 +1,5 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ClipArchive.h"
 #include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ClipRepository.h"
@@ -6,6 +7,8 @@
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
 
+#include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -250,6 +253,26 @@ QString saveInMemoryClip(InMemoryClipRepository &repository,
     return captured.clip->id;
 }
 
+bool writeClipTestFile(const QString &path, const QByteArray &content)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+        return false;
+    }
+
+    return file.write(content) == static_cast<qint64>(content.size());
+}
+
+QByteArray readClipTestFile(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return {};
+    }
+
+    return file.readAll();
+}
+
 class ClipTest : public QObject {
     Q_OBJECT
 
@@ -272,6 +295,11 @@ private slots:
     void clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary();
     void clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips();
     void sqliteSearchesSavedClipAfterRepositoryRestart();
+    void clipArchiveExportsSavedOnly();
+    void clipArchiveImportsIntoEmptyRepositoryAndSearchesMetadata();
+    void clipArchiveSkipsExistingIdOnRepeatedImport();
+    void clipArchiveImportsSameTextWithDifferentIds();
+    void clipArchiveRejectsInvalidJsonAndSchemaVersion();
     void clipboardServiceCapturesTextIntoRepository();
     void clipboardServicePauseAndResumeCapture();
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
@@ -970,6 +998,238 @@ void ClipTest::sqliteSearchesSavedClipAfterRepositoryRestart()
     QCOMPARE(results.size(), 1);
     QCOMPARE(results.first().clipId, clipId);
     QCOMPARE(results.first().matchedField, QStringLiteral("text"));
+}
+
+void ClipTest::clipArchiveExportsSavedOnly()
+{
+    InMemoryClipRepository repository;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary =
+        repository.captureText(QStringLiteral("temporary private archive text"), {}, {}, base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveInMemoryClip(repository,
+                                             QStringLiteral("portable saved archive text"),
+                                             QStringLiteral("Portable Saved"),
+                                             {QStringLiteral("portable alias")},
+                                             {QStringLiteral("archive")},
+                                             true,
+                                             base.addSecs(1),
+                                             base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    const QString archivePath = dir.filePath(QStringLiteral("saved-clips.json"));
+    const ClipArchiveResult exported = ClipArchive(repository).exportSavedClips(archivePath);
+
+    QVERIFY2(exported.succeeded(), qPrintable(exported.error));
+    QCOMPARE(exported.exported, 1);
+
+    const QByteArray archiveBytes = readClipTestFile(archivePath);
+    QVERIFY(!archiveBytes.isEmpty());
+    QVERIFY(!archiveBytes.contains("temporary private archive text"));
+
+    const QJsonDocument document = QJsonDocument::fromJson(archiveBytes);
+    QVERIFY(document.isObject());
+    const QJsonObject root = document.object();
+    QCOMPARE(root.value(QStringLiteral("schema")).toString(), ClipArchive::schemaName());
+    QCOMPARE(root.value(QStringLiteral("version")).toInt(), ClipArchive::schemaVersion());
+    QCOMPARE(root.value(QStringLiteral("temporaryHistoryExported")).toBool(true), false);
+
+    const QJsonArray clips = root.value(QStringLiteral("clips")).toArray();
+    QCOMPARE(clips.size(), 1);
+    const QJsonObject saved = clips.first().toObject();
+    QCOMPARE(saved.value(QStringLiteral("id")).toString(), savedId);
+    QCOMPARE(saved.value(QStringLiteral("state")).toString(), QStringLiteral("saved"));
+    QCOMPARE(saved.value(QStringLiteral("kind")).toString(), QStringLiteral("text"));
+    QCOMPARE(saved.value(QStringLiteral("text")).toString(), QStringLiteral("portable saved archive text"));
+    QCOMPARE(saved.value(QStringLiteral("savedName")).toString(), QStringLiteral("Portable Saved"));
+}
+
+void ClipTest::clipArchiveImportsIntoEmptyRepositoryAndSearchesMetadata()
+{
+    InMemoryClipRepository source;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString sourceId = saveInMemoryClip(source,
+                                             QStringLiteral("portable import body with metadata needle"),
+                                             QStringLiteral("Portable Import"),
+                                             {QStringLiteral("carry alias")},
+                                             {QStringLiteral("portable-tag")},
+                                             true,
+                                             base,
+                                             base.addSecs(1));
+    QVERIFY(!sourceId.isEmpty());
+
+    const QString archivePath = dir.filePath(QStringLiteral("saved-clips.json"));
+    const ClipArchiveResult exported = ClipArchive(source).exportSavedClips(archivePath);
+    QVERIFY2(exported.succeeded(), qPrintable(exported.error));
+
+    SqliteClipRepository imported;
+    QVERIFY2(imported.open(dir.filePath(QStringLiteral("imported.sqlite3"))), qPrintable(imported.lastError()));
+    QVERIFY2(imported.initialize(), qPrintable(imported.lastError()));
+
+    const ClipArchiveResult importedResult = ClipArchive(imported).importSavedClips(archivePath);
+    QVERIFY2(importedResult.succeeded(), qPrintable(importedResult.error));
+    QCOMPARE(importedResult.imported, 1);
+    QCOMPARE(importedResult.skippedConflictingIds, 0);
+    QCOMPARE(imported.savedClips().size(), 1);
+    QVERIFY(imported.temporaryClips().isEmpty());
+
+    const ClipSearchService search(imported);
+    QList<ClipSearchResult> results = search.search(QStringLiteral("Portable Import"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, sourceId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("name"));
+
+    results = search.search(QStringLiteral("carry alias"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, sourceId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("alias"));
+
+    results = search.search(QStringLiteral("#portable-tag"));
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, sourceId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+}
+
+void ClipTest::clipArchiveSkipsExistingIdOnRepeatedImport()
+{
+    InMemoryClipRepository source;
+    InMemoryClipRepository imported;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString sourceId = saveInMemoryClip(source,
+                                             QStringLiteral("original conflict text"),
+                                             QStringLiteral("Original Conflict"),
+                                             {},
+                                             {QStringLiteral("conflict")},
+                                             false,
+                                             base,
+                                             base.addSecs(1));
+    QVERIFY(!sourceId.isEmpty());
+
+    const QString archivePath = dir.filePath(QStringLiteral("saved-clips.json"));
+    const ClipArchiveResult exported = ClipArchive(source).exportSavedClips(archivePath);
+    QVERIFY2(exported.succeeded(), qPrintable(exported.error));
+
+    ClipArchive importArchive(imported);
+    ClipArchiveResult firstImport = importArchive.importSavedClips(archivePath);
+    QVERIFY2(firstImport.succeeded(), qPrintable(firstImport.error));
+    QCOMPARE(firstImport.imported, 1);
+    QCOMPARE(firstImport.skippedConflictingIds, 0);
+
+    QJsonDocument document = QJsonDocument::fromJson(readClipTestFile(archivePath));
+    QVERIFY(document.isObject());
+    QJsonObject root = document.object();
+    QJsonArray clips = root.value(QStringLiteral("clips")).toArray();
+    QCOMPARE(clips.size(), 1);
+    QJsonObject conflictingClip = clips.first().toObject();
+    conflictingClip.insert(QStringLiteral("savedName"), QStringLiteral("Changed Conflict"));
+    conflictingClip.insert(QStringLiteral("text"), QStringLiteral("changed conflict text"));
+    clips.replace(0, conflictingClip);
+    root.insert(QStringLiteral("clips"), clips);
+    QVERIFY(writeClipTestFile(archivePath, QJsonDocument(root).toJson(QJsonDocument::Indented)));
+
+    ClipArchiveResult duplicateImport = importArchive.importSavedClips(archivePath);
+    QVERIFY2(duplicateImport.succeeded(), qPrintable(duplicateImport.error));
+    QCOMPARE(duplicateImport.imported, 0);
+    QCOMPARE(duplicateImport.skippedConflictingIds, 1);
+    QCOMPARE(imported.savedClips().size(), 1);
+
+    const std::optional<Clip> stored = imported.findClip(sourceId);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->name, QStringLiteral("Original Conflict"));
+    QCOMPARE(stored->text, QStringLiteral("original conflict text"));
+}
+
+void ClipTest::clipArchiveImportsSameTextWithDifferentIds()
+{
+    InMemoryClipRepository repository;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    QJsonArray clips;
+    QJsonObject first;
+    first.insert(QStringLiteral("id"), QStringLiteral("same-text-one"));
+    first.insert(QStringLiteral("kind"), QStringLiteral("text"));
+    first.insert(QStringLiteral("state"), QStringLiteral("saved"));
+    first.insert(QStringLiteral("text"), QStringLiteral("same portable text"));
+    first.insert(QStringLiteral("savedName"), QStringLiteral("Same Text One"));
+    first.insert(QStringLiteral("aliases"), QJsonArray{QStringLiteral("first alias")});
+    first.insert(QStringLiteral("tags"), QJsonArray{QStringLiteral("portable")});
+    first.insert(QStringLiteral("pinned"), false);
+    clips.append(first);
+
+    QJsonObject second = first;
+    second.insert(QStringLiteral("id"), QStringLiteral("same-text-two"));
+    second.insert(QStringLiteral("savedName"), QStringLiteral("Same Text Two"));
+    second.insert(QStringLiteral("aliases"), QJsonArray{QStringLiteral("second alias")});
+    clips.append(second);
+
+    QJsonObject root;
+    root.insert(QStringLiteral("schema"), ClipArchive::schemaName());
+    root.insert(QStringLiteral("version"), ClipArchive::schemaVersion());
+    root.insert(QStringLiteral("clips"), clips);
+
+    const QString archivePath = dir.filePath(QStringLiteral("same-text.json"));
+    QVERIFY(writeClipTestFile(archivePath, QJsonDocument(root).toJson(QJsonDocument::Indented)));
+
+    const ClipArchiveResult result = ClipArchive(repository).importSavedClips(archivePath);
+    QVERIFY2(result.succeeded(), qPrintable(result.error));
+    QCOMPARE(result.imported, 2);
+    QCOMPARE(result.skippedConflictingIds, 0);
+    QCOMPARE(repository.savedClips().size(), 2);
+
+    const std::optional<Clip> firstClip = repository.findClip(QStringLiteral("same-text-one"));
+    const std::optional<Clip> secondClip = repository.findClip(QStringLiteral("same-text-two"));
+    QVERIFY(firstClip.has_value());
+    QVERIFY(secondClip.has_value());
+    QCOMPARE(firstClip->text, QStringLiteral("same portable text"));
+    QCOMPARE(secondClip->text, QStringLiteral("same portable text"));
+
+    QList<ClipSearchResult> results = ClipSearchService(repository).search(QStringLiteral("same portable text"));
+    QCOMPARE(results.size(), 2);
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [](const ClipSearchResult &searchResult) {
+        return searchResult.clipId == QStringLiteral("same-text-one");
+    }));
+    QVERIFY(std::any_of(results.cbegin(), results.cend(), [](const ClipSearchResult &searchResult) {
+        return searchResult.clipId == QStringLiteral("same-text-two");
+    }));
+}
+
+void ClipTest::clipArchiveRejectsInvalidJsonAndSchemaVersion()
+{
+    InMemoryClipRepository repository;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString invalidJsonPath = dir.filePath(QStringLiteral("invalid.json"));
+    QVERIFY(writeClipTestFile(invalidJsonPath, QByteArray("{ broken json")));
+    ClipArchiveResult result = ClipArchive(repository).importSavedClips(invalidJsonPath);
+    QVERIFY(!result.succeeded());
+    QVERIFY(result.error.contains(QStringLiteral("Invalid saved clip archive JSON")));
+
+    const QString invalidSchemaPath = dir.filePath(QStringLiteral("invalid-schema.json"));
+    QVERIFY(writeClipTestFile(invalidSchemaPath,
+                              QByteArray(R"({"schema":"pinloom.clip.other","version":1,"clips":[]})")));
+    result = ClipArchive(repository).importSavedClips(invalidSchemaPath);
+    QVERIFY(!result.succeeded());
+    QVERIFY(result.error.contains(QStringLiteral("Unsupported saved clip archive schema/version")));
+
+    const QString invalidVersionPath = dir.filePath(QStringLiteral("invalid-version.json"));
+    QVERIFY(writeClipTestFile(invalidVersionPath,
+                              QByteArray(R"({"schema":"pinloom.clip.savedClips","version":2,"clips":[]})")));
+    result = ClipArchive(repository).importSavedClips(invalidVersionPath);
+    QVERIFY(!result.succeeded());
+    QVERIFY(result.error.contains(QStringLiteral("Unsupported saved clip archive schema/version")));
 }
 
 void ClipTest::clipboardServiceCapturesTextIntoRepository()

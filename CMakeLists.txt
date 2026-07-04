@@ -54,6 +54,7 @@ target_link_libraries(pinloom_core
 
 add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
+    include/pinloom/clip/ClipArchive.h
     include/pinloom/clip/ClipHotkeyService.h
     include/pinloom/clip/ClipInsertionService.h
     include/pinloom/clip/ClipRepository.h
@@ -61,6 +62,7 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipTrayController.h
     include/pinloom/clip/PlatformPasteInvoker.h
     src/clip/ClipboardCaptureService.cpp
+    src/clip/ClipArchive.cpp
     src/clip/ClipHotkeyService.cpp
     src/clip/ClipInsertionService.cpp
     src/clip/ClipRepository.cpp

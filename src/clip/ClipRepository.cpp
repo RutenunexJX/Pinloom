@@ -181,6 +181,55 @@ QString insertModeToString(ClipInsertMode mode)
     return QStringLiteral("paste");
 }
 
+std::optional<Clip> normalizedImportedSavedClip(const Clip &source, QString *error)
+{
+    Clip clip = source;
+    clip.id = clip.id.trimmed();
+    if (clip.id.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Saved clip id is required");
+        }
+        return std::nullopt;
+    }
+
+    if (clip.kind != ClipKind::Text) {
+        if (error) {
+            *error = QStringLiteral("Only text saved clips can be imported");
+        }
+        return std::nullopt;
+    }
+
+    if (clip.state != ClipState::Saved) {
+        if (error) {
+            *error = QStringLiteral("Only saved clips can be imported");
+        }
+        return std::nullopt;
+    }
+
+    if (clip.text.trimmed().isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Saved clip text is required");
+        }
+        return std::nullopt;
+    }
+
+    const QByteArray bytes = clip.text.toUtf8();
+    const QDateTime importedAt = QDateTime::currentDateTimeUtc();
+    clip.state = ClipState::Saved;
+    clip.preview = previewForText(clip.text);
+    clip.contentHash = contentHashForBytes(bytes);
+    clip.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name.trimmed();
+    clip.aliases = cleanStringList(clip.aliases);
+    clip.tags = cleanStringList(clip.tags);
+    clip.createdAt = clip.createdAt.isValid() ? clip.createdAt.toUTC() : importedAt;
+    clip.updatedAt = clip.updatedAt.isValid() ? clip.updatedAt.toUTC() : clip.createdAt;
+    clip.usedAt = clip.usedAt.isValid() ? clip.usedAt.toUTC() : QDateTime{};
+    clip.expiresAt = {};
+    clip.sourceApp = clip.sourceApp.trimmed();
+    clip.sizeBytes = bytes.size();
+    return clip;
+}
+
 } // namespace
 
 bool ClipCaptureResult::captured() const
@@ -409,6 +458,54 @@ bool SqliteClipRepository::saveClip(const QString &id,
     query.addBindValue(pinned ? 1 : 0);
     query.addBindValue(dateTimeToStorageValue(effectiveUtcNow(now)));
     query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteClipRepository::importSavedClip(const Clip &clip)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QString error;
+    const std::optional<Clip> normalized = normalizedImportedSavedClip(clip, &error);
+    if (!normalized.has_value()) {
+        setLastError(error);
+        return false;
+    }
+
+    if (findClip(normalized->id).has_value()) {
+        setLastError(QStringLiteral("Clip already exists"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("INSERT INTO clips(id, kind, state, text, preview, content_hash, name, aliases, tags, "
+                                 "pinned, created_at, updated_at, used_at, expires_at, source_app, size_bytes) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+    query.addBindValue(normalized->id);
+    query.addBindValue(clipKindToString(normalized->kind));
+    query.addBindValue(clipStateToString(normalized->state));
+    query.addBindValue(normalized->text);
+    query.addBindValue(normalized->preview);
+    query.addBindValue(normalized->contentHash);
+    query.addBindValue(normalized->name);
+    query.addBindValue(listToStorage(normalized->aliases));
+    query.addBindValue(listToStorage(normalized->tags));
+    query.addBindValue(normalized->pinned ? 1 : 0);
+    query.addBindValue(dateTimeToStorageValue(normalized->createdAt));
+    query.addBindValue(dateTimeToStorageValue(normalized->updatedAt));
+    query.addBindValue(dateTimeToStorageValue(normalized->usedAt));
+    query.addBindValue(dateTimeToStorageValue(normalized->expiresAt));
+    query.addBindValue(normalized->sourceApp);
+    query.addBindValue(static_cast<qlonglong>(normalized->sizeBytes));
     if (!query.exec()) {
         setLastError(query.lastError().text());
         return false;
@@ -709,6 +806,22 @@ bool InMemoryClipRepository::saveClip(const QString &id,
     clip.pinned = pinned;
     clip.updatedAt = effectiveUtcNow(now);
     clip.expiresAt = {};
+    return true;
+}
+
+bool InMemoryClipRepository::importSavedClip(const Clip &clip)
+{
+    QString error;
+    const std::optional<Clip> normalized = normalizedImportedSavedClip(clip, &error);
+    if (!normalized.has_value()) {
+        return false;
+    }
+
+    if (clipIndexById(clips_, normalized->id) >= 0) {
+        return false;
+    }
+
+    clips_.append(*normalized);
     return true;
 }
 

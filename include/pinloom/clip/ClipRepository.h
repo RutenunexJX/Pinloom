@@ -83,6 +83,7 @@ public:
                   const QStringList &tags = {},
                   bool pinned = false,
                   const QDateTime &now = {});
+    bool importSavedClip(const Clip &clip);
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 
@@ -116,6 +117,7 @@ public:
                   const QStringList &tags = {},
                   bool pinned = false,
                   const QDateTime &now = {});
+    bool importSavedClip(const Clip &clip);
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 

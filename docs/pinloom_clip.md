@@ -293,6 +293,31 @@ This is still not a settings UI, autostart registration, an installed resident
 application entry, user-profile config migration, cloud sync, policy UI, or a
 final persistence contract for future settings.
 
+## Saved Clip Import/Export Skeleton
+
+Pinloom Clip now has a small core `ClipArchive` JSON import/export skeleton for
+Saved Clips. It is a portability helper, not a background sync layer: callers
+must pass an explicit JSON file path for every import or export, and the core
+does not choose a default app-data location.
+
+The archive intentionally exports Saved Clips only. Temporary Clip History is
+private working memory and is not exported by default; exported files include
+`temporaryHistoryExported: false` as an explicit privacy signal. The current
+schema is versioned as `pinloom.clip.savedClips` version `1`.
+
+The MVP archive is text-only. It includes the saved clip id, saved state, text
+kind, text and preview, saved name, aliases, tags, pinned state, timestamps,
+source app metadata, content hash, and byte size. It does not include rich
+content blobs, images, HTML, RTF, files, real clipboard data, tray UI state, or
+hotkey/runtime settings.
+
+Import preserves clip ids when possible. The conservative conflict policy is:
+if a clip with the imported id already exists, skip that archive entry and
+leave the existing local clip unchanged. New saved clips are imported into the
+repository as Saved state, with derived text metadata normalized on import.
+Invalid JSON, non-object archives, unsupported schema/version values, malformed
+clip entries, and repository insert failures return explicit errors.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
