@@ -59,6 +59,7 @@ private slots:
     void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
     void panelReportsInvalidManualPdfAnchorDialogHookRequest();
     void panelRoutesCtrlKThroughManualExcelAnchorRequestProvider();
+    void panelRoutesCtrlKThroughManualVisioAnchorRequestProvider();
     void panelLaunchesExcelAnchorWithInjectedExecutor();
     void panelReportsInvalidExcelLocatorWithoutGenericOpen();
     void panelLaunchesVisioAnchorWithInjectedExecutor();
@@ -2025,6 +2026,51 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualExcelAnchorRequestProvider()
     QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/books/manual-budget.xlsx"));
     QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("excel.range"));
     QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(results.first().matchedAnchor->pinned);
+}
+
+void WidgetSmokeTest::panelRoutesCtrlKThroughManualVisioAnchorRequestProvider()
+{
+    InMemoryLibraryRepository repository;
+
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualVisioAnchorRequestProvider = [&]() -> std::optional<ManualVisioAnchorCreationRequest> {
+        ++requestCount;
+        ManualVisioAnchorCreationRequest request;
+        request.name = QStringLiteral("Manual Visio power shape");
+        request.file = QStringLiteral("E:/drawings/manual-power.vsdx");
+        request.page = QStringLiteral("Page-1");
+        request.shapeUniqueId = QStringLiteral("{22222222-3333-4444-5555-666666666666}");
+        request.aliases = {QStringLiteral("manual visio shape")};
+        request.tags = {QStringLiteral("#phase5")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Created Visio anchor \"Manual Visio power shape\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("manual visio shape")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual Visio power shape"));
+    QCOMPARE(results.first().matchedAnchor->targetApp, QStringLiteral("Microsoft Visio"));
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/drawings/manual-power.vsdx"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("shape_unique_id")));
     QVERIFY(results.first().matchedAnchor->pinned);
 }
 

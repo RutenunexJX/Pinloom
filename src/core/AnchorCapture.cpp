@@ -1,6 +1,7 @@
 #include "pinloom/core/AnchorCapture.h"
 
 #include "pinloom/core/ExcelCommand.h"
+#include "pinloom/core/VisioCommand.h"
 
 #include <QFileInfo>
 #include <QJsonArray>
@@ -42,6 +43,12 @@ QString effectiveSource(const ExcelCaptureRequest &request, const QString &fallb
     return source.isEmpty() ? fallback : source;
 }
 
+QString effectiveSource(const VisioCaptureRequest &request, const QString &fallback)
+{
+    const QString source = request.source.trimmed().toLower();
+    return source.isEmpty() ? fallback : source;
+}
+
 QString effectiveExcelTargetApp(const ExcelCaptureRequest &request)
 {
     const QString targetApp = request.targetApp.trimmed();
@@ -59,6 +66,18 @@ QString effectiveExcelLocatorType(const ExcelCaptureRequest &request)
         return QStringLiteral("excel.range");
     }
     return QStringLiteral("excel.name");
+}
+
+QString effectiveVisioTargetApp(const VisioCaptureRequest &request)
+{
+    const QString targetApp = request.targetApp.trimmed();
+    return targetApp.isEmpty() ? QStringLiteral("Microsoft Visio") : targetApp;
+}
+
+QString effectiveVisioLocatorType(const VisioCaptureRequest &request)
+{
+    const QString locatorType = request.locatorType.trimmed().toLower();
+    return locatorType.isEmpty() ? QStringLiteral("visio.shape") : locatorType;
 }
 
 QString defaultAnchorName(const PdfXChangeCaptureRequest &request)
@@ -100,6 +119,19 @@ ExcelCaptureResult resultForRequest(const ExcelCaptureRequest &request,
     return result;
 }
 
+VisioCaptureResult resultForRequest(const VisioCaptureRequest &request,
+                                    const QString &source)
+{
+    VisioCaptureResult result;
+    result.targetApp = effectiveVisioTargetApp(request);
+    result.targetFile = request.targetFile.trimmed();
+    result.locatorType = effectiveVisioLocatorType(request);
+    result.page = request.page.trimmed();
+    result.shapeUniqueId = request.shapeUniqueId.trimmed();
+    result.source = effectiveSource(request, source);
+    return result;
+}
+
 QJsonArray rectArray(const PdfCaptureRect &rect)
 {
     QJsonArray values;
@@ -128,6 +160,11 @@ bool AnchorCaptureResult::success() const
 }
 
 bool ExcelCaptureResult::success() const
+{
+    return error.isEmpty();
+}
+
+bool VisioCaptureResult::success() const
 {
     return error.isEmpty();
 }
@@ -231,6 +268,48 @@ ExcelCaptureResult ManualExcelAnchorCaptureProvider::capture(const ExcelCaptureR
     return result;
 }
 
+QString ManualVisioAnchorCaptureProvider::source() const
+{
+    return QStringLiteral("manual");
+}
+
+VisioCaptureResult ManualVisioAnchorCaptureProvider::capture(const VisioCaptureRequest &request) const
+{
+    VisioCaptureResult result = resultForRequest(request, source());
+
+    if (request.anchorName.trimmed().isEmpty()) {
+        result.error = QStringLiteral("Visio capture anchor name is missing");
+        return result;
+    }
+    if (result.targetFile.isEmpty()) {
+        result.error = QStringLiteral("Visio capture target file is missing");
+        return result;
+    }
+    if (!isVisioLocatorType(result.locatorType)) {
+        result.error = QStringLiteral("Visio capture locator type is unsupported");
+        return result;
+    }
+    if (result.page.isEmpty()) {
+        result.error = QStringLiteral("Visio capture page is missing");
+        return result;
+    }
+    if (result.shapeUniqueId.isEmpty()) {
+        result.error = QStringLiteral("Visio capture shape UniqueID is missing");
+        return result;
+    }
+
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.name = request.anchorName.trimmed();
+    anchor.target = anchor.name;
+    anchor.targetApp = result.targetApp;
+    anchor.targetFile = result.targetFile;
+    anchor.locatorType = result.locatorType;
+    anchor.locatorJson = visioLocatorJson(request);
+    result.anchor = anchor;
+    return result;
+}
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
 {
     QJsonObject locator;
@@ -268,6 +347,21 @@ QString excelLocatorJson(const ExcelCaptureRequest &request)
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
 
+QString visioLocatorJson(const VisioCaptureRequest &request)
+{
+    const QString shapeUniqueId = request.shapeUniqueId.trimmed();
+
+    QJsonObject locator;
+    locator.insert(QStringLiteral("type"), effectiveVisioLocatorType(request));
+    locator.insert(QStringLiteral("page"), request.page.trimmed());
+    locator.insert(QStringLiteral("shape_unique_id"), shapeUniqueId);
+    locator.insert(QStringLiteral("shapeUniqueID"), shapeUniqueId);
+    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
+    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
+
+    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+}
+
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request)
 {
     return ManualPdfXChangeRectCaptureProvider{}.capture(request);
@@ -276,6 +370,11 @@ AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureReq
 ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request)
 {
     return ManualExcelAnchorCaptureProvider{}.capture(request);
+}
+
+VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request)
+{
+    return ManualVisioAnchorCaptureProvider{}.capture(request);
 }
 
 } // namespace Pinloom

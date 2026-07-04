@@ -1190,6 +1190,31 @@ bool PinloomPanel::captureCurrentAppPosition()
         return true;
     }
 
+    if (options_.manualVisioAnchorRequestProvider) {
+        const std::optional<ManualVisioAnchorCreationRequest> visioRequest =
+            options_.manualVisioAnchorRequestProvider();
+        if (!visioRequest.has_value()) {
+            updateStatus(tr("Capture canceled"));
+            return false;
+        }
+
+        ManualVisioAnchorCreationService creationService(repository_);
+        const ManualVisioAnchorCreationResult result =
+            creationService.createManualVisioAnchor(visioRequest.value());
+        if (!result.success()) {
+            updateStatus(result.error);
+            return false;
+        }
+
+        refreshResults();
+        if (!selectResultResource(result.resource.id)) {
+            setSearchText(result.anchor.name);
+            selectResultResource(result.resource.id);
+        }
+        updateStatus(tr("Created Visio anchor \"%1\"").arg(result.anchor.name));
+        return true;
+    }
+
     std::optional<ManualPdfAnchorCreationRequest> request;
     if (options_.manualPdfAnchorRequestProvider) {
         request = options_.manualPdfAnchorRequestProvider();

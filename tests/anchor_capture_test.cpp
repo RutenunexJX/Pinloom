@@ -3,9 +3,13 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
+#include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/VisioCommand.h"
 
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
 #include <algorithm>
@@ -26,6 +30,10 @@ private slots:
     void savesManualExcelRangeAnchorInRepository();
     void rejectsInvalidManualExcelAnchorInputsWithoutSaving();
     void createsManualExcelAnchorCompatibleWithExcelExecutor();
+    void buildsManualVisioShapeAnchor();
+    void savesManualVisioShapeAnchorInRepository();
+    void rejectsInvalidManualVisioAnchorInputsWithoutSaving();
+    void createsManualVisioAnchorCompatibleWithVisioExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
@@ -112,6 +120,29 @@ static ManualExcelAnchorCreationRequest validExcelRangeCreationRequest()
     request.rangeAddress = QStringLiteral("B12:D18");
     request.aliases = {QStringLiteral("worksheet slice"), QStringLiteral("Worksheet Slice")};
     request.tags = {QStringLiteral("#finance"), QStringLiteral("finance")};
+    request.pinned = true;
+    return request;
+}
+
+static VisioCaptureRequest validVisioShapeCaptureRequest()
+{
+    VisioCaptureRequest request;
+    request.anchorName = QStringLiteral("Power gate symbol");
+    request.targetFile = QStringLiteral("E:/drawings/power.vsdx");
+    request.page = QStringLiteral(" Page-1 ");
+    request.shapeUniqueId = QStringLiteral(" {00000000-0000-0000-0000-000000000000} ");
+    return request;
+}
+
+static ManualVisioAnchorCreationRequest validVisioShapeCreationRequest()
+{
+    ManualVisioAnchorCreationRequest request;
+    request.name = QStringLiteral("Power gate symbol");
+    request.file = QStringLiteral("E:/drawings/power.vsdx");
+    request.page = QStringLiteral("Page-1");
+    request.shapeUniqueId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
+    request.aliases = {QStringLiteral("gate mark"), QStringLiteral("Gate Mark")};
+    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
     request.pinned = true;
     return request;
 }
@@ -347,6 +378,146 @@ void AnchorCaptureTest::createsManualExcelAnchorCompatibleWithExcelExecutor()
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Workbooks.Open('E:/books/budget.xlsx')")));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Worksheets.Item('Sheet1')")));
     QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Range('B12:D18')")));
+}
+
+void AnchorCaptureTest::buildsManualVisioShapeAnchor()
+{
+    const VisioCaptureResult result = captureManualVisioAnchor(validVisioShapeCaptureRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.targetApp, QStringLiteral("Microsoft Visio"));
+    QCOMPARE(result.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(result.locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(result.page, QStringLiteral("Page-1"));
+    QCOMPARE(result.shapeUniqueId, QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
+    QCOMPARE(result.source, QStringLiteral("manual"));
+
+    QCOMPARE(result.anchor.type, AnchorType::Manual);
+    QCOMPARE(result.anchor.name, QStringLiteral("Power gate symbol"));
+    QCOMPARE(result.anchor.target, QStringLiteral("Power gate symbol"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Visio"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("visio.shape"));
+
+    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
+    QVERIFY(locatorDocument.isObject());
+    const QJsonObject locator = locatorDocument.object();
+    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("visio.shape"));
+    QCOMPARE(locator.value(QStringLiteral("page")).toString(), QStringLiteral("Page-1"));
+    QCOMPARE(locator.value(QStringLiteral("shape_unique_id")).toString(),
+             QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
+    QCOMPARE(locator.value(QStringLiteral("shapeUniqueID")).toString(),
+             QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
+    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("manual"));
+}
+
+void AnchorCaptureTest::savesManualVisioShapeAnchorInRepository()
+{
+    InMemoryLibraryRepository repository;
+    ManualVisioAnchorCreationService service(repository);
+
+    const ManualVisioAnchorCreationResult result =
+        service.createManualVisioAnchor(validVisioShapeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(!result.resource.id.isEmpty());
+    QCOMPARE(result.resource.kind, ResourceKind::File);
+    QCOMPARE(result.resource.title, QStringLiteral("power.vsdx"));
+    QCOMPARE(result.resource.location, QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(result.anchor.name, QStringLiteral("Power gate symbol"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Visio"));
+    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("gate mark")});
+    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
+    QVERIFY(result.anchor.pinned);
+    QVERIFY(result.anchor.createdAt.isValid());
+    QVERIFY(result.anchor.updatedAt.isValid());
+
+    const std::optional<Resource> stored = repository.findResource(result.resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().id, result.anchor.id);
+    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
+
+    const QList<SearchResult> nameResults =
+        repository.search(SearchQuery{QStringLiteral("Power gate symbol")});
+    QVERIFY(hasAnchorSearchResult(nameResults,
+                                  QStringLiteral("anchor_name"),
+                                  QStringLiteral("Power gate symbol")));
+
+    const QList<SearchResult> aliasResults =
+        repository.search(SearchQuery{QStringLiteral("gate mark")});
+    QVERIFY(hasAnchorSearchResult(aliasResults,
+                                  QStringLiteral("anchor_alias"),
+                                  QStringLiteral("Power gate symbol")));
+
+    const QList<SearchResult> tagResults =
+        repository.search(SearchQuery{QStringLiteral("phase5")});
+    QVERIFY(hasAnchorSearchResult(tagResults,
+                                  QStringLiteral("anchor_tag"),
+                                  QStringLiteral("Power gate symbol")));
+}
+
+void AnchorCaptureTest::rejectsInvalidManualVisioAnchorInputsWithoutSaving()
+{
+    InMemoryLibraryRepository repository;
+    ManualVisioAnchorCreationService service(repository);
+
+    ManualVisioAnchorCreationRequest request = validVisioShapeCreationRequest();
+    request.name = QStringLiteral(" ");
+    ManualVisioAnchorCreationResult result = service.createManualVisioAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Visio anchor name is missing"));
+
+    request = validVisioShapeCreationRequest();
+    request.file.clear();
+    result = service.createManualVisioAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Manual Visio anchor file is missing"));
+
+    request = validVisioShapeCreationRequest();
+    request.page.clear();
+    result = service.createManualVisioAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio capture page is missing"));
+
+    request = validVisioShapeCreationRequest();
+    request.shapeUniqueId.clear();
+    result = service.createManualVisioAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio capture shape UniqueID is missing"));
+
+    request = validVisioShapeCreationRequest();
+    request.locatorType = QStringLiteral("visio.page");
+    result = service.createManualVisioAnchor(request);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("Visio capture locator type is unsupported"));
+
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void AnchorCaptureTest::createsManualVisioAnchorCompatibleWithVisioExecutor()
+{
+    InMemoryLibraryRepository repository;
+    ManualVisioAnchorCreationService service(repository);
+    const ManualVisioAnchorCreationResult result =
+        service.createManualVisioAnchor(validVisioShapeCreationRequest());
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(isVisioAnchor(result.anchor));
+
+    const VisioJumpCommandResult command = buildVisioJumpCommand(result.anchor, QString());
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.documentPath, QStringLiteral("E:/drawings/power.vsdx"));
+    QCOMPARE(command.command.locatorType, QStringLiteral("visio.shape"));
+    QCOMPARE(command.command.pageName, QStringLiteral("Page-1"));
+    QCOMPARE(command.command.shapeUniqueId, QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/drawings/power.vsdx')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Pages.ItemU('Page-1')")));
+    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("ItemFromUniqueID('{00000000-0000-0000-0000-000000000000}')")));
 }
 
 void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()

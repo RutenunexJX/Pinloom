@@ -38,6 +38,16 @@ struct ExcelCaptureRequest {
     QString anchorName;
 };
 
+struct VisioCaptureRequest {
+    QString targetApp = QStringLiteral("Microsoft Visio");
+    QString targetFile;
+    QString locatorType = QStringLiteral("visio.shape");
+    QString page;
+    QString shapeUniqueId;
+    QString source = QStringLiteral("manual");
+    QString anchorName;
+};
+
 struct AnchorCaptureResult {
     Anchor anchor;
     QString targetApp;
@@ -61,6 +71,19 @@ struct ExcelCaptureResult {
     QString sheet;
     QString rangeAddress;
     QString namedRange;
+    QString source;
+    QString error;
+
+    bool success() const;
+};
+
+struct VisioCaptureResult {
+    Anchor anchor;
+    QString targetApp;
+    QString targetFile;
+    QString locatorType;
+    QString page;
+    QString shapeUniqueId;
     QString source;
     QString error;
 
@@ -95,9 +118,25 @@ public:
     ExcelCaptureResult capture(const ExcelCaptureRequest &request) const override;
 };
 
+class VisioCaptureProvider {
+public:
+    virtual ~VisioCaptureProvider() = default;
+
+    virtual QString source() const = 0;
+    virtual VisioCaptureResult capture(const VisioCaptureRequest &request) const = 0;
+};
+
+class ManualVisioAnchorCaptureProvider final : public VisioCaptureProvider {
+public:
+    QString source() const override;
+    VisioCaptureResult capture(const VisioCaptureRequest &request) const override;
+};
+
 QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request);
 AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request);
 QString excelLocatorJson(const ExcelCaptureRequest &request);
 ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request);
+QString visioLocatorJson(const VisioCaptureRequest &request);
+VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request);
 
 } // namespace Pinloom

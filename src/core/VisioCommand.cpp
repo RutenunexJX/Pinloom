@@ -89,7 +89,11 @@ QString shapeUniqueId(const QJsonObject &locator)
     if (!snakeCase.isEmpty()) {
         return snakeCase;
     }
-    return locator.value(QStringLiteral("shapeUniqueId")).toString().trimmed();
+    const QString camelCase = locator.value(QStringLiteral("shapeUniqueId")).toString().trimmed();
+    if (!camelCase.isEmpty()) {
+        return camelCase;
+    }
+    return locator.value(QStringLiteral("shapeUniqueID")).toString().trimmed();
 }
 
 QString powerShellQuoted(QString value)

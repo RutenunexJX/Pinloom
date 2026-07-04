@@ -206,7 +206,13 @@ Status:
   `excel.range` and `excel.name` command builder. `Ctrl+K` can route through an
   injectable manual Excel request provider; native Excel current-selection
   capture and a default Excel dialog remain pending.
-- Visio capture remains pending.
+- Manual Visio anchor capture is now implemented in core: explicit name, file,
+  page, shape UniqueID, aliases, tags, pinned, source, and target app inputs are
+  normalized through a manual Visio capture provider, saved as searchable Visio
+  file anchors, and remain compatible with the Visio executor's `visio.shape`
+  command builder. `Ctrl+K` can route through an injectable manual Visio request
+  provider. This is manual/injectable Visio capture only; native current-shape
+  capture through live Visio COM remains pending.
 - Word capture/bookmark creation remains pending.
 - PowerPoint capture remains pending.
 
