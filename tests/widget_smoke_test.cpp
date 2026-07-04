@@ -4,6 +4,8 @@
 
 #include <QDateTime>
 #include <QDesktopServices>
+#include <QApplication>
+#include <QDialogButtonBox>
 #include <QFile>
 #include <QCheckBox>
 #include <QLabel>
@@ -12,6 +14,7 @@
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 #include <QUrl>
 #include <algorithm>
 #include <optional>
@@ -25,7 +28,9 @@ private slots:
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
+    void panelDefaultsToLauncherSurface();
     void panelDisplaysAnchorAwareResults();
+    void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
     void panelDisplaysBeaconLineResults();
     void panelDisplaysFileLineResults();
@@ -48,6 +53,7 @@ private slots:
     void panelAllowsHostToActivateCurrentOpenTarget();
     void panelAllowsHostToActivateResourceById();
     void panelAllowsHostToHandleOpenTarget();
+    void panelKeyboardShortcutsHaveLauncherResponses();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
     void textPreviewLoadsTargetFile();
@@ -368,6 +374,44 @@ void WidgetSmokeTest::panelExposesHostIndexingControls()
     QCOMPARE(failedStatusNotifications.last(), missingDirectRootResult.error);
 }
 
+void WidgetSmokeTest::panelDefaultsToLauncherSurface()
+{
+    InMemoryLibraryRepository repository;
+
+    LibraryRoot root = makeLibraryRootForPath(QStringLiteral("E:/Pinloom/Pinloom"));
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    Resource resource;
+    resource.id = QStringLiteral("anchor-note");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Anchor Note");
+    resource.location = QStringLiteral("anchor.md");
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *rootControls = panel.findChild<QWidget *>(QStringLiteral("libraryRootControls"));
+    auto *rootList = panel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *manageButton = panel.findChild<QPushButton *>(QStringLiteral("manageLibraryButton"));
+    QVERIFY(rootControls);
+    QVERIFY(rootList);
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+    QVERIFY(manageButton);
+
+    QVERIFY(rootControls->isHidden());
+    QVERIFY(rootList->isHidden());
+    QVERIFY(!searchEdit->isHidden());
+    QVERIFY(!results->isHidden());
+    QVERIFY(searchEdit->placeholderText().contains(QStringLiteral("anchors")));
+    QCOMPARE(rootList->count(), 1);
+
+    manageButton->click();
+    QVERIFY(!rootControls->isHidden());
+    QVERIFY(!rootList->isHidden());
+}
+
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 {
     InMemoryLibraryRepository repository;
@@ -388,11 +432,61 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 
     searchEdit->setText(QStringLiteral("Power"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Heading] Power sequencing - line 3")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Power sequencing")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("text.heading")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":3")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("fts")));
     QVERIFY(results->item(0)->toolTip().contains(resource.location));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Heading")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
+}
+
+void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf-clock");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Clock Spec");
+    resource.location = QStringLiteral("E:/docs/clock.pdf");
+    Anchor anchor;
+    anchor.type = AnchorType::PdfRegion;
+    anchor.name = QStringLiteral("PLL jitter budget");
+    anchor.target = QStringLiteral("legacy pll target");
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    anchor.aliases = {QStringLiteral("pll budget")};
+    anchor.tags = {QStringLiteral("clock"), QStringLiteral("review")};
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("PLL jitter"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("PLL jitter budget")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("PDF-XChange")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdfxchange.rect")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("#clock")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: pll budget")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Locator: pdfxchange.rect")));
+
+    const PinloomOpenTarget target = panel.currentOpenTarget();
+    QVERIFY(target.anchor.has_value());
+    QCOMPARE(target.anchor->name, anchor.name);
+    QCOMPARE(target.anchor->targetApp, anchor.targetApp);
+    QCOMPARE(target.anchor->targetFile, anchor.targetFile);
+    QCOMPARE(target.anchor->locatorType, anchor.locatorType);
+    QCOMPARE(target.anchor->locatorJson, anchor.locatorJson);
+    QCOMPARE(target.anchor->aliases, anchor.aliases);
+    QCOMPARE(target.anchor->tags, anchor.tags);
 }
 
 void WidgetSmokeTest::panelDisplaysMarkerAnchors()
@@ -415,7 +509,9 @@ void WidgetSmokeTest::panelDisplaysMarkerAnchors()
 
     searchEdit->setText(QStringLiteral("handoff_marker"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Marker] marker: handoff_marker - line 9")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("marker: handoff_marker")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("marker")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":9")));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Marker")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 9);
 }
@@ -440,7 +536,9 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
 
     searchEdit->setText(QStringLiteral("jump target"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] marker: jump target - line 12")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("marker: jump target")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("file.line")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":12")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 12);
 }
 
@@ -464,7 +562,9 @@ void WidgetSmokeTest::panelDisplaysFileLineResults()
 
     searchEdit->setText(QStringLiteral("ZeroSlack dock"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Line] TODO: wire ZeroSlack dock - line 27")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("TODO: wire ZeroSlack dock")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("file.line")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":27")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 27);
     QCOMPARE(static_cast<AnchorType>(results->item(0)->data(Qt::UserRole + 5).toInt()), AnchorType::FileLine);
 }
@@ -493,7 +593,9 @@ void WidgetSmokeTest::panelDisplaysPdfPageResults()
 
     searchEdit->setText(QStringLiteral("Page 2"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Page] Page 2 - page 2")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Page 2")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdf.page")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"page\":2")));
     QVERIFY(!results->item(0)->text().contains(QStringLiteral("line -1")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 6).toInt(), 2);
 }
@@ -532,7 +634,9 @@ void WidgetSmokeTest::panelPreservesPdfRegionOpenTarget()
 
     panel.setSearchText(QStringLiteral("Clock"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[PDF Region] Clock domain note - page 4")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Clock domain note")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdf.region")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"page\":4")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 6).toInt(), 4);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 7).toDouble(), 10.0);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 8).toDouble(), 20.0);
@@ -752,13 +856,17 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
 
     panel.setSearchText(QStringLiteral("Power rail"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] Power rail check - line 7")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Power rail check")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("manual")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":7")));
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), resource.id);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 7);
 
     panel.setSearchText(QStringLiteral("Host rail"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] Host rail check - line 11")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Host rail check")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("manual")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":11")));
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hostResource.id);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 11);
 }
@@ -1218,8 +1326,8 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QVERIFY(panel.openTargetForResourceId(QStringLiteral("missing")).resourceId.isEmpty());
     QVERIFY(panel.openTargetForResourceId(QString()).resourceId.isEmpty());
 
-    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
-    QCOMPARE(panel.currentOpenTarget().resultRow, -1);
+    QCOMPARE(panel.currentOpenTarget().resourceId, resource.id);
+    QCOMPARE(panel.currentOpenTarget().resultRow, 0);
     QCOMPARE(panel.resultAt(0).resourceId, resource.id);
     QCOMPARE(panel.resultAt(0).resultRow, 0);
     QVERIFY(panel.resultAt(-1).resourceId.isEmpty());
@@ -1492,7 +1600,7 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
     QVERIFY(usage.has_value());
     QCOMPARE(usage->openCount, 1);
 
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, resource.anchors.first());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, capturedTarget.anchor.value());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
 }
@@ -1599,10 +1707,98 @@ void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
     QCOMPARE(usage->openCount, 1);
     QVERIFY(usage->lastOpenedAt.isValid());
 
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, resource.anchors.first());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, capturedTarget.anchor.value());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
     QVERIFY(anchorUsage->lastOpenedAt.isValid());
+}
+
+void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Launcher Note");
+    resource.location = QStringLiteral("launcher.md");
+    Anchor anchor;
+    anchor.type = AnchorType::TextHeading;
+    anchor.target = QStringLiteral("Keyboard command");
+    anchor.line = 6;
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    int activationCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        ++activationCount;
+        return target.resourceId == resource.id && target.anchor.has_value();
+    };
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    searchEdit->setText(QStringLiteral("Keyboard command"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().resourceId, resource.id);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(activationCount, 1);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("not implemented yet")));
+
+    QTest::keyClick(searchEdit, Qt::Key_A, Qt::AltModifier);
+    std::optional<Resource> withAlias = repository.findResource(resource.id);
+    QVERIFY(withAlias.has_value());
+    QVERIFY(withAlias->anchors.first().aliases.contains(QStringLiteral("Keyboard command")));
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Added anchor alias")));
+
+    QTest::keyClick(searchEdit, Qt::Key_T, Qt::AltModifier);
+    std::optional<Resource> withTag = repository.findResource(resource.id);
+    QVERIFY(withTag.has_value());
+    QVERIFY(withTag->anchors.first().tags.contains(QStringLiteral("Keyboard command")));
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Added tag")));
+
+    bool editDialogHandled = false;
+    QTimer::singleShot(0, [&]() {
+        QWidget *dialog = QApplication::activeModalWidget();
+        if (!dialog) {
+            return;
+        }
+        auto *nameEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorNameEdit"));
+        auto *aliasesEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorAliasesEdit"));
+        auto *tagsEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorTagsEdit"));
+        auto *buttons = dialog->findChild<QDialogButtonBox *>(QStringLiteral("anchorEditButtons"));
+        if (!nameEdit || !aliasesEdit || !tagsEdit || !buttons) {
+            return;
+        }
+        nameEdit->setText(QStringLiteral("Edited keyboard command"));
+        aliasesEdit->setText(QStringLiteral("edited alias"));
+        tagsEdit->setText(QStringLiteral("edited-tag"));
+        editDialogHandled = true;
+        buttons->button(QDialogButtonBox::Ok)->click();
+    });
+    QTest::keyClick(searchEdit, Qt::Key_E, Qt::ControlModifier);
+    QVERIFY(editDialogHandled);
+    std::optional<Resource> edited = repository.findResource(resource.id);
+    QVERIFY(edited.has_value());
+    QCOMPARE(edited->anchors.first().name, QStringLiteral("Edited keyboard command"));
+    QCOMPARE(edited->anchors.first().aliases, QStringList{QStringLiteral("edited alias")});
+    QCOMPARE(edited->anchors.first().tags, QStringList{QStringLiteral("edited-tag")});
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Updated anchor")));
+
+    panel.setSearchText(QStringLiteral("Edited keyboard command"));
+    QTest::keyClick(searchEdit, Qt::Key_Delete);
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Anchor deletion is not implemented yet")));
 }
 
 void WidgetSmokeTest::panelAllowsHostToHandleUrlTarget()
@@ -1683,7 +1879,8 @@ void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
 
     panel.setSearchText(QStringLiteral("install"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Fragment] install")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("install")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("url.fragment")));
 
     CapturingUrlHandler handler;
     QDesktopServices::setUrlHandler(QStringLiteral("https"), &handler, "openUrl");
@@ -1699,7 +1896,9 @@ void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
     QVERIFY(usage.has_value());
     QCOMPARE(usage->openCount, 1);
 
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, fragment);
+    const std::optional<Resource> openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource.has_value());
+    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
 }

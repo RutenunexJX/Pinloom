@@ -12,6 +12,7 @@
 
 class QLabel;
 class QCheckBox;
+class QEvent;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
@@ -70,7 +71,7 @@ struct PinloomPanelOptions {
     std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
-    bool showLibraryRootControls = true;
+    bool showLibraryRootControls = false;
     bool showManualEditControls = true;
     bool showPinControls = true;
 };
@@ -147,8 +148,13 @@ public:
     bool addLibraryRootPath(const QString &path);
     bool removeSelectedLibraryRoot();
     bool removeLibraryRootById(const QString &id);
+    bool captureCurrentAppPosition();
+    bool addAliasToSelectedTarget(const QString &alias);
     bool addAliasToSelectedResource(const QString &alias);
     bool addAliasToResource(const QString &resourceId, const QString &alias);
+    bool addTagToSelectedTarget(const QString &tag);
+    bool editSelectedAnchor(const QString &name, const QStringList &aliases, const QStringList &tags);
+    bool requestDeleteSelectedAnchor();
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
@@ -157,6 +163,9 @@ public:
     bool setLibraryRootPinnedById(const QString &id, bool pinned);
     bool setSelectedLibraryRootEnabled(bool enabled);
     bool setLibraryRootEnabledById(const QString &id, bool enabled);
+
+protected:
+    bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
     void addLibraryRoot();
@@ -167,7 +176,12 @@ private slots:
     void openSelectedResource();
     void openResultItem(QListWidgetItem *item);
     void toggleSelectedLibraryRootPin();
+    void triggerCaptureCurrentAppPosition();
+    void addSearchTextAsAlias();
+    void addSearchTextAsTag();
     void promptAddAlias();
+    void promptEditAnchor();
+    void promptDeleteSelectedAnchor();
     void promptAddManualAnchor();
     void toggleSelectedResourcePin();
     void refreshRelationSummary();

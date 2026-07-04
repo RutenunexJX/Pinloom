@@ -84,7 +84,19 @@ Scope:
   - Delete: delete anchor.
 - Keep folder/index controls out of the default v1 surface.
 
-Status: pending.
+Status:
+
+- Default `PinloomPanel` surface now opens as a launcher-style command palette:
+  search box first, compact result list second, and library/root management
+  hidden behind an explicit Manage toggle.
+- Anchor result rows prioritize anchor display name, target app/file/uri,
+  locator summary, tags, and aliases while preserving resource-result
+  compatibility.
+- Enter activation, Ctrl+K capture placeholder, Alt+A alias, Alt+T tag,
+  Ctrl+E lightweight anchor edit, and Delete deletion placeholder are covered
+  by widget tests.
+- Build and full `ctest --test-dir build --output-on-failure` validation
+  passed for the phase implementation.
 
 ## Phase 3: PDF-XChange Jump Executor
 

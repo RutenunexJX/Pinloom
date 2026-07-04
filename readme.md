@@ -99,6 +99,10 @@ The current codebase already has useful foundations:
   recent use, and contextual signals.
 - A reusable Qt panel that can be embedded and can expose selected targets to a
   host.
+- The default Qt panel now behaves as a lightweight anchor launcher surface:
+  search-first, compact result list, anchor locator summaries, keyboard
+  activation, alias/tag editing, capture placeholder, edit entry, and delete
+  placeholder.
 
 The mismatch is intentional technical debt for the reset:
 
@@ -106,7 +110,8 @@ The mismatch is intentional technical debt for the reset:
 - `Anchor` now carries the v1 locator fields, but it is still exposed through
   the resource-attached compatibility API while the UI converges.
 - Search still indexes resource content and broad source metadata.
-- The Qt panel still exposes folder management and resource-library controls.
+- Folder management and resource-library controls still exist for
+  compatibility, but they are no longer the default first surface.
 - PDF opening currently uses generic URL fragments rather than a dedicated
   PDF-XChange command executor.
 
