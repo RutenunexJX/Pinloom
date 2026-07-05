@@ -2268,7 +2268,7 @@ void PinloomPanel::refreshResults()
     }
 
     bool restoredSelection = false;
-    if (!previousTarget.clipId.isEmpty()) {
+    if (!commandMode && !previousTarget.clipId.isEmpty()) {
         for (int row = 0; row < resultList_->count(); ++row) {
             QListWidgetItem *item = resultList_->item(row);
             if (item->data(TargetKindRole).toString() == QLatin1String(TargetKindClip)
@@ -2278,7 +2278,7 @@ void PinloomPanel::refreshResults()
                 break;
             }
         }
-    } else if (!previousTarget.resourceId.isEmpty()) {
+    } else if (!commandMode && !previousTarget.resourceId.isEmpty()) {
         for (int row = 0; row < resultList_->count(); ++row) {
             QListWidgetItem *item = resultList_->item(row);
             if (item->data(Qt::UserRole).toString() != previousTarget.resourceId) {
@@ -2303,7 +2303,9 @@ void PinloomPanel::refreshResults()
         updateStatus(tr("Clip commands"));
         break;
     case LauncherCommandKind::ClipSearch:
-        updateStatus(tr("Clip search: %n clip(s)", nullptr, resultList_->count()));
+        updateStatus(resultList_->count() > 0
+                         ? tr("Clip search: %n clip(s)", nullptr, resultList_->count())
+                         : tr("No clips to insert"));
         break;
     case LauncherCommandKind::ClipNew:
         updateStatus(tr("Clip save: %n history item(s)", nullptr, resultList_->count()));
@@ -2359,6 +2361,17 @@ bool PinloomPanel::activateCurrentOpenTarget()
     if (!item && resultList_->count() > 0) {
         resultList_->setCurrentRow(0);
         item = resultList_->currentItem();
+    }
+    if (!item) {
+        const LauncherCommand command = parseLauncherCommand(searchEdit_ ? searchEdit_->text() : QString());
+        if (command.kind == LauncherCommandKind::ClipSearch) {
+            updateStatus(tr("No clips to insert"));
+        } else if (command.kind == LauncherCommandKind::ClipNew) {
+            updateStatus(tr("No clip selected"));
+        } else {
+            updateStatus(tr("No resource selected"));
+        }
+        return false;
     }
     return activateResultItem(item);
 }
@@ -2417,8 +2430,7 @@ bool PinloomPanel::activateCommandItem(const QString &commandId)
             return true;
         }
 
-        updateStatus(tr("Capture anchor current app context pending; existing Ctrl+K fallback will migrate to k n"));
-        return false;
+        return captureCurrentAppPosition();
     }
 
     updateStatus(tr("Unknown command"));

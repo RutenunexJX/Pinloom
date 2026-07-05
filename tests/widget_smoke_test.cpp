@@ -2673,7 +2673,19 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QVERIFY(panel.resultAt(0).resourceId.isEmpty());
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body -> Insert")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved -> Insert")));
+    QCOMPARE(results->currentRow(), 0);
     QCOMPARE(panel.statusText(), QStringLiteral("Clip search: 2 clip(s)"));
+
+    panel.show();
+    QVERIFY(panel.isVisible());
+    searchEdit->setFocus(Qt::OtherFocusReason);
+    QApplication::processEvents();
+    QCOMPARE(QApplication::focusWidget(), searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(insertedClipIds, QStringList{temporary.clip->id});
+    QVERIFY(openedTargets.isEmpty());
+    QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
     QTest::keyClick(searchEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
@@ -2683,7 +2695,7 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QCOMPARE(results->currentRow(), 1);
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
-    QCOMPARE(insertedClipIds, QStringList{savedId});
+    QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId}));
     QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
@@ -2702,9 +2714,16 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
 
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
-    QCOMPARE(insertedClipIds, (QStringList{savedId, savedId}));
+    QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
     QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
+
+    panel.setSearchText(QStringLiteral("c s zzzz-no-such-clip"));
+    QCOMPARE(results->count(), 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("No clips to insert"));
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
+    QCOMPARE(panel.statusText(), QStringLiteral("No clips to insert"));
 }
 
 void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
@@ -2803,7 +2822,27 @@ void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
 void WidgetSmokeTest::panelAnchorCaptureCommandShowsPendingEntry()
 {
     InMemoryLibraryRepository repository;
-    PinloomPanel panel(repository);
+    int requestCount = 0;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.manualPdfAnchorRequestProvider = [&]() -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++requestCount;
+        ManualPdfAnchorCreationRequest request;
+        request.name = QStringLiteral("Command capture anchor");
+        request.file = QStringLiteral("E:/docs/command-capture.pdf");
+        request.page = 5;
+        request.rect = {20.0, 30.0, 220.0, 180.0};
+        request.zoom = 125.0;
+        request.aliases = {QStringLiteral("command capture alias")};
+        request.tags = {QStringLiteral("#command-capture")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
@@ -2822,8 +2861,19 @@ void WidgetSmokeTest::panelAnchorCaptureCommandShowsPendingEntry()
     QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
 
     QTest::keyClick(searchEdit, Qt::Key_Return);
-    QVERIFY(panel.statusText().contains(QStringLiteral("current app context pending")));
-    QVERIFY(panel.statusText().contains(QStringLiteral("migrate to k n")));
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(panel.searchText(), QStringLiteral("Command capture anchor"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured PDF anchor \"Command capture anchor\""));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> capturedResults = repository.search(SearchQuery{QStringLiteral("command capture alias")});
+    QCOMPARE(capturedResults.size(), 1);
+    QVERIFY(capturedResults.first().matchedAnchor.has_value());
+    QCOMPARE(capturedResults.first().matchedAnchor->name, QStringLiteral("Command capture anchor"));
+    QCOMPARE(capturedResults.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/command-capture.pdf"));
+    QCOMPARE(capturedResults.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(capturedResults.first().matchedAnchor->tags, QStringList{QStringLiteral("command-capture")});
+    QVERIFY(capturedResults.first().matchedAnchor->pinned);
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
@@ -4313,6 +4363,15 @@ void WidgetSmokeTest::panelReportsNoPdfContextForPdfCapture()
     QVERIFY(searchEdit);
 
     QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(panel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+
+    panel.setSearchText(QStringLiteral("k n"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QCOMPARE(panel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
