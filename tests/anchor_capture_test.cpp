@@ -53,6 +53,7 @@ private slots:
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
     void rejectsInvalidManualPdfRectAnchorInputsWithoutSaving();
     void reportsManualPdfRectAnchorRepositorySaveFailure();
+    void summarizesManualPdfCaptureLocatorForUsers();
     void capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf();
     void matchesForegroundPdfXChangeTitleToUniqueIndexedPdf();
     void parsesPdfXChangeViewStateFromStatusText();
@@ -1034,6 +1035,20 @@ void AnchorCaptureTest::reportsManualPdfRectAnchorRepositorySaveFailure()
     QCOMPARE(result.error, QStringLiteral("Unable to save manual PDF anchor"));
     QCOMPARE(repository.upsertCount, 1);
     QCOMPARE(repository.lastResource.location, QStringLiteral("E:/docs/clock.pdf"));
+}
+
+void AnchorCaptureTest::summarizesManualPdfCaptureLocatorForUsers()
+{
+    ManualPdfAnchorCreationRequest request = validCreationRequest();
+    request.source = QStringLiteral("foreground-pdfxchange-viewstate");
+    request.zoom = 175.5;
+
+    const QString summary = manualPdfAnchorLocatorSummary(request);
+    QVERIFY(summary.contains(QStringLiteral("PDF file E:/docs/clock.pdf")));
+    QVERIFY(summary.contains(QStringLiteral("page 12")));
+    QVERIFY(summary.contains(QStringLiteral("rect 420,860,780,920 pt")));
+    QVERIFY(summary.contains(QStringLiteral("zoom 175.5%")));
+    QVERIFY(summary.contains(QStringLiteral("source foreground-pdfxchange-viewstate")));
 }
 
 void AnchorCaptureTest::capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf()

@@ -67,6 +67,9 @@ PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &da
         settingsInt(settings, QStringLiteral("clip/temporaryTtlSeconds"), loaded.clipTemporaryTtlSeconds);
     loaded.clipExcludeSensitiveText =
         settings.value(QStringLiteral("clip/excludeSensitiveText"), loaded.clipExcludeSensitiveText).toBool();
+    loaded.clipRestoreOriginalClipboardOnInsert =
+        settings.value(QStringLiteral("clip/restoreOriginalClipboardOnInsert"),
+                       loaded.clipRestoreOriginalClipboardOnInsert).toBool();
     loaded.clipExcludedSourceApps =
         cleanedValues(settings.value(QStringLiteral("clip/excludedSourceApps")).toStringList());
     loaded.clipSensitiveTextMarkers =
@@ -82,6 +85,8 @@ void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSe
     settings.setValue(QStringLiteral("clip/maxTextBytes"), appSettings.clipMaxTextBytes);
     settings.setValue(QStringLiteral("clip/temporaryTtlSeconds"), appSettings.clipTemporaryTtlSeconds);
     settings.setValue(QStringLiteral("clip/excludeSensitiveText"), appSettings.clipExcludeSensitiveText);
+    settings.setValue(QStringLiteral("clip/restoreOriginalClipboardOnInsert"),
+                      appSettings.clipRestoreOriginalClipboardOnInsert);
     settings.setValue(QStringLiteral("clip/excludedSourceApps"),
                       cleanedValues(appSettings.clipExcludedSourceApps));
     settings.setValue(QStringLiteral("clip/sensitiveTextMarkers"),
@@ -128,6 +133,10 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     clipExcludeSensitiveTextCheck_->setObjectName(QStringLiteral("clipExcludeSensitiveTextCheck"));
     clipExcludeSensitiveTextCheck_->setChecked(settings.clipExcludeSensitiveText);
 
+    clipRestoreOriginalClipboardCheck_ = new QCheckBox(tr("Restore original clipboard after inserting a Saved Clip"), this);
+    clipRestoreOriginalClipboardCheck_->setObjectName(QStringLiteral("clipRestoreOriginalClipboardCheck"));
+    clipRestoreOriginalClipboardCheck_->setChecked(settings.clipRestoreOriginalClipboardOnInsert);
+
     clipExcludedSourceAppsEdit_ = new QLineEdit(commaSeparatedText(settings.clipExcludedSourceApps), this);
     clipExcludedSourceAppsEdit_->setObjectName(QStringLiteral("clipExcludedSourceAppsEdit"));
 
@@ -143,6 +152,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
     form->addRow(tr("Clip history TTL (seconds)"), clipTemporaryTtlSecondsSpin_);
     form->addRow(QString(), clipExcludeSensitiveTextCheck_);
+    form->addRow(QString(), clipRestoreOriginalClipboardCheck_);
     form->addRow(tr("Clip app blacklist"), clipExcludedSourceAppsEdit_);
     form->addRow(tr("Sensitive markers"), clipSensitiveTextMarkersEdit_);
     form->addWidget(buttons);
@@ -168,6 +178,7 @@ PinloomAppSettings PinloomSettingsDialog::settings() const
     settings.clipMaxTextBytes = clipMaxTextBytesSpin_->value();
     settings.clipTemporaryTtlSeconds = clipTemporaryTtlSecondsSpin_->value();
     settings.clipExcludeSensitiveText = clipExcludeSensitiveTextCheck_->isChecked();
+    settings.clipRestoreOriginalClipboardOnInsert = clipRestoreOriginalClipboardCheck_->isChecked();
     settings.clipExcludedSourceApps = commaSeparatedValues(clipExcludedSourceAppsEdit_->text());
     settings.clipSensitiveTextMarkers = commaSeparatedValues(clipSensitiveTextMarkersEdit_->text());
     return settings;

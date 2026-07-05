@@ -642,7 +642,7 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
 {
     PdfXChangeForegroundCaptureResult result;
     if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
-        result.status = QStringLiteral("Open or focus a PDF-XChange PDF before k n");
+        result.status = QStringLiteral("PDF-XChange was not detected in the foreground; open or focus a PDF-XChange PDF before k n");
         return result;
     }
 

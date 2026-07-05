@@ -40,6 +40,18 @@ QStringList cleanedValues(const QStringList &values, bool tags = false)
     return cleaned;
 }
 
+QString decimalText(double value)
+{
+    QString text = QString::number(value, 'f', 2);
+    while (text.contains(QLatin1Char('.')) && text.endsWith(QLatin1Char('0'))) {
+        text.chop(1);
+    }
+    if (text.endsWith(QLatin1Char('.'))) {
+        text.chop(1);
+    }
+    return text;
+}
+
 QString manualPdfAnchorResourceId()
 {
     return QStringLiteral("manual-pdf-anchor:%1")
@@ -74,6 +86,37 @@ PdfXChangeCaptureRequest captureRequestFromManualRequest(
 bool ManualPdfAnchorCreationResult::success() const
 {
     return error.isEmpty();
+}
+
+QString manualPdfAnchorLocatorSummary(const ManualPdfAnchorCreationRequest &request)
+{
+    QStringList parts;
+    const QString file = request.file.trimmed();
+    parts.append(file.isEmpty()
+                     ? QStringLiteral("PDF file unknown")
+                     : QStringLiteral("PDF file %1").arg(file));
+    parts.append(request.page > 0
+                     ? QStringLiteral("page %1").arg(request.page)
+                     : QStringLiteral("page unknown"));
+    if (request.rect.isValid()) {
+        parts.append(QStringLiteral("rect %1,%2,%3,%4 %5")
+                         .arg(decimalText(request.rect.left),
+                              decimalText(request.rect.top),
+                              decimalText(request.rect.right),
+                              decimalText(request.rect.bottom),
+                              request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed()));
+    } else {
+        parts.append(QStringLiteral("rect unknown"));
+    }
+    parts.append(request.zoom > 0.0
+                     ? QStringLiteral("zoom %1%").arg(decimalText(request.zoom))
+                     : QStringLiteral("zoom unknown"));
+
+    const QString source = request.source.trimmed();
+    if (!source.isEmpty()) {
+        parts.append(QStringLiteral("source %1").arg(source));
+    }
+    return parts.join(QStringLiteral(" | "));
 }
 
 ManualPdfAnchorCreationService::ManualPdfAnchorCreationService(ILibraryRepository &repository)

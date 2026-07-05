@@ -110,6 +110,8 @@ private slots:
     void commandPanelRightArrowShowsActionsForUnifiedResultTypes();
     void commandPanelActionListExecutesSelectedProviderAction();
     void commandPanelActionListExecutesRemoveWithInjectedConfirmation();
+    void commandPanelRestoreCommandUsesDeletedEntrySearchHandler();
+    void commandPanelStructuredEntryActionResultReportsDiagnostics();
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void pinloomEntriesSortMixedResultsByMatchBucketAndSignals();
@@ -122,6 +124,7 @@ private slots:
     void commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAndOpensInboxFileEntries();
+    void panelSearchEntriesCanIncludeDeletedEntriesForRestore();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
     void panelDisplaysBeaconLineResults();
@@ -2386,6 +2389,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     saved.clipMaxTextBytes = 4096;
     saved.clipTemporaryTtlSeconds = 3600;
     saved.clipExcludeSensitiveText = false;
+    saved.clipRestoreOriginalClipboardOnInsert = false;
     saved.clipExcludedSourceApps = {QStringLiteral("secret.exe"), QStringLiteral("password-manager.exe")};
     saved.clipSensitiveTextMarkers = {QStringLiteral("INTERNAL-ONLY")};
 
@@ -2403,6 +2407,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(loaded.clipMaxTextBytes, 4096);
     QCOMPARE(loaded.clipTemporaryTtlSeconds, 3600);
     QVERIFY(!loaded.clipExcludeSensitiveText);
+    QVERIFY(!loaded.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(loaded.clipExcludedSourceApps, saved.clipExcludedSourceApps);
     QCOMPARE(loaded.clipSensitiveTextMarkers, saved.clipSensitiveTextMarkers);
 
@@ -2420,6 +2425,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
     auto *ttlSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipTemporaryTtlSecondsSpin"));
     auto *sensitiveCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipExcludeSensitiveTextCheck"));
+    auto *restoreClipboardCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
     auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
     QVERIFY(pdfPathEdit);
@@ -2428,6 +2434,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(sizeSpin);
     QVERIFY(ttlSpin);
     QVERIFY(sensitiveCheck);
+    QVERIFY(restoreClipboardCheck);
     QVERIFY(blacklistEdit);
     QVERIFY(markersEdit);
 
@@ -2436,6 +2443,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     sizeSpin->setValue(2048);
     ttlSpin->setValue(120);
     sensitiveCheck->setChecked(true);
+    restoreClipboardCheck->setChecked(true);
     blacklistEdit->setText(QStringLiteral(" secret.exe, secret.exe, cad.exe "));
     markersEdit->setText(QStringLiteral("TOKEN=, PRIVATE "));
 
@@ -2446,6 +2454,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(edited.clipMaxTextBytes, 2048);
     QCOMPARE(edited.clipTemporaryTtlSeconds, 120);
     QVERIFY(edited.clipExcludeSensitiveText);
+    QVERIFY(edited.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(edited.clipExcludedSourceApps, (QStringList{QStringLiteral("secret.exe"), QStringLiteral("cad.exe")}));
     QCOMPARE(edited.clipSensitiveTextMarkers, (QStringList{QStringLiteral("TOKEN="), QStringLiteral("PRIVATE")}));
 }
@@ -3664,6 +3673,105 @@ void WidgetSmokeTest::commandPanelActionListExecutesRemoveWithInjectedConfirmati
     QCOMPARE(panel.statusText(), QStringLiteral("Removed by fake handler"));
 }
 
+void WidgetSmokeTest::commandPanelRestoreCommandUsesDeletedEntrySearchHandler()
+{
+    PinloomEntry deletedClip;
+    deletedClip.id = QStringLiteral("clip:deleted");
+    deletedClip.type = PinloomEntryType::SavedClip;
+    deletedClip.name = QStringLiteral("Deleted Clip");
+    deletedClip.clipId = QStringLiteral("deleted-clip");
+    deletedClip.location = QStringLiteral("deleted body");
+    deletedClip.deleted = true;
+    deletedClip.matchedField = QStringLiteral("name");
+
+    QString capturedQuery;
+    QStringList actionIds;
+    PinloomCommandPanelOptions options;
+    options.deletedEntrySearchHandler = [&](const QString &query) {
+        capturedQuery = query;
+        return QList<PinloomEntry>{deletedClip};
+    };
+    options.unifiedEntryActionProvider = [](const PinloomEntry &entry) {
+        return defaultActionsForPinloomEntry(entry);
+    };
+    options.unifiedEntryCommandHandler =
+        [&](QWidget *, const PinloomEntry &entry, const PinloomCommandResultAction &action) {
+        actionIds.append(action.id);
+        PinloomCommandActionResult result;
+        result.success = action.id == QLatin1String("restore") && entry.deleted;
+        result.message = result.success
+            ? QStringLiteral("Restored %1").arg(entry.name)
+            : QStringLiteral("Unexpected action");
+        return result;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("restore Deleted"));
+    QCOMPARE(capturedQuery, QStringLiteral("Deleted"));
+    QCOMPARE(panel.resultCount(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Deleted Clip]")));
+
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QCOMPARE(panel.statusText(), QStringLiteral("Entry is deleted; press Right Arrow and choose Restore"));
+
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QCOMPARE(panel.resultCount(), 7);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Insert (disabled)")));
+    QVERIFY(results->item(5)->text().contains(QStringLiteral("Restore")));
+    QVERIFY(panel.selectResultAt(5));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(actionIds, QStringList{QStringLiteral("restore")});
+    QCOMPARE(panel.statusText(), QStringLiteral("Restored Deleted Clip"));
+}
+
+void WidgetSmokeTest::commandPanelStructuredEntryActionResultReportsDiagnostics()
+{
+    PinloomEntry file;
+    file.id = QStringLiteral("resource:file");
+    file.type = PinloomEntryType::FileResource;
+    file.name = QStringLiteral("Diagnostic File");
+    file.resourceId = QStringLiteral("file-resource");
+    file.resourceKind = ResourceKind::File;
+    file.location = QStringLiteral("E:/docs/diagnostic.txt");
+    file.matchedField = QStringLiteral("title");
+
+    PinloomCommandPanelOptions options;
+    options.unifiedEntrySearchHandler = [&](const QString &) {
+        return QList<PinloomEntry>{file};
+    };
+    options.unifiedEntryActionProvider = [](const PinloomEntry &entry) {
+        return defaultActionsForPinloomEntry(entry);
+    };
+    options.unifiedEntryCommandHandler =
+        [](QWidget *, const PinloomEntry &, const PinloomCommandResultAction &) {
+        PinloomCommandActionResult result;
+        result.success = false;
+        result.message = QStringLiteral("Rename failed");
+        result.diagnostics = QStringLiteral("repository write lock");
+        result.nextUiHint = QStringLiteral("keep-actions-open");
+        return result;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+
+    panel.setCommandText(QStringLiteral("diagnostic"));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QVERIFY(panel.selectResultAt(1));
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QVERIFY(panel.statusText().contains(QStringLiteral("Rename failed")));
+    QVERIFY(panel.statusText().contains(QStringLiteral("Diagnostics: repository write lock")));
+    QVERIFY(panel.statusText().contains(QStringLiteral("Next: keep-actions-open")));
+}
+
 void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
 {
     const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
@@ -4289,6 +4397,79 @@ void WidgetSmokeTest::panelDisplaysAndOpensInboxFileEntries()
     }
 
     QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+}
+
+void WidgetSmokeTest::panelSearchEntriesCanIncludeDeletedEntriesForRestore()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource deletedResource;
+    deletedResource.id = QStringLiteral("deleted-resource");
+    deletedResource.kind = ResourceKind::File;
+    deletedResource.title = QStringLiteral("Deleted Resource");
+    deletedResource.location = QStringLiteral("E:/docs/deleted-resource.txt");
+    deletedResource.deleted = true;
+    QVERIFY(repository.upsertResource(deletedResource));
+
+    Resource anchorResource;
+    anchorResource.id = QStringLiteral("anchor-resource");
+    anchorResource.kind = ResourceKind::Pdf;
+    anchorResource.title = QStringLiteral("Anchor Container");
+    anchorResource.location = QStringLiteral("E:/docs/anchor.pdf");
+    Anchor deletedAnchor;
+    deletedAnchor.id = QStringLiteral("anchor-resource#deleted");
+    deletedAnchor.type = AnchorType::PdfRegion;
+    deletedAnchor.name = QStringLiteral("Deleted Anchor");
+    deletedAnchor.targetFile = anchorResource.location;
+    deletedAnchor.locatorType = QStringLiteral("pdfxchange.rect");
+    deletedAnchor.locatorJson = QStringLiteral("{\"page\":3}");
+    deletedAnchor.deleted = true;
+    anchorResource.anchors = {deletedAnchor};
+    QVERIFY(repository.upsertResource(anchorResource));
+
+    InMemoryClipRepository clipRepository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(clipRepository,
+                                          QStringLiteral("deleted clip text"),
+                                          QStringLiteral("Deleted Clip"),
+                                          {QStringLiteral("deleted clip alias")},
+                                          {},
+                                          false,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+    QVERIFY(clipRepository.softDeleteSavedClip(clipId, base.addSecs(2)));
+    ClipSearchService clipSearch(clipRepository);
+
+    PinloomPanelOptions options;
+    options.clipSearchHandler = [&clipSearch](const QString &query, const ClipSearchOptions &searchOptions) {
+        return clipSearch.search(query, searchOptions);
+    };
+    PinloomPanel panel(repository, options);
+
+    const QList<PinloomEntry> ordinaryEntries = panel.searchEntries(QStringLiteral("Deleted"), false);
+    QVERIFY(std::none_of(ordinaryEntries.cbegin(), ordinaryEntries.cend(), [](const PinloomEntry &entry) {
+        return entry.deleted;
+    }));
+
+    const QList<PinloomEntry> deletedEntries = panel.searchEntries(QStringLiteral("Deleted"), true);
+    QVERIFY(std::any_of(deletedEntries.cbegin(), deletedEntries.cend(), [](const PinloomEntry &entry) {
+        return entry.type == PinloomEntryType::FileResource
+            && entry.name == QStringLiteral("Deleted Resource")
+            && entry.deleted;
+    }));
+    QVERIFY(std::any_of(deletedEntries.cbegin(), deletedEntries.cend(), [](const PinloomEntry &entry) {
+        return entry.type == PinloomEntryType::Anchor
+            && entry.name == QStringLiteral("Deleted Anchor")
+            && entry.deleted
+            && entry.anchor.has_value()
+            && entry.anchor->deleted;
+    }));
+    QVERIFY(std::any_of(deletedEntries.cbegin(), deletedEntries.cend(), [clipId](const PinloomEntry &entry) {
+        return entry.type == PinloomEntryType::SavedClip
+            && entry.clipId == clipId
+            && entry.deleted;
+    }));
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()

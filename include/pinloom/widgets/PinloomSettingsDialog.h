@@ -20,6 +20,7 @@ struct PinloomAppSettings {
     int clipMaxTextBytes = 256 * 1024;
     int clipTemporaryTtlSeconds = 24 * 60 * 60;
     bool clipExcludeSensitiveText = true;
+    bool clipRestoreOriginalClipboardOnInsert = true;
     QStringList clipExcludedSourceApps;
     QStringList clipSensitiveTextMarkers;
 
@@ -48,6 +49,7 @@ private:
     QSpinBox *clipMaxTextBytesSpin_ = nullptr;
     QSpinBox *clipTemporaryTtlSecondsSpin_ = nullptr;
     QCheckBox *clipExcludeSensitiveTextCheck_ = nullptr;
+    QCheckBox *clipRestoreOriginalClipboardCheck_ = nullptr;
     QLineEdit *clipExcludedSourceAppsEdit_ = nullptr;
     QLineEdit *clipSensitiveTextMarkersEdit_ = nullptr;
 };

@@ -30,6 +30,8 @@ struct ManualPdfAnchorCreationResult {
     bool success() const;
 };
 
+QString manualPdfAnchorLocatorSummary(const ManualPdfAnchorCreationRequest &request);
+
 class ManualPdfAnchorCreationService {
 public:
     explicit ManualPdfAnchorCreationService(ILibraryRepository &repository);

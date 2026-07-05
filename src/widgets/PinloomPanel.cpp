@@ -54,6 +54,8 @@ constexpr int ClipAliasesRole = Qt::UserRole + 45;
 constexpr int ClipUpdatedAtRole = Qt::UserRole + 46;
 constexpr int ClipUsedAtRole = Qt::UserRole + 47;
 constexpr int ClipStateRole = Qt::UserRole + 48;
+constexpr int ResourceDeletedRole = Qt::UserRole + 34;
+constexpr int AnchorDeletedRole = Qt::UserRole + 35;
 
 enum class LauncherItemAction {
     Unknown = 0,
@@ -671,6 +673,7 @@ PinloomOpenTarget openTargetForResource(const Resource &resource)
     target.resourceKind = resource.kind;
     target.title = resource.title;
     target.location = resource.location;
+    target.deleted = resource.deleted;
     return target;
 }
 
@@ -695,6 +698,7 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
         target.clipId = item->data(ClipIdRole).toString();
         target.title = item->data(ClipDisplayNameRole).toString();
         target.location = item->data(ClipPreviewRole).toString();
+        target.deleted = static_cast<ClipState>(item->data(ClipStateRole).toInt()) == ClipState::Deleted;
         target.matchedField = item->data(Qt::UserRole + 13).toString();
         target.score = item->data(Qt::UserRole + 14).toDouble();
         target.matchSummary = item->data(Qt::UserRole + 20).toString();
@@ -710,6 +714,7 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     target.location = item->data(Qt::UserRole + 1).toString();
     target.title = item->data(Qt::UserRole + 11).toString();
     target.resourceKind = static_cast<ResourceKind>(item->data(Qt::UserRole + 12).toInt());
+    target.deleted = item->data(ResourceDeletedRole).toBool();
     target.matchedField = item->data(Qt::UserRole + 13).toString();
     target.score = item->data(Qt::UserRole + 14).toDouble();
     target.matchedContextTag = item->data(Qt::UserRole + 15).toString();
@@ -734,6 +739,7 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
         anchor.createdAt = item->data(Qt::UserRole + 31).toDateTime();
         anchor.updatedAt = item->data(Qt::UserRole + 32).toDateTime();
         anchor.usedAt = item->data(Qt::UserRole + 33).toDateTime();
+        anchor.deleted = item->data(AnchorDeletedRole).toBool();
         anchor.type = static_cast<AnchorType>(item->data(Qt::UserRole + 5).toInt());
         anchor.target = item->data(Qt::UserRole + 4).toString();
         anchor.line = item->data(Qt::UserRole + 3).toInt();
@@ -743,6 +749,7 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
                                item->data(Qt::UserRole + 9).toDouble(),
                                item->data(Qt::UserRole + 10).toDouble());
         target.anchor = anchor;
+        target.deleted = target.deleted || anchor.deleted;
     }
 
     return target;
@@ -943,6 +950,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
     entry.clipId = target.clipId;
     entry.resourceKind = target.resourceKind;
     entry.location = target.location;
+    entry.deleted = target.deleted;
     entry.matchedField = target.matchedField;
     entry.matchSummary = target.matchSummary;
     entry.resultRow = target.resultRow;
@@ -954,6 +962,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
         entry.id = QStringLiteral("clip:%1").arg(target.clipId);
         entry.name = target.title.trimmed().isEmpty() ? target.location : target.title;
         entry.targetSummary = target.location;
+        entry.deleted = target.deleted;
     } else if (target.anchor.has_value()) {
         entry.type = PinloomEntryType::Anchor;
         entry.id = target.anchor->id.trimmed().isEmpty()
@@ -965,6 +974,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
         entry.aliases = target.anchor->aliases;
         entry.tags = target.anchor->tags;
         entry.pinned = target.anchor->pinned;
+        entry.deleted = target.anchor->deleted || target.deleted;
         entry.usedAt = target.anchor->usedAt;
         entry.targetSummary = target.anchor->targetFile.trimmed().isEmpty()
             ? target.location
@@ -980,6 +990,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
             ? QFileInfo(target.location).fileName()
             : target.title;
         entry.targetSummary = target.location;
+        entry.deleted = target.deleted;
     }
 
     if (entry.name.trimmed().isEmpty()) {
@@ -989,6 +1000,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
     entry.metadata.insert(QStringLiteral("clipId"), entry.clipId);
     entry.metadata.insert(QStringLiteral("location"), entry.location);
     entry.metadata.insert(QStringLiteral("matchedField"), entry.matchedField);
+    entry.metadata.insert(QStringLiteral("deleted"), entry.deleted);
     return entry;
 }
 
@@ -1000,11 +1012,15 @@ PinloomOpenTarget openTargetFromEntry(const PinloomEntry &entry)
     target.resourceKind = entry.resourceKind;
     target.title = entry.name;
     target.location = entry.location;
+    target.deleted = entry.deleted;
     target.matchedField = entry.matchedField;
     target.matchSummary = entry.matchSummary;
     target.resultRow = entry.resultRow;
     target.score = entry.score;
     target.anchor = entry.anchor;
+    if (target.anchor.has_value() && target.anchor->deleted) {
+        target.deleted = true;
+    }
     return target;
 }
 
@@ -1382,6 +1398,85 @@ QList<PinloomOpenTarget> PinloomPanel::currentResults() const
 QList<PinloomEntry> PinloomPanel::currentEntries() const
 {
     return entriesFromOpenTargets(currentResults());
+}
+
+QList<PinloomEntry> PinloomPanel::searchEntries(const QString &text, bool includeDeleted) const
+{
+    QList<PinloomEntry> entries;
+
+    SearchQuery query;
+    query.text = text;
+    query.requiredTags = requiredTags_;
+    query.requiredLocationPrefixes = requiredLocationPrefixes_;
+    query.requiredKinds = requiredResourceKinds_;
+    query.contextTags = contextTags_;
+    query.contextLocationPrefixes = contextLocationPrefixes_;
+    query.contextResourceIds = contextResourceIds_;
+    query.contextRelationLabels = contextRelationLabels_;
+    query.includeDeleted = includeDeleted;
+    query.limit = 100;
+
+    for (const SearchResult &result : repository_.search(query)) {
+        PinloomOpenTarget target;
+        target.resourceId = result.resource.id;
+        target.resourceKind = result.resource.kind;
+        target.title = result.matchedAnchor.has_value()
+            ? anchorDisplayName(result.matchedAnchor.value(), result.resource)
+            : result.resource.title;
+        target.location = result.resource.location;
+        target.deleted = result.matchedAnchor.has_value()
+            ? (result.resource.deleted || result.matchedAnchor->deleted)
+            : result.resource.deleted;
+        target.matchedField = result.matchedField;
+        target.matchSummary = resultMatchSummary(result, query);
+        target.score = result.score;
+        target.anchor = result.matchedAnchor;
+
+        PinloomEntry entry = entryFromOpenTarget(target);
+        if (!result.matchedAnchor.has_value()) {
+            entry.aliases = result.resource.aliases;
+            entry.tags = result.resource.tags;
+            const std::optional<ResourceUsage> usage = repository_.resourceUsage(result.resource.id);
+            if (usage.has_value()) {
+                entry.pinned = usage->pinned;
+                entry.usedAt = usage->lastOpenedAt;
+                entry.frequency = usage->openCount;
+            }
+        }
+        entries.append(entry);
+    }
+
+    if (options_.clipSearchHandler) {
+        ClipSearchOptions clipOptions;
+        clipOptions.includeSaved = true;
+        clipOptions.includeTemporary = false;
+        clipOptions.includeDeleted = includeDeleted;
+        clipOptions.emptyQueryReturnsPinnedAndRecent = true;
+        clipOptions.limit = std::max(0, query.limit - static_cast<int>(entries.size()));
+
+        for (const ClipSearchResult &result : options_.clipSearchHandler(text, clipOptions)) {
+            PinloomEntry entry;
+            entry.id = QStringLiteral("clip:%1").arg(result.clipId);
+            entry.type = PinloomEntryType::SavedClip;
+            entry.name = result.displayName.trimmed().isEmpty() ? result.preview : result.displayName;
+            entry.aliases = result.aliases;
+            entry.tags = result.tags;
+            entry.pinned = result.pinned;
+            entry.deleted = result.state == ClipState::Deleted;
+            entry.usedAt = result.usedAt;
+            entry.targetSummary = result.preview;
+            entry.clipId = result.clipId;
+            entry.location = result.preview;
+            entry.matchedField = result.matchedField;
+            entry.matchSummary = clipMatchSummary(result);
+            entry.score = clipComparableScore(result);
+            entry.metadata.insert(QStringLiteral("clipId"), entry.clipId);
+            entry.metadata.insert(QStringLiteral("deleted"), entry.deleted);
+            entries.append(entry);
+        }
+    }
+
+    return sortedPinloomEntries(entries);
 }
 
 QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
@@ -2547,6 +2642,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
         item->setData(Qt::UserRole + 1, result.resource.location);
         item->setData(Qt::UserRole + 11, result.resource.title);
         item->setData(Qt::UserRole + 12, static_cast<int>(result.resource.kind));
+        item->setData(ResourceDeletedRole, result.resource.deleted);
         item->setData(Qt::UserRole + 13, result.matchedField);
         item->setData(Qt::UserRole + 14, result.score);
         item->setData(Qt::UserRole + 15, matchedContextTag(result.resource, query.contextTags));
@@ -2579,6 +2675,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
             item->setData(Qt::UserRole + 31, anchor.createdAt);
             item->setData(Qt::UserRole + 32, anchor.updatedAt);
             item->setData(Qt::UserRole + 33, anchor.usedAt);
+            item->setData(AnchorDeletedRole, anchor.deleted);
         }
     }
 

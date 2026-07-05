@@ -27,8 +27,16 @@ struct PinloomCommandResultAction {
     QString disabledReason;
 };
 
+struct PinloomCommandActionResult {
+    bool success = false;
+    QString message;
+    QString diagnostics;
+    QString nextUiHint;
+};
+
 struct PinloomCommandPanelOptions {
     std::function<QList<PinloomEntry>(const QString &query)> unifiedEntrySearchHandler;
+    std::function<QList<PinloomEntry>(const QString &query)> deletedEntrySearchHandler;
     std::function<QList<PinloomOpenTarget>(const QString &query)> unifiedSearchHandler;
     std::function<QList<PinloomCommandResultAction>(const PinloomEntry &entry)> unifiedEntryActionProvider;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> anchorJumpHandler;
@@ -38,6 +46,9 @@ struct PinloomCommandPanelOptions {
                        const PinloomEntry &entry,
                        const PinloomCommandResultAction &action,
                        QString *status)> unifiedEntryActionHandler;
+    std::function<PinloomCommandActionResult(QWidget *parent,
+                                             const PinloomEntry &entry,
+                                             const PinloomCommandResultAction &action)> unifiedEntryCommandHandler;
     std::function<bool(QWidget *parent,
                        const PinloomOpenTarget &target,
                        const PinloomCommandResultAction &action,

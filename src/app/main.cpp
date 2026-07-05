@@ -81,6 +81,8 @@ int main(int argc, char *argv[])
     clipOptions.sqliteDatabasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom_clip.sqlite3"));
     clipOptions.runtimeOptions.pickerSearchOptions.includeTemporary = true;
     clipOptions.runtimeOptions.registerHotkeyOnStart = false;
+    clipOptions.runtimeOptions.insertionOptions.restoreOriginalClipboardOnSuccess =
+        runtimeSettings.clipRestoreOriginalClipboardOnInsert;
 
     Pinloom::ClipResidentHostResult clipHostResult = clipFactory.createDefaultPlatformHost(clipOptions);
     std::unique_ptr<Pinloom::ClipResidentHost> clipHost;
@@ -202,6 +204,11 @@ int main(int argc, char *argv[])
         appSettingsStore.sync();
         if (clipHost && clipHost->runtime()) {
             clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
+            Pinloom::ClipInsertionOptions insertionOptions =
+                clipHost->runtime()->insertionService().options();
+            insertionOptions.restoreOriginalClipboardOnSuccess =
+                runtimeSettings.clipRestoreOriginalClipboardOnInsert;
+            clipHost->runtime()->insertionService().setOptions(insertionOptions);
         }
     };
     QObject::connect(&window, &Pinloom::PinloomMainWindow::settingsRequested, &window, showSettingsDialog);
@@ -227,6 +234,15 @@ int main(int argc, char *argv[])
     commandOptions.unifiedEntrySearchHandler = [panel](const QString &query) {
         panel->setSearchText(query);
         return panel->currentEntries();
+    };
+    commandOptions.deletedEntrySearchHandler = [panel](const QString &query) {
+        QList<Pinloom::PinloomEntry> deletedEntries;
+        for (const Pinloom::PinloomEntry &entry : panel->searchEntries(query, true)) {
+            if (entry.deleted) {
+                deletedEntries.append(entry);
+            }
+        }
+        return deletedEntries;
     };
     commandOptions.unifiedSearchHandler = [panel](const QString &query) {
         panel->setSearchText(query);
@@ -362,6 +378,24 @@ int main(int argc, char *argv[])
         edit.pinned = pinnedCheck->isChecked();
         return edit;
     };
+    const auto promptValueListEdit =
+        [&valuesFromCommaText](QWidget *parent,
+                               const QString &windowTitle,
+                               const QString &label,
+                               const QStringList &values,
+                               bool tags) -> std::optional<QStringList> {
+        bool accepted = false;
+        const QString text = QInputDialog::getText(parent,
+                                                   windowTitle,
+                                                   label,
+                                                   QLineEdit::Normal,
+                                                   values.join(QStringLiteral(", ")),
+                                                   &accepted);
+        if (!accepted) {
+            return std::nullopt;
+        }
+        return valuesFromCommaText(text, tags);
+    };
     const auto findClip = [&clipHost](const QString &clipId) -> std::optional<Pinloom::Clip> {
         if (!clipHost || !clipHost->runtime()) {
             return std::nullopt;
@@ -424,49 +458,93 @@ int main(int argc, char *argv[])
         if (!target.clipId.trimmed().isEmpty()) {
             const std::optional<Pinloom::Clip> clip = findClip(target.clipId);
             const bool savedClip = clip.has_value() && clip->state == Pinloom::ClipState::Saved;
-            addAction(QStringLiteral("primary"), QStringLiteral("Insert"), QStringLiteral("Insert this Saved Clip"));
+            const bool deletedClip = clip.has_value() && clip->state == Pinloom::ClipState::Deleted;
+            addAction(QStringLiteral("primary"),
+                      QStringLiteral("Insert"),
+                      QStringLiteral("Insert this Saved Clip"),
+                      savedClip,
+                      deletedClip
+                          ? QStringLiteral("Restore this Saved Clip before inserting")
+                          : QStringLiteral("Insert requires a Saved Clip"));
+            addAction(QStringLiteral("rename"),
+                      QStringLiteral("Rename"),
+                      QStringLiteral("Rename this Saved Clip"),
+                      savedClip,
+                      deletedClip
+                          ? QStringLiteral("Restore this Saved Clip before renaming")
+                          : QStringLiteral("Rename requires a Saved Clip"));
+            addAction(QStringLiteral("edit_aliases"),
+                      QStringLiteral("Edit aliases"),
+                      QStringLiteral("Edit aliases for this Saved Clip"),
+                      savedClip,
+                      deletedClip
+                          ? QStringLiteral("Restore this Saved Clip before editing aliases")
+                          : QStringLiteral("Aliases require a Saved Clip"));
+            addAction(QStringLiteral("edit_tags"),
+                      QStringLiteral("Edit tags"),
+                      QStringLiteral("Edit tags for this Saved Clip"),
+                      savedClip,
+                      deletedClip
+                          ? QStringLiteral("Restore this Saved Clip before editing tags")
+                          : QStringLiteral("Tags require a Saved Clip"));
             addAction(clip.has_value() && clip->pinned ? QStringLiteral("unpin") : QStringLiteral("pin"),
                       clip.has_value() && clip->pinned ? QStringLiteral("Unpin") : QStringLiteral("Pin"),
                       QStringLiteral("Change Saved Clip pinned state"),
                       savedClip,
-                      QStringLiteral("Pin requires a Saved Clip"));
-            addAction(QStringLiteral("add_alias"),
-                      QStringLiteral("Add alias"),
-                      QStringLiteral("Add an alias to this Saved Clip"),
-                      savedClip,
-                      QStringLiteral("Aliases require a Saved Clip"));
-            addAction(QStringLiteral("add_tag"),
-                      QStringLiteral("Add tag"),
-                      QStringLiteral("Add a tag to this Saved Clip"),
-                      savedClip,
-                      QStringLiteral("Tags require a Saved Clip"));
-            addAction(QStringLiteral("edit_metadata"),
-                      QStringLiteral("Edit name/metadata"),
-                      QStringLiteral("Edit Saved Clip name, aliases, tags, and pinned state"),
-                      savedClip,
-                      QStringLiteral("Metadata editing requires a Saved Clip"));
-            addAction(QStringLiteral("remove"),
-                      QStringLiteral("Delete / Remove"),
-                      QStringLiteral("Archive this Saved Clip inside Pinloom"),
-                      savedClip,
-                      QStringLiteral("Delete requires a Saved Clip"));
+                      deletedClip
+                          ? QStringLiteral("Restore this Saved Clip before pinning")
+                          : QStringLiteral("Pin requires a Saved Clip"));
+            if (deletedClip) {
+                addAction(QStringLiteral("restore"),
+                          QStringLiteral("Restore"),
+                          QStringLiteral("Restore this Saved Clip to ordinary Pinloom search"));
+            } else {
+                addAction(QStringLiteral("remove"),
+                          QStringLiteral("Delete / Remove"),
+                          QStringLiteral("Archive this Saved Clip inside Pinloom"),
+                          savedClip,
+                          QStringLiteral("Delete requires a Saved Clip"));
+            }
             return actions;
         }
 
         if (target.anchor.has_value()) {
             const bool pinned = target.anchor->pinned;
-            addAction(QStringLiteral("primary"), QStringLiteral("Jump"), QStringLiteral("Jump to this anchor"));
+            const bool deletedAnchor = target.anchor->deleted;
+            addAction(QStringLiteral("primary"),
+                      QStringLiteral("Jump"),
+                      QStringLiteral("Jump to this anchor"),
+                      !deletedAnchor,
+                      QStringLiteral("Restore this anchor before jumping"));
+            addAction(QStringLiteral("rename"),
+                      QStringLiteral("Rename"),
+                      QStringLiteral("Rename this anchor"),
+                      !deletedAnchor,
+                      QStringLiteral("Restore this anchor before renaming"));
+            addAction(QStringLiteral("edit_aliases"),
+                      QStringLiteral("Edit aliases"),
+                      QStringLiteral("Edit aliases for this anchor"),
+                      !deletedAnchor,
+                      QStringLiteral("Restore this anchor before editing aliases"));
+            addAction(QStringLiteral("edit_tags"),
+                      QStringLiteral("Edit tags"),
+                      QStringLiteral("Edit tags for this anchor"),
+                      !deletedAnchor,
+                      QStringLiteral("Restore this anchor before editing tags"));
             addAction(pinned ? QStringLiteral("unpin") : QStringLiteral("pin"),
                       pinned ? QStringLiteral("Unpin") : QStringLiteral("Pin"),
-                      QStringLiteral("Change anchor pinned state"));
-            addAction(QStringLiteral("add_alias"), QStringLiteral("Add alias"), QStringLiteral("Add an alias to this anchor"));
-            addAction(QStringLiteral("add_tag"), QStringLiteral("Add tag"), QStringLiteral("Add a tag to this anchor"));
-            addAction(QStringLiteral("edit_metadata"),
-                      QStringLiteral("Edit name/metadata"),
-                      QStringLiteral("Edit anchor name, aliases, tags, and pinned state"));
-            addAction(QStringLiteral("remove"),
-                      QStringLiteral("Delete / Remove"),
-                      QStringLiteral("Delete this Pinloom anchor without deleting the target file"));
+                      QStringLiteral("Change anchor pinned state"),
+                      !deletedAnchor,
+                      QStringLiteral("Restore this anchor before pinning"));
+            if (deletedAnchor) {
+                addAction(QStringLiteral("restore"),
+                          QStringLiteral("Restore"),
+                          QStringLiteral("Restore this anchor to ordinary Pinloom search"));
+            } else {
+                addAction(QStringLiteral("remove"),
+                          QStringLiteral("Delete / Remove"),
+                          QStringLiteral("Delete this Pinloom anchor without deleting the target file"));
+            }
             return actions;
         }
 
@@ -478,38 +556,57 @@ int main(int argc, char *argv[])
             : repository.resourceUsage(target.resourceId);
         const bool pinned = usage.has_value() && usage->pinned;
         const bool hasResource = resource.has_value();
+        const bool deletedResource = resource.has_value() && resource->deleted;
         addAction(QStringLiteral("primary"),
                   QStringLiteral("Open"),
                   Pinloom::isInboxResourceId(target.resourceId)
                       ? QStringLiteral("Open this Inbox file")
-                      : QStringLiteral("Open this file/resource"));
+                      : QStringLiteral("Open this file/resource"),
+                  hasResource && !deletedResource,
+                  deletedResource
+                      ? QStringLiteral("Restore this resource before opening")
+                      : QStringLiteral("Open requires a saved resource"));
+        addAction(QStringLiteral("rename"),
+                  QStringLiteral("Rename"),
+                  QStringLiteral("Rename this resource"),
+                  hasResource && !deletedResource,
+                  deletedResource
+                      ? QStringLiteral("Restore this resource before renaming")
+                      : QStringLiteral("Rename requires a saved resource"));
+        addAction(QStringLiteral("edit_aliases"),
+                  QStringLiteral("Edit aliases"),
+                  QStringLiteral("Edit aliases for this resource"),
+                  hasResource && !deletedResource,
+                  deletedResource
+                      ? QStringLiteral("Restore this resource before editing aliases")
+                      : QStringLiteral("Aliases require a saved resource"));
+        addAction(QStringLiteral("edit_tags"),
+                  QStringLiteral("Edit tags"),
+                  QStringLiteral("Edit tags for this resource"),
+                  hasResource && !deletedResource,
+                  deletedResource
+                      ? QStringLiteral("Restore this resource before editing tags")
+                      : QStringLiteral("Tags require a saved resource"));
         addAction(pinned ? QStringLiteral("unpin") : QStringLiteral("pin"),
                   pinned ? QStringLiteral("Unpin") : QStringLiteral("Pin"),
                   QStringLiteral("Change resource pinned state"),
-                  hasResource,
-                  QStringLiteral("Pin requires a saved resource"));
-        addAction(QStringLiteral("add_alias"),
-                  QStringLiteral("Add alias"),
-                  QStringLiteral("Add an alias to this resource"),
-                  hasResource,
-                  QStringLiteral("Aliases require a saved resource"));
-        addAction(QStringLiteral("add_tag"),
-                  QStringLiteral("Add tag"),
-                  QStringLiteral("Add a tag to this resource"),
-                  hasResource,
-                  QStringLiteral("Tags require a saved resource"));
-        addAction(QStringLiteral("edit_metadata"),
-                  QStringLiteral("Edit name/metadata"),
-                  QStringLiteral("Edit resource name, aliases, tags, and pinned state"),
-                  hasResource,
-                  QStringLiteral("Metadata editing requires a saved resource"));
-        addAction(QStringLiteral("remove"),
-                  QStringLiteral("Delete / Remove"),
-                  Pinloom::isInboxResourceId(target.resourceId)
-                      ? QStringLiteral("Remove this Inbox file from Pinloom without deleting the original file")
-                      : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
-                  hasResource,
-                  QStringLiteral("Remove requires a saved resource"));
+                  hasResource && !deletedResource,
+                  deletedResource
+                      ? QStringLiteral("Restore this resource before pinning")
+                      : QStringLiteral("Pin requires a saved resource"));
+        if (deletedResource) {
+            addAction(QStringLiteral("restore"),
+                      QStringLiteral("Restore"),
+                      QStringLiteral("Restore this resource to ordinary Pinloom search"));
+        } else {
+            addAction(QStringLiteral("remove"),
+                      QStringLiteral("Delete / Remove"),
+                      Pinloom::isInboxResourceId(target.resourceId)
+                          ? QStringLiteral("Remove this Inbox file from Pinloom without deleting the original file")
+                          : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
+                      hasResource,
+                      QStringLiteral("Remove requires a saved resource"));
+        }
         return actions;
     };
     commandOptions.unifiedActionHandler =
@@ -520,6 +617,7 @@ int main(int argc, char *argv[])
          &cleanTag,
          &appendUniqueValue,
          &promptMetadataEdit,
+         &promptValueListEdit,
          &findClip,
          &saveClipMetadata,
          &selectPanelTarget,
@@ -534,6 +632,28 @@ int main(int argc, char *argv[])
 
         if (!target.clipId.trimmed().isEmpty()) {
             const std::optional<Pinloom::Clip> clip = findClip(target.clipId);
+            if (actionId == QLatin1String("restore")) {
+                if (!clip.has_value() || clip->state != Pinloom::ClipState::Deleted) {
+                    if (status) {
+                        *status = QStringLiteral("Restore requires a deleted Saved Clip");
+                    }
+                    return false;
+                }
+                if (!clipHost || !clipHost->runtime()
+                    || !clipHost->runtime()->searchService().restoreClip(clip->id)) {
+                    if (status) {
+                        const QString error = clipHost && clipHost->runtime()
+                            ? clipHost->runtime()->searchService().lastError().trimmed()
+                            : QString();
+                        *status = error.isEmpty() ? QStringLiteral("Unable to restore Saved Clip") : error;
+                    }
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Restored Saved Clip \"%1\"").arg(clip->name);
+                }
+                return true;
+            }
             if (!clip.has_value() || clip->state != Pinloom::ClipState::Saved) {
                 if (status) {
                     *status = QStringLiteral("Action requires a Saved Clip");
@@ -566,6 +686,71 @@ int main(int argc, char *argv[])
                 }
                 if (status) {
                     *status = QStringLiteral("Removed Saved Clip from Pinloom");
+                }
+                return true;
+            }
+
+            if (actionId == QLatin1String("rename")) {
+                bool accepted = false;
+                const QString name = QInputDialog::getText(parent,
+                                                           QStringLiteral("Rename Clip"),
+                                                           QStringLiteral("Name"),
+                                                           QLineEdit::Normal,
+                                                           clip->name,
+                                                           &accepted).trimmed();
+                if (!accepted) {
+                    if (status) {
+                        *status = QStringLiteral("Rename canceled");
+                    }
+                    return false;
+                }
+                if (!saveClipMetadata(clip.value(), name, clip->aliases, clip->tags, clip->pinned, status)) {
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Renamed clip \"%1\"").arg(name);
+                }
+                return true;
+            }
+            if (actionId == QLatin1String("edit_aliases")) {
+                const std::optional<QStringList> aliases =
+                    promptValueListEdit(parent,
+                                        QStringLiteral("Edit Clip Aliases"),
+                                        QStringLiteral("Aliases"),
+                                        clip->aliases,
+                                        false);
+                if (!aliases.has_value()) {
+                    if (status) {
+                        *status = QStringLiteral("Edit aliases canceled");
+                    }
+                    return false;
+                }
+                if (!saveClipMetadata(clip.value(), clip->name, aliases.value(), clip->tags, clip->pinned, status)) {
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Updated clip aliases");
+                }
+                return true;
+            }
+            if (actionId == QLatin1String("edit_tags")) {
+                const std::optional<QStringList> tags =
+                    promptValueListEdit(parent,
+                                        QStringLiteral("Edit Clip Tags"),
+                                        QStringLiteral("Tags"),
+                                        clip->tags,
+                                        true);
+                if (!tags.has_value()) {
+                    if (status) {
+                        *status = QStringLiteral("Edit tags canceled");
+                    }
+                    return false;
+                }
+                if (!saveClipMetadata(clip.value(), clip->name, clip->aliases, tags.value(), clip->pinned, status)) {
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Updated clip tags");
                 }
                 return true;
             }
@@ -664,6 +849,35 @@ int main(int argc, char *argv[])
             }
         }
 
+        if (actionId == QLatin1String("restore")) {
+            if (!target.deleted) {
+                if (status) {
+                    *status = QStringLiteral("Entry is not deleted");
+                }
+                return false;
+            }
+            const bool restored = target.anchor.has_value()
+                ? repository.restoreAnchor(target.resourceId, target.anchor.value())
+                : repository.restoreResource(target.resourceId);
+            if (!restored) {
+                if (status) {
+                    *status = target.anchor.has_value()
+                        ? QStringLiteral("Unable to restore anchor")
+                        : QStringLiteral("Unable to restore resource");
+                }
+                return false;
+            }
+            panel->setSearchText(targetTitle(target));
+            if (status) {
+                *status = target.anchor.has_value()
+                    ? QStringLiteral("Restored anchor \"%1\"").arg(targetTitle(target))
+                    : Pinloom::isInboxResourceId(target.resourceId)
+                          ? QStringLiteral("Restored Inbox file \"%1\"").arg(targetTitle(target))
+                          : QStringLiteral("Restored resource \"%1\"").arg(targetTitle(target));
+            }
+            return true;
+        }
+
         if (!selectPanelTarget(target)) {
             if (status) {
                 *status = QStringLiteral("Selected result is no longer available");
@@ -709,6 +923,157 @@ int main(int argc, char *argv[])
                     : Pinloom::isInboxResourceId(target.resourceId)
                           ? QStringLiteral("Removed Inbox file from Pinloom; original file was not deleted")
                           : QStringLiteral("Removed resource from Pinloom; original file was not deleted");
+            }
+            return true;
+        }
+
+        if (actionId == QLatin1String("rename")) {
+            bool accepted = false;
+            const QString name = QInputDialog::getText(parent,
+                                                       target.anchor.has_value()
+                                                           ? QStringLiteral("Rename Anchor")
+                                                           : QStringLiteral("Rename Resource"),
+                                                       QStringLiteral("Name"),
+                                                       QLineEdit::Normal,
+                                                       targetTitle(target),
+                                                       &accepted).trimmed();
+            if (!accepted) {
+                if (status) {
+                    *status = QStringLiteral("Rename canceled");
+                }
+                return false;
+            }
+            if (name.isEmpty()) {
+                if (status) {
+                    *status = QStringLiteral("Name is required");
+                }
+                return false;
+            }
+            if (target.anchor.has_value()) {
+                const bool updated = panel->editSelectedAnchor(name, target.anchor->aliases, target.anchor->tags);
+                if (status) {
+                    *status = panel->statusText();
+                }
+                return updated;
+            }
+
+            std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+            if (!resource.has_value()) {
+                if (status) {
+                    *status = QStringLiteral("Resource no longer exists");
+                }
+                return false;
+            }
+            resource->title = name;
+            resource->updatedAt = QDateTime::currentDateTimeUtc();
+            if (!repository.upsertResource(resource.value())) {
+                if (status) {
+                    *status = QStringLiteral("Unable to rename resource");
+                }
+                return false;
+            }
+            panel->setSearchText(panel->searchText());
+            panel->selectResultResource(resource->id);
+            if (status) {
+                *status = QStringLiteral("Renamed resource \"%1\"").arg(name);
+            }
+            return true;
+        }
+
+        if (actionId == QLatin1String("edit_aliases")) {
+            const QStringList currentAliases = target.anchor.has_value()
+                ? target.anchor->aliases
+                : repository.findResource(target.resourceId).value_or(Pinloom::Resource{}).aliases;
+            const std::optional<QStringList> aliases =
+                promptValueListEdit(parent,
+                                    target.anchor.has_value()
+                                        ? QStringLiteral("Edit Anchor Aliases")
+                                        : QStringLiteral("Edit Resource Aliases"),
+                                    QStringLiteral("Aliases"),
+                                    currentAliases,
+                                    false);
+            if (!aliases.has_value()) {
+                if (status) {
+                    *status = QStringLiteral("Edit aliases canceled");
+                }
+                return false;
+            }
+            if (target.anchor.has_value()) {
+                const bool updated = panel->editSelectedAnchor(targetTitle(target), aliases.value(), target.anchor->tags);
+                if (status) {
+                    *status = panel->statusText();
+                }
+                return updated;
+            }
+
+            std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+            if (!resource.has_value()) {
+                if (status) {
+                    *status = QStringLiteral("Resource no longer exists");
+                }
+                return false;
+            }
+            resource->aliases = aliases.value();
+            resource->updatedAt = QDateTime::currentDateTimeUtc();
+            if (!repository.upsertResource(resource.value())) {
+                if (status) {
+                    *status = QStringLiteral("Unable to update resource aliases");
+                }
+                return false;
+            }
+            panel->setSearchText(panel->searchText());
+            panel->selectResultResource(resource->id);
+            if (status) {
+                *status = QStringLiteral("Updated resource aliases");
+            }
+            return true;
+        }
+
+        if (actionId == QLatin1String("edit_tags")) {
+            const QStringList currentTags = target.anchor.has_value()
+                ? target.anchor->tags
+                : repository.findResource(target.resourceId).value_or(Pinloom::Resource{}).tags;
+            const std::optional<QStringList> tags =
+                promptValueListEdit(parent,
+                                    target.anchor.has_value()
+                                        ? QStringLiteral("Edit Anchor Tags")
+                                        : QStringLiteral("Edit Resource Tags"),
+                                    QStringLiteral("Tags"),
+                                    currentTags,
+                                    true);
+            if (!tags.has_value()) {
+                if (status) {
+                    *status = QStringLiteral("Edit tags canceled");
+                }
+                return false;
+            }
+            if (target.anchor.has_value()) {
+                const bool updated = panel->editSelectedAnchor(targetTitle(target), target.anchor->aliases, tags.value());
+                if (status) {
+                    *status = panel->statusText();
+                }
+                return updated;
+            }
+
+            std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+            if (!resource.has_value()) {
+                if (status) {
+                    *status = QStringLiteral("Resource no longer exists");
+                }
+                return false;
+            }
+            resource->tags = tags.value();
+            resource->updatedAt = QDateTime::currentDateTimeUtc();
+            if (!repository.upsertResource(resource.value())) {
+                if (status) {
+                    *status = QStringLiteral("Unable to update resource tags");
+                }
+                return false;
+            }
+            panel->setSearchText(panel->searchText());
+            panel->selectResultResource(resource->id);
+            if (status) {
+                *status = QStringLiteral("Updated resource tags");
             }
             return true;
         }

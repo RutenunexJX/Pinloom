@@ -49,6 +49,7 @@ struct PinloomEntry {
     QStringList aliases;
     QStringList tags;
     bool pinned = false;
+    bool deleted = false;
     QDateTime usedAt;
     int frequency = 0;
     QString targetSummary;
@@ -70,6 +71,7 @@ struct PinloomOpenTarget {
     ResourceKind resourceKind = ResourceKind::Unknown;
     QString title;
     QString location;
+    bool deleted = false;
     QString matchedField;
     QString matchedContextTag;
     QString matchedContextLocationPrefix;
@@ -203,6 +205,7 @@ public:
     PinloomOpenTarget resultAt(int row) const;
     QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomEntry> currentEntries() const;
+    QList<PinloomEntry> searchEntries(const QString &text, bool includeDeleted = false) const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
     QList<PinloomRelatedTarget> relatedTargetsForResource(const QString &resourceId) const;
     bool upsertResourceRelation(const QString &sourceResourceId,

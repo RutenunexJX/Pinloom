@@ -194,8 +194,6 @@ void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &req
 
 void ManualPdfAnchorDialog::updateSummary()
 {
-    const QString file = fileEdit_->text().trimmed();
-    const QString fileSummary = file.isEmpty() ? tr("No PDF selected") : file;
     QString sourceSummary;
     if (source_.compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground PDF-XChange fallback; page defaults to 1, edit if needed");
@@ -207,15 +205,8 @@ void ManualPdfAnchorDialog::updateSummary()
         sourceSummary = tr("%1 fallback, not native current-view capture").arg(source_);
     }
 
-    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | zoom %7% | %8")
-                               .arg(fileSummary,
-                                    QString::number(pageSpin_->value()),
-                                    QString::number(leftSpin_->value(), 'f', 2),
-                                    QString::number(topSpin_->value(), 'f', 2),
-                                    QString::number(rightSpin_->value(), 'f', 2),
-                                    QString::number(bottomSpin_->value(), 'f', 2),
-                                    QString::number(zoomSpin_->value(), 'f', 2),
-                                    sourceSummary));
+    ManualPdfAnchorCreationRequest current = request();
+    summaryLabel_->setText(tr("%1 | %2").arg(manualPdfAnchorLocatorSummary(current), sourceSummary));
 }
 
 } // namespace Pinloom

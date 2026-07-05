@@ -78,6 +78,8 @@ constexpr int TargetAnchorPinnedRole = Qt::UserRole + 146;
 constexpr int TargetAnchorCreatedAtRole = Qt::UserRole + 147;
 constexpr int TargetAnchorUpdatedAtRole = Qt::UserRole + 148;
 constexpr int TargetAnchorUsedAtRole = Qt::UserRole + 149;
+constexpr int TargetDeletedRole = Qt::UserRole + 150;
+constexpr int TargetAnchorDeletedRole = Qt::UserRole + 151;
 constexpr int ResultActionIdRole = Qt::UserRole + 160;
 constexpr int ResultActionLabelRole = Qt::UserRole + 161;
 constexpr int ResultActionDetailRole = Qt::UserRole + 162;
@@ -133,7 +135,8 @@ enum class CommandNamespace {
     Clip,
     Anchor,
     Inbox,
-    Search
+    Search,
+    Restore
 };
 
 enum class CommandAction {
@@ -143,7 +146,8 @@ enum class CommandAction {
     AnchorNew,
     InboxNew,
     InboxSearch,
-    OpenSearch
+    OpenSearch,
+    RestoreSearch
 };
 
 enum class CommandRowAction {
@@ -278,6 +282,24 @@ QString clipMatchText(const ClipSearchResult &result)
         return QStringLiteral("match: %1").arg(result.matchedField);
     }
     return QStringLiteral("match: %1=%2").arg(result.matchedField, compactValue(result.matchedValue, 48));
+}
+
+QString commandActionResultStatus(const PinloomCommandActionResult &result, const QString &fallback)
+{
+    QStringList lines;
+    const QString message = result.message.trimmed().isEmpty() ? fallback.trimmed() : result.message.trimmed();
+    if (!message.isEmpty()) {
+        lines.append(message);
+    }
+    const QString diagnostics = result.diagnostics.trimmed();
+    if (!diagnostics.isEmpty()) {
+        lines.append(QStringLiteral("Diagnostics: %1").arg(diagnostics));
+    }
+    const QString nextUiHint = result.nextUiHint.trimmed();
+    if (!nextUiHint.isEmpty()) {
+        lines.append(QStringLiteral("Next: %1").arg(nextUiHint));
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 QString clipResultText(const ClipSearchResult &result, const QString &action)
@@ -444,16 +466,17 @@ QString commandTargetTitle(const PinloomOpenTarget &target)
 
 QString commandTargetKindLabel(const PinloomOpenTarget &target)
 {
+    const QString deletedPrefix = target.deleted ? QStringLiteral("Deleted ") : QString();
     if (!target.clipId.trimmed().isEmpty()) {
-        return QStringLiteral("Clip");
+        return deletedPrefix + QStringLiteral("Clip");
     }
     if (target.anchor.has_value()) {
-        return QStringLiteral("Anchor");
+        return deletedPrefix + QStringLiteral("Anchor");
     }
     if (isInboxResourceId(target.resourceId)) {
-        return QStringLiteral("Inbox");
+        return deletedPrefix + QStringLiteral("Inbox");
     }
-    return commandResourceKindLabel(target.resourceKind);
+    return deletedPrefix + commandResourceKindLabel(target.resourceKind);
 }
 
 QString commandTargetVerb(const PinloomOpenTarget &target)
@@ -507,6 +530,9 @@ QString commandTargetDetails(const PinloomOpenTarget &target)
         : target.matchSummary.trimmed();
     if (!match.isEmpty()) {
         details.append(compactValue(match, 80));
+    }
+    if (target.deleted) {
+        details.append(QStringLiteral("deleted in Pinloom; restore before use"));
     }
 
     return details.join(QStringLiteral(" | "));
@@ -649,6 +675,14 @@ CommandState parseCommandState(const QString &text)
         return state;
     }
 
+    if (firstToken == QLatin1String("restore") || firstToken == QLatin1String("trash")) {
+        CommandState state;
+        state.commandNamespace = CommandNamespace::Restore;
+        state.action = CommandAction::RestoreSearch;
+        state.query = text.mid(index).trimmed();
+        return state;
+    }
+
     return {};
 }
 
@@ -716,6 +750,7 @@ void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
     item->setData(TargetKindRole, static_cast<int>(target.resourceKind));
     item->setData(TargetTitleRole, target.title);
     item->setData(TargetLocationRole, target.location);
+    item->setData(TargetDeletedRole, target.deleted);
     item->setData(TargetMatchedFieldRole, target.matchedField);
     item->setData(TargetScoreRole, target.score);
     item->setData(TargetMatchSummaryRole, target.matchSummary);
@@ -726,6 +761,8 @@ void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
         item->setData(ClipPreviewRole, target.location);
         item->setData(ClipMatchedFieldRole, target.matchedField);
         item->setData(ClipScoreRole, target.score);
+        item->setData(ClipStateRole,
+                      static_cast<int>(target.deleted ? ClipState::Deleted : ClipState::Saved));
     }
 
     item->setData(TargetHasAnchorRole, target.anchor.has_value());
@@ -755,6 +792,7 @@ void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
     item->setData(TargetAnchorCreatedAtRole, anchor.createdAt);
     item->setData(TargetAnchorUpdatedAtRole, anchor.updatedAt);
     item->setData(TargetAnchorUsedAtRole, anchor.usedAt);
+    item->setData(TargetAnchorDeletedRole, anchor.deleted);
 }
 
 PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row = -1)
@@ -770,6 +808,7 @@ PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row 
     target.resourceKind = static_cast<ResourceKind>(item->data(TargetKindRole).toInt());
     target.title = item->data(TargetTitleRole).toString();
     target.location = item->data(TargetLocationRole).toString();
+    target.deleted = item->data(TargetDeletedRole).toBool();
     target.matchedField = item->data(TargetMatchedFieldRole).toString();
     target.score = item->data(TargetScoreRole).toDouble();
     target.matchSummary = item->data(TargetMatchSummaryRole).toString();
@@ -797,7 +836,9 @@ PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row 
         anchor.createdAt = item->data(TargetAnchorCreatedAtRole).toDateTime();
         anchor.updatedAt = item->data(TargetAnchorUpdatedAtRole).toDateTime();
         anchor.usedAt = item->data(TargetAnchorUsedAtRole).toDateTime();
+        anchor.deleted = item->data(TargetAnchorDeletedRole).toBool();
         target.anchor = anchor;
+        target.deleted = target.deleted || anchor.deleted;
     }
 
     return target;
@@ -1263,6 +1304,10 @@ void PinloomCommandPanel::refreshResults()
         } else {
             appendUnifiedResults(options_.unifiedSearchHandler(plainQuery));
         }
+    } else if (command.commandNamespace == CommandNamespace::Restore
+               && command.action == CommandAction::RestoreSearch
+               && options_.deletedEntrySearchHandler) {
+        appendUnifiedEntries(options_.deletedEntrySearchHandler(command.query));
     } else if (command.commandNamespace == CommandNamespace::Clip
         && command.action == CommandAction::None) {
         appendCommandResult(CommandRowAction::OpenCommand,
@@ -1360,6 +1405,14 @@ void PinloomCommandPanel::refreshResults()
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenSearchWindow));
         item->setData(CommandSearchQueryRole, command.query);
+    } else if (command.commandNamespace == CommandNamespace::Restore
+               && command.action == CommandAction::RestoreSearch
+               && !options_.deletedEntrySearchHandler) {
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("restore"),
+                            tr("Restore Deleted Entry"),
+                            tr("Unavailable"),
+                            tr("restore <query> - restore search is not configured"));
     }
 
     if (resultList_->count() > 0) {
@@ -1369,7 +1422,7 @@ void PinloomCommandPanel::refreshResults()
     if (commandEdit_->text().trimmed().isEmpty()) {
         updateStatus(tr("Type to search Anchor, Clip, Inbox, or File; c/k/i for commands"));
     } else if (command.commandNamespace == CommandNamespace::None) {
-        if (!options_.unifiedSearchHandler) {
+        if (!options_.unifiedEntrySearchHandler && !options_.unifiedSearchHandler) {
             updateStatus(tr("Unified search is not configured"));
         } else {
             updateStatus(resultList_->count() > 0
@@ -1411,6 +1464,15 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Search
                && command.action == CommandAction::OpenSearch) {
         updateStatus(tr("Open Pinloom search window"));
+    } else if (command.commandNamespace == CommandNamespace::Restore
+               && command.action == CommandAction::RestoreSearch) {
+        if (!options_.deletedEntrySearchHandler) {
+            updateStatus(tr("Restore search is not configured"));
+        } else {
+            updateStatus(resultList_->count() > 0
+                             ? tr("Restore search: %n deleted item(s)", nullptr, resultList_->count())
+                             : tr("No deleted items to restore"));
+        }
     } else {
         updateStatus(tr("Unknown command"));
     }
@@ -1512,6 +1574,11 @@ bool PinloomCommandPanel::activateUnifiedTargetFromItem(const QListWidgetItem *i
 
 bool PinloomCommandPanel::activateUnifiedTarget(const PinloomOpenTarget &target)
 {
+    if (target.deleted) {
+        updateStatus(tr("Entry is deleted; press Right Arrow and choose Restore"));
+        return false;
+    }
+
     if (!target.clipId.trimmed().isEmpty()) {
         if (!options_.clipInsertionHandler) {
             updateStatus(tr("Clip insertion is not configured"));
@@ -1645,6 +1712,17 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
     }
     if (action.id == QLatin1String(PrimaryResultActionId)) {
         return activateUnifiedTarget(target);
+    }
+    if (options_.unifiedEntryCommandHandler) {
+        const PinloomEntry entry = entryFromOpenTarget(target);
+        const PinloomCommandActionResult result =
+            options_.unifiedEntryCommandHandler(this, entry, action);
+        const QString fallback = result.success
+            ? tr("Completed action \"%1\"").arg(action.label)
+            : tr("Unable to run action \"%1\"").arg(action.label);
+        const QString status = commandActionResultStatus(result, fallback);
+        updateStatus(status.trimmed().isEmpty() ? fallback : status.trimmed());
+        return result.success;
     }
     if (options_.unifiedEntryActionHandler) {
         QString status;
@@ -2018,26 +2096,53 @@ QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEnt
         actions.append(action);
     };
 
+    const bool deleted = entry.deleted || (entry.anchor.has_value() && entry.anchor->deleted);
+    const QString restoreFirstReason = QStringLiteral("Restore this entry before editing or using it");
     addAction(QString::fromLatin1(PrimaryResultActionId),
               commandTargetVerb(target),
-              QStringLiteral("%1 %2").arg(commandTargetVerb(target), entry.name));
+              QStringLiteral("%1 %2").arg(commandTargetVerb(target), entry.name),
+              !deleted,
+              restoreFirstReason);
+    addAction(QStringLiteral("rename"),
+              QStringLiteral("Rename"),
+              QStringLiteral("Rename this Pinloom entry"),
+              !deleted,
+              restoreFirstReason);
+    addAction(QStringLiteral("edit_aliases"),
+              QStringLiteral("Edit aliases"),
+              QStringLiteral("Edit aliases for this Pinloom entry"),
+              !deleted,
+              restoreFirstReason);
+    addAction(QStringLiteral("edit_tags"),
+              QStringLiteral("Edit tags"),
+              QStringLiteral("Edit tags for this Pinloom entry"),
+              !deleted,
+              restoreFirstReason);
     addAction(entry.pinned ? QStringLiteral("unpin") : QStringLiteral("pin"),
               entry.pinned ? QStringLiteral("Unpin") : QStringLiteral("Pin"),
-              QStringLiteral("Change pinned state"));
-    addAction(QStringLiteral("add_alias"), QStringLiteral("Add alias"), QStringLiteral("Add an alias"));
-    addAction(QStringLiteral("add_tag"), QStringLiteral("Add tag"), QStringLiteral("Add a tag"));
-    addAction(QStringLiteral("edit_metadata"),
-              QStringLiteral("Edit name/metadata"),
-              QStringLiteral("Edit name, aliases, tags, and pinned state"));
-    addAction(QStringLiteral("remove"),
-              QStringLiteral("Delete / Remove"),
-              entry.type == PinloomEntryType::SavedClip
-                  ? QStringLiteral("Archive this Saved Clip inside Pinloom")
-                  : entry.type == PinloomEntryType::Anchor
-                        ? QStringLiteral("Delete this Pinloom anchor without deleting the target file")
-                        : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
-              removeEnabled,
-              removeEnabled ? QString() : QStringLiteral("Remove is not available"));
+              QStringLiteral("Change pinned state"),
+              !deleted,
+              restoreFirstReason);
+    if (deleted) {
+        addAction(QStringLiteral("restore"),
+                  QStringLiteral("Restore"),
+                  QStringLiteral("Restore this entry to ordinary Pinloom search"));
+        addAction(QStringLiteral("remove"),
+                  QStringLiteral("Delete / Remove"),
+                  QStringLiteral("Already deleted in Pinloom"),
+                  false,
+                  QStringLiteral("This entry is already deleted; use Restore"));
+    } else {
+        addAction(QStringLiteral("remove"),
+                  QStringLiteral("Delete / Remove"),
+                  entry.type == PinloomEntryType::SavedClip
+                      ? QStringLiteral("Archive this Saved Clip inside Pinloom")
+                      : entry.type == PinloomEntryType::Anchor
+                            ? QStringLiteral("Delete this Pinloom anchor without deleting the target file")
+                            : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
+                  removeEnabled,
+                  removeEnabled ? QString() : QStringLiteral("Remove is not available"));
+    }
     return actions;
 }
 
