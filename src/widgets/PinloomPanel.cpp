@@ -661,6 +661,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     connect(searchEdit_, &QLineEdit::textChanged, this, &PinloomPanel::refreshResults);
     connect(searchEdit_, &QLineEdit::returnPressed, this, &PinloomPanel::openSelectedResource);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshRelationSummary);
+    connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshAnchorButtonState);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshPinButtonState);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
@@ -676,6 +677,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 
     loadLibraryRoots();
     refreshResults();
+    refreshAnchorButtonState();
     refreshRootPinButtonState();
     focusSearch();
 
@@ -1176,6 +1178,58 @@ PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
     return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
 }
 
+std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCaptureRequest() const
+{
+    const PinloomOpenTarget target = currentOpenTarget();
+    if (target.resourceId.isEmpty() && target.location.trimmed().isEmpty()) {
+        return std::nullopt;
+    }
+
+    QString file;
+    int page = 1;
+    PdfCaptureRect rect{0.0, 0.0, 612.0, 792.0};
+    double zoom = -1.0;
+    QString initialName = searchEdit_ ? searchEdit_->text().trimmed() : QString();
+
+    if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
+        const Anchor &anchor = target.anchor.value();
+        file = anchor.targetFile.trimmed();
+        if (file.isEmpty()) {
+            file = target.location.trimmed();
+        }
+        if (anchor.page > 0) {
+            page = anchor.page;
+        }
+        if (anchor.region.isValid()) {
+            rect = {anchor.region.x(),
+                    anchor.region.y(),
+                    anchor.region.x() + anchor.region.width(),
+                    anchor.region.y() + anchor.region.height()};
+        }
+        if (!anchor.name.trimmed().isEmpty()) {
+            initialName = anchor.name.trimmed();
+        }
+    } else if (normalizedResourceKind(target.resourceKind) == ResourceKind::Pdf) {
+        file = target.location.trimmed();
+    } else {
+        return std::nullopt;
+    }
+
+    if (file.isEmpty()) {
+        return std::nullopt;
+    }
+
+    ManualPdfAnchorCreationRequest request;
+    request.name = initialName;
+    request.file = file;
+    request.page = page;
+    request.rect = rect;
+    request.zoom = zoom;
+    request.source = QStringLiteral("selected-pdf-fallback");
+    request.targetApp = QStringLiteral("PDF-XChange");
+    return request;
+}
+
 bool PinloomPanel::captureCurrentAppPosition()
 {
     if (options_.manualExcelAnchorRequestProvider) {
@@ -1279,16 +1333,30 @@ bool PinloomPanel::captureCurrentAppPosition()
     }
 
     std::optional<ManualPdfAnchorCreationRequest> request;
-    if (options_.manualPdfAnchorRequestProvider) {
+    const std::optional<ManualPdfAnchorCreationRequest> suggestedPdfRequest =
+        selectedPdfAnchorCaptureRequest();
+    if (options_.pdfAnchorCaptureRequestProvider) {
+        request = options_.pdfAnchorCaptureRequestProvider(
+            suggestedPdfRequest.value_or(ManualPdfAnchorCreationRequest{}));
+    } else if (suggestedPdfRequest.has_value()) {
+        if (options_.pdfAnchorCaptureDialogHandler) {
+            request = options_.pdfAnchorCaptureDialogHandler(this, suggestedPdfRequest.value());
+        } else if (options_.manualPdfAnchorDialogHandler) {
+            request = options_.manualPdfAnchorDialogHandler(this);
+        } else {
+            ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
+            updateStatus(tr("Capturing PDF anchor from selected PDF fallback"));
+            if (dialog.exec() == QDialog::Accepted) {
+                request = dialog.request();
+            }
+        }
+    } else if (options_.manualPdfAnchorRequestProvider) {
         request = options_.manualPdfAnchorRequestProvider();
     } else if (options_.manualPdfAnchorDialogHandler) {
         request = options_.manualPdfAnchorDialogHandler(this);
     } else {
-        ManualPdfAnchorDialog dialog(this);
-        updateStatus(tr("Creating PDF anchor"));
-        if (dialog.exec() == QDialog::Accepted) {
-            request = dialog.request();
-        }
+        updateStatus(tr("Open or select a PDF before capturing an anchor"));
+        return false;
     }
 
     if (!request.has_value()) {
@@ -1309,7 +1377,11 @@ bool PinloomPanel::captureCurrentAppPosition()
         setSearchText(result.anchor.name);
         selectResultResource(result.resource.id);
     }
-    updateStatus(tr("Created PDF anchor \"%1\"").arg(result.anchor.name));
+    const bool selectedPdfFallback =
+        request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
+    updateStatus(selectedPdfFallback
+                     ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
+                     : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
     return true;
 }
 
@@ -2315,7 +2387,7 @@ void PinloomPanel::promptAddManualAnchor()
 {
     const PinloomOpenTarget selectedTarget = currentOpenTarget();
     if (normalizedResourceKind(selectedTarget.resourceKind) == ResourceKind::Pdf) {
-        updateStatus(tr("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+        captureCurrentAppPosition();
         return;
     }
 
@@ -2348,6 +2420,22 @@ void PinloomPanel::promptAddManualAnchor()
 void PinloomPanel::toggleSelectedResourcePin()
 {
     setSelectedResourcePinned(pinButton_->isChecked());
+}
+
+void PinloomPanel::refreshAnchorButtonState()
+{
+    if (!addAnchorButton_) {
+        return;
+    }
+
+    if (selectedPdfAnchorCaptureRequest().has_value()) {
+        addAnchorButton_->setText(tr("Capture PDF Anchor"));
+        addAnchorButton_->setToolTip(tr("Capture a PDF-XChange anchor from the selected PDF context"));
+        return;
+    }
+
+    addAnchorButton_->setText(tr("Add Anchor"));
+    addAnchorButton_->setToolTip(tr("Add a text/file anchor to the selected resource"));
 }
 
 void PinloomPanel::refreshPinButtonState()

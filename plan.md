@@ -155,13 +155,17 @@ Acceptance:
 
 Status:
 
-- The low-risk manual creation flow is now implemented in core: explicit name,
-  file, page, rectangle, zoom, aliases, tags, pinned, unit, and source inputs
-  are normalized through the manual PDF-XChange rect capture provider, saved as
-  searchable PDF anchors, and remain compatible with the Phase 3 executor.
-- `Ctrl+K` can now be wired by hosts through an injectable manual PDF anchor
-  request provider, and the default widget now falls back to a built-in manual
-  PDF anchor dialog/picker when no host provider is installed.
+- The PDF UX now treats `Ctrl+K` and the PDF `Add Anchor` path as
+  `Capture PDF Anchor`: users enter name, aliases, tags, and pinned state while
+  the locator comes from the selected PDF context.
+- The current supported capture is explicitly a selected-PDF fallback. If a PDF
+  resource or PDF-XChange anchor is selected, Pinloom uses that file and falls
+  back to page 1 plus an approximate full-page rectangle when no native current
+  view/selection data is available.
+- Raw file/page/coordinate entry remains available only as an advanced/debug
+  fallback and is no longer the default user path.
+- No-PDF-context attempts now report that a PDF must be opened or selected
+  before capture.
 - This slice intentionally does not read PDF-XChange's current view, current
   page, selection, annotations, or live coordinates. Native PDF-XChange capture
   and any calibration mode remain research items for a later Phase 4 step.
@@ -267,6 +271,14 @@ Status:
   already exist instead of overwriting local resources.
 - This is intentionally not yet connected to UI, tray actions, app data
   defaults, or remote sync.
+- Pinloom Clip's resident text runtime is now integrated into `pinloom_app.exe`
+  with the shared app-data directory, `pinloom_clip.sqlite3`, default
+  `Ctrl+Shift+V`, tray actions for Show Clipboard, Pause/Resume Capture, and
+  Quit, temporary text history insertion, and a picker action to save a
+  temporary clip as a named Saved Clip.
+- Saved Clips are searchable inside the Clip picker by name, alias, and tag.
+  Main Pinloom anchor search does not yet index Saved Clips as first-class
+  launcher results.
 
 ## Frozen Or Demoted Work
 

@@ -86,6 +86,11 @@ struct PinloomPanelOptions {
     std::function<std::optional<ManualVisioAnchorCreationRequest>()> manualVisioAnchorRequestProvider;
     std::function<std::optional<ManualWordAnchorCreationRequest>()> manualWordAnchorRequestProvider;
     std::function<std::optional<ManualPowerPointAnchorCreationRequest>()> manualPowerPointAnchorRequestProvider;
+    std::function<std::optional<ManualPdfAnchorCreationRequest>(
+        const ManualPdfAnchorCreationRequest &suggestedRequest)> pdfAnchorCaptureRequestProvider;
+    std::function<std::optional<ManualPdfAnchorCreationRequest>(
+        QWidget *parent,
+        const ManualPdfAnchorCreationRequest &suggestedRequest)> pdfAnchorCaptureDialogHandler;
     std::function<std::optional<ManualPdfAnchorCreationRequest>()> manualPdfAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
     ApplicationLaunchSettings applicationLaunchSettings;
@@ -209,6 +214,7 @@ private slots:
     void promptAddManualAnchor();
     void toggleSelectedResourcePin();
     void refreshRelationSummary();
+    void refreshAnchorButtonState();
     void refreshPinButtonState();
     void refreshRootPinButtonState();
     void notifyCurrentOpenTargetChanged();
@@ -224,6 +230,7 @@ private:
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
+    std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
     bool activateOpenTarget(const PinloomOpenTarget &target);
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);

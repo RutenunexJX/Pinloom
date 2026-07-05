@@ -6,8 +6,11 @@
 
 class QCheckBox;
 class QDoubleSpinBox;
+class QLabel;
 class QLineEdit;
+class QPushButton;
 class QSpinBox;
+class QWidget;
 
 namespace Pinloom {
 
@@ -16,13 +19,19 @@ class ManualPdfAnchorDialog final : public QDialog {
 
 public:
     explicit ManualPdfAnchorDialog(QWidget *parent = nullptr);
+    ManualPdfAnchorDialog(const ManualPdfAnchorCreationRequest &initialRequest, QWidget *parent = nullptr);
 
     ManualPdfAnchorCreationRequest request() const;
 
 private:
     void browsePdfFile();
+    void setRequest(const ManualPdfAnchorCreationRequest &request);
+    void updateSummary();
 
     QLineEdit *nameEdit_ = nullptr;
+    QLabel *summaryLabel_ = nullptr;
+    QPushButton *advancedToggleButton_ = nullptr;
+    QWidget *advancedWidget_ = nullptr;
     QLineEdit *fileEdit_ = nullptr;
     QSpinBox *pageSpin_ = nullptr;
     QDoubleSpinBox *leftSpin_ = nullptr;

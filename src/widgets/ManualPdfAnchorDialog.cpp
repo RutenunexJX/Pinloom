@@ -6,6 +6,7 @@
 #include <QFileDialog>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSpinBox>
@@ -29,14 +30,32 @@ void configureCoordinateSpin(QDoubleSpinBox *spin)
 } // namespace
 
 ManualPdfAnchorDialog::ManualPdfAnchorDialog(QWidget *parent)
+    : ManualPdfAnchorDialog(ManualPdfAnchorCreationRequest{}, parent)
+{
+}
+
+ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationRequest &initialRequest, QWidget *parent)
     : QDialog(parent)
 {
-    setWindowTitle(tr("Create PDF Anchor"));
+    setWindowTitle(tr("Capture PDF Anchor"));
 
     auto *form = new QFormLayout(this);
 
     nameEdit_ = new QLineEdit(this);
     nameEdit_->setObjectName(QStringLiteral("manualPdfAnchorNameEdit"));
+
+    summaryLabel_ = new QLabel(this);
+    summaryLabel_->setObjectName(QStringLiteral("manualPdfAnchorSummaryLabel"));
+    summaryLabel_->setWordWrap(true);
+
+    advancedToggleButton_ = new QPushButton(tr("Advanced locator fallback"), this);
+    advancedToggleButton_->setObjectName(QStringLiteral("manualPdfAnchorAdvancedToggleButton"));
+    advancedToggleButton_->setCheckable(true);
+
+    advancedWidget_ = new QWidget(this);
+    advancedWidget_->setObjectName(QStringLiteral("manualPdfAnchorAdvancedWidget"));
+    auto *advancedForm = new QFormLayout(advancedWidget_);
+    advancedForm->setContentsMargins(0, 0, 0, 0);
 
     fileEdit_ = new QLineEdit(this);
     fileEdit_->setObjectName(QStringLiteral("manualPdfAnchorFileEdit"));
@@ -85,21 +104,34 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(QWidget *parent)
     buttons->setObjectName(QStringLiteral("manualPdfAnchorButtons"));
 
     form->addRow(tr("Name"), nameEdit_);
-    form->addRow(tr("PDF file"), fileLayout);
-    form->addRow(tr("Page"), pageSpin_);
-    form->addRow(tr("Left"), leftSpin_);
-    form->addRow(tr("Top"), topSpin_);
-    form->addRow(tr("Right"), rightSpin_);
-    form->addRow(tr("Bottom"), bottomSpin_);
-    form->addRow(tr("Zoom"), zoomSpin_);
+    form->addRow(tr("Captured locator"), summaryLabel_);
     form->addRow(tr("Aliases"), aliasesEdit_);
     form->addRow(tr("Tags"), tagsEdit_);
     form->addRow(QString(), pinnedCheck_);
+    form->addWidget(advancedToggleButton_);
+    advancedForm->addRow(tr("PDF file"), fileLayout);
+    advancedForm->addRow(tr("Page"), pageSpin_);
+    advancedForm->addRow(tr("Left"), leftSpin_);
+    advancedForm->addRow(tr("Top"), topSpin_);
+    advancedForm->addRow(tr("Right"), rightSpin_);
+    advancedForm->addRow(tr("Bottom"), bottomSpin_);
+    advancedForm->addRow(tr("Zoom"), zoomSpin_);
+    form->addWidget(advancedWidget_);
     form->addWidget(buttons);
+    advancedWidget_->setVisible(false);
 
     connect(browseButton, &QPushButton::clicked, this, &ManualPdfAnchorDialog::browsePdfFile);
+    connect(advancedToggleButton_, &QPushButton::toggled, advancedWidget_, &QWidget::setVisible);
+    connect(fileEdit_, &QLineEdit::textChanged, this, &ManualPdfAnchorDialog::updateSummary);
+    connect(pageSpin_, &QSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
+    connect(leftSpin_, &QDoubleSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
+    connect(topSpin_, &QDoubleSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
+    connect(rightSpin_, &QDoubleSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
+    connect(bottomSpin_, &QDoubleSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+
+    setRequest(initialRequest);
 }
 
 ManualPdfAnchorCreationRequest ManualPdfAnchorDialog::request() const
@@ -129,6 +161,41 @@ void ManualPdfAnchorDialog::browsePdfFile()
     if (!file.isEmpty()) {
         fileEdit_->setText(file);
     }
+}
+
+void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &request)
+{
+    nameEdit_->setText(request.name);
+    fileEdit_->setText(request.file);
+    if (request.page > 0) {
+        pageSpin_->setValue(request.page);
+    }
+    if (request.rect.isValid()) {
+        leftSpin_->setValue(request.rect.left);
+        topSpin_->setValue(request.rect.top);
+        rightSpin_->setValue(request.rect.right);
+        bottomSpin_->setValue(request.rect.bottom);
+    }
+    if (request.zoom > 0.0) {
+        zoomSpin_->setValue(request.zoom);
+    }
+    aliasesEdit_->setText(request.aliases.join(QStringLiteral(", ")));
+    tagsEdit_->setText(request.tags.join(QStringLiteral(", ")));
+    pinnedCheck_->setChecked(request.pinned);
+    updateSummary();
+}
+
+void ManualPdfAnchorDialog::updateSummary()
+{
+    const QString file = fileEdit_->text().trimmed();
+    const QString fileSummary = file.isEmpty() ? tr("No PDF selected") : file;
+    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | selected-PDF fallback, not native current-view capture")
+                               .arg(fileSummary,
+                                    QString::number(pageSpin_->value()),
+                                    QString::number(leftSpin_->value(), 'f', 2),
+                                    QString::number(topSpin_->value(), 'f', 2),
+                                    QString::number(rightSpin_->value(), 'f', 2),
+                                    QString::number(bottomSpin_->value(), 'f', 2)));
 }
 
 } // namespace Pinloom

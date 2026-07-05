@@ -60,8 +60,13 @@ not widen those surfaces unless it directly supports the anchor launcher loop.
 1. PDF-XChange Editor
    - Unified PDF host for v1.
    - Supports page, zoom, viewrect, highlight, and `usept`.
-   - Text PDFs and scanned PDFs are treated the same: the user creates the
-     anchor manually and Pinloom stores page plus rectangle.
+   - Text PDFs and scanned PDFs are treated the same: the user names an anchor
+     against a selected PDF context and Pinloom stores page plus rectangle.
+   - The current default capture path is a selected-PDF fallback: when native
+     PDF-XChange current-view capture is not available, Pinloom uses the
+     selected PDF file with page 1 and an approximate full-page rectangle.
+     Raw coordinate entry is an advanced/debug fallback, not the main user
+     flow.
    - Example locator:
 
 ```json
@@ -101,8 +106,8 @@ The current codebase already has useful foundations:
   host.
 - The default Qt panel now behaves as a lightweight anchor launcher surface:
   search-first, compact result list, anchor locator summaries, keyboard
-  activation, alias/tag editing, capture placeholder, edit entry, and delete
-  placeholder.
+  activation, alias/tag editing, PDF capture from selected context, edit entry,
+  and delete placeholder.
 - PDF-XChange manual jump execution now has a tested command builder for page
   and rectangle locators, launcher activation integration, and executable path
   resolution through `PINLOOM_PDFXCHANGE_PATH`, common install paths, or host
@@ -117,8 +122,12 @@ The mismatch is intentional technical debt for the reset:
 - Search still indexes resource content and broad source metadata.
 - Folder management and resource-library controls still exist for
   compatibility, but they are no longer the default first surface.
-- PDF anchor capture is still pending; current PDF-XChange support executes
-  manually stored locators only.
+- Native PDF-XChange current-view/selection capture is still pending; the
+  current PDF UX uses selected-PDF fallback capture and keeps raw coordinates
+  in an advanced path.
+- Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
+  clipboard MVP with SQLite persistence, tray menu, `Ctrl+Shift+V` picker,
+  temporary history insertion, and explicit Save Clip metadata.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
@@ -140,6 +149,11 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 ```powershell
 .\build\pinloom_app.exe
 ```
+
+Pinloom Clip starts with the app. Copy text, press `Ctrl+Shift+V` or use the
+tray menu's `Show Clipboard`, search the picker, and press Enter to paste the
+selected text clip into the current application. `Save Clip` turns a temporary
+clip into a named Saved Clip with aliases, tags, and pinned state.
 
 ## Phase 0 Validation
 

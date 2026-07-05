@@ -230,6 +230,17 @@ ClipSearchService::ClipSearchService(InMemoryClipRepository &repository)
                         },
                         [&repository]() {
                             return repository.savedClips();
+                        },
+                        [&repository](const QString &clipId) {
+                            return repository.findClip(clipId);
+                        },
+                        [&repository](const QString &clipId,
+                                      const QString &name,
+                                      const QStringList &aliases,
+                                      const QStringList &tags,
+                                      bool pinned,
+                                      const QDateTime &now) {
+                            return repository.saveClip(clipId, name, aliases, tags, pinned, now);
                         })
 {
 }
@@ -240,13 +251,34 @@ ClipSearchService::ClipSearchService(SqliteClipRepository &repository)
                         },
                         [&repository]() {
                             return repository.savedClips();
+                        },
+                        [&repository](const QString &clipId) {
+                            return repository.findClip(clipId);
+                        },
+                        [&repository](const QString &clipId,
+                                      const QString &name,
+                                      const QStringList &aliases,
+                                      const QStringList &tags,
+                                      bool pinned,
+                                      const QDateTime &now) {
+                            return repository.saveClip(clipId, name, aliases, tags, pinned, now);
+                        },
+                        [&repository]() {
+                            return repository.lastError();
                         })
 {
 }
 
-ClipSearchService::ClipSearchService(ListClipsCallback listClips, ListClipsCallback listSavedClips)
+ClipSearchService::ClipSearchService(ListClipsCallback listClips,
+                                     ListClipsCallback listSavedClips,
+                                     FindClipCallback findClip,
+                                     SaveClipCallback saveClip,
+                                     LastErrorCallback lastError)
     : listClips_(std::move(listClips))
     , listSavedClips_(std::move(listSavedClips))
+    , findClip_(std::move(findClip))
+    , saveClip_(std::move(saveClip))
+    , lastError_(std::move(lastError))
 {
 }
 
@@ -265,6 +297,34 @@ QList<ClipSearchResult> ClipSearchService::search(const QString &query, const Cl
     }
 
     return {};
+}
+
+std::optional<Clip> ClipSearchService::findClip(const QString &clipId) const
+{
+    if (!findClip_) {
+        return std::nullopt;
+    }
+
+    return findClip_(clipId);
+}
+
+bool ClipSearchService::saveClip(const QString &clipId,
+                                 const QString &name,
+                                 const QStringList &aliases,
+                                 const QStringList &tags,
+                                 bool pinned,
+                                 const QDateTime &now) const
+{
+    if (!saveClip_) {
+        return false;
+    }
+
+    return saveClip_(clipId, name, aliases, tags, pinned, now);
+}
+
+QString ClipSearchService::lastError() const
+{
+    return lastError_ ? lastError_() : QString();
 }
 
 } // namespace Pinloom

@@ -11,6 +11,7 @@ class QLabel;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
+class QPushButton;
 
 namespace Pinloom {
 
@@ -55,6 +56,10 @@ public:
     bool selectNextResult();
     bool selectPreviousResult();
     bool activateCurrentResult();
+    bool saveCurrentClipAsSaved(const QString &name,
+                                const QStringList &aliases = {},
+                                const QStringList &tags = {},
+                                bool pinned = false);
 
     QString statusText() const;
     QString lastError() const;
@@ -73,7 +78,9 @@ protected:
 private slots:
     void refreshResults();
     void activateItem(QListWidgetItem *item);
+    void promptSaveCurrentClip();
     void notifyCurrentResultChanged();
+    void refreshSaveButtonState();
 
 private:
     void updateStatus(const QString &status);
@@ -82,6 +89,7 @@ private:
     ClipSearchService &searchService_;
     ClipPickerOptions options_;
     QLineEdit *searchEdit_ = nullptr;
+    QPushButton *saveButton_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;

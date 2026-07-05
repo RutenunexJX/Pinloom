@@ -9,6 +9,7 @@
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
+#include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
@@ -16,6 +17,7 @@
 #include <QDesktopServices>
 #include <QApplication>
 #include <QDialogButtonBox>
+#include <QDoubleSpinBox>
 #include <QFile>
 #include <QCheckBox>
 #include <QLabel>
@@ -41,11 +43,13 @@ private slots:
     void clipPickerEnterActivatesInjectedInsertionHandler();
     void clipPickerShowsErrorAndStaysOpenOnInsertionFailure();
     void clipPickerCanIncludeTemporaryResults();
+    void clipPickerSavesTemporaryClipForNameAliasTagSearch();
     void clipTrayPresenterShowsAndRoutesTrayActions();
     void clipTrayPresenterUpdatesPauseResumeState();
     void clipTrayPresenterSyncsRuntimeStatusAndErrors();
     void clipResidentRuntimeStartsStopsCaptureHotkeyAndTray();
     void clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray();
+    void clipResidentRuntimeCapturesTemporaryClipAndInsertsThroughPicker();
     void clipResidentRuntimePickerInsertionSuppressesOwnClipboardWrite();
     void clipResidentRuntimePauseResumeAndQuitActions();
     void clipResidentFactoryReportsMissingDependencies();
@@ -93,6 +97,9 @@ private slots:
     void panelAllowsHostToActivateResourceById();
     void panelAllowsHostToHandleOpenTarget();
     void panelKeyboardShortcutsHaveLauncherResponses();
+    void panelReportsNoPdfContextForPdfCapture();
+    void panelCapturesSelectedPdfFallbackAnchorWithMetadataOnly();
+    void manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault();
     void panelRoutesCtrlKThroughManualPdfAnchorRequestProvider();
     void panelCreatesManualPdfAnchorThroughDialogHook();
     void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
@@ -618,6 +625,62 @@ void WidgetSmokeTest::clipPickerCanIncludeTemporaryResults()
     }));
 }
 
+void WidgetSmokeTest::clipPickerSavesTemporaryClipForNameAliasTagSearch()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary saveable body"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    ClipSearchOptions searchOptions;
+    searchOptions.includeTemporary = true;
+    ClipPickerOptions options;
+    options.searchOptions = searchOptions;
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search, options);
+    auto *saveButton = picker.findChild<QPushButton *>(QStringLiteral("clipPickerSaveButton"));
+    QVERIFY(saveButton);
+
+    picker.setQuery(QStringLiteral("saveable"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, temporary.clip->id);
+    QVERIFY(picker.currentResult().state == ClipState::Temporary);
+    QVERIFY(saveButton->isEnabled());
+
+    QVERIFY(picker.saveCurrentClipAsSaved(QStringLiteral("Saved Temporary"),
+                                          {QStringLiteral("saved alias")},
+                                          {QStringLiteral("#saved-tag")},
+                                          true));
+
+    const std::optional<Clip> saved = repository.findClip(temporary.clip->id);
+    QVERIFY(saved.has_value());
+    QVERIFY(saved->state == ClipState::Saved);
+    QCOMPARE(saved->name, QStringLiteral("Saved Temporary"));
+    QCOMPARE(saved->aliases, QStringList{QStringLiteral("saved alias")});
+    QCOMPARE(saved->tags, QStringList{QStringLiteral("saved-tag")});
+    QVERIFY(saved->pinned);
+    QCOMPARE(picker.statusText(), QStringLiteral("Saved clip"));
+
+    const QList<ClipSearchResult> nameResults = search.search(QStringLiteral("Saved Temporary"));
+    QCOMPARE(nameResults.size(), 1);
+    QCOMPARE(nameResults.first().clipId, temporary.clip->id);
+    QCOMPARE(nameResults.first().matchedField, QStringLiteral("name"));
+
+    const QList<ClipSearchResult> aliasResults = search.search(QStringLiteral("saved alias"));
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().matchedField, QStringLiteral("alias"));
+
+    const QList<ClipSearchResult> tagResults = search.search(QStringLiteral("#saved-tag"));
+    QCOMPARE(tagResults.size(), 1);
+    QCOMPARE(tagResults.first().matchedField, QStringLiteral("tag"));
+}
+
 void WidgetSmokeTest::clipTrayPresenterShowsAndRoutesTrayActions()
 {
     FakeClipHotkeyBackend hotkeyBackend;
@@ -835,6 +898,48 @@ void WidgetSmokeTest::clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray(
     QCOMPARE(runtime.pickerPanel().focusWidget(), static_cast<QWidget *>(searchEdit));
     QCOMPARE(runtime.pickerPanel().currentResult().clipId, clipId);
     QCOMPARE(pasteCalls, 0);
+}
+
+void WidgetSmokeTest::clipResidentRuntimeCapturesTemporaryClipAndInsertsThroughPicker()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextSource captureClipboard;
+    FakeClipboardTextAccessor insertionClipboard;
+    insertionClipboard.setInitialText(QStringLiteral("original clipboard"));
+    FakeClipHotkeyBackend hotkeyBackend;
+    FakeClipTrayBackend trayBackend;
+    int pasteCalls = 0;
+    ClipResidentRuntimeOptions options;
+    options.pickerSearchOptions.includeTemporary = true;
+    options.closePickerOnActivationSuccess = false;
+    options.insertionOptions.restoreOriginalClipboardOnSuccess = false;
+    ClipResidentRuntime runtime(repository,
+                                makeResidentRuntimeDependencies(captureClipboard,
+                                                                insertionClipboard,
+                                                                hotkeyBackend,
+                                                                trayBackend,
+                                                                pasteCalls),
+                                options);
+
+    QVERIFY(runtime.start());
+    captureClipboard.setText(QStringLiteral("runtime temporary paste text"));
+
+    QCOMPARE(repository.temporaryClips().size(), 1);
+    const QString clipId = repository.temporaryClips().first().id;
+
+    runtime.showPicker();
+    runtime.pickerPanel().setQuery(QStringLiteral("temporary paste"));
+    QCOMPARE(runtime.pickerPanel().resultCount(), 1);
+    QCOMPARE(runtime.pickerPanel().currentResult().clipId, clipId);
+    QVERIFY(runtime.pickerPanel().currentResult().state == ClipState::Temporary);
+
+    QVERIFY(runtime.pickerPanel().activateCurrentResult());
+
+    QCOMPARE(pasteCalls, 1);
+    QCOMPARE(insertionClipboard.text(), QStringLiteral("runtime temporary paste text"));
+    QCOMPARE(insertionClipboard.writes(), QStringList{QStringLiteral("runtime temporary paste text")});
+    QCOMPARE(runtime.insertionService().lastInsertedId(), clipId);
+    QVERIFY(runtime.captureService().suppressingNextChange());
 }
 
 void WidgetSmokeTest::clipResidentRuntimePickerInsertionSuppressesOwnClipboardWrite()
@@ -3425,6 +3530,134 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     QVERIFY(statusNotifications.last().contains(QStringLiteral("Anchor deletion is not implemented yet")));
 }
 
+void WidgetSmokeTest::panelReportsNoPdfContextForPdfCapture()
+{
+    InMemoryLibraryRepository repository;
+
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(panel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
+void WidgetSmokeTest::panelCapturesSelectedPdfFallbackAnchorWithMetadataOnly()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf-spec");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Spec PDF");
+    resource.location = QStringLiteral("E:/docs/spec.pdf");
+    QVERIFY(repository.upsertResource(resource));
+
+    int requestCount = 0;
+    ManualPdfAnchorCreationRequest capturedSuggested;
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+    options.pdfAnchorCaptureRequestProvider =
+        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++requestCount;
+        capturedSuggested = suggested;
+
+        ManualPdfAnchorCreationRequest request = suggested;
+        request.name = QStringLiteral("Fallback anchor");
+        request.aliases = {QStringLiteral("fallback alias")};
+        request.tags = {QStringLiteral("#pdf-tag")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
+    QVERIFY(searchEdit);
+    QVERIFY(addAnchorButton);
+
+    panel.setSearchText(QStringLiteral("Spec PDF"));
+    QVERIFY(panel.selectFirstResult());
+    QCOMPARE(addAnchorButton->text(), QStringLiteral("Capture PDF Anchor"));
+
+    QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
+
+    QCOMPARE(requestCount, 1);
+    QCOMPARE(capturedSuggested.file, resource.location);
+    QCOMPARE(capturedSuggested.page, 1);
+    QCOMPARE(capturedSuggested.rect.left, 0.0);
+    QCOMPARE(capturedSuggested.rect.top, 0.0);
+    QCOMPARE(capturedSuggested.rect.right, 612.0);
+    QCOMPARE(capturedSuggested.rect.bottom, 792.0);
+    QCOMPARE(capturedSuggested.source, QStringLiteral("selected-pdf-fallback"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured PDF anchor \"Fallback anchor\" (selected-PDF fallback)"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("fallback alias")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    const Anchor anchor = results.first().matchedAnchor.value();
+    QCOMPARE(anchor.name, QStringLiteral("Fallback anchor"));
+    QCOMPARE(anchor.targetFile, resource.location);
+    QCOMPARE(anchor.locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(anchor.page, 1);
+    QCOMPARE(anchor.region.x(), 0.0);
+    QCOMPARE(anchor.region.y(), 0.0);
+    QCOMPARE(anchor.region.width(), 612.0);
+    QCOMPARE(anchor.region.height(), 792.0);
+    QCOMPARE(anchor.tags, QStringList{QStringLiteral("pdf-tag")});
+    QVERIFY(anchor.pinned);
+    QVERIFY(anchor.locatorJson.contains(QStringLiteral("\"source\":\"selected-pdf-fallback\"")));
+}
+
+void WidgetSmokeTest::manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault()
+{
+    ManualPdfAnchorCreationRequest suggested;
+    suggested.file = QStringLiteral("E:/docs/spec.pdf");
+    suggested.page = 1;
+    suggested.rect = {0.0, 0.0, 612.0, 792.0};
+    suggested.source = QStringLiteral("selected-pdf-fallback");
+
+    ManualPdfAnchorDialog dialog(suggested);
+    dialog.show();
+    QApplication::processEvents();
+
+    auto *nameEdit = dialog.findChild<QLineEdit *>(QStringLiteral("manualPdfAnchorNameEdit"));
+    auto *summary = dialog.findChild<QLabel *>(QStringLiteral("manualPdfAnchorSummaryLabel"));
+    auto *advancedWidget = dialog.findChild<QWidget *>(QStringLiteral("manualPdfAnchorAdvancedWidget"));
+    auto *leftSpin = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("manualPdfAnchorLeftSpin"));
+    auto *advancedToggle = dialog.findChild<QPushButton *>(QStringLiteral("manualPdfAnchorAdvancedToggleButton"));
+    QVERIFY(nameEdit);
+    QVERIFY(summary);
+    QVERIFY(advancedWidget);
+    QVERIFY(leftSpin);
+    QVERIFY(advancedToggle);
+
+    QVERIFY(nameEdit->isVisible());
+    QVERIFY(summary->text().contains(QStringLiteral("selected-PDF fallback")));
+    QVERIFY(!advancedWidget->isVisible());
+    QVERIFY(!leftSpin->isVisible());
+    QVERIFY(advancedToggle->isVisible());
+
+    advancedToggle->click();
+    QApplication::processEvents();
+
+    QVERIFY(advancedWidget->isVisible());
+    QVERIFY(leftSpin->isVisible());
+}
+
 void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()
 {
     InMemoryLibraryRepository repository;
@@ -3456,7 +3689,7 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()
     QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
 
     QCOMPARE(requestCount, 1);
-    QVERIFY(statusNotifications.last().contains(QStringLiteral("Created PDF anchor")));
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Captured PDF anchor")));
 
     const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("flow alias")});
     QCOMPARE(results.size(), 1);
@@ -3505,7 +3738,7 @@ void WidgetSmokeTest::panelCreatesManualPdfAnchorThroughDialogHook()
 
     QCOMPARE(dialogCount, 1);
     QVERIFY(parentProvided);
-    QCOMPARE(panel.statusText(), QStringLiteral("Created PDF anchor \"Dialog pick window\""));
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured PDF anchor \"Dialog pick window\""));
     QCOMPARE(statusNotifications.last(), panel.statusText());
     QCOMPARE(panel.searchText(), QStringLiteral("Dialog pick window"));
     QCOMPARE(panel.resultCount(), 1);

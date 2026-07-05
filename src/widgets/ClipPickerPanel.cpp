@@ -2,13 +2,19 @@
 
 #include "pinloom/clip/ClipInsertionService.h"
 
+#include <QCheckBox>
+#include <QDialog>
+#include <QDialogButtonBox>
 #include <QEvent>
+#include <QFormLayout>
 #include <QFontMetrics>
+#include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QSize>
 #include <QVBoxLayout>
@@ -78,6 +84,42 @@ QString aliasesText(const QStringList &aliases)
         }
     }
     return cleanedAliases.join(QStringLiteral(", "));
+}
+
+void appendUniqueValue(QStringList &values, const QString &value)
+{
+    const QString trimmed = value.trimmed();
+    if (!trimmed.isEmpty() && !values.contains(trimmed, Qt::CaseInsensitive)) {
+        values.append(trimmed);
+    }
+}
+
+QString cleanTag(QString tag)
+{
+    tag = tag.trimmed();
+    while (tag.startsWith(QLatin1Char('#'))) {
+        tag.remove(0, 1);
+        tag = tag.trimmed();
+    }
+    return tag;
+}
+
+QStringList valuesFromCommaText(const QString &text, bool tags = false)
+{
+    QStringList values;
+    for (const QString &value : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
+        appendUniqueValue(values, tags ? cleanTag(value) : value);
+    }
+    return values;
+}
+
+QStringList cleanedValues(const QStringList &source, bool tags = false)
+{
+    QStringList values;
+    for (const QString &value : source) {
+        appendUniqueValue(values, tags ? cleanTag(value) : value);
+    }
+    return values;
 }
 
 QString matchText(const ClipSearchResult &result)
@@ -231,6 +273,9 @@ ClipPickerPanel::ClipPickerPanel(ClipSearchService &searchService, ClipPickerOpt
     searchEdit_->setPlaceholderText(tr("Search clips, aliases, #tags"));
     searchEdit_->setClearButtonEnabled(true);
 
+    saveButton_ = new QPushButton(tr("Save Clip"), this);
+    saveButton_->setObjectName(QStringLiteral("clipPickerSaveButton"));
+
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("clipPickerResultList"));
     resultList_->setAlternatingRowColors(true);
@@ -241,7 +286,12 @@ ClipPickerPanel::ClipPickerPanel(ClipSearchService &searchService, ClipPickerOpt
     statusLabel_->setObjectName(QStringLiteral("clipPickerStatusLabel"));
     statusLabel_->setWordWrap(true);
 
-    layout->addWidget(searchEdit_);
+    auto *toolbar = new QHBoxLayout();
+    toolbar->setContentsMargins(0, 0, 0, 0);
+    toolbar->addWidget(searchEdit_, 1);
+    toolbar->addWidget(saveButton_);
+
+    layout->addLayout(toolbar);
     layout->addWidget(resultList_, 1);
     layout->addWidget(statusLabel_);
 
@@ -249,6 +299,7 @@ ClipPickerPanel::ClipPickerPanel(ClipSearchService &searchService, ClipPickerOpt
     resultList_->installEventFilter(this);
 
     connect(searchEdit_, &QLineEdit::textChanged, this, &ClipPickerPanel::refreshResults);
+    connect(saveButton_, &QPushButton::clicked, this, &ClipPickerPanel::promptSaveCurrentClip);
     connect(resultList_, &QListWidget::currentItemChanged, this, &ClipPickerPanel::notifyCurrentResultChanged);
     connect(resultList_, &QListWidget::itemActivated, this, &ClipPickerPanel::activateItem);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &ClipPickerPanel::activateItem);
@@ -403,6 +454,48 @@ bool ClipPickerPanel::activateCurrentResult()
     return true;
 }
 
+bool ClipPickerPanel::saveCurrentClipAsSaved(const QString &name,
+                                             const QStringList &aliases,
+                                             const QStringList &tags,
+                                             bool pinned)
+{
+    const ClipSearchResult result = currentResult();
+    if (result.clipId.trimmed().isEmpty()) {
+        lastError_ = tr("No clip selected");
+        updateStatus(lastError_);
+        return false;
+    }
+
+    const std::optional<Clip> clip = searchService_.findClip(result.clipId);
+    if (!clip.has_value()) {
+        lastError_ = tr("Clip not found");
+        updateStatus(lastError_);
+        return false;
+    }
+
+    if (clip->state == ClipState::Saved) {
+        lastError_ = tr("Clip is already saved");
+        updateStatus(lastError_);
+        return false;
+    }
+
+    if (!searchService_.saveClip(result.clipId,
+                                 name,
+                                 cleanedValues(aliases),
+                                 cleanedValues(tags, true),
+                                 pinned)) {
+        const QString repositoryError = searchService_.lastError().trimmed();
+        lastError_ = repositoryError.isEmpty() ? tr("Unable to save clip") : repositoryError;
+        updateStatus(lastError_);
+        return false;
+    }
+
+    lastError_.clear();
+    refreshResults();
+    updateStatus(tr("Saved clip"));
+    return itemForClipId(result.clipId) != nullptr;
+}
+
 QString ClipPickerPanel::statusText() const
 {
     return statusText_;
@@ -444,6 +537,10 @@ bool ClipPickerPanel::eventFilter(QObject *watched, QEvent *event)
         }
         if (key == Qt::Key_Escape && modifiers == Qt::NoModifier) {
             close();
+            return true;
+        }
+        if (key == Qt::Key_S && modifiers == Qt::ControlModifier) {
+            promptSaveCurrentClip();
             return true;
         }
     }
@@ -488,12 +585,73 @@ void ClipPickerPanel::activateItem(QListWidgetItem *item)
     activateCurrentResult();
 }
 
+void ClipPickerPanel::promptSaveCurrentClip()
+{
+    const ClipSearchResult result = currentResult();
+    if (result.clipId.trimmed().isEmpty()) {
+        lastError_ = tr("No clip selected");
+        updateStatus(lastError_);
+        return;
+    }
+    if (result.state == ClipState::Saved) {
+        lastError_ = tr("Clip is already saved");
+        updateStatus(lastError_);
+        return;
+    }
+
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Save Clip"));
+    auto *form = new QFormLayout(&dialog);
+    auto *nameEdit = new QLineEdit(result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
+                                   &dialog);
+    nameEdit->setObjectName(QStringLiteral("clipSaveNameEdit"));
+    auto *aliasesEdit = new QLineEdit(&dialog);
+    aliasesEdit->setObjectName(QStringLiteral("clipSaveAliasesEdit"));
+    auto *tagsEdit = new QLineEdit(&dialog);
+    tagsEdit->setObjectName(QStringLiteral("clipSaveTagsEdit"));
+    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    pinnedCheck->setObjectName(QStringLiteral("clipSavePinnedCheck"));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->setObjectName(QStringLiteral("clipSaveButtons"));
+
+    form->addRow(tr("Name"), nameEdit);
+    form->addRow(tr("Aliases"), aliasesEdit);
+    form->addRow(tr("Tags"), tagsEdit);
+    form->addRow(QString(), pinnedCheck);
+    form->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() == QDialog::Accepted) {
+        saveCurrentClipAsSaved(nameEdit->text(),
+                               valuesFromCommaText(aliasesEdit->text()),
+                               valuesFromCommaText(tagsEdit->text(), true),
+                               pinnedCheck->isChecked());
+    }
+}
+
 void ClipPickerPanel::notifyCurrentResultChanged()
 {
+    refreshSaveButtonState();
     if (options_.currentResultChangedHandler) {
         options_.currentResultChangedHandler(currentResult());
     }
     emit currentResultChanged();
+}
+
+void ClipPickerPanel::refreshSaveButtonState()
+{
+    if (!saveButton_) {
+        return;
+    }
+
+    const ClipSearchResult result = currentResult();
+    const bool canSave = !result.clipId.trimmed().isEmpty() && result.state == ClipState::Temporary;
+    saveButton_->setEnabled(canSave);
+    saveButton_->setToolTip(canSave
+                                ? tr("Save the selected temporary clip with a name, aliases, and tags")
+                                : tr("Select a temporary clip to save it"));
 }
 
 void ClipPickerPanel::updateStatus(const QString &status)

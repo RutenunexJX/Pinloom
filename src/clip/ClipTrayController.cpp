@@ -98,7 +98,7 @@ bool ClipTrayController::capturePaused() const
 QList<ClipTrayAction> ClipTrayController::actions() const
 {
     return {
-        {QStringLiteral("show_picker"), QStringLiteral("Show Picker"), true, false},
+        {QStringLiteral("show_picker"), QStringLiteral("Show Clipboard"), true, false},
         {QStringLiteral("toggle_capture"),
          options_.capturePaused ? QStringLiteral("Resume Capture") : QStringLiteral("Pause Capture"),
          true,

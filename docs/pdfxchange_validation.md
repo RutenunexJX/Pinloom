@@ -1,17 +1,19 @@
 # PDF-XChange Validation
 
-Pinloom's PDF-XChange executor is intentionally limited to launching manually
-stored PDF anchors. It does not inspect PDF-XChange's current view and it does
-not provide a built-in PDF reader.
+Pinloom's PDF-XChange executor launches stored PDF anchors. It does not inspect
+PDF-XChange's current view and it does not provide a built-in PDF reader.
 
-The Phase 4 manual creation slice now covers the local creation loop: explicit
-name, file, page, rectangle, zoom, aliases, tags, pinned, unit, and source
-inputs can be normalized through the manual PDF-XChange rect provider, saved in
-the repository, searched by name/alias/tag, and launched by the Phase 3
-executor. `Ctrl+K` still supports an injectable manual request provider hook for
-hosts, and now falls back to a built-in manual PDF anchor dialog/picker when no
-host provider is installed. Automatic reading of PDF-XChange's current page,
-view, selection, annotations, or live coordinates remains a later research item.
+The Phase 4 UX now routes `Ctrl+K` and the PDF `Add Anchor` button through
+`Capture PDF Anchor`. The normal user flow asks for anchor metadata only:
+name, aliases, tags, and pinned state. The locator is inferred from the current
+Pinloom selection. If the selected item is a PDF resource or PDF-XChange
+anchor, Pinloom uses that PDF file and records a selected-PDF fallback locator.
+When native PDF-XChange page/selection/rectangle capture is unavailable, this
+fallback uses page 1 and an approximate full-page rectangle. Raw file/page/rect
+fields remain in the dialog only under the advanced locator fallback.
+
+Automatic reading of PDF-XChange's current page, view, selection, annotations,
+or live coordinates remains a later research item.
 
 ## Automated Coverage
 
@@ -30,10 +32,14 @@ The current automated tests cover:
   invalid page/rect, repository save failure, successful persistence, search by
   name/alias/tag, stable locator JSON, executor compatibility, and SQLite
   reopen/read-back.
-- `Ctrl+K` routing through an injected manual PDF anchor request provider.
-- `Ctrl+K` fallback through the built-in manual PDF anchor dialog path using a
-  test hook, including success, cancellation, invalid request errors, and
-  launcher result selection/search visibility.
+- No-PDF-context guidance for `Ctrl+K`.
+- Selected-PDF fallback capture that creates a searchable `pdfxchange.rect`
+  using only name/alias/tag/pinned metadata entry.
+- The built-in capture dialog keeps raw coordinate controls hidden until the
+  advanced locator fallback is opened.
+- Legacy injectable manual PDF hooks still work for tests/hosts, including
+  success, cancellation, invalid request errors, and launcher result
+  selection/search visibility.
 
 Run the automated checks with:
 

@@ -1,4 +1,5 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include <QApplication>
@@ -6,6 +7,7 @@
 #include <QMainWindow>
 #include <QMessageBox>
 #include <QStandardPaths>
+#include <memory>
 
 int main(int argc, char *argv[])
 {
@@ -29,6 +31,28 @@ int main(int argc, char *argv[])
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to initialize Pinloom database:\n%1").arg(repository.lastError()));
         return 1;
+    }
+
+    Pinloom::ClipResidentRuntimeFactory clipFactory;
+    Pinloom::ClipResidentRuntimeFactoryOptions clipOptions;
+    clipOptions.repositoryKind = Pinloom::ClipResidentRepositoryKind::SQLite;
+    clipOptions.sqliteDatabasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom_clip.sqlite3"));
+    clipOptions.runtimeOptions.pickerSearchOptions.includeTemporary = true;
+
+    Pinloom::ClipResidentHostResult clipHostResult = clipFactory.createDefaultPlatformHost(clipOptions);
+    std::unique_ptr<Pinloom::ClipResidentHost> clipHost;
+    if (clipHostResult.succeeded()) {
+        clipHost = std::move(clipHostResult.host);
+        QObject::connect(clipHost.get(), &Pinloom::ClipResidentHost::quitRequested, &app, &QApplication::quit);
+        if (!clipHost->start()) {
+            QMessageBox::warning(nullptr,
+                                 QStringLiteral("Pinloom Clip"),
+                                 QStringLiteral("Pinloom Clip could not start:\n%1").arg(clipHost->lastError()));
+        }
+    } else {
+        QMessageBox::warning(nullptr,
+                             QStringLiteral("Pinloom Clip"),
+                             QStringLiteral("Pinloom Clip could not initialize:\n%1").arg(clipHostResult.error));
     }
 
     QMainWindow window;

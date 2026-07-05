@@ -172,7 +172,7 @@ handler, and tracks status, last error, running state, capture pause state, and
 picker show count for tests and future status surfaces.
 
 The controller intentionally exposes only a simple tray action model: show
-picker, pause/resume capture, and quit. Pause/resume is handler-injected so the
+clipboard, pause/resume capture, and quit. Pause/resume is handler-injected so the
 future app can connect it to `ClipboardCaptureService`, while tests can verify
 state changes without touching the user's clipboard. Quit is exposed as a
 signal only.
@@ -180,7 +180,7 @@ signal only.
 The Qt Widgets layer now has a small `ClipTrayPresenter` and tray backend
 interface. The presenter maps controller status into the tray tooltip and maps
 the action model into backend menu actions. Widget tests use a fake tray backend
-to cover show picker, pause/resume labels and checked state, quit routing,
+to cover show clipboard, pause/resume labels and checked state, quit routing,
 start/stop status synchronization, and hotkey failure text without creating a
 real `QSystemTrayIcon` or touching the system tray. A thin
 `QtSystemTrayIconBackend` exists as the real host seam for the later resident
@@ -232,16 +232,15 @@ search options and insertion options are still applied by the runtime, so the
 host/factory layer does not bypass suppression, capture pause, tray show, or
 picker insertion behavior.
 
-A default-platform host builder exists only as a thin construction hook for a
-future resident entry point. The test suite continues to use fake clipboard
+A default-platform host builder is the production construction hook used by
+`pinloom_app.exe`. The test suite continues to use fake clipboard
 source/accessor, fake paste invoker, fake hotkey backend, and fake tray backend,
-so it does not register real global hotkeys, create a real system tray icon,
+so tests do not register real global hotkeys, create a real system tray icon,
 touch the real clipboard, or send Ctrl+V.
 
-This is still not autostart registration, the final resident app entry point,
-foreground-window recovery, real focus/timing orchestration, target-window
-selection, rich content capture or insertion, image insertion, HTML/RTF/blob
-handling, or the final Listary-style paste workflow.
+This is still not autostart registration, foreground-window recovery, real
+focus/timing orchestration, target-window selection, rich content capture or
+insertion, image insertion, or HTML/RTF/blob handling.
 
 ## Resident App Entry And Config Skeleton
 
@@ -266,10 +265,9 @@ picker activation, insertion suppression, and quit handling remain owned by
 the lower runtime composition instead of being reimplemented in the app
 skeleton.
 
-This is still not autostart registration, an installed resident application,
-foreground-window recovery, real focus/timing orchestration, target-window
-selection, rich content capture or insertion, image insertion, HTML/RTF/blob
-handling, or the final Listary-style paste workflow.
+This is still not autostart registration, foreground-window recovery, real
+focus/timing orchestration, target-window selection, rich content capture or
+insertion, image insertion, or HTML/RTF/blob handling.
 
 ## Resident App Config Persistence Skeleton
 
@@ -318,6 +316,35 @@ repository as Saved state, with derived text metadata normalized on import.
 Invalid JSON, non-object archives, unsupported schema/version values, malformed
 clip entries, and repository insert failures return explicit errors.
 
+## Main App Integration MVP
+
+`pinloom_app.exe` now starts the Clip resident runtime alongside the main
+Pinloom panel. It uses the same app-data directory as the launcher database and
+stores clips in:
+
+```text
+pinloom_clip.sqlite3
+```
+
+The runtime uses the default `Ctrl+Shift+V` global hotkey, the system tray menu,
+Qt clipboard capture, SQLite persistence, and the platform paste invoker. Copy
+plain text to add it to temporary history, open the picker with `Ctrl+Shift+V`
+or the tray menu's `Show Clipboard`, search, and press Enter to paste the
+selected text into the current application.
+
+The picker includes temporary history for the resident app. A `Save Clip`
+button and `Ctrl+S` shortcut save the selected temporary clip as a Saved Clip
+with name, aliases, tags, and pinned state. Saved Clips are searchable inside
+the Clip picker by name, alias, and `#tag`.
+
+Current limits remain explicit:
+
+- Saved Clips are not yet surfaced in the main Pinloom anchor search.
+- The MVP captures and inserts text only.
+- Native foreground-window recovery, paste timing polish, target-window
+  selection, rich text, images, files, HTML/RTF/blob handling, and autostart are
+  still future work.
+
 ## Privacy And Limits
 
 Privacy constraints are part of the first implementation layer:
@@ -343,19 +370,8 @@ Tray UI, global hotkey capture, floating picker selection, and blacklist
 persistence should continue to call into these same policy checks before storing
 anything.
 
-## Worktree Isolation
+## Main Branch Status
 
-This module was started in the manual git worktree:
-
-```text
-E:\Pinloom\Pinloom-clip
-```
-
-on branch:
-
-```text
-feature/pinloom-clip
-```
-
-It is not merged into `main`, does not push to `origin/main`, and does not add
-Temporary Clip History to Pinloom's main search.
+The Clip module is now part of the local `main` branch and is wired into
+`pinloom_app.exe`. Temporary Clip History remains private to Pinloom Clip and
+is not added to Pinloom's main search index by default.
