@@ -35,6 +35,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ManualPowerPointAnchorCreation.h
     include/pinloom/core/ManualVisioAnchorCreation.h
     include/pinloom/core/ManualWordAnchorCreation.h
+    include/pinloom/core/PdfXChangeForegroundCapture.h
     include/pinloom/core/PdfXChangeCommand.h
     include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/Resource.h
@@ -60,6 +61,7 @@ add_library(pinloom_core STATIC
     src/core/ManualPowerPointAnchorCreation.cpp
     src/core/ManualVisioAnchorCreation.cpp
     src/core/ManualWordAnchorCreation.cpp
+    src/core/PdfXChangeForegroundCapture.cpp
     src/core/PdfXChangeCommand.cpp
     src/core/PowerPointCommand.cpp
     src/core/Schema.cpp
@@ -79,6 +81,13 @@ target_link_libraries(pinloom_core
         Qt6::Network
         Qt6::Sql
 )
+
+if(WIN32)
+    target_link_libraries(pinloom_core
+        PRIVATE
+            user32
+    )
+endif()
 
 add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h

@@ -90,6 +90,8 @@ private slots:
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
     void commandPanelAnchorCaptureCommandCallsHandler();
+    void commandPanelAnchorCapturePrefersForegroundPdfFallback();
+    void commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
@@ -2916,6 +2918,112 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
 }
 
+void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource selectedResource;
+    selectedResource.id = QStringLiteral("selected-pdf");
+    selectedResource.kind = ResourceKind::Pdf;
+    selectedResource.title = QStringLiteral("Selected PDF");
+    selectedResource.location = QStringLiteral("E:/docs/selected.pdf");
+    QVERIFY(repository.upsertResource(selectedResource));
+
+    int foregroundRequestCount = 0;
+    ManualPdfAnchorCreationRequest capturedSuggested;
+    PinloomPanelOptions panelOptions;
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++foregroundRequestCount;
+        if (status) {
+            *status = QStringLiteral("foreground provider ready");
+        }
+        ManualPdfAnchorCreationRequest request;
+        request.name = QStringLiteral("Foreground command anchor");
+        request.file = QStringLiteral("E:/docs/foreground.pdf");
+        request.page = 1;
+        request.rect = {0.0, 0.0, 612.0, 792.0};
+        request.source = QStringLiteral("foreground-pdfxchange-fallback");
+        request.targetApp = QStringLiteral("PDF-XChange");
+        return request;
+    };
+    panelOptions.pdfAnchorCaptureRequestProvider =
+        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
+        capturedSuggested = suggested;
+        ManualPdfAnchorCreationRequest request = suggested;
+        request.name = QStringLiteral("Accepted foreground command anchor");
+        request.aliases = {QStringLiteral("foreground command alias")};
+        return request;
+    };
+
+    PinloomPanel panel(repository, panelOptions);
+    panel.setSearchText(QStringLiteral("Selected PDF"));
+    QVERIFY(panel.selectFirstResult());
+
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
+        const bool captured = panel.captureCurrentAppPosition();
+        if (status) {
+            *status = panel.statusText();
+        }
+        return captured;
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(commandPanel.activateCurrentCommandItem());
+
+    QCOMPARE(foregroundRequestCount, 1);
+    QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/foreground.pdf"));
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(commandPanel.statusText(),
+             QStringLiteral("Captured PDF anchor \"Accepted foreground command anchor\" (foreground PDF-XChange fallback)"));
+    QCOMPARE(panel.statusText(), commandPanel.statusText());
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("foreground command alias")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/foreground.pdf"));
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(
+        QStringLiteral("\"source\":\"foreground-pdfxchange-fallback\"")));
+}
+
+void WidgetSmokeTest::commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext()
+{
+    InMemoryLibraryRepository repository;
+
+    int foregroundRequestCount = 0;
+    PinloomPanelOptions panelOptions;
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++foregroundRequestCount;
+        if (status) {
+            status->clear();
+        }
+        return std::nullopt;
+    };
+
+    PinloomPanel panel(repository, panelOptions);
+
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
+        const bool captured = panel.captureCurrentAppPosition();
+        if (status) {
+            *status = panel.statusText();
+        }
+        return captured;
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(!commandPanel.activateCurrentCommandItem());
+
+    QCOMPARE(foregroundRequestCount, 1);
+    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+    QCOMPARE(panel.statusText(), commandPanel.statusText());
+    QVERIFY(repository.search(SearchQuery{}).isEmpty());
+}
+
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 {
     InMemoryLibraryRepository repository;
@@ -4514,6 +4622,20 @@ void WidgetSmokeTest::manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault
 
     QVERIFY(advancedWidget->isVisible());
     QVERIFY(leftSpin->isVisible());
+
+    QCOMPARE(dialog.request().source, QStringLiteral("selected-pdf-fallback"));
+
+    suggested.source = QStringLiteral("foreground-pdfxchange-fallback");
+    suggested.name = QStringLiteral("Foreground fallback");
+    ManualPdfAnchorDialog foregroundDialog(suggested);
+    foregroundDialog.show();
+    QApplication::processEvents();
+
+    auto *foregroundSummary = foregroundDialog.findChild<QLabel *>(QStringLiteral("manualPdfAnchorSummaryLabel"));
+    QVERIFY(foregroundSummary);
+    QVERIFY(foregroundSummary->text().contains(QStringLiteral("foreground PDF-XChange fallback")));
+    QVERIFY(foregroundSummary->text().contains(QStringLiteral("page defaults to 1")));
+    QCOMPARE(foregroundDialog.request().source, QStringLiteral("foreground-pdfxchange-fallback"));
 }
 
 void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()

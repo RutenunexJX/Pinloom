@@ -98,6 +98,7 @@ struct PinloomPanelOptions {
     std::function<std::optional<ManualVisioAnchorCreationRequest>()> manualVisioAnchorRequestProvider;
     std::function<std::optional<ManualWordAnchorCreationRequest>()> manualWordAnchorRequestProvider;
     std::function<std::optional<ManualPowerPointAnchorCreationRequest>()> manualPowerPointAnchorRequestProvider;
+    std::function<std::optional<ManualPdfAnchorCreationRequest>(QString *status)> foregroundPdfAnchorCaptureRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(
         const ManualPdfAnchorCreationRequest &suggestedRequest)> pdfAnchorCaptureRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(

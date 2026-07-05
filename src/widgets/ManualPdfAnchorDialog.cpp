@@ -145,6 +145,9 @@ ManualPdfAnchorCreationRequest ManualPdfAnchorDialog::request() const
     request.rect.right = rightSpin_->value();
     request.rect.bottom = bottomSpin_->value();
     request.zoom = zoomSpin_->value();
+    request.unit = unit_;
+    request.source = source_;
+    request.targetApp = targetApp_;
     request.aliases = valuesFromCommaText(aliasesEdit_->text());
     request.tags = valuesFromCommaText(tagsEdit_->text());
     request.pinned = pinnedCheck_->isChecked();
@@ -165,6 +168,10 @@ void ManualPdfAnchorDialog::browsePdfFile()
 
 void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &request)
 {
+    source_ = request.source.trimmed().isEmpty() ? QStringLiteral("manual") : request.source.trimmed();
+    targetApp_ = request.targetApp.trimmed().isEmpty() ? QStringLiteral("PDF-XChange") : request.targetApp.trimmed();
+    unit_ = request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed();
+
     nameEdit_->setText(request.name);
     fileEdit_->setText(request.file);
     if (request.page > 0) {
@@ -189,13 +196,23 @@ void ManualPdfAnchorDialog::updateSummary()
 {
     const QString file = fileEdit_->text().trimmed();
     const QString fileSummary = file.isEmpty() ? tr("No PDF selected") : file;
-    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | selected-PDF fallback, not native current-view capture")
+    QString sourceSummary;
+    if (source_.compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground PDF-XChange fallback; page defaults to 1, edit if needed");
+    } else if (source_.compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("selected-PDF fallback, not native current-view capture");
+    } else {
+        sourceSummary = tr("%1 fallback, not native current-view capture").arg(source_);
+    }
+
+    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | %7")
                                .arg(fileSummary,
                                     QString::number(pageSpin_->value()),
                                     QString::number(leftSpin_->value(), 'f', 2),
                                     QString::number(topSpin_->value(), 'f', 2),
                                     QString::number(rightSpin_->value(), 'f', 2),
-                                    QString::number(bottomSpin_->value(), 'f', 2)));
+                                    QString::number(bottomSpin_->value(), 'f', 2),
+                                    sourceSummary));
 }
 
 } // namespace Pinloom

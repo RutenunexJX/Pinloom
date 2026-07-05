@@ -1,4 +1,5 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/PdfXChangeForegroundCapture.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
@@ -12,6 +13,7 @@
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <memory>
+#include <optional>
 
 int main(int argc, char *argv[])
 {
@@ -108,10 +110,36 @@ int main(int argc, char *argv[])
         return true;
     };
 
+    Pinloom::ForegroundAppWindowContext lastForegroundContext;
+    QMainWindow *commandWindowForForegroundCapture = nullptr;
+    Pinloom::PdfXChangeForegroundCaptureProvider foregroundPdfCaptureProvider(repository);
+
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&foregroundPdfCaptureProvider, &lastForegroundContext, &commandWindowForForegroundCapture](QString *status)
+        -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
+        const bool useLastForegroundContext =
+            commandWindowForForegroundCapture
+            && commandWindowForForegroundCapture->isVisible()
+            && lastForegroundContext.isValid();
+        const Pinloom::ForegroundAppWindowContext context =
+            useLastForegroundContext
+                ? lastForegroundContext
+                : Pinloom::currentForegroundAppWindowContext();
+        const Pinloom::PdfXChangeForegroundCaptureResult result =
+            foregroundPdfCaptureProvider.capture(context);
+        if (status) {
+            *status = result.status;
+        }
+        if (!result.success()) {
+            return std::nullopt;
+        }
+        return result.request;
+    };
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);
 
     QMainWindow commandWindow;
+    commandWindowForForegroundCapture = &commandWindow;
     commandWindow.setWindowTitle(QStringLiteral("Pinloom Command"));
     commandWindow.setMinimumWidth(560);
     commandWindow.resize(760, 300);
@@ -155,7 +183,11 @@ int main(int argc, char *argv[])
                                                       mainPanelHotkeyBackend.get(),
                                                       &app);
     Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService,
-                                                                 [&commandWindow, commandPanel]() {
+                                                                 [&commandWindow,
+                                                                  commandPanel,
+                                                                  &lastForegroundContext]() {
+                                                                     lastForegroundContext =
+                                                                         Pinloom::currentForegroundAppWindowContext();
                                                                      Pinloom::showCommandPanelForHotkey(commandWindow,
                                                                                                         *commandPanel);
                                                                  },

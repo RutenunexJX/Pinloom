@@ -42,6 +42,9 @@ private:
     QLineEdit *aliasesEdit_ = nullptr;
     QLineEdit *tagsEdit_ = nullptr;
     QCheckBox *pinnedCheck_ = nullptr;
+    QString source_ = QStringLiteral("manual");
+    QString targetApp_ = QStringLiteral("PDF-XChange");
+    QString unit_ = QStringLiteral("pt");
 };
 
 } // namespace Pinloom

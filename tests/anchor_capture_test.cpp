@@ -7,6 +7,7 @@
 #include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PdfXChangeForegroundCapture.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/VisioCommand.h"
@@ -52,6 +53,9 @@ private slots:
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
     void rejectsInvalidManualPdfRectAnchorInputsWithoutSaving();
     void reportsManualPdfRectAnchorRepositorySaveFailure();
+    void matchesForegroundPdfXChangeTitleToUniqueIndexedPdf();
+    void rejectsForegroundPdfXChangeTitleWithoutIndexedPdfMatch();
+    void rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
 };
 
@@ -1022,6 +1026,103 @@ void AnchorCaptureTest::reportsManualPdfRectAnchorRepositorySaveFailure()
     QCOMPARE(result.error, QStringLiteral("Unable to save manual PDF anchor"));
     QCOMPARE(repository.upsertCount, 1);
     QCOMPARE(repository.lastResource.location, QStringLiteral("E:/docs/clock.pdf"));
+}
+
+void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("axi-spec");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("AMBA AXI Protocol Spec");
+    resource.location = QStringLiteral("E:/docs/IHI0022K_amba_axi_protocol_spec[axi].pdf");
+    QVERIFY(repository.upsertResource(resource));
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi] - PDF-XChange Editor");
+    context.processName = QStringLiteral("PDFXEdit.exe");
+
+    const PdfXChangeForegroundCaptureResult result =
+        capturePdfXChangeForegroundContext(repository, context);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(result.matchedResource);
+    QCOMPARE(result.documentTitle, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
+    QCOMPARE(result.matchedResourceId, resource.id);
+    QCOMPARE(result.request.name, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
+    QCOMPARE(result.request.file, resource.location);
+    QCOMPARE(result.request.page, 1);
+    QCOMPARE(result.request.rect.left, 0.0);
+    QCOMPARE(result.request.rect.top, 0.0);
+    QCOMPARE(result.request.rect.right, 612.0);
+    QCOMPARE(result.request.rect.bottom, 792.0);
+    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(result.request.targetApp, QStringLiteral("PDF-XChange"));
+
+    QCOMPARE(pdfXChangeDocumentTitleFromWindowTitle(
+                 QStringLiteral("*IHI0022K_amba_axi_protocol_spec[axi] - PDF-XChange Editor")),
+             QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
+}
+
+void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithoutIndexedPdfMatch()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("other-spec");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Other Spec");
+    resource.location = QStringLiteral("E:/docs/other.pdf");
+    QVERIFY(repository.upsertResource(resource));
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("missing-spec - PDF-XChange Editor");
+    context.processName = QStringLiteral("PXCEditor.exe");
+
+    const PdfXChangeForegroundCaptureResult result =
+        capturePdfXChangeForegroundContext(repository, context);
+
+    QVERIFY(!result.success());
+    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(!result.matchedResource);
+    QCOMPARE(result.documentTitle, QStringLiteral("missing-spec"));
+    QVERIFY(result.status.contains(QStringLiteral("not matched to a unique indexed PDF")));
+    QVERIFY(result.request.file.isEmpty());
+}
+
+void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource first;
+    first.id = QStringLiteral("clock-a");
+    first.kind = ResourceKind::Pdf;
+    first.title = QStringLiteral("clock");
+    first.location = QStringLiteral("E:/docs/a/clock.pdf");
+    QVERIFY(repository.upsertResource(first));
+
+    Resource second;
+    second.id = QStringLiteral("clock-b");
+    second.kind = ResourceKind::Pdf;
+    second.title = QStringLiteral("clock");
+    second.location = QStringLiteral("E:/docs/b/clock.pdf");
+    QVERIFY(repository.upsertResource(second));
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
+    context.processName = QStringLiteral("PDFXEdit.exe");
+
+    const PdfXChangeForegroundCaptureResult result =
+        capturePdfXChangeForegroundContext(repository, context);
+
+    QVERIFY(!result.success());
+    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(!result.matchedResource);
+    QCOMPARE(result.documentTitle, QStringLiteral("clock"));
+    QVERIFY(result.status.contains(QStringLiteral("matches multiple indexed PDFs")));
+    QVERIFY(result.request.file.isEmpty());
 }
 
 void AnchorCaptureTest::readsCreatedManualPdfRectAnchorAfterSqliteReopen()
