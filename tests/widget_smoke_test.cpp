@@ -103,6 +103,9 @@ private slots:
     void commandPanelActionListExecutesRemoveWithInjectedConfirmation();
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
+    void pinloomEntriesSortMixedResultsByMatchBucketAndSignals();
+    void commandPanelPlainQueryUsesUnifiedEntrySearchHandler();
+    void entryActionProviderBuildsActionsForUnifiedTypes();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
     void commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
@@ -3508,6 +3511,167 @@ void WidgetSmokeTest::commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts()
     QTest::keyClick(commandEdit, Qt::Key_Delete);
     QVERIFY(!panel.isShowingResultActions());
     QCOMPARE(actionCalls, 0);
+}
+
+void WidgetSmokeTest::pinloomEntriesSortMixedResultsByMatchBucketAndSignals()
+{
+    const QDateTime recent = QDateTime::fromString(QStringLiteral("2026-01-02T00:00:00Z"), Qt::ISODate);
+    const QDateTime older = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    PinloomEntry metadata;
+    metadata.id = QStringLiteral("metadata");
+    metadata.type = PinloomEntryType::FileResource;
+    metadata.name = QStringLiteral("Metadata path");
+    metadata.matchedField = QStringLiteral("path");
+
+    PinloomEntry tag;
+    tag.id = QStringLiteral("tag");
+    tag.type = PinloomEntryType::Inbox;
+    tag.name = QStringLiteral("Tagged inbox");
+    tag.matchedField = QStringLiteral("tag");
+
+    PinloomEntry aliasCold;
+    aliasCold.id = QStringLiteral("alias-cold");
+    aliasCold.type = PinloomEntryType::SavedClip;
+    aliasCold.name = QStringLiteral("Alias cold");
+    aliasCold.matchedField = QStringLiteral("alias");
+    aliasCold.usedAt = older;
+
+    PinloomEntry aliasPinned;
+    aliasPinned.id = QStringLiteral("alias-pinned");
+    aliasPinned.type = PinloomEntryType::Anchor;
+    aliasPinned.name = QStringLiteral("Alias pinned");
+    aliasPinned.matchedField = QStringLiteral("anchor_alias");
+    aliasPinned.pinned = true;
+    aliasPinned.usedAt = recent;
+
+    PinloomEntry exact;
+    exact.id = QStringLiteral("exact");
+    exact.type = PinloomEntryType::Anchor;
+    exact.name = QStringLiteral("Exact anchor");
+    exact.matchedField = QStringLiteral("anchor_name");
+
+    const QList<PinloomEntry> sorted = sortedPinloomEntries({metadata, tag, aliasCold, aliasPinned, exact});
+    QCOMPARE(sorted.at(0).id, QStringLiteral("exact"));
+    QCOMPARE(sorted.at(1).id, QStringLiteral("alias-pinned"));
+    QCOMPARE(sorted.at(2).id, QStringLiteral("alias-cold"));
+    QCOMPARE(sorted.at(3).id, QStringLiteral("tag"));
+    QCOMPARE(sorted.at(4).id, QStringLiteral("metadata"));
+}
+
+void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedEntrySearchHandler()
+{
+    PinloomEntry file;
+    file.id = QStringLiteral("file-entry");
+    file.type = PinloomEntryType::FileResource;
+    file.name = QStringLiteral("Launch Path");
+    file.resourceId = QStringLiteral("file-resource");
+    file.resourceKind = ResourceKind::File;
+    file.location = QStringLiteral("E:/docs/launch.txt");
+    file.matchedField = QStringLiteral("path");
+
+    PinloomEntry clip;
+    clip.id = QStringLiteral("clip-entry");
+    clip.type = PinloomEntryType::SavedClip;
+    clip.name = QStringLiteral("Launch Clip");
+    clip.clipId = QStringLiteral("clip-1");
+    clip.location = QStringLiteral("clip preview");
+    clip.matchedField = QStringLiteral("alias");
+
+    PinloomEntry anchor;
+    anchor.id = QStringLiteral("anchor-entry");
+    anchor.type = PinloomEntryType::Anchor;
+    anchor.name = QStringLiteral("Launch Anchor");
+    anchor.resourceId = QStringLiteral("anchor-resource");
+    anchor.resourceKind = ResourceKind::Pdf;
+    anchor.location = QStringLiteral("E:/docs/launch.pdf");
+    anchor.matchedField = QStringLiteral("anchor_name");
+    Anchor storedAnchor;
+    storedAnchor.id = QStringLiteral("anchor-1");
+    storedAnchor.name = anchor.name;
+    storedAnchor.targetFile = anchor.location;
+    anchor.anchor = storedAnchor;
+
+    PinloomCommandPanelOptions options;
+    int entrySearchCalls = 0;
+    options.unifiedEntrySearchHandler = [&](const QString &) {
+        ++entrySearchCalls;
+        return QList<PinloomEntry>{file, clip, anchor};
+    };
+
+    PinloomCommandPanel panel(options);
+    panel.setCommandText(QStringLiteral("launch"));
+
+    QCOMPARE(entrySearchCalls, 1);
+    QCOMPARE(panel.resultCount(), 3);
+    QVERIFY(panel.selectResultAt(0));
+    QCOMPARE(panel.currentOpenTarget().resourceId, QStringLiteral("anchor-resource"));
+    QVERIFY(panel.openTargetAt(0).anchor.has_value());
+    QCOMPARE(panel.openTargetAt(1).clipId, QStringLiteral("clip-1"));
+    QCOMPARE(panel.openTargetAt(2).resourceId, QStringLiteral("file-resource"));
+}
+
+void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
+{
+    PinloomEntry anchor;
+    anchor.type = PinloomEntryType::Anchor;
+    anchor.name = QStringLiteral("Anchor");
+    anchor.resourceId = QStringLiteral("anchor-resource");
+    anchor.anchor = Anchor{};
+
+    PinloomEntry clip;
+    clip.type = PinloomEntryType::SavedClip;
+    clip.name = QStringLiteral("Clip");
+    clip.clipId = QStringLiteral("clip-id");
+
+    PinloomEntry inbox;
+    inbox.type = PinloomEntryType::Inbox;
+    inbox.name = QStringLiteral("Inbox");
+    inbox.resourceId = QStringLiteral("inbox:file");
+
+    PinloomEntry file;
+    file.type = PinloomEntryType::FileResource;
+    file.name = QStringLiteral("File");
+    file.resourceId = QStringLiteral("file-resource");
+
+    QCOMPARE(defaultActionsForPinloomEntry(anchor).first().label, QStringLiteral("Jump"));
+    QCOMPARE(defaultActionsForPinloomEntry(clip).first().label, QStringLiteral("Insert"));
+    QCOMPARE(defaultActionsForPinloomEntry(inbox).first().label, QStringLiteral("Open"));
+    QCOMPARE(defaultActionsForPinloomEntry(file).first().label, QStringLiteral("Open"));
+    QCOMPARE(defaultActionsForPinloomEntry(anchor).last().id, QStringLiteral("remove"));
+    QVERIFY(defaultActionsForPinloomEntry(anchor).last().enabled);
+
+    QList<PinloomEntry> actionEntries;
+    QStringList actionIds;
+    PinloomCommandPanelOptions options;
+    options.unifiedEntrySearchHandler = [&](const QString &) {
+        return QList<PinloomEntry>{anchor};
+    };
+    options.unifiedEntryActionProvider = [](const PinloomEntry &entry) {
+        return defaultActionsForPinloomEntry(entry);
+    };
+    options.unifiedEntryActionHandler =
+        [&](QWidget *, const PinloomEntry &entry, const PinloomCommandResultAction &action, QString *status) {
+        actionEntries.append(entry);
+        actionIds.append(action.id);
+        if (status) {
+            *status = QStringLiteral("Entry action %1").arg(action.id);
+        }
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+    panel.setCommandText(QStringLiteral("anchor"));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QVERIFY(panel.selectResultAt(5));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(actionIds, QStringList{QStringLiteral("remove")});
+    QCOMPARE(static_cast<int>(actionEntries.first().type),
+             static_cast<int>(PinloomEntryType::Anchor));
+    QCOMPARE(panel.statusText(), QStringLiteral("Entry action remove"));
 }
 
 void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()

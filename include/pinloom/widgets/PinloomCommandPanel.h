@@ -28,10 +28,16 @@ struct PinloomCommandResultAction {
 };
 
 struct PinloomCommandPanelOptions {
+    std::function<QList<PinloomEntry>(const QString &query)> unifiedEntrySearchHandler;
     std::function<QList<PinloomOpenTarget>(const QString &query)> unifiedSearchHandler;
+    std::function<QList<PinloomCommandResultAction>(const PinloomEntry &entry)> unifiedEntryActionProvider;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> anchorJumpHandler;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> resourceOpenHandler;
     std::function<QList<PinloomCommandResultAction>(const PinloomOpenTarget &target)> unifiedActionProvider;
+    std::function<bool(QWidget *parent,
+                       const PinloomEntry &entry,
+                       const PinloomCommandResultAction &action,
+                       QString *status)> unifiedEntryActionHandler;
     std::function<bool(QWidget *parent,
                        const PinloomOpenTarget &target,
                        const PinloomCommandResultAction &action,
@@ -132,5 +138,7 @@ private:
 };
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel);
+QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry,
+                                                                bool removeEnabled = true);
 
 } // namespace Pinloom

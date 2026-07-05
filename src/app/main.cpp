@@ -155,6 +155,10 @@ int main(int argc, char *argv[])
     commandWindow.resize(760, 300);
 
     Pinloom::PinloomCommandPanelOptions commandOptions;
+    commandOptions.unifiedEntrySearchHandler = [panel](const QString &query) {
+        panel->setSearchText(query);
+        return panel->currentEntries();
+    };
     commandOptions.unifiedSearchHandler = [panel](const QString &query) {
         panel->setSearchText(query);
         return panel->currentResults();

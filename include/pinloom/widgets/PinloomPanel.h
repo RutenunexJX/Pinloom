@@ -18,6 +18,7 @@
 #include <QDateTime>
 #include <QList>
 #include <QStringList>
+#include <QVariantMap>
 #include <QWidget>
 #include <functional>
 #include <optional>
@@ -33,6 +34,35 @@ class QPushButton;
 namespace Pinloom {
 
 class IndexingService;
+
+enum class PinloomEntryType {
+    Anchor,
+    SavedClip,
+    Inbox,
+    FileResource
+};
+
+struct PinloomEntry {
+    QString id;
+    PinloomEntryType type = PinloomEntryType::FileResource;
+    QString name;
+    QStringList aliases;
+    QStringList tags;
+    bool pinned = false;
+    QDateTime usedAt;
+    int frequency = 0;
+    QString targetSummary;
+    QVariantMap metadata;
+    QString resourceId;
+    QString clipId;
+    ResourceKind resourceKind = ResourceKind::Unknown;
+    QString location;
+    QString matchedField;
+    QString matchSummary;
+    int resultRow = -1;
+    double score = 0.0;
+    std::optional<Anchor> anchor;
+};
 
 struct PinloomOpenTarget {
     QString resourceId;
@@ -51,6 +81,14 @@ struct PinloomOpenTarget {
     double score = 0.0;
     std::optional<Anchor> anchor;
 };
+
+QString pinloomEntryTypeLabel(PinloomEntryType type);
+int pinloomEntryMatchPriority(const PinloomEntry &entry);
+bool pinloomEntryLessThan(const PinloomEntry &left, const PinloomEntry &right);
+QList<PinloomEntry> sortedPinloomEntries(QList<PinloomEntry> entries);
+PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target);
+PinloomOpenTarget openTargetFromEntry(const PinloomEntry &entry);
+QList<PinloomEntry> entriesFromOpenTargets(const QList<PinloomOpenTarget> &targets);
 
 struct PinloomClipSaveRequest {
     QString clipId;
@@ -164,6 +202,7 @@ public:
     PinloomOpenTarget openTargetForResourceId(const QString &resourceId) const;
     PinloomOpenTarget resultAt(int row) const;
     QList<PinloomOpenTarget> currentResults() const;
+    QList<PinloomEntry> currentEntries() const;
     QList<PinloomRelatedTarget> currentRelatedTargets() const;
     QList<PinloomRelatedTarget> relatedTargetsForResource(const QString &resourceId) const;
     bool upsertResourceRelation(const QString &sourceResourceId,

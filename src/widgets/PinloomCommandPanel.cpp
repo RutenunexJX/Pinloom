@@ -1192,13 +1192,26 @@ void PinloomCommandPanel::refreshResults()
             storeOpenTarget(item, target);
         }
     };
+    const auto appendUnifiedEntries = [&appendUnifiedResults](const QList<PinloomEntry> &entries) {
+        QList<PinloomOpenTarget> targets;
+        const QList<PinloomEntry> sortedEntries = sortedPinloomEntries(entries);
+        targets.reserve(sortedEntries.size());
+        for (const PinloomEntry &entry : sortedEntries) {
+            targets.append(openTargetFromEntry(entry));
+        }
+        appendUnifiedResults(targets);
+    };
 
     constexpr int resultLimit = 100;
     const QString plainQuery = commandEdit_->text().trimmed();
     if (command.commandNamespace == CommandNamespace::None
         && !plainQuery.isEmpty()
-        && options_.unifiedSearchHandler) {
-        appendUnifiedResults(options_.unifiedSearchHandler(plainQuery));
+        && (options_.unifiedEntrySearchHandler || options_.unifiedSearchHandler)) {
+        if (options_.unifiedEntrySearchHandler) {
+            appendUnifiedEntries(options_.unifiedEntrySearchHandler(plainQuery));
+        } else {
+            appendUnifiedResults(options_.unifiedSearchHandler(plainQuery));
+        }
     } else if (command.commandNamespace == CommandNamespace::Clip
         && command.action == CommandAction::None) {
         appendCommandResult(CommandRowAction::OpenCommand,
@@ -1510,7 +1523,9 @@ bool PinloomCommandPanel::activateUnifiedTarget(const PinloomOpenTarget &target)
 QList<PinloomCommandResultAction> PinloomCommandPanel::actionsForTarget(const PinloomOpenTarget &target) const
 {
     QList<PinloomCommandResultAction> actions;
-    if (options_.unifiedActionProvider) {
+    if (options_.unifiedEntryActionProvider) {
+        actions = options_.unifiedEntryActionProvider(entryFromOpenTarget(target));
+    } else if (options_.unifiedActionProvider) {
         actions = options_.unifiedActionProvider(target);
     }
 
@@ -1579,6 +1594,20 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
     }
     if (action.id == QLatin1String(PrimaryResultActionId)) {
         return activateUnifiedTarget(target);
+    }
+    if (options_.unifiedEntryActionHandler) {
+        QString status;
+        if (!options_.unifiedEntryActionHandler(this, entryFromOpenTarget(target), action, &status)) {
+            updateStatus(status.trimmed().isEmpty()
+                             ? tr("Unable to run action \"%1\"").arg(action.label)
+                             : status.trimmed());
+            return false;
+        }
+
+        updateStatus(status.trimmed().isEmpty()
+                         ? tr("Completed action \"%1\"").arg(action.label)
+                         : status.trimmed());
+        return true;
     }
     if (!options_.unifiedActionHandler) {
         updateStatus(tr("Result action is not configured"));
@@ -1918,6 +1947,47 @@ void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &pane
     commandWindow.raise();
     commandWindow.activateWindow();
     panel.focusCommand();
+}
+
+QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry, bool removeEnabled)
+{
+    const PinloomOpenTarget target = openTargetFromEntry(entry);
+    QList<PinloomCommandResultAction> actions;
+    const auto addAction = [&actions](const QString &id,
+                                      const QString &label,
+                                      const QString &detail,
+                                      bool enabled = true,
+                                      const QString &disabledReason = QString()) {
+        PinloomCommandResultAction action;
+        action.id = id;
+        action.label = label;
+        action.detail = detail;
+        action.enabled = enabled;
+        action.disabledReason = disabledReason;
+        actions.append(action);
+    };
+
+    addAction(QString::fromLatin1(PrimaryResultActionId),
+              commandTargetVerb(target),
+              QStringLiteral("%1 %2").arg(commandTargetVerb(target), entry.name));
+    addAction(entry.pinned ? QStringLiteral("unpin") : QStringLiteral("pin"),
+              entry.pinned ? QStringLiteral("Unpin") : QStringLiteral("Pin"),
+              QStringLiteral("Change pinned state"));
+    addAction(QStringLiteral("add_alias"), QStringLiteral("Add alias"), QStringLiteral("Add an alias"));
+    addAction(QStringLiteral("add_tag"), QStringLiteral("Add tag"), QStringLiteral("Add a tag"));
+    addAction(QStringLiteral("edit_metadata"),
+              QStringLiteral("Edit name/metadata"),
+              QStringLiteral("Edit name, aliases, tags, and pinned state"));
+    addAction(QStringLiteral("remove"),
+              QStringLiteral("Delete / Remove"),
+              entry.type == PinloomEntryType::SavedClip
+                  ? QStringLiteral("Archive this Saved Clip inside Pinloom")
+                  : entry.type == PinloomEntryType::Anchor
+                        ? QStringLiteral("Delete this Pinloom anchor without deleting the target file")
+                        : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
+              removeEnabled,
+              removeEnabled ? QString() : QStringLiteral("Remove is not available"));
+    return actions;
 }
 
 } // namespace Pinloom
