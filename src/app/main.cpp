@@ -1,8 +1,10 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/widgets/ClipResidentHost.h"
+#include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include <QApplication>
+#include <QDebug>
 #include <QDir>
 #include <QMainWindow>
 #include <QMessageBox>
@@ -58,8 +60,23 @@ int main(int argc, char *argv[])
     QMainWindow window;
     window.setWindowTitle(QStringLiteral("Pinloom"));
     window.resize(900, 560);
-    window.setCentralWidget(new Pinloom::PinloomPanel(repository, &window));
+    auto *panel = new Pinloom::PinloomPanel(repository, &window);
+    window.setCentralWidget(panel);
+
+    std::unique_ptr<Pinloom::ClipHotkeyBackend> mainPanelHotkeyBackend = Pinloom::createMainPanelHotkeyBackend();
+    Pinloom::ClipHotkeyService mainPanelHotkeyService(Pinloom::defaultMainPanelHotkeyConfig(),
+                                                      mainPanelHotkeyBackend.get(),
+                                                      &app);
+    Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService, window, *panel, &app);
     window.show();
+
+    if (!mainPanelHotkeyService.start()) {
+        const QString error = QStringLiteral("Pinloom main hotkey %1 could not be registered:\n%2\n\n"
+                                             "Ctrl+Space may be reserved by an IME or another application.")
+                                  .arg(mainPanelHotkeyService.displayText(), mainPanelHotkeyService.lastError());
+        qWarning().noquote() << error;
+        QMessageBox::warning(&window, QStringLiteral("Pinloom"), error);
+    }
 
     return app.exec();
 }

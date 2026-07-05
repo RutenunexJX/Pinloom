@@ -133,10 +133,20 @@ QString matchText(const ClipSearchResult &result)
     return QStringLiteral("match: %1=%2").arg(result.matchedField, compactValue(result.matchedValue, 48));
 }
 
+QString timestampText(const QDateTime &dateTime)
+{
+    return dateTime.isValid() ? dateTime.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QString();
+}
+
 QString resultItemText(const ClipSearchResult &result)
 {
     QStringList metadata;
     metadata.append(stateLabel(result.state));
+
+    const QString timestamp = timestampText(result.createdAt);
+    if (!timestamp.isEmpty()) {
+        metadata.append(QStringLiteral("time %1").arg(timestamp));
+    }
 
     const QString match = matchText(result);
     if (!match.isEmpty()) {
@@ -493,7 +503,7 @@ bool ClipPickerPanel::saveCurrentClipAsSaved(const QString &name,
     lastError_.clear();
     refreshResults();
     updateStatus(tr("Saved clip"));
-    return itemForClipId(result.clipId) != nullptr;
+    return true;
 }
 
 QString ClipPickerPanel::statusText() const

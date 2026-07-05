@@ -40,6 +40,7 @@ public:
     void setQuery(const QString &query);
     QString query() const;
     void focusSearch();
+    void refreshResults();
 
     void setSearchOptions(const ClipSearchOptions &options);
     ClipSearchOptions searchOptions() const;
@@ -76,7 +77,6 @@ protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
-    void refreshResults();
     void activateItem(QListWidgetItem *item);
     void promptSaveCurrentClip();
     void notifyCurrentResultChanged();

@@ -95,8 +95,9 @@ QString windowsLastErrorText(const QString &action)
 
 class WindowsClipHotkeyBackend final : public ClipHotkeyBackend, public QAbstractNativeEventFilter {
 public:
-    explicit WindowsClipHotkeyBackend(QObject *parent = nullptr)
+    explicit WindowsClipHotkeyBackend(int hotkeyId, QObject *parent = nullptr)
         : ClipHotkeyBackend(parent)
+        , hotkeyId_(hotkeyId)
     {
     }
 
@@ -126,7 +127,7 @@ public:
             return false;
         }
 
-        if (!RegisterHotKey(nullptr, ClipHotkeyId, windowsModifiers(config.modifiers), virtualKey)) {
+        if (!RegisterHotKey(nullptr, hotkeyId_, windowsModifiers(config.modifiers), virtualKey)) {
             setError(error, windowsLastErrorText(QStringLiteral("Unable to register global hotkey")));
             return false;
         }
@@ -140,7 +141,7 @@ public:
     void unregisterHotkey() override
     {
         if (registered_) {
-            UnregisterHotKey(nullptr, ClipHotkeyId);
+            UnregisterHotKey(nullptr, hotkeyId_);
             registered_ = false;
         }
 
@@ -160,7 +161,7 @@ public:
 
         const MSG *nativeMessage = static_cast<MSG *>(message);
         if (!nativeMessage || nativeMessage->message != WM_HOTKEY ||
-            static_cast<int>(nativeMessage->wParam) != ClipHotkeyId) {
+            static_cast<int>(nativeMessage->wParam) != hotkeyId_) {
             return false;
         }
 
@@ -179,6 +180,7 @@ private:
         }
     }
 
+    int hotkeyId_ = 0;
     bool registered_ = false;
     bool filterInstalled_ = false;
 };
@@ -432,11 +434,21 @@ void ClipPickerHotkeyController::handleHotkeyActivated()
 ClipHotkeyBackend *defaultClipHotkeyBackend()
 {
 #ifdef Q_OS_WIN
-    static WindowsClipHotkeyBackend backend;
+    static WindowsClipHotkeyBackend backend(ClipHotkeyId);
 #else
     static UnavailableClipHotkeyBackend backend;
 #endif
     return &backend;
+}
+
+std::unique_ptr<ClipHotkeyBackend> createClipHotkeyBackend(int hotkeyId)
+{
+#ifdef Q_OS_WIN
+    return std::make_unique<WindowsClipHotkeyBackend>(hotkeyId);
+#else
+    Q_UNUSED(hotkeyId);
+    return std::make_unique<UnavailableClipHotkeyBackend>();
+#endif
 }
 
 } // namespace Pinloom

@@ -274,11 +274,18 @@ Status:
 - Pinloom Clip's resident text runtime is now integrated into `pinloom_app.exe`
   with the shared app-data directory, `pinloom_clip.sqlite3`, default
   `Ctrl+Shift+V`, tray actions for Show Clipboard, Pause/Resume Capture, and
-  Quit, temporary text history insertion, and a picker action to save a
-  temporary clip as a named Saved Clip.
+  Quit, automatic system clipboard text capture, timestamped temporary text
+  history insertion, and a picker action to save a temporary clip as a named
+  Saved Clip.
+- `pinloom_app.exe` now also registers a separate global `Ctrl+Space` main
+  Pinloom panel hotkey. It restores/raises the main window and focuses the
+  search box without replacing the Clip `Ctrl+Shift+V` picker hotkey. `Ctrl+Space`
+  can still conflict with an IME or another registered global shortcut.
 - Saved Clips are searchable inside the Clip picker by name, alias, and tag.
-  Main Pinloom anchor search does not yet index Saved Clips as first-class
-  launcher results.
+  The resident picker's empty/default view is temporary history only; saved
+  clips are kept out of that default history and exact saved-text recaptures are
+  ignored as duplicates by content hash. Main Pinloom anchor search does not yet
+  index Saved Clips as first-class launcher results.
 
 ## Frozen Or Demoted Work
 

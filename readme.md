@@ -127,7 +127,12 @@ The mismatch is intentional technical debt for the reset:
   in an advanced path.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, `Ctrl+Shift+V` picker,
-  temporary history insertion, and explicit Save Clip metadata.
+  automatic system clipboard text capture, temporary history insertion, row
+  timestamps, and explicit Save Clip metadata.
+- The main Pinloom launcher panel registers a separate global `Ctrl+Space`
+  summon hotkey. It restores the main window and focuses the search box; on
+  Windows this can conflict with IMEs or another application that already owns
+  `Ctrl+Space`.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
@@ -150,10 +155,17 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 .\build\pinloom_app.exe
 ```
 
-Pinloom Clip starts with the app. Copy text, press `Ctrl+Shift+V` or use the
-tray menu's `Show Clipboard`, search the picker, and press Enter to paste the
-selected text clip into the current application. `Save Clip` turns a temporary
-clip into a named Saved Clip with aliases, tags, and pinned state.
+Pinloom starts with two global shortcuts: `Ctrl+Space` summons the main Pinloom
+panel and focuses search, while `Ctrl+Shift+V` opens Pinloom Clip. Pinloom Clip
+listens to the system clipboard automatically, so text copied with `Ctrl+C` in
+another app appears in the Clip temporary history. Press Enter in the picker to
+paste the selected text clip into the current application.
+
+Clip rows show when each item was captured. The default resident Clip view is a
+temporary-history view; once a temporary item is saved, it is no longer mixed
+into that default history. Saved Clips remain searchable by name, alias, and
+tag. Re-copying exact text already stored as a Saved Clip is ignored by the
+content hash duplicate check.
 
 ## Phase 0 Validation
 

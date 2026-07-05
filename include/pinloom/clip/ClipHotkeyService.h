@@ -4,6 +4,7 @@
 #include <QString>
 #include <Qt>
 #include <functional>
+#include <memory>
 
 namespace Pinloom {
 
@@ -95,5 +96,6 @@ private:
 };
 
 ClipHotkeyBackend *defaultClipHotkeyBackend();
+std::unique_ptr<ClipHotkeyBackend> createClipHotkeyBackend(int hotkeyId);
 
 } // namespace Pinloom

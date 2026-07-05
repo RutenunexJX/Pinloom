@@ -9,6 +9,7 @@
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
+#include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
@@ -23,6 +24,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
+#include <QMainWindow>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
@@ -43,12 +45,14 @@ private slots:
     void clipPickerEnterActivatesInjectedInsertionHandler();
     void clipPickerShowsErrorAndStaysOpenOnInsertionFailure();
     void clipPickerCanIncludeTemporaryResults();
+    void clipPickerTemporaryHistoryShowsTimestampAndHidesSavedItems();
     void clipPickerSavesTemporaryClipForNameAliasTagSearch();
     void clipTrayPresenterShowsAndRoutesTrayActions();
     void clipTrayPresenterUpdatesPauseResumeState();
     void clipTrayPresenterSyncsRuntimeStatusAndErrors();
     void clipResidentRuntimeStartsStopsCaptureHotkeyAndTray();
     void clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray();
+    void clipResidentRuntimeDefaultPickerShowsCapturedClipboardText();
     void clipResidentRuntimeCapturesTemporaryClipAndInsertsThroughPicker();
     void clipResidentRuntimePickerInsertionSuppressesOwnClipboardWrite();
     void clipResidentRuntimePauseResumeAndQuitActions();
@@ -66,6 +70,7 @@ private slots:
     void clipResidentAppConfigStoreRejectsInvalidConfigAndWriteFailures();
     void clipResidentAppConfigStoreConfiguresAppFromExplicitFile();
     void clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback();
+    void mainPanelHotkeyRegistersAndShowsMainWindow();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -625,6 +630,72 @@ void WidgetSmokeTest::clipPickerCanIncludeTemporaryResults()
     }));
 }
 
+void WidgetSmokeTest::clipPickerTemporaryHistoryShowsTimestampAndHidesSavedItems()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary timestamp history"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveWidgetClip(repository,
+                                           QStringLiteral("saved timestamp history"),
+                                           QStringLiteral("Saved Timestamp History"),
+                                           {QStringLiteral("saved timestamp alias")},
+                                           {QStringLiteral("saved-timestamp")},
+                                           false,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    ClipSearchOptions searchOptions;
+    searchOptions.includeTemporary = true;
+    ClipPickerOptions options;
+    options.searchOptions = searchOptions;
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search, options);
+    auto *resultsList = picker.findChild<QListWidget *>(QStringLiteral("clipPickerResultList"));
+    QVERIFY(resultsList);
+
+    QCOMPARE(picker.query(), QString());
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, temporary.clip->id);
+    QVERIFY(picker.currentResult().state == ClipState::Temporary);
+    QVERIFY(resultsList->item(0)->text().contains(QStringLiteral("temporary")));
+    QVERIFY(resultsList->item(0)->text().contains(
+        base.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"))));
+    const QList<ClipSearchResult> defaultResults = picker.currentResults();
+    QVERIFY(std::none_of(defaultResults.cbegin(), defaultResults.cend(), [&](const ClipSearchResult &result) {
+        return result.clipId == savedId;
+    }));
+
+    QVERIFY(picker.saveCurrentClipAsSaved(QStringLiteral("Saved Temporary History"),
+                                          {QStringLiteral("temporary history alias")},
+                                          {QStringLiteral("temporary-history")},
+                                          false));
+    QCOMPARE(picker.resultCount(), 0);
+    QCOMPARE(picker.statusText(), QStringLiteral("Saved clip"));
+
+    picker.setQuery(QStringLiteral("Saved Temporary History"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, temporary.clip->id);
+    QVERIFY(picker.currentResult().state == ClipState::Saved);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("name"));
+
+    picker.setQuery(QStringLiteral("temporary history alias"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("alias"));
+
+    picker.setQuery(QStringLiteral("#temporary-history"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().matchedField, QStringLiteral("tag"));
+}
+
 void WidgetSmokeTest::clipPickerSavesTemporaryClipForNameAliasTagSearch()
 {
     InMemoryClipRepository repository;
@@ -897,6 +968,40 @@ void WidgetSmokeTest::clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray(
     QCOMPARE(runtime.trayController().pickerShownCount(), 2);
     QCOMPARE(runtime.pickerPanel().focusWidget(), static_cast<QWidget *>(searchEdit));
     QCOMPARE(runtime.pickerPanel().currentResult().clipId, clipId);
+    QCOMPARE(pasteCalls, 0);
+}
+
+void WidgetSmokeTest::clipResidentRuntimeDefaultPickerShowsCapturedClipboardText()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextSource captureClipboard;
+    FakeClipboardTextAccessor insertionClipboard;
+    FakeClipHotkeyBackend hotkeyBackend;
+    FakeClipTrayBackend trayBackend;
+    int pasteCalls = 0;
+    ClipResidentRuntimeOptions options;
+    options.pickerSearchOptions.includeTemporary = true;
+    ClipResidentRuntime runtime(repository,
+                                makeResidentRuntimeDependencies(captureClipboard,
+                                                                insertionClipboard,
+                                                                hotkeyBackend,
+                                                                trayBackend,
+                                                                pasteCalls),
+                                options);
+
+    QVERIFY(runtime.start());
+    captureClipboard.setText(QStringLiteral("runtime default clipboard history"));
+
+    QCOMPARE(repository.temporaryClips().size(), 1);
+    const QString clipId = repository.temporaryClips().first().id;
+
+    runtime.showPicker();
+
+    QCOMPARE(runtime.pickerPanel().query(), QString());
+    QCOMPARE(runtime.pickerPanel().resultCount(), 1);
+    QCOMPARE(runtime.pickerPanel().currentResult().clipId, clipId);
+    QCOMPARE(runtime.pickerPanel().currentResult().preview, QStringLiteral("runtime default clipboard history"));
+    QVERIFY(runtime.pickerPanel().currentResult().state == ClipState::Temporary);
     QCOMPARE(pasteCalls, 0);
 }
 
@@ -1734,6 +1839,41 @@ void WidgetSmokeTest::clipResidentAppConfigStoreRequiresExplicitPathWithoutUserD
     QCOMPARE(hotkeyBackend.registerCalls(), 0);
     QVERIFY(!trayBackend.visible());
     QCOMPARE(pasteCalls, 0);
+}
+
+void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsMainWindow()
+{
+    InMemoryLibraryRepository repository;
+    QMainWindow window;
+    auto *panel = new PinloomPanel(repository, &window);
+    window.setCentralWidget(panel);
+    window.hide();
+
+    auto *searchEdit = panel->findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(searchEdit);
+    panel->setSearchText(QStringLiteral("direct typing target"));
+    searchEdit->clearFocus();
+
+    FakeClipHotkeyBackend hotkeyBackend;
+    ClipHotkeyService service(defaultMainPanelHotkeyConfig(), &hotkeyBackend);
+    MainPanelHotkeyController controller(service, window, *panel);
+    int showRequestedCount = 0;
+    QObject::connect(&controller, &MainPanelHotkeyController::showRequested, [&]() {
+        ++showRequestedCount;
+    });
+
+    QVERIFY(service.start());
+    QVERIFY(hotkeyBackend.registered());
+    QCOMPARE(hotkeyBackend.registeredConfig().key, Qt::Key_Space);
+    QCOMPARE(hotkeyBackend.registeredConfig().modifiers, Qt::KeyboardModifiers(Qt::ControlModifier));
+
+    hotkeyBackend.activate();
+    QApplication::processEvents();
+
+    QVERIFY(window.isVisible());
+    QCOMPARE(showRequestedCount, 1);
+    QCOMPARE(panel->focusWidget(), static_cast<QWidget *>(searchEdit));
+    QCOMPARE(searchEdit->selectedText(), QStringLiteral("direct typing target"));
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

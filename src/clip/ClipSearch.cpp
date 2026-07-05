@@ -41,6 +41,14 @@ bool isIncludedState(ClipState state, const ClipSearchOptions &options)
     return false;
 }
 
+bool isIncludedEmptyQueryState(ClipState state, const ClipSearchOptions &options)
+{
+    if (options.includeTemporary) {
+        return state == ClipState::Temporary;
+    }
+    return isIncludedState(state, options);
+}
+
 FieldMatch matchValue(const QString &field,
                       const QString &value,
                       const QString &query,
@@ -191,16 +199,24 @@ QList<ClipSearchResult> searchClips(const QList<Clip> &clips,
 
     QList<Candidate> candidates;
     for (const Clip &clip : clips) {
-        if (clip.kind != ClipKind::Text || !isIncludedState(clip.state, options)) {
+        if (clip.kind != ClipKind::Text) {
             continue;
         }
 
         if (emptyQuery) {
+            if (!isIncludedEmptyQueryState(clip.state, options)) {
+                continue;
+            }
+
             FieldMatch emptyMatch;
             emptyMatch.field = QStringLiteral("empty");
             emptyMatch.priority = 100;
             emptyMatch.matched = true;
             candidates.append({resultForClip(clip, emptyMatch, emptyMatch.priority), emptyMatch.priority});
+            continue;
+        }
+
+        if (!isIncludedState(clip.state, options)) {
             continue;
         }
 

@@ -145,6 +145,7 @@ void ClipResidentRuntime::showPicker()
         return;
     }
 
+    pickerPanel_->refreshResults();
     pickerPanel_->show();
     pickerPanel_->raise();
     pickerPanel_->activateWindow();

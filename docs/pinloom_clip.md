@@ -63,8 +63,8 @@ id/status/error state, and a captured signal. It only captures plain text and
 delegates blank, size, duplicate, pause, and source-app exclusion decisions to
 the existing Clip repository policy layer.
 
-This is still not the tray app, global hotkey flow, floating picker, rich text
-capture, image capture, or blob storage.
+This capture service alone is still not the tray app, floating picker, rich
+text capture, image capture, or blob storage.
 
 ## Text Clip Insertion
 
@@ -94,13 +94,13 @@ platforms the default sender is an unavailable fallback and paste attempts fail
 safely as `PasteFailed`.
 
 Window focus, activation timing, retry/backoff, and any delay between writing
-the clipboard and sending Ctrl+V are still app-layer responsibilities for the
-future tray/hotkey/picker flow. The platform invoker deliberately does not
-bypass the insertion service's suppression or optional clipboard restore logic.
+the clipboard and sending Ctrl+V remain app-layer/runtime responsibilities. The
+platform invoker deliberately does not bypass the insertion service's
+suppression or optional clipboard restore logic.
 
-This is still not the tray app, global hotkey flow, Listary-style floating
-picker, rich text insertion, image insertion, HTML/RTF/blob handling, or a
-full window-targeting paste workflow.
+This insertion service alone is still not the tray app, rich text insertion,
+image insertion, HTML/RTF/blob handling, or a full window-targeting paste
+workflow.
 
 ## Saved Clip Search And Picker Model
 
@@ -138,16 +138,16 @@ handler, but widget tests use fakes and do not touch the system clipboard or
 send real paste keys. Successful activation updates the picker status and can
 close the widget; failures surface the error and leave the clip unchanged.
 
-This is still not the tray app, global hotkey flow, Windows foreground-window
-orchestration, rich text insertion, image insertion, HTML/RTF/blob handling, or
-a full window-targeting paste workflow.
+This widget alone is still not Windows foreground-window orchestration, rich
+text insertion, image insertion, HTML/RTF/blob handling, or a full
+window-targeting paste workflow.
 
 ## Global Hotkey Service Skeleton
 
-Pinloom Clip now has a small global hotkey service skeleton for the future
-Ctrl+Shift+V picker summon flow. The core models a hotkey configuration with a
-key and Qt keyboard modifiers, defaults to `Ctrl+Shift+V`, and can expose a
-display string for settings or status surfaces.
+Pinloom Clip has a small global hotkey service for the `Ctrl+Shift+V` picker
+summon flow. The core models a hotkey configuration with a key and Qt keyboard
+modifiers, defaults to `Ctrl+Shift+V`, and can expose a display string for
+settings or status surfaces.
 
 The service is dependency-injected around a backend interface. Tests use a fake
 backend, so they can verify registration state, activation signals, failure
@@ -160,7 +160,7 @@ A tiny picker hotkey adapter can adapt the service activation signal into an
 injected show/focus handler. It does not own a tray app, does not auto-start
 with the system, does not coordinate foreground windows, and does not decide
 paste timing. Those remain app-layer responsibilities for the later
-tray/hotkey/picker workflow.
+foreground-window and paste-polish workflow.
 
 ## Tray Presenter And Picker Host Skeleton
 
@@ -212,8 +212,7 @@ icon, or sending Ctrl+V.
 
 This is still not autostart registration, foreground-window recovery, real
 focus/timing orchestration, target-window selection, rich content capture or
-insertion, image insertion, HTML/RTF/blob handling, or the final resident
-application entry point.
+insertion, image insertion, or HTML/RTF/blob handling.
 
 ## Resident Host And Factory Skeleton
 
@@ -328,14 +327,24 @@ pinloom_clip.sqlite3
 
 The runtime uses the default `Ctrl+Shift+V` global hotkey, the system tray menu,
 Qt clipboard capture, SQLite persistence, and the platform paste invoker. Copy
-plain text to add it to temporary history, open the picker with `Ctrl+Shift+V`
-or the tray menu's `Show Clipboard`, search, and press Enter to paste the
-selected text into the current application.
+plain text in any application with `Ctrl+C` to add it to temporary history, open
+the picker with `Ctrl+Shift+V` or the tray menu's `Show Clipboard`, search, and
+press Enter to paste the selected text into the current application.
+
+`pinloom_app.exe` also registers a separate `Ctrl+Space` global hotkey for the
+main Pinloom panel. That hotkey restores/raises the main window and focuses the
+search box. It is intentionally separate from the Clip picker hotkey, but on
+Windows `Ctrl+Space` can conflict with IMEs or another application that already
+registered the same shortcut.
 
 The picker includes temporary history for the resident app. A `Save Clip`
 button and `Ctrl+S` shortcut save the selected temporary clip as a Saved Clip
-with name, aliases, tags, and pinned state. Saved Clips are searchable inside
-the Clip picker by name, alias, and `#tag`.
+with name, aliases, tags, and pinned state. Rows include a local timestamp for
+when the clip was captured. The default empty picker view is temporary history
+only; once a temporary clip is saved, it is no longer mixed into that default
+history list. Saved Clips are still searchable inside the Clip picker by name,
+alias, and `#tag`. Re-copying exact text already stored as a Saved Clip is
+ignored as a duplicate by the content hash check.
 
 Current limits remain explicit:
 

@@ -296,7 +296,9 @@ private slots:
     void clipSearchFindsAliasTagHashTagPreviewAndText();
     void clipSearchUsesPinnedAndRecentForStableOrdering();
     void clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary();
+    void clipSearchEmptyQueryWithTemporaryHistoryHidesSavedClips();
     void clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips();
+    void savedClipContentCaptureIsIgnoredAsDuplicate();
     void sqliteSearchesSavedClipAfterRepositoryRestart();
     void clipArchiveExportsSavedOnly();
     void clipArchiveImportsIntoEmptyRepositoryAndSearchesMetadata();
@@ -958,6 +960,54 @@ void ClipTest::clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary()
     }));
 }
 
+void ClipTest::clipSearchEmptyQueryWithTemporaryHistoryHidesSavedClips()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary default history"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveInMemoryClip(repository,
+                                             QStringLiteral("saved default history"),
+                                             QStringLiteral("Saved Default History"),
+                                             {QStringLiteral("saved default alias")},
+                                             {QStringLiteral("saved-default")},
+                                             true,
+                                             base.addSecs(1),
+                                             base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    ClipSearchOptions options;
+    options.includeTemporary = true;
+    const ClipSearchService search(repository);
+
+    QList<ClipSearchResult> results = search.search(QString(), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, temporary.clip->id);
+    QVERIFY(results.first().state == ClipState::Temporary);
+
+    results = search.search(QStringLiteral("Saved Default History"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, savedId);
+    QVERIFY(results.first().state == ClipState::Saved);
+    QCOMPARE(results.first().matchedField, QStringLiteral("name"));
+
+    results = search.search(QStringLiteral("saved default alias"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, savedId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("alias"));
+
+    results = search.search(QStringLiteral("#saved-default"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, savedId);
+    QCOMPARE(results.first().matchedField, QStringLiteral("tag"));
+}
+
 void ClipTest::clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips()
 {
     InMemoryClipRepository repository;
@@ -1009,6 +1059,36 @@ void ClipTest::clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips()
     QVERIFY(std::none_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
         return result.clipId == temporary.clip->id;
     }));
+}
+
+void ClipTest::savedClipContentCaptureIsIgnoredAsDuplicate()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("saved duplicate text"),
+                                                              {},
+                                                              {},
+                                                              base);
+    QVERIFY(captured.captured());
+    QVERIFY(captured.clip.has_value());
+    QVERIFY(repository.saveClip(captured.clip->id,
+                                QStringLiteral("Saved Duplicate"),
+                                {QStringLiteral("duplicate alias")},
+                                {QStringLiteral("duplicate")},
+                                false,
+                                base.addSecs(1)));
+    QCOMPARE(repository.temporaryClips().size(), 0);
+    QCOMPARE(repository.savedClips().size(), 1);
+
+    const ClipCaptureResult duplicate = repository.captureText(QStringLiteral("saved duplicate text"),
+                                                               {},
+                                                               {},
+                                                               base.addSecs(2));
+    QVERIFY(!duplicate.captured());
+    QVERIFY(duplicate.status == ClipCaptureStatus::IgnoredDuplicate);
+    QCOMPARE(repository.temporaryClips().size(), 0);
+    QCOMPARE(repository.savedClips().size(), 1);
 }
 
 void ClipTest::sqliteSearchesSavedClipAfterRepositoryRestart()
