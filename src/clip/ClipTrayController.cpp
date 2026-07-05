@@ -48,6 +48,12 @@ void ClipTrayController::setCapturePausedHandler(CapturePausedHandler handler)
 
 bool ClipTrayController::start()
 {
+    if (!options_.registerHotkeyOnStart) {
+        setRunning(true);
+        setLastError({});
+        return true;
+    }
+
     if (running_ && hotkeyService_.isRegistered()) {
         return true;
     }
@@ -66,7 +72,9 @@ bool ClipTrayController::start()
 
 void ClipTrayController::stop()
 {
-    hotkeyService_.stop();
+    if (options_.registerHotkeyOnStart) {
+        hotkeyService_.stop();
+    }
     setRunning(false);
 }
 
@@ -104,7 +112,7 @@ QList<ClipTrayAction> ClipTrayController::actions() const
          true,
          options_.capturePaused,
          true},
-        {QStringLiteral("quit"), QStringLiteral("Quit"), true, false},
+        {QStringLiteral("quit"), QStringLiteral("Quit Pinloom"), true, false},
     };
 }
 
@@ -179,6 +187,10 @@ void ClipTrayController::requestQuit()
 
 void ClipTrayController::handleHotkeyActivated()
 {
+    if (!options_.registerHotkeyOnStart) {
+        return;
+    }
+
     requestShowPicker();
 }
 

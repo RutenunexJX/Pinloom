@@ -12,12 +12,14 @@
 #include "pinloom/widgets/ClipTrayPresenter.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
+#include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QApplication>
+#include <QCloseEvent>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFile>
@@ -54,6 +56,7 @@ private slots:
     void clipTrayPresenterUpdatesPauseResumeState();
     void clipTrayPresenterSyncsRuntimeStatusAndErrors();
     void clipResidentRuntimeStartsStopsCaptureHotkeyAndTray();
+    void clipResidentRuntimeCanRunWithoutRegisteringClipHotkey();
     void clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray();
     void clipResidentRuntimeDefaultPickerShowsCapturedClipboardText();
     void clipResidentRuntimeCapturesTemporaryClipAndInsertsThroughPicker();
@@ -73,12 +76,14 @@ private slots:
     void clipResidentAppConfigStoreRejectsInvalidConfigAndWriteFailures();
     void clipResidentAppConfigStoreConfiguresAppFromExplicitFile();
     void clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback();
+    void mainWindowCloseHidesToTray();
     void mainPanelHotkeyRegistersAndShowsMainWindow();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
+    void panelClipCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
@@ -912,6 +917,10 @@ void WidgetSmokeTest::clipTrayPresenterShowsAndRoutesTrayActions()
     QVERIFY(!trayBackend.visible());
     QCOMPARE(trayBackend.actionChanges(), 1);
     QVERIFY(presentedActionById(trayBackend.actions(), QStringLiteral("show_picker")).has_value());
+    const std::optional<ClipTrayPresentedAction> quitAction =
+        presentedActionById(trayBackend.actions(), QStringLiteral("quit"));
+    QVERIFY(quitAction.has_value());
+    QCOMPARE(quitAction->title, QStringLiteral("Quit Pinloom"));
 
     presenter.show();
     QVERIFY(trayBackend.visible());
@@ -1054,6 +1063,57 @@ void WidgetSmokeTest::clipResidentRuntimeStartsStopsCaptureHotkeyAndTray()
     QCOMPARE(hotkeyBackend.unregisterCalls(), 1);
     QCOMPARE(trayBackend.visibleChanges(), 2);
     QCOMPARE(runningSignals, (QList<bool>{true, false}));
+    QCOMPARE(pasteCalls, 0);
+}
+
+void WidgetSmokeTest::clipResidentRuntimeCanRunWithoutRegisteringClipHotkey()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextSource captureClipboard;
+    FakeClipboardTextAccessor insertionClipboard;
+    FakeClipHotkeyBackend hotkeyBackend;
+    FakeClipTrayBackend trayBackend;
+    int pasteCalls = 0;
+    ClipResidentRuntimeOptions options;
+    options.registerHotkeyOnStart = false;
+    options.pickerSearchOptions.includeTemporary = true;
+    ClipResidentRuntime runtime(repository,
+                                makeResidentRuntimeDependencies(captureClipboard,
+                                                                insertionClipboard,
+                                                                hotkeyBackend,
+                                                                trayBackend,
+                                                                pasteCalls),
+                                options);
+
+    QVERIFY(runtime.start());
+
+    QVERIFY(runtime.isRunning());
+    QVERIFY(runtime.captureService().isRunning());
+    QVERIFY(!runtime.hotkeyService().isRegistered());
+    QVERIFY(!hotkeyBackend.registered());
+    QCOMPARE(hotkeyBackend.registerCalls(), 0);
+    QVERIFY(trayBackend.visible());
+
+    captureClipboard.setText(QStringLiteral("runtime no hotkey captured text"));
+    QCOMPARE(repository.temporaryClips().size(), 1);
+
+    hotkeyBackend.activate();
+    QApplication::processEvents();
+    QCOMPARE(runtime.pickerShownCount(), 0);
+    QCOMPARE(runtime.trayController().pickerShownCount(), 0);
+
+    trayBackend.triggerAction(QStringLiteral("show_picker"));
+    QApplication::processEvents();
+    QCOMPARE(runtime.pickerShownCount(), 1);
+    QCOMPARE(runtime.trayController().pickerShownCount(), 1);
+
+    runtime.stop();
+
+    QVERIFY(!runtime.isRunning());
+    QVERIFY(!runtime.captureService().isRunning());
+    QVERIFY(!runtime.hotkeyService().isRegistered());
+    QCOMPARE(hotkeyBackend.unregisterCalls(), 0);
+    QVERIFY(!trayBackend.visible());
     QCOMPARE(pasteCalls, 0);
 }
 
@@ -1976,6 +2036,36 @@ void WidgetSmokeTest::clipResidentAppConfigStoreRequiresExplicitPathWithoutUserD
     QCOMPARE(pasteCalls, 0);
 }
 
+void WidgetSmokeTest::mainWindowCloseHidesToTray()
+{
+    PinloomMainWindow window;
+    int hiddenSignals = 0;
+    QObject::connect(&window, &PinloomMainWindow::hiddenToTray, [&]() {
+        ++hiddenSignals;
+    });
+
+    window.show();
+    QApplication::processEvents();
+    QVERIFY(window.isVisible());
+
+    QCloseEvent closeEvent;
+    QApplication::sendEvent(&window, &closeEvent);
+    QApplication::processEvents();
+
+    QVERIFY(!closeEvent.isAccepted());
+    QVERIFY(!window.isVisible());
+    QCOMPARE(hiddenSignals, 1);
+
+    window.show();
+    QApplication::processEvents();
+    QVERIFY(window.isVisible());
+
+    QVERIFY(!window.close());
+    QApplication::processEvents();
+    QVERIFY(!window.isVisible());
+    QCOMPARE(hiddenSignals, 2);
+}
+
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsMainWindow()
 {
     InMemoryLibraryRepository repository;
@@ -2456,6 +2546,111 @@ void WidgetSmokeTest::panelSearchesSavedClipsAndEnterInserts()
     QCOMPARE(openedTargets.size(), 1);
     QCOMPARE(openedTargets.first().resourceId, resource.id);
     QVERIFY(openedTargets.first().anchor.has_value());
+}
+
+void WidgetSmokeTest::panelClipCommandSearchesHistoryAndSavedClipsAndEnterInserts()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("clip-command-anchor");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Unrelated Anchor");
+    resource.location = QStringLiteral("unrelated-anchor.md");
+    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Unrelated heading"), 4}};
+    QVERIFY(repository.upsertResource(resource));
+
+    InMemoryClipRepository clipRepository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const ClipCaptureResult temporary = clipRepository.captureText(QStringLiteral("temporary command body"),
+                                                                   {},
+                                                                   {},
+                                                                   base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveWidgetClip(clipRepository,
+                                           QStringLiteral("saved command body"),
+                                           QStringLiteral("Clip Command Saved"),
+                                           {QStringLiteral("saved command alias")},
+                                           {QStringLiteral("command-tag")},
+                                           true,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    ClipSearchService clipSearch(clipRepository);
+    QStringList clipQueries;
+    QList<ClipSearchOptions> clipOptions;
+    QStringList insertedClipIds;
+    QList<PinloomOpenTarget> openedTargets;
+    PinloomPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        clipQueries.append(query);
+        clipOptions.append(searchOptions);
+        return clipSearch.search(query, searchOptions);
+    };
+    options.clipInsertionHandler = [&](const QString &selectedClipId, QString *error) {
+        if (error) {
+            error->clear();
+        }
+        insertedClipIds.append(selectedClipId);
+        return true;
+    };
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        openedTargets.append(target);
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("Clip Command Saved"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(!clipOptions.isEmpty());
+    QVERIFY(!clipOptions.last().includeTemporary);
+
+    clipQueries.clear();
+    clipOptions.clear();
+    panel.setSearchText(QStringLiteral("c"));
+
+    QCOMPARE(clipQueries, (QStringList{QString(), QString()}));
+    QCOMPARE(clipOptions.size(), 2);
+    QVERIFY(!clipOptions.at(0).includeSaved);
+    QVERIFY(clipOptions.at(0).includeTemporary);
+    QVERIFY(clipOptions.at(1).includeSaved);
+    QVERIFY(!clipOptions.at(1).includeTemporary);
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(panel.resultAt(0).clipId, temporary.clip->id);
+    QCOMPARE(panel.resultAt(0).matchSummary, QStringLiteral("Clip History"));
+    QCOMPARE(panel.resultAt(1).clipId, savedId);
+    QCOMPARE(panel.resultAt(1).matchSummary, QStringLiteral("Saved Clip"));
+    QVERIFY(panel.resultAt(0).resourceId.isEmpty());
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Clip mode: 2 clip(s)"));
+
+    clipQueries.clear();
+    clipOptions.clear();
+    panel.setSearchText(QStringLiteral("c saved command alias"));
+
+    QCOMPARE(clipQueries, QStringList{QStringLiteral("saved command alias")});
+    QCOMPARE(clipOptions.size(), 1);
+    QVERIFY(clipOptions.first().includeSaved);
+    QVERIFY(clipOptions.first().includeTemporary);
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().clipId, savedId);
+    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: saved command alias")));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(insertedClipIds, QStringList{savedId});
+    QVERIFY(openedTargets.isEmpty());
+    QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()

@@ -142,12 +142,14 @@ This widget alone is still not Windows foreground-window orchestration, rich
 text insertion, image insertion, HTML/RTF/blob handling, or a full
 window-targeting paste workflow.
 
-## Global Hotkey Service Skeleton
+## Clip Hotkey Service Skeleton
 
-Pinloom Clip has a small global hotkey service for the `Ctrl+Shift+V` picker
-summon flow. The core models a hotkey configuration with a key and Qt keyboard
-modifiers, defaults to `Ctrl+Shift+V`, and can expose a display string for
-settings or status surfaces.
+Pinloom Clip has a small global hotkey service that remains available for
+standalone picker hosts and unit tests. The core models a hotkey configuration
+with a key and Qt keyboard modifiers, defaults to `Ctrl+Shift+V`, and can
+expose a display string for settings or status surfaces. The main
+`pinloom_app.exe` path does not register this Clip hotkey; Clip is reached from
+the unified `Ctrl+Space` launcher with the `c` command prefix.
 
 The service is dependency-injected around a backend interface. Tests use a fake
 backend, so they can verify registration state, activation signals, failure
@@ -325,17 +327,19 @@ stores clips in:
 pinloom_clip.sqlite3
 ```
 
-The runtime uses the default `Ctrl+Shift+V` global hotkey, the system tray menu,
-Qt clipboard capture, SQLite persistence, and the platform paste invoker. Copy
-plain text in any application with `Ctrl+C` to add it to temporary history, open
-the picker with `Ctrl+Shift+V` or the tray menu's `Show Clipboard`, search, and
-press Enter to paste the selected text into the current application.
+The runtime uses the system tray menu, Qt clipboard capture, SQLite persistence,
+and the platform paste invoker. The main app deliberately disables the
+standalone Clip hotkey registration so `Ctrl+Space` is the single command
+entry. Copy plain text in any application with `Ctrl+C` to add it to temporary
+history, summon the launcher with `Ctrl+Space`, type `c` or `c <query>`, and
+press Enter to paste the selected text into the current application. The tray
+menu's `Show Clipboard` action routes back to the same launcher Clip mode, and
+`Quit Pinloom` exits the resident app.
 
 `pinloom_app.exe` also registers a separate `Ctrl+Space` global hotkey for the
 main Pinloom launcher. That hotkey restores/raises a compact horizontal search
-bar and focuses the search box. It is intentionally separate from the Clip
-picker hotkey, but on Windows `Ctrl+Space` can conflict with IMEs or another
-application that already registered the same shortcut.
+bar and focuses the search box. On Windows `Ctrl+Space` can conflict with IMEs
+or another application that already registered the same shortcut.
 
 The picker includes temporary history for the resident app. A `Save Clip`
 button and `Ctrl+S` shortcut save the selected temporary clip as a Saved Clip

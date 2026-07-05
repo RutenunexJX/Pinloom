@@ -272,23 +272,21 @@ Status:
 - This is intentionally not yet connected to UI, tray actions, app data
   defaults, or remote sync.
 - Pinloom Clip's resident text runtime is now integrated into `pinloom_app.exe`
-  with the shared app-data directory, `pinloom_clip.sqlite3`, default
-  `Ctrl+Shift+V`, tray actions for Show Clipboard, Pause/Resume Capture, and
-  Quit, automatic system clipboard text capture, timestamped temporary text
-  history insertion, and a picker action to save a temporary clip as a named
-  Saved Clip.
-- `pinloom_app.exe` now also registers a separate global `Ctrl+Space` main
-  Pinloom launcher hotkey. It restores/raises a compact horizontal search bar
-  and focuses the search box without replacing the Clip `Ctrl+Shift+V` picker
-  hotkey. `Ctrl+Space` can still conflict with an IME or another registered
+  with the shared app-data directory, `pinloom_clip.sqlite3`, tray actions for
+  Show Clipboard, Pause/Resume Capture, and Quit Pinloom, automatic system
+  clipboard text capture, timestamped temporary text history insertion, and a
+  picker action to save a temporary clip as a named Saved Clip.
+- `pinloom_app.exe` registers a single global `Ctrl+Space` command entry for
+  the main Pinloom launcher. The main path no longer registers the standalone
+  Clip `Ctrl+Shift+V` hotkey; type `c` or `c <query>` in the launcher to enter
+  Clip mode. `Ctrl+Space` can still conflict with an IME or another registered
   global shortcut.
-- Saved Clips are searchable inside both the Clip picker and the main Pinloom
-  launcher by name, alias, `#tag`, and text preview/content. The resident
-  picker's empty/default view is temporary history only; saved clips are kept
-  out of that default history and exact saved-text recaptures are ignored as
-  duplicates by content hash. Main launcher Enter inserts Saved Clip text
-  through the same clip insertion service, while anchor results keep their
-  native jump behavior.
+- Saved Clips are searchable inside both the normal launcher search and the
+  `c` Clip mode by name, alias, `#tag`, and text preview/content. Clip mode also
+  shows temporary history; saved clips are kept out of temporary history and
+  exact saved-text recaptures are ignored as duplicates by content hash. Main
+  launcher Enter inserts Clip text through the same clip insertion service,
+  while anchor results keep their native jump behavior.
 
 ## Frozen Or Demoted Work
 

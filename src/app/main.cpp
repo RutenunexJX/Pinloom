@@ -1,12 +1,12 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
+#include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include <QApplication>
 #include <QDebug>
 #include <QDir>
-#include <QMainWindow>
 #include <QMessageBox>
 #include <QStandardPaths>
 #include <memory>
@@ -16,6 +16,7 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Pinloom"));
     QApplication::setOrganizationName(QStringLiteral("Pinloom"));
+    app.setQuitOnLastWindowClosed(false);
 
     QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (appDataPath.isEmpty()) {
@@ -40,24 +41,20 @@ int main(int argc, char *argv[])
     clipOptions.repositoryKind = Pinloom::ClipResidentRepositoryKind::SQLite;
     clipOptions.sqliteDatabasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom_clip.sqlite3"));
     clipOptions.runtimeOptions.pickerSearchOptions.includeTemporary = true;
+    clipOptions.runtimeOptions.registerHotkeyOnStart = false;
 
     Pinloom::ClipResidentHostResult clipHostResult = clipFactory.createDefaultPlatformHost(clipOptions);
     std::unique_ptr<Pinloom::ClipResidentHost> clipHost;
     if (clipHostResult.succeeded()) {
         clipHost = std::move(clipHostResult.host);
         QObject::connect(clipHost.get(), &Pinloom::ClipResidentHost::quitRequested, &app, &QApplication::quit);
-        if (!clipHost->start()) {
-            QMessageBox::warning(nullptr,
-                                 QStringLiteral("Pinloom Clip"),
-                                 QStringLiteral("Pinloom Clip could not start:\n%1").arg(clipHost->lastError()));
-        }
     } else {
         QMessageBox::warning(nullptr,
                              QStringLiteral("Pinloom Clip"),
                              QStringLiteral("Pinloom Clip could not initialize:\n%1").arg(clipHostResult.error));
     }
 
-    QMainWindow window;
+    Pinloom::PinloomMainWindow window;
     window.setWindowTitle(QStringLiteral("Pinloom"));
     window.setMinimumWidth(560);
     window.resize(760, 72);
@@ -86,6 +83,18 @@ int main(int argc, char *argv[])
 
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);
+
+    if (clipHost && clipHost->runtime()) {
+        clipHost->runtime()->trayController().setShowPickerHandler([&window, panel]() {
+            Pinloom::showMainPanelForHotkey(window, *panel);
+            panel->setSearchText(QStringLiteral("c "));
+        });
+        if (!clipHost->start()) {
+            QMessageBox::warning(&window,
+                                 QStringLiteral("Pinloom Clip"),
+                                 QStringLiteral("Pinloom Clip could not start:\n%1").arg(clipHost->lastError()));
+        }
+    }
 
     std::unique_ptr<Pinloom::ClipHotkeyBackend> mainPanelHotkeyBackend = Pinloom::createMainPanelHotkeyBackend();
     Pinloom::ClipHotkeyService mainPanelHotkeyService(Pinloom::defaultMainPanelHotkeyConfig(),

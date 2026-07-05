@@ -31,6 +31,7 @@ struct ClipResidentRuntimeOptions {
     bool hideTrayOnStop = true;
     bool hidePickerOnStop = true;
     bool stopOnQuitRequested = true;
+    bool registerHotkeyOnStart = true;
 };
 
 class ClipResidentRuntime final : public QObject {

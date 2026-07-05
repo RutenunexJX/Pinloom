@@ -126,7 +126,8 @@ The mismatch is intentional technical debt for the reset:
   current PDF UX uses selected-PDF fallback capture and keeps raw coordinates
   in an advanced path.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
-  clipboard MVP with SQLite persistence, tray menu, `Ctrl+Shift+V` picker,
+  clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
+  launcher access through the `c` command prefix,
   automatic system clipboard text capture, temporary history insertion, row
   timestamps, and explicit Save Clip metadata. Saved Clips are also available
   in the main launcher bar.
@@ -156,16 +157,16 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 .\build\pinloom_app.exe
 ```
 
-Pinloom starts with two global shortcuts: `Ctrl+Space` summons the main Pinloom
-launcher bar and focuses search, while `Ctrl+Shift+V` opens Pinloom Clip.
-Search the main bar for anchors or Saved Clips; Enter jumps anchors to their
-native target and inserts Saved Clip text into the current foreground app.
+Pinloom starts as a resident app with one global shortcut: `Ctrl+Space` summons
+the main Pinloom launcher bar and focuses search. Search the main bar for
+anchors or Saved Clips; Enter jumps anchors to their native target and inserts
+Saved Clip text into the current foreground app. Type `c` or `c <query>` in the
+launcher to search Clip history and Saved Clips from the same command surface.
 
-Clip rows show when each item was captured. The default resident Clip view is a
-temporary-history view; once a temporary item is saved, it is no longer mixed
-into that default history. Saved Clips remain searchable by name, alias, and
-tag in both the Clip picker and the main launcher bar. The Clip picker remains
-the temporary history and Save Clip surface, not the only insertion path.
+Clip rows show when each item was captured. The resident Clip command view
+shows temporary history alongside Saved Clips; once a temporary item is saved,
+it is no longer mixed into temporary history. Saved Clips remain searchable by
+name, alias, and tag in the main launcher bar and in `c` mode.
 Re-copying exact text already stored as a Saved Clip is ignored by the content
 hash duplicate check. The current Clip MVP captures and inserts text only;
 rich content is future work.

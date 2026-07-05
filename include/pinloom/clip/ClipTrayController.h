@@ -24,6 +24,7 @@ struct ClipTrayControllerOptions {
     ClipTrayShowPickerHandler showPickerHandler;
     ClipTrayCapturePausedHandler capturePausedHandler;
     bool capturePaused = false;
+    bool registerHotkeyOnStart = true;
 };
 
 class ClipTrayController final : public QObject {
