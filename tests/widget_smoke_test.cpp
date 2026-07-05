@@ -16,8 +16,11 @@
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomPanel.h"
+#include "pinloom/widgets/PinloomSettingsDialog.h"
+#include "pinloom/widgets/PinloomSingleInstance.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
+#include <QAction>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QApplication>
@@ -33,6 +36,8 @@
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
+#include <QSettings>
+#include <QSpinBox>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
@@ -59,6 +64,7 @@ private slots:
     void clipTrayPresenterShowsAndRoutesTrayActions();
     void clipTrayPresenterUpdatesPauseResumeState();
     void clipTrayPresenterSyncsRuntimeStatusAndErrors();
+    void clipTrayControllerRoutesSettingsAndDiagnosticsActions();
     void clipResidentRuntimeStartsStopsCaptureHotkeyAndTray();
     void clipResidentRuntimeCanRunWithoutRegisteringClipHotkey();
     void clipResidentRuntimeShowsAndFocusesPickerFromHotkeyAndTray();
@@ -81,7 +87,10 @@ private slots:
     void clipResidentAppConfigStoreConfiguresAppFromExplicitFile();
     void clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback();
     void mainWindowCloseHidesToTray();
+    void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
+    void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
+    void settingsDialogRoundTripsRuntimeSettings();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -1028,10 +1037,16 @@ void WidgetSmokeTest::clipTrayPresenterShowsAndRoutesTrayActions()
         ++quitSignalCount;
     });
 
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: stopped\n"
+                            "Hotkey: not registered (Ctrl+Shift+V)\n"
+                            "Clip capture: stopped"));
     QVERIFY(!trayBackend.visible());
     QCOMPARE(trayBackend.actionChanges(), 1);
     QVERIFY(presentedActionById(trayBackend.actions(), QStringLiteral("show_picker")).has_value());
+    QVERIFY(presentedActionById(trayBackend.actions(), QStringLiteral("settings")).has_value());
+    QVERIFY(presentedActionById(trayBackend.actions(), QStringLiteral("diagnostics")).has_value());
     const std::optional<ClipTrayPresentedAction> quitAction =
         presentedActionById(trayBackend.actions(), QStringLiteral("quit"));
     QVERIFY(quitAction.has_value());
@@ -1078,7 +1093,11 @@ void WidgetSmokeTest::clipTrayPresenterUpdatesPauseResumeState()
     QVERIFY(!toggleAction->checked);
 
     QVERIFY(controller.start());
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: running\n"
+                            "Hotkey: registered (Ctrl+Shift+V)\n"
+                            "Clip capture: active"));
 
     trayBackend.triggerAction(QStringLiteral("toggle_capture"));
 
@@ -1090,7 +1109,11 @@ void WidgetSmokeTest::clipTrayPresenterUpdatesPauseResumeState()
     QVERIFY(toggleAction->checkable);
     QVERIFY(toggleAction->checked);
     QCOMPARE(controller.status(), QStringLiteral("Running, capture paused"));
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning, capture paused"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: running\n"
+                            "Hotkey: registered (Ctrl+Shift+V)\n"
+                            "Clip capture: paused"));
 
     trayBackend.triggerAction(QStringLiteral("toggle_capture"));
 
@@ -1101,7 +1124,11 @@ void WidgetSmokeTest::clipTrayPresenterUpdatesPauseResumeState()
     QCOMPARE(toggleAction->title, QStringLiteral("Pause Capture"));
     QVERIFY(toggleAction->checkable);
     QVERIFY(!toggleAction->checked);
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: running\n"
+                            "Hotkey: registered (Ctrl+Shift+V)\n"
+                            "Clip capture: active"));
 }
 
 void WidgetSmokeTest::clipTrayPresenterSyncsRuntimeStatusAndErrors()
@@ -1112,27 +1139,83 @@ void WidgetSmokeTest::clipTrayPresenterSyncsRuntimeStatusAndErrors()
     FakeClipTrayBackend trayBackend;
     ClipTrayPresenter presenter(controller, trayBackend);
 
-    QCOMPARE(presenter.toolTipText(), QStringLiteral("Pinloom Clip\nStopped"));
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+    QCOMPARE(presenter.toolTipText(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: stopped\n"
+                            "Hotkey: not registered (Ctrl+Shift+V)\n"
+                            "Clip capture: stopped"));
+    QCOMPARE(trayBackend.toolTip(), presenter.toolTipText());
 
     QVERIFY(controller.start());
     QVERIFY(controller.isRunning());
     QVERIFY(hotkeyBackend.registered());
     QCOMPARE(hotkeyBackend.registerCalls(), 1);
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nRunning"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: running\n"
+                            "Hotkey: registered (Ctrl+Shift+V)\n"
+                            "Clip capture: active"));
 
     controller.stop();
     QVERIFY(!controller.isRunning());
     QVERIFY(!hotkeyBackend.registered());
     QCOMPARE(hotkeyBackend.unregisterCalls(), 1);
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: stopped\n"
+                            "Hotkey: not registered (Ctrl+Shift+V)\n"
+                            "Clip capture: stopped"));
 
     hotkeyBackend.setRegisterResult(false, QStringLiteral("fake tray hotkey failure"));
     QVERIFY(!controller.start());
     QVERIFY(!controller.isRunning());
     QCOMPARE(controller.lastError(), QStringLiteral("fake tray hotkey failure"));
-    QCOMPARE(trayBackend.toolTip(), QStringLiteral("Pinloom Clip\nStopped: fake tray hotkey failure"));
+    QCOMPARE(trayBackend.toolTip(),
+             QStringLiteral("Pinloom\n"
+                            "Clip: stopped\n"
+                            "Hotkey: not registered (Ctrl+Shift+V)\n"
+                            "Clip capture: stopped\n"
+                            "Last error: fake tray hotkey failure"));
     QCOMPARE(presenter.toolTipText(), trayBackend.toolTip());
+}
+
+void WidgetSmokeTest::clipTrayControllerRoutesSettingsAndDiagnosticsActions()
+{
+    FakeClipHotkeyBackend hotkeyBackend;
+    ClipHotkeyService service(&hotkeyBackend);
+    int settingsHandlerCount = 0;
+    int diagnosticsHandlerCount = 0;
+    int settingsSignalCount = 0;
+    int diagnosticsSignalCount = 0;
+    ClipTrayControllerOptions options;
+    options.settingsHandler = [&]() {
+        ++settingsHandlerCount;
+    };
+    options.diagnosticsHandler = [&]() {
+        ++diagnosticsHandlerCount;
+    };
+    ClipTrayController controller(service, options);
+    QObject::connect(&controller, &ClipTrayController::settingsRequested, [&]() {
+        ++settingsSignalCount;
+    });
+    QObject::connect(&controller, &ClipTrayController::diagnosticsRequested, [&]() {
+        ++diagnosticsSignalCount;
+    });
+
+    const QList<ClipTrayAction> actions = controller.actions();
+    QVERIFY(std::any_of(actions.cbegin(), actions.cend(), [](const ClipTrayAction &action) {
+        return action.id == QLatin1String("settings");
+    }));
+    QVERIFY(std::any_of(actions.cbegin(), actions.cend(), [](const ClipTrayAction &action) {
+        return action.id == QLatin1String("diagnostics");
+    }));
+    QVERIFY(controller.triggerAction(QStringLiteral("settings")));
+    QVERIFY(controller.triggerAction(QStringLiteral("diagnostics")));
+
+    QCOMPARE(settingsHandlerCount, 1);
+    QCOMPARE(diagnosticsHandlerCount, 1);
+    QCOMPARE(settingsSignalCount, 1);
+    QCOMPARE(diagnosticsSignalCount, 1);
 }
 
 void WidgetSmokeTest::clipResidentRuntimeStartsStopsCaptureHotkeyAndTray()
@@ -2181,6 +2264,46 @@ void WidgetSmokeTest::mainWindowCloseHidesToTray()
     QCOMPARE(hiddenSignals, 2);
 }
 
+void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
+{
+    PinloomMainWindow window;
+    PinloomResidentStatus status;
+    status.running = true;
+    status.mainHotkeyRegistered = true;
+    status.mainHotkeyText = QStringLiteral("Ctrl+Space");
+    status.clipCaptureActive = true;
+    status.clipStatus = QStringLiteral("Running");
+    window.setResidentStatus(status);
+
+    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Pinloom running")));
+    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Command hotkey: registered (Ctrl+Space)")));
+    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Clip capture: active")));
+
+    window.setRecentError(QStringLiteral("Hotkey conflict"),
+                          QStringLiteral("Ctrl+Space registration failed with fake error 1409"));
+    QCOMPARE(window.recentError(), QStringLiteral("Hotkey conflict"));
+    QVERIFY(window.diagnosticsText().contains(QStringLiteral("Hotkey conflict")));
+    QVERIFY(window.diagnosticsText().contains(QStringLiteral("fake error 1409")));
+
+    int settingsSignals = 0;
+    int quitSignals = 0;
+    QObject::connect(&window, &PinloomMainWindow::settingsRequested, [&]() {
+        ++settingsSignals;
+    });
+    QObject::connect(&window, &PinloomMainWindow::quitRequested, [&]() {
+        ++quitSignals;
+    });
+
+    auto *settingsAction = window.findChild<QAction *>(QStringLiteral("settingsAction"));
+    auto *quitAction = window.findChild<QAction *>(QStringLiteral("quitAction"));
+    QVERIFY(settingsAction);
+    QVERIFY(quitAction);
+    settingsAction->trigger();
+    quitAction->trigger();
+    QCOMPARE(settingsSignals, 1);
+    QCOMPARE(quitSignals, 1);
+}
+
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
 {
     InMemoryLibraryRepository repository;
@@ -2226,6 +2349,105 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     QCOMPARE(commandPanel->focusWidget(), static_cast<QWidget *>(commandEdit));
     QCOMPARE(commandEdit->selectedText(), QStringLiteral("c"));
     QVERIFY(!searchEdit->hasFocus());
+}
+
+void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
+{
+    const QString serverName = QStringLiteral("pinloom-test-%1-%2")
+                                   .arg(QCoreApplication::applicationPid())
+                                   .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomSingleInstanceGuard primary({serverName, 100});
+    const PinloomSingleInstanceStartResult primaryResult = primary.start();
+    QVERIFY2(primaryResult.isPrimary(), qPrintable(primaryResult.error));
+    int activationCount = 0;
+    QString activationMessage;
+    QObject::connect(&primary, &PinloomSingleInstanceGuard::activationRequested, [&](const QString &message) {
+        ++activationCount;
+        activationMessage = message;
+    });
+
+    PinloomSingleInstanceGuard secondary({serverName, 100});
+    const PinloomSingleInstanceStartResult secondaryResult = secondary.start();
+    QVERIFY2(secondaryResult.isSecondary(), qPrintable(secondaryResult.error));
+    QVERIFY(secondaryResult.activationSent);
+    QTRY_COMPARE(activationCount, 1);
+    QVERIFY(activationMessage == QStringLiteral("activate") || activationMessage.isEmpty());
+}
+
+void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString settingsPath = dir.filePath(QStringLiteral("pinloom.ini"));
+
+    PinloomAppSettings saved = pinloomDefaultAppSettings(QStringLiteral("E:/PinloomData"));
+    saved.pdfXChangeExecutablePath = QStringLiteral("C:/Tools/PDFXEdit.exe");
+    saved.clipMaxTemporaryClips = 42;
+    saved.clipMaxTextBytes = 4096;
+    saved.clipTemporaryTtlSeconds = 3600;
+    saved.clipExcludeSensitiveText = false;
+    saved.clipExcludedSourceApps = {QStringLiteral("secret.exe"), QStringLiteral("password-manager.exe")};
+    saved.clipSensitiveTextMarkers = {QStringLiteral("INTERNAL-ONLY")};
+
+    {
+        QSettings store(settingsPath, QSettings::IniFormat);
+        savePinloomAppSettings(store, saved);
+        store.sync();
+    }
+
+    QSettings store(settingsPath, QSettings::IniFormat);
+    const PinloomAppSettings loaded = loadPinloomAppSettings(store, saved.dataDirectory);
+    QCOMPARE(loaded.pdfXChangeExecutablePath, saved.pdfXChangeExecutablePath);
+    QCOMPARE(loaded.dataDirectory, saved.dataDirectory);
+    QCOMPARE(loaded.clipMaxTemporaryClips, 42);
+    QCOMPARE(loaded.clipMaxTextBytes, 4096);
+    QCOMPARE(loaded.clipTemporaryTtlSeconds, 3600);
+    QVERIFY(!loaded.clipExcludeSensitiveText);
+    QCOMPARE(loaded.clipExcludedSourceApps, saved.clipExcludedSourceApps);
+    QCOMPARE(loaded.clipSensitiveTextMarkers, saved.clipSensitiveTextMarkers);
+
+    const ClipCapturePolicy policy = loaded.clipCapturePolicy();
+    QCOMPARE(policy.maxTemporaryClips, 42);
+    QCOMPARE(policy.maxTextBytes, static_cast<qsizetype>(4096));
+    QCOMPARE(policy.temporaryTtlSeconds, static_cast<qint64>(3600));
+    QVERIFY(!policy.excludeSensitiveText);
+    QCOMPARE(policy.excludedSourceApps, saved.clipExcludedSourceApps);
+
+    PinloomSettingsDialog dialog(loaded);
+    auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfXChangePathEdit"));
+    auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
+    auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
+    auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
+    auto *ttlSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipTemporaryTtlSecondsSpin"));
+    auto *sensitiveCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipExcludeSensitiveTextCheck"));
+    auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
+    auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
+    QVERIFY(pdfPathEdit);
+    QVERIFY(dataDirEdit);
+    QVERIFY(historySpin);
+    QVERIFY(sizeSpin);
+    QVERIFY(ttlSpin);
+    QVERIFY(sensitiveCheck);
+    QVERIFY(blacklistEdit);
+    QVERIFY(markersEdit);
+
+    pdfPathEdit->setText(QStringLiteral("D:/Portable/PDFXEdit.exe"));
+    historySpin->setValue(7);
+    sizeSpin->setValue(2048);
+    ttlSpin->setValue(120);
+    sensitiveCheck->setChecked(true);
+    blacklistEdit->setText(QStringLiteral(" secret.exe, secret.exe, cad.exe "));
+    markersEdit->setText(QStringLiteral("TOKEN=, PRIVATE "));
+
+    const PinloomAppSettings edited = dialog.settings();
+    QCOMPARE(edited.pdfXChangeExecutablePath, QStringLiteral("D:/Portable/PDFXEdit.exe"));
+    QCOMPARE(edited.dataDirectory, saved.dataDirectory);
+    QCOMPARE(edited.clipMaxTemporaryClips, 7);
+    QCOMPARE(edited.clipMaxTextBytes, 2048);
+    QCOMPARE(edited.clipTemporaryTtlSeconds, 120);
+    QVERIFY(edited.clipExcludeSensitiveText);
+    QCOMPARE(edited.clipExcludedSourceApps, (QStringList{QStringLiteral("secret.exe"), QStringLiteral("cad.exe")}));
+    QCOMPARE(edited.clipSensitiveTextMarkers, (QStringList{QStringLiteral("TOKEN="), QStringLiteral("PRIVATE")}));
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

@@ -1,12 +1,18 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/widgets/ClipResidentHost.h"
+#include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomPanel.h"
+#include "pinloom/widgets/PinloomSettingsDialog.h"
+#include "pinloom/widgets/PinloomSingleInstance.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -20,6 +26,7 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMessageBox>
+#include <QSettings>
 #include <QStandardPaths>
 #include <algorithm>
 #include <memory>
@@ -32,6 +39,20 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("Pinloom"));
     app.setQuitOnLastWindowClosed(false);
 
+    Pinloom::PinloomSingleInstanceGuard instanceGuard(
+        Pinloom::PinloomSingleInstanceOptions{Pinloom::defaultPinloomSingleInstanceServerName(), 300},
+        &app);
+    const Pinloom::PinloomSingleInstanceStartResult instanceStart = instanceGuard.start();
+    if (instanceStart.isSecondary()) {
+        return 0;
+    }
+    if (!instanceStart.succeeded()) {
+        QMessageBox::warning(nullptr,
+                             QStringLiteral("Pinloom"),
+                             QStringLiteral("Pinloom could not start its single-instance listener:\n%1")
+                                 .arg(instanceStart.error));
+    }
+
     QString appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
     if (appDataPath.isEmpty()) {
         appDataPath = QDir::home().filePath(QStringLiteral(".pinloom"));
@@ -40,6 +61,10 @@ int main(int argc, char *argv[])
         QMessageBox::critical(nullptr, QStringLiteral("Pinloom"), QStringLiteral("Unable to create app data directory."));
         return 1;
     }
+
+    QSettings appSettingsStore;
+    Pinloom::PinloomAppSettings runtimeSettings =
+        Pinloom::loadPinloomAppSettings(appSettingsStore, appDataPath);
 
     Pinloom::SqliteLibraryRepository repository;
     const QString databasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom.sqlite3"));
@@ -62,6 +87,9 @@ int main(int argc, char *argv[])
     if (clipHostResult.succeeded()) {
         clipHost = std::move(clipHostResult.host);
         QObject::connect(clipHost.get(), &Pinloom::ClipResidentHost::quitRequested, &app, &QApplication::quit);
+        if (clipHost->runtime()) {
+            clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
+        }
     } else {
         QMessageBox::warning(nullptr,
                              QStringLiteral("Pinloom Clip"),
@@ -74,6 +102,20 @@ int main(int argc, char *argv[])
     window.resize(760, 72);
 
     Pinloom::PinloomPanelOptions panelOptions;
+    panelOptions.pdfXChangeExecutablePathProvider = [&runtimeSettings]() {
+        const QString configured = runtimeSettings.pdfXChangeExecutablePath.trimmed();
+        return configured.isEmpty() ? Pinloom::resolvePdfXChangeExecutablePath() : configured;
+    };
+    panelOptions.statusChangedHandler = [&window](const QString &status) {
+        const QString lower = status.toLower();
+        if (lower.contains(QStringLiteral("unable"))
+            || lower.contains(QStringLiteral("failed"))
+            || lower.contains(QStringLiteral("error"))
+            || lower.contains(QStringLiteral("missing"))
+            || lower.contains(QStringLiteral("could not"))) {
+            window.setRecentError(status);
+        }
+    };
     panelOptions.clipSearchHandler =
         [&clipHost](const QString &query, const Pinloom::ClipSearchOptions &options) -> QList<Pinloom::ClipSearchResult> {
         if (!clipHost || !clipHost->runtime()) {
@@ -148,6 +190,23 @@ int main(int argc, char *argv[])
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);
 
+    auto showSettingsDialog = [&]() {
+        Pinloom::PinloomSettingsDialog dialog(runtimeSettings, &window);
+        if (dialog.exec() != QDialog::Accepted) {
+            return;
+        }
+
+        runtimeSettings = dialog.settings();
+        runtimeSettings.dataDirectory = appDataPath;
+        Pinloom::savePinloomAppSettings(appSettingsStore, runtimeSettings);
+        appSettingsStore.sync();
+        if (clipHost && clipHost->runtime()) {
+            clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
+        }
+    };
+    QObject::connect(&window, &Pinloom::PinloomMainWindow::settingsRequested, &window, showSettingsDialog);
+    QObject::connect(&window, &Pinloom::PinloomMainWindow::quitRequested, &app, &QApplication::quit);
+
     QMainWindow commandWindow;
     commandWindowForForegroundCapture = &commandWindow;
     commandWindow.setWindowTitle(QStringLiteral("Pinloom Command"));
@@ -155,6 +214,16 @@ int main(int argc, char *argv[])
     commandWindow.resize(760, 300);
 
     Pinloom::PinloomCommandPanelOptions commandOptions;
+    commandOptions.statusChangedHandler = [&window](const QString &status) {
+        const QString lower = status.toLower();
+        if (lower.contains(QStringLiteral("unable"))
+            || lower.contains(QStringLiteral("failed"))
+            || lower.contains(QStringLiteral("error"))
+            || lower.contains(QStringLiteral("missing"))
+            || lower.contains(QStringLiteral("could not"))) {
+            window.setRecentError(status);
+        }
+    };
     commandOptions.unifiedEntrySearchHandler = [panel](const QString &query) {
         panel->setSearchText(query);
         return panel->currentEntries();
@@ -783,12 +852,32 @@ int main(int argc, char *argv[])
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &commandWindow);
     commandWindow.setCentralWidget(commandPanel);
 
+    QObject::connect(&instanceGuard,
+                     &Pinloom::PinloomSingleInstanceGuard::activationRequested,
+                     &app,
+                     [&commandWindow, commandPanel](const QString &) {
+                         Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
+                     });
+
     if (clipHost && clipHost->runtime()) {
         clipHost->runtime()->trayController().setShowPickerHandler([&commandWindow, commandPanel]() {
             Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
             commandPanel->openClipSearch();
         });
+        clipHost->runtime()->trayController().setSettingsHandler([&window, &showSettingsDialog]() {
+            window.show();
+            window.raise();
+            window.activateWindow();
+            showSettingsDialog();
+        });
+        clipHost->runtime()->trayController().setDiagnosticsHandler([&window]() {
+            window.show();
+            window.raise();
+            window.activateWindow();
+            window.showDiagnosticsDialog();
+        });
         if (!clipHost->start()) {
+            window.setRecentError(QStringLiteral("Pinloom Clip could not start"), clipHost->lastError());
             QMessageBox::warning(&window,
                                  QStringLiteral("Pinloom Clip"),
                                  QStringLiteral("Pinloom Clip could not start:\n%1").arg(clipHost->lastError()));
@@ -809,6 +898,86 @@ int main(int argc, char *argv[])
                                                                                                         *commandPanel);
                                                                  },
                                                                  &app);
+    auto refreshResidentStatus = [&]() {
+        Pinloom::PinloomResidentStatus status;
+        status.running = true;
+        status.mainHotkeyRegistered = mainPanelHotkeyService.isRegistered();
+        status.mainHotkeyText = mainPanelHotkeyService.displayText();
+        if (clipHost && clipHost->runtime()) {
+            status.clipStatus = clipHost->runtime()->trayController().status();
+            status.clipCaptureActive = clipHost->runtime()->captureService().isRunning();
+            status.clipCapturePaused = clipHost->runtime()->captureService().capturePaused();
+            if (!clipHost->runtime()->lastError().trimmed().isEmpty()) {
+                status.lastError = clipHost->runtime()->lastError().trimmed();
+            } else if (!clipHost->runtime()->trayController().lastError().trimmed().isEmpty()) {
+                status.lastError = clipHost->runtime()->trayController().lastError().trimmed();
+            }
+        }
+        if (!mainPanelHotkeyService.lastError().trimmed().isEmpty()) {
+            status.lastError = mainPanelHotkeyService.lastError().trimmed();
+        }
+        if (!window.recentError().trimmed().isEmpty()) {
+            status.lastError = window.recentError().trimmed();
+        }
+        window.setResidentStatus(status);
+    };
+    QObject::connect(&mainPanelHotkeyService,
+                     &Pinloom::ClipHotkeyService::registeredChanged,
+                     &window,
+                     [&](bool) {
+                         refreshResidentStatus();
+                     });
+    QObject::connect(&mainPanelHotkeyService,
+                     &Pinloom::ClipHotkeyService::errorChanged,
+                     &window,
+                     [&](const QString &) {
+                         refreshResidentStatus();
+                     });
+    if (clipHost && clipHost->runtime()) {
+        QObject::connect(clipHost->runtime(),
+                         &Pinloom::ClipResidentRuntime::runningChanged,
+                         &window,
+                         [&](bool) {
+                             refreshResidentStatus();
+                         });
+        QObject::connect(clipHost->runtime(),
+                         &Pinloom::ClipResidentRuntime::errorChanged,
+                         &window,
+                         [&](const QString &error) {
+                             if (!error.trimmed().isEmpty()) {
+                                 window.setRecentError(error);
+                             }
+                             refreshResidentStatus();
+                         });
+        QObject::connect(&clipHost->runtime()->captureService(),
+                         &Pinloom::ClipboardCaptureService::runningChanged,
+                         &window,
+                         [&](bool) {
+                             refreshResidentStatus();
+                         });
+        QObject::connect(&clipHost->runtime()->captureService(),
+                         &Pinloom::ClipboardCaptureService::capturePausedChanged,
+                         &window,
+                         [&](bool) {
+                             refreshResidentStatus();
+                         });
+        QObject::connect(&clipHost->runtime()->trayController(),
+                         &Pinloom::ClipTrayController::statusChanged,
+                         &window,
+                         [&](const QString &) {
+                             refreshResidentStatus();
+                         });
+        QObject::connect(&clipHost->runtime()->trayController(),
+                         &Pinloom::ClipTrayController::errorChanged,
+                         &window,
+                         [&](const QString &error) {
+                             if (!error.trimmed().isEmpty()) {
+                                 window.setRecentError(error);
+                             }
+                             refreshResidentStatus();
+                         });
+    }
+    refreshResidentStatus();
     window.show();
 
     if (!mainPanelHotkeyService.start()) {
@@ -816,7 +985,11 @@ int main(int argc, char *argv[])
                                              "Ctrl+Space may be reserved by an IME or another application.")
                                   .arg(mainPanelHotkeyService.displayText(), mainPanelHotkeyService.lastError());
         qWarning().noquote() << error;
+        window.setRecentError(QStringLiteral("Pinloom main hotkey could not be registered"), error);
+        refreshResidentStatus();
         QMessageBox::warning(&window, QStringLiteral("Pinloom"), error);
+    } else {
+        refreshResidentStatus();
     }
 
     return app.exec();

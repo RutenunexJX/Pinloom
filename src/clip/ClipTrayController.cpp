@@ -10,6 +10,8 @@ namespace {
 
 constexpr auto ShowPickerActionId = "show_picker";
 constexpr auto ToggleCaptureActionId = "toggle_capture";
+constexpr auto SettingsActionId = "settings";
+constexpr auto DiagnosticsActionId = "diagnostics";
 constexpr auto QuitActionId = "quit";
 
 } // namespace
@@ -44,6 +46,16 @@ void ClipTrayController::setShowPickerHandler(ShowPickerHandler handler)
 void ClipTrayController::setCapturePausedHandler(CapturePausedHandler handler)
 {
     options_.capturePausedHandler = std::move(handler);
+}
+
+void ClipTrayController::setSettingsHandler(ClipTrayActionHandler handler)
+{
+    options_.settingsHandler = std::move(handler);
+}
+
+void ClipTrayController::setDiagnosticsHandler(ClipTrayActionHandler handler)
+{
+    options_.diagnosticsHandler = std::move(handler);
 }
 
 bool ClipTrayController::start()
@@ -98,6 +110,21 @@ int ClipTrayController::pickerShownCount() const
     return pickerShownCount_;
 }
 
+bool ClipTrayController::hotkeyRegistrationEnabled() const
+{
+    return options_.registerHotkeyOnStart;
+}
+
+bool ClipTrayController::hotkeyRegistered() const
+{
+    return hotkeyService_.isRegistered();
+}
+
+QString ClipTrayController::hotkeyDisplayText() const
+{
+    return hotkeyService_.displayText();
+}
+
 bool ClipTrayController::capturePaused() const
 {
     return options_.capturePaused;
@@ -112,6 +139,8 @@ QList<ClipTrayAction> ClipTrayController::actions() const
          true,
          options_.capturePaused,
          true},
+        {QStringLiteral("settings"), QStringLiteral("Settings"), true, false},
+        {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"), true, false},
         {QStringLiteral("quit"), QStringLiteral("Quit Pinloom"), true, false},
     };
 }
@@ -126,6 +155,16 @@ bool ClipTrayController::triggerAction(const QString &actionId)
 
     if (normalizedId == QLatin1String(ToggleCaptureActionId)) {
         toggleCapturePaused();
+        return true;
+    }
+
+    if (normalizedId == QLatin1String(SettingsActionId)) {
+        requestSettings();
+        return true;
+    }
+
+    if (normalizedId == QLatin1String(DiagnosticsActionId)) {
+        requestDiagnostics();
         return true;
     }
 
@@ -178,6 +217,22 @@ void ClipTrayController::setCapturePaused(bool paused)
 void ClipTrayController::toggleCapturePaused()
 {
     setCapturePaused(!options_.capturePaused);
+}
+
+void ClipTrayController::requestSettings()
+{
+    if (options_.settingsHandler) {
+        options_.settingsHandler();
+    }
+    emit settingsRequested();
+}
+
+void ClipTrayController::requestDiagnostics()
+{
+    if (options_.diagnosticsHandler) {
+        options_.diagnosticsHandler();
+    }
+    emit diagnosticsRequested();
 }
 
 void ClipTrayController::requestQuit()

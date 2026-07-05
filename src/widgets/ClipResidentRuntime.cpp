@@ -38,6 +38,8 @@ ClipResidentRuntime::ClipResidentRuntime(InMemoryClipRepository &repository,
                                                 [this](bool paused) {
                                                     captureService_.setCapturePaused(paused);
                                                 },
+                                                {},
+                                                {},
                                                 false,
                                                 options_.registerHotkeyOnStart},
                       this)
@@ -69,6 +71,8 @@ ClipResidentRuntime::ClipResidentRuntime(SqliteClipRepository &repository,
                                                 [this](bool paused) {
                                                     captureService_.setCapturePaused(paused);
                                                 },
+                                                {},
+                                                {},
                                                 false,
                                                 options_.registerHotkeyOnStart},
                       this)

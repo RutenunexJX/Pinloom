@@ -19,10 +19,13 @@ struct ClipTrayAction {
 
 using ClipTrayShowPickerHandler = std::function<void()>;
 using ClipTrayCapturePausedHandler = std::function<void(bool paused)>;
+using ClipTrayActionHandler = std::function<void()>;
 
 struct ClipTrayControllerOptions {
     ClipTrayShowPickerHandler showPickerHandler;
     ClipTrayCapturePausedHandler capturePausedHandler;
+    ClipTrayActionHandler settingsHandler;
+    ClipTrayActionHandler diagnosticsHandler;
     bool capturePaused = false;
     bool registerHotkeyOnStart = true;
 };
@@ -41,6 +44,8 @@ public:
 
     void setShowPickerHandler(ShowPickerHandler handler);
     void setCapturePausedHandler(CapturePausedHandler handler);
+    void setSettingsHandler(ClipTrayActionHandler handler);
+    void setDiagnosticsHandler(ClipTrayActionHandler handler);
 
     bool start();
     void stop();
@@ -49,6 +54,9 @@ public:
     QString status() const;
     QString lastError() const;
     int pickerShownCount() const;
+    bool hotkeyRegistrationEnabled() const;
+    bool hotkeyRegistered() const;
+    QString hotkeyDisplayText() const;
 
     bool capturePaused() const;
     QList<ClipTrayAction> actions() const;
@@ -60,6 +68,8 @@ public slots:
     void resumeCapture();
     void setCapturePaused(bool paused);
     void toggleCapturePaused();
+    void requestSettings();
+    void requestDiagnostics();
     void requestQuit();
 
 signals:
@@ -70,6 +80,8 @@ signals:
     void pickerShownCountChanged(int count);
     void capturePausedChanged(bool paused);
     void trayActionsChanged();
+    void settingsRequested();
+    void diagnosticsRequested();
     void quitRequested();
 
 private:

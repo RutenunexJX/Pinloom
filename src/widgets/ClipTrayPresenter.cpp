@@ -5,6 +5,7 @@
 #include <QCoreApplication>
 #include <QMenu>
 #include <QSystemTrayIcon>
+#include <QStringList>
 
 namespace Pinloom {
 
@@ -83,11 +84,35 @@ void ClipTrayPresenter::syncAll()
 
 QString ClipTrayPresenter::buildToolTip() const
 {
-    const QString status = controller_.status().trimmed();
-    if (status.isEmpty()) {
-        return QStringLiteral("Pinloom Clip");
+    QStringList lines;
+    lines.append(QStringLiteral("Pinloom"));
+    lines.append(QStringLiteral("Clip: %1").arg(controller_.isRunning()
+                                                    ? QStringLiteral("running")
+                                                    : QStringLiteral("stopped")));
+
+    if (controller_.hotkeyRegistrationEnabled()) {
+        lines.append(QStringLiteral("Hotkey: %1 (%2)")
+                         .arg(controller_.hotkeyRegistered()
+                                  ? QStringLiteral("registered")
+                                  : QStringLiteral("not registered"),
+                              controller_.hotkeyDisplayText()));
+    } else {
+        lines.append(QStringLiteral("Hotkey: handled by Command Window"));
     }
-    return QStringLiteral("Pinloom Clip\n%1").arg(status);
+
+    QString capture = QStringLiteral("stopped");
+    if (controller_.isRunning()) {
+        capture = controller_.capturePaused()
+            ? QStringLiteral("paused")
+            : QStringLiteral("active");
+    }
+    lines.append(QStringLiteral("Clip capture: %1").arg(capture));
+
+    const QString error = controller_.lastError().trimmed();
+    if (!error.isEmpty()) {
+        lines.append(QStringLiteral("Last error: %1").arg(error));
+    }
+    return lines.join(QLatin1Char('\n'));
 }
 
 QtSystemTrayIconBackend::QtSystemTrayIconBackend(QObject *parent)

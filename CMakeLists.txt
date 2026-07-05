@@ -147,6 +147,8 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomCommandPanel.h
     include/pinloom/widgets/PinloomMainWindow.h
     include/pinloom/widgets/PinloomPanel.h
+    include/pinloom/widgets/PinloomSettingsDialog.h
+    include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/ClipResidentApp.cpp
     src/widgets/ClipResidentAppConfigStore.cpp
@@ -159,6 +161,8 @@ add_library(pinloom_widgets STATIC
     src/widgets/PinloomCommandPanel.cpp
     src/widgets/PinloomMainWindow.cpp
     src/widgets/PinloomPanel.cpp
+    src/widgets/PinloomSettingsDialog.cpp
+    src/widgets/PinloomSingleInstance.cpp
     src/widgets/TextPreviewDialog.cpp
 )
 

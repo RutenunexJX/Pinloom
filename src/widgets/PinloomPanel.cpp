@@ -6,9 +6,11 @@
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
+#include <QApplication>
 #include <QDateTime>
 #include <QDesktopServices>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QEvent>
@@ -23,7 +25,9 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMenu>
 #include <QMessageBox>
+#include <QPlainTextEdit>
 #include <QProcess>
 #include <QPushButton>
 #include <QShortcut>
@@ -34,6 +38,7 @@
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <functional>
 #include <utility>
 
 namespace Pinloom {
@@ -55,6 +60,48 @@ enum class LauncherItemAction {
     ResourceOpen,
     ClipInsert
 };
+
+void installStatusContextMenu(QLabel *label, QWidget *parent, const std::function<QString()> &statusText)
+{
+    label->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    label->setContextMenuPolicy(Qt::CustomContextMenu);
+    QObject::connect(label, &QLabel::customContextMenuRequested, parent, [label, parent, statusText](const QPoint &pos) {
+        const QString status = statusText().trimmed();
+        QMenu menu(parent);
+        QAction *copyAction = menu.addAction(QObject::tr("Copy status"));
+        copyAction->setEnabled(!status.isEmpty());
+        QAction *detailsAction = menu.addAction(QObject::tr("Show details"));
+        detailsAction->setEnabled(!status.isEmpty());
+        QAction *selected = menu.exec(label->mapToGlobal(pos));
+        if (!selected) {
+            return;
+        }
+        if (selected == copyAction) {
+            if (QClipboard *clipboard = QApplication::clipboard()) {
+                clipboard->setText(status);
+            }
+            return;
+        }
+
+        QDialog dialog(parent);
+        dialog.setWindowTitle(QObject::tr("Status Details"));
+        auto *layout = new QVBoxLayout(&dialog);
+        auto *text = new QPlainTextEdit(status, &dialog);
+        text->setReadOnly(true);
+        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+        auto *copyButton = buttons->addButton(QObject::tr("Copy"), QDialogButtonBox::ActionRole);
+        layout->addWidget(text);
+        layout->addWidget(buttons);
+        QObject::connect(copyButton, &QPushButton::clicked, &dialog, [text]() {
+            if (QClipboard *clipboard = QApplication::clipboard()) {
+                clipboard->setText(text->toPlainText());
+            }
+        });
+        QObject::connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+        dialog.resize(480, 240);
+        dialog.exec();
+    });
+}
 
 QString rootItemText(const LibraryRoot &root)
 {
@@ -1056,6 +1103,9 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     relationLabel_->setWordWrap(true);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
+    installStatusContextMenu(statusLabel_, this, [this]() {
+        return statusText_;
+    });
 
     layout->addLayout(resultToolbar);
     layout->addWidget(resultList_, options_.compactLauncherMode ? 0 : 1);
