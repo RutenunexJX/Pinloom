@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Core Network Sql Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -80,10 +80,62 @@ target_link_libraries(pinloom_core
         Qt6::Sql
 )
 
+add_library(pinloom_clip_core STATIC
+    include/pinloom/clip/ClipboardCaptureService.h
+    include/pinloom/clip/ClipArchive.h
+    include/pinloom/clip/ClipHotkeyService.h
+    include/pinloom/clip/ClipInsertionService.h
+    include/pinloom/clip/ClipRepository.h
+    include/pinloom/clip/ClipSearch.h
+    include/pinloom/clip/ClipTrayController.h
+    include/pinloom/clip/PlatformPasteInvoker.h
+    src/clip/ClipboardCaptureService.cpp
+    src/clip/ClipArchive.cpp
+    src/clip/ClipHotkeyService.cpp
+    src/clip/ClipInsertionService.cpp
+    src/clip/ClipRepository.cpp
+    src/clip/ClipSearch.cpp
+    src/clip/ClipTrayController.cpp
+    src/clip/PlatformPasteInvoker.cpp
+)
+
+target_include_directories(pinloom_clip_core
+    PUBLIC
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+)
+
+target_link_libraries(pinloom_clip_core
+    PUBLIC
+        pinloom_core
+        Qt6::Core
+        Qt6::Sql
+    PRIVATE
+        Qt6::Gui
+)
+
+if(WIN32)
+    target_link_libraries(pinloom_clip_core
+        PRIVATE
+            user32
+    )
+endif()
+
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/ClipResidentApp.h
+    include/pinloom/widgets/ClipResidentAppConfigStore.h
+    include/pinloom/widgets/ClipResidentHost.h
+    include/pinloom/widgets/ClipResidentRuntime.h
+    include/pinloom/widgets/ClipPickerPanel.h
+    include/pinloom/widgets/ClipTrayPresenter.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
+    src/widgets/ClipResidentApp.cpp
+    src/widgets/ClipResidentAppConfigStore.cpp
+    src/widgets/ClipResidentHost.cpp
+    src/widgets/ClipResidentRuntime.cpp
+    src/widgets/ClipPickerPanel.cpp
+    src/widgets/ClipTrayPresenter.cpp
     src/widgets/ManualPdfAnchorDialog.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/TextPreviewDialog.cpp
@@ -96,6 +148,7 @@ target_include_directories(pinloom_widgets
 
 target_link_libraries(pinloom_widgets
     PUBLIC
+        pinloom_clip_core
         pinloom_core
         Qt6::Widgets
 )
@@ -192,6 +245,18 @@ target_link_libraries(pinloom_directory_source_test
 )
 
 pinloom_add_test(pinloom_directory_source_test)
+
+add_executable(pinloom_clip_test
+    tests/clip_test.cpp
+)
+
+target_link_libraries(pinloom_clip_test
+    PRIVATE
+        pinloom_clip_core
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_clip_test)
 
 add_executable(pinloom_widget_smoke_test
     tests/widget_smoke_test.cpp
