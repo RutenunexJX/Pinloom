@@ -29,6 +29,7 @@
 #include <QSignalBlocker>
 #include <QSize>
 #include <QSettings>
+#include <QTimer>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -37,6 +38,18 @@
 namespace Pinloom {
 
 namespace {
+
+constexpr int TargetKindRole = Qt::UserRole + 40;
+constexpr int ClipIdRole = Qt::UserRole + 41;
+constexpr int ClipDisplayNameRole = Qt::UserRole + 42;
+constexpr int ClipPreviewRole = Qt::UserRole + 43;
+constexpr int ClipTagsRole = Qt::UserRole + 44;
+constexpr int ClipAliasesRole = Qt::UserRole + 45;
+constexpr int ClipUpdatedAtRole = Qt::UserRole + 46;
+constexpr int ClipUsedAtRole = Qt::UserRole + 47;
+
+constexpr auto TargetKindResource = "resource";
+constexpr auto TargetKindClip = "clip";
 
 QString rootItemText(const LibraryRoot &root)
 {
@@ -106,6 +119,110 @@ QString compactValue(QString value, int maxLength = 96)
         return value;
     }
     return value.left(std::max(0, maxLength - 3)) + QStringLiteral("...");
+}
+
+QString clipTagsText(const QStringList &tags)
+{
+    QStringList cleanedTags;
+    for (const QString &tag : tags) {
+        const QString trimmed = tag.trimmed();
+        if (!trimmed.isEmpty()) {
+            cleanedTags.append(QStringLiteral("#%1").arg(trimmed));
+        }
+    }
+    return cleanedTags.join(QLatin1Char(' '));
+}
+
+QString clipAliasesText(const QStringList &aliases)
+{
+    QStringList cleanedAliases;
+    for (const QString &alias : aliases) {
+        const QString trimmed = alias.trimmed();
+        if (!trimmed.isEmpty()) {
+            cleanedAliases.append(trimmed);
+        }
+    }
+    return cleanedAliases.join(QStringLiteral(", "));
+}
+
+QString clipTimestampText(const ClipSearchResult &result)
+{
+    const QDateTime timestamp = result.usedAt.isValid() ? result.usedAt : result.updatedAt;
+    return timestamp.isValid() ? timestamp.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QString();
+}
+
+QString clipMatchText(const ClipSearchResult &result)
+{
+    if (result.matchedField.trimmed().isEmpty()) {
+        return {};
+    }
+    if (result.matchedValue.trimmed().isEmpty()) {
+        return QStringLiteral("match: %1").arg(result.matchedField);
+    }
+    return QStringLiteral("match: %1=%2").arg(result.matchedField, compactValue(result.matchedValue, 48));
+}
+
+QString clipResultText(const ClipSearchResult &result)
+{
+    const QString displayName = compactValue(
+        result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
+        84);
+    QStringList metadata;
+
+    const QString timestamp = clipTimestampText(result);
+    if (!timestamp.isEmpty()) {
+        metadata.append(timestamp);
+    }
+    const QString tags = clipTagsText(result.tags);
+    if (!tags.isEmpty()) {
+        metadata.append(tags);
+    }
+    const QString aliases = clipAliasesText(result.aliases);
+    if (!aliases.isEmpty()) {
+        metadata.append(QStringLiteral("aliases: %1").arg(compactValue(aliases, 64)));
+    }
+    const QString match = clipMatchText(result);
+    if (!match.isEmpty()) {
+        metadata.append(match);
+    }
+    if (result.pinned) {
+        metadata.append(QStringLiteral("pinned"));
+    }
+
+    const QString preview = compactValue(result.preview, 96);
+    return QStringLiteral("[Clip] %1\n%2%3%4")
+        .arg(displayName,
+             preview,
+             preview.isEmpty() || metadata.isEmpty() ? QString() : QStringLiteral(" | "),
+             metadata.join(QStringLiteral(" | ")));
+}
+
+QString clipToolTip(const ClipSearchResult &result)
+{
+    QStringList lines;
+    lines.append(QStringLiteral("Clip: %1").arg(result.clipId));
+    lines.append(QStringLiteral("Name: %1").arg(result.displayName));
+    lines.append(QStringLiteral("Preview: %1").arg(result.preview));
+    lines.append(QStringLiteral("Match: %1=%2").arg(result.matchedField, result.matchedValue));
+
+    const QString tags = clipTagsText(result.tags);
+    if (!tags.isEmpty()) {
+        lines.append(QStringLiteral("Tags: %1").arg(tags));
+    }
+    const QString aliases = clipAliasesText(result.aliases);
+    if (!aliases.isEmpty()) {
+        lines.append(QStringLiteral("Aliases: %1").arg(aliases));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
+QString clipMatchSummary(const ClipSearchResult &result)
+{
+    const QString match = clipMatchText(result);
+    if (!match.isEmpty()) {
+        return match;
+    }
+    return QStringLiteral("Saved Clip");
 }
 
 QString anchorDisplayName(const Anchor &anchor, const Resource &resource)
@@ -409,6 +526,17 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
         return target;
     }
 
+    if (item->data(TargetKindRole).toString() == QLatin1String(TargetKindClip)) {
+        target.resultRow = row;
+        target.clipId = item->data(ClipIdRole).toString();
+        target.title = item->data(ClipDisplayNameRole).toString();
+        target.location = item->data(ClipPreviewRole).toString();
+        target.matchedField = item->data(Qt::UserRole + 13).toString();
+        target.score = item->data(Qt::UserRole + 14).toDouble();
+        target.matchSummary = item->data(Qt::UserRole + 20).toString();
+        return target;
+    }
+
     target.resultRow = row;
     target.resourceId = item->data(Qt::UserRole).toString();
     target.location = item->data(Qt::UserRole + 1).toString();
@@ -570,6 +698,8 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     , options_(std::move(options))
 {
     auto *layout = new QVBoxLayout(this);
+    layout->setContentsMargins(10, 8, 10, 8);
+    layout->setSpacing(6);
 
     rootControlsWidget_ = new QWidget(this);
     rootControlsWidget_->setObjectName(QStringLiteral("libraryRootControls"));
@@ -602,9 +732,12 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     rootList_->setMaximumHeight(130);
 
     auto *resultToolbar = new QHBoxLayout();
+    resultToolbar->setContentsMargins(0, 0, 0, 0);
     searchEdit_ = new QLineEdit(this);
     searchEdit_->setObjectName(QStringLiteral("searchEdit"));
-    searchEdit_->setPlaceholderText(tr("Search anchors, aliases, #tags, targets"));
+    searchEdit_->setPlaceholderText(tr("Search anchors and Saved Clips"));
+    searchEdit_->setClearButtonEnabled(true);
+    searchEdit_->setMinimumHeight(34);
     openButton_ = new QPushButton(tr("Jump"), this);
     openButton_->setObjectName(QStringLiteral("openButton"));
     addAliasButton_ = new QPushButton(tr("Add Alias"), this);
@@ -629,6 +762,9 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     resultList_->setObjectName(QStringLiteral("resultList"));
     resultList_->setAlternatingRowColors(true);
     resultList_->setUniformItemSizes(true);
+    resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    resultList_->setMinimumHeight(0);
+    resultList_->setMaximumHeight(resultList_->fontMetrics().lineSpacing() * 10 + 24);
     searchEdit_->installEventFilter(this);
     resultList_->installEventFilter(this);
     relationLabel_ = new QLabel(this);
@@ -638,7 +774,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
 
     layout->addLayout(resultToolbar);
-    layout->addWidget(resultList_, 1);
+    layout->addWidget(resultList_, options_.compactLauncherMode ? 0 : 1);
     layout->addWidget(relationLabel_);
     layout->addWidget(rootControlsWidget_);
     layout->addWidget(rootList_);
@@ -670,10 +806,15 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 
     rootControlsWidget_->setVisible(options_.showLibraryRootControls);
     rootList_->setVisible(options_.showLibraryRootControls);
+    manageButton->setVisible(options_.showLibraryRootManagementButton);
+    openButton_->setVisible(options_.showOpenButton);
     addAliasButton_->setVisible(options_.showManualEditControls);
     addAnchorButton_->setVisible(options_.showManualEditControls);
     pinButton_->setVisible(options_.showPinControls);
     pinRootButton_->setVisible(options_.showPinControls);
+    relationLabel_->setVisible(options_.showRelationLine);
+    statusLabel_->setVisible(options_.showStatusLine);
+    resultList_->setVisible(!options_.compactLauncherMode);
 
     loadLibraryRoots();
     refreshResults();
@@ -1836,8 +1977,9 @@ void PinloomPanel::refreshResults()
     const PinloomOpenTarget previousTarget = currentOpenTarget();
     resultList_->clear();
 
+    const QString searchText = searchEdit_->text();
     SearchQuery query;
-    query.text = searchEdit_->text();
+    query.text = searchText;
     query.requiredTags = requiredTags_;
     query.requiredLocationPrefixes = requiredLocationPrefixes_;
     query.requiredKinds = requiredResourceKinds_;
@@ -1847,11 +1989,13 @@ void PinloomPanel::refreshResults()
     query.contextRelationLabels = contextRelationLabels_;
     query.limit = 100;
 
-    const QList<SearchResult> results = repository_.search(query);
+    const bool emptyCompactLauncherQuery = options_.compactLauncherMode && searchText.trimmed().isEmpty();
+    const QList<SearchResult> results = emptyCompactLauncherQuery ? QList<SearchResult>{} : repository_.search(query);
     for (const SearchResult &result : results) {
         auto *item = new QListWidgetItem(resultText(result), resultList_);
         item->setToolTip(resultToolTip(result, query));
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+        item->setData(TargetKindRole, QString::fromLatin1(TargetKindResource));
         item->setData(Qt::UserRole, result.resource.id);
         item->setData(Qt::UserRole + 1, result.resource.location);
         item->setData(Qt::UserRole + 11, result.resource.title);
@@ -1891,8 +2035,44 @@ void PinloomPanel::refreshResults()
         }
     }
 
+    if (!emptyCompactLauncherQuery && options_.clipSearchHandler) {
+        ClipSearchOptions clipOptions;
+        clipOptions.includeSaved = true;
+        clipOptions.includeTemporary = false;
+        clipOptions.emptyQueryReturnsPinnedAndRecent = false;
+        clipOptions.limit = std::max(0, query.limit - resultList_->count());
+
+        const QList<ClipSearchResult> clipResults = options_.clipSearchHandler(searchText, clipOptions);
+        for (const ClipSearchResult &result : clipResults) {
+            auto *item = new QListWidgetItem(clipResultText(result), resultList_);
+            item->setToolTip(clipToolTip(result));
+            item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+            item->setData(TargetKindRole, QString::fromLatin1(TargetKindClip));
+            item->setData(ClipIdRole, result.clipId);
+            item->setData(ClipDisplayNameRole, result.displayName);
+            item->setData(ClipPreviewRole, result.preview);
+            item->setData(ClipTagsRole, result.tags);
+            item->setData(ClipAliasesRole, result.aliases);
+            item->setData(ClipUpdatedAtRole, result.updatedAt);
+            item->setData(ClipUsedAtRole, result.usedAt);
+            item->setData(Qt::UserRole + 13, result.matchedField);
+            item->setData(Qt::UserRole + 14, result.score);
+            item->setData(Qt::UserRole + 20, clipMatchSummary(result));
+        }
+    }
+
     bool restoredSelection = false;
-    if (!previousTarget.resourceId.isEmpty()) {
+    if (!previousTarget.clipId.isEmpty()) {
+        for (int row = 0; row < resultList_->count(); ++row) {
+            QListWidgetItem *item = resultList_->item(row);
+            if (item->data(TargetKindRole).toString() == QLatin1String(TargetKindClip)
+                && item->data(ClipIdRole).toString() == previousTarget.clipId) {
+                resultList_->setCurrentItem(item);
+                restoredSelection = true;
+                break;
+            }
+        }
+    } else if (!previousTarget.resourceId.isEmpty()) {
         for (int row = 0; row < resultList_->count(); ++row) {
             QListWidgetItem *item = resultList_->item(row);
             if (item->data(Qt::UserRole).toString() != previousTarget.resourceId) {
@@ -1912,7 +2092,8 @@ void PinloomPanel::refreshResults()
         resultList_->setCurrentRow(0);
     }
 
-    updateStatus(tr("%n result(s)", nullptr, results.size()));
+    updateStatus(tr("%n result(s)", nullptr, resultList_->count()));
+    refreshLauncherVisibility();
     refreshRelationSummary();
     refreshPinButtonState();
     notifyResultCountChanged();
@@ -1969,6 +2150,22 @@ bool PinloomPanel::activateResourceById(const QString &resourceId)
 
 bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
 {
+    if (!target.clipId.trimmed().isEmpty()) {
+        if (!options_.clipInsertionHandler) {
+            updateStatus(tr("Clip insertion is not configured"));
+            return false;
+        }
+
+        QString error;
+        if (!options_.clipInsertionHandler(target.clipId, &error)) {
+            updateStatus(error.trimmed().isEmpty() ? tr("Clip insertion failed") : error.trimmed());
+            return false;
+        }
+
+        updateStatus(tr("Inserted clip"));
+        return true;
+    }
+
     if (target.location.isEmpty()) {
         updateStatus(tr("No resource selected"));
         return false;
@@ -2586,6 +2783,29 @@ bool PinloomPanel::tryHostOpenTarget(const PinloomOpenTarget &target)
 void PinloomPanel::configureIndexingService(IndexingService &indexer) const
 {
     indexer.setRemoteWebFetchingEnabled(remoteWebFetchingEnabled());
+}
+
+void PinloomPanel::refreshLauncherVisibility()
+{
+    if (!options_.compactLauncherMode) {
+        resultList_->setVisible(true);
+        relationLabel_->setVisible(options_.showRelationLine);
+        statusLabel_->setVisible(options_.showStatusLine);
+        return;
+    }
+
+    const bool hasQuery = searchEdit_ && !searchEdit_->text().trimmed().isEmpty();
+    const bool hasResults = resultList_ && resultList_->count() > 0;
+    resultList_->setVisible(hasQuery && hasResults);
+    relationLabel_->setVisible(options_.showRelationLine && hasQuery && hasResults);
+    statusLabel_->setVisible(options_.showStatusLine);
+
+    QWidget *topLevel = window();
+    if (topLevel) {
+        QTimer::singleShot(0, topLevel, [topLevel]() {
+            topLevel->adjustSize();
+        });
+    }
 }
 
 } // namespace Pinloom

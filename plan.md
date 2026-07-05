@@ -278,14 +278,17 @@ Status:
   history insertion, and a picker action to save a temporary clip as a named
   Saved Clip.
 - `pinloom_app.exe` now also registers a separate global `Ctrl+Space` main
-  Pinloom panel hotkey. It restores/raises the main window and focuses the
-  search box without replacing the Clip `Ctrl+Shift+V` picker hotkey. `Ctrl+Space`
-  can still conflict with an IME or another registered global shortcut.
-- Saved Clips are searchable inside the Clip picker by name, alias, and tag.
-  The resident picker's empty/default view is temporary history only; saved
-  clips are kept out of that default history and exact saved-text recaptures are
-  ignored as duplicates by content hash. Main Pinloom anchor search does not yet
-  index Saved Clips as first-class launcher results.
+  Pinloom launcher hotkey. It restores/raises a compact horizontal search bar
+  and focuses the search box without replacing the Clip `Ctrl+Shift+V` picker
+  hotkey. `Ctrl+Space` can still conflict with an IME or another registered
+  global shortcut.
+- Saved Clips are searchable inside both the Clip picker and the main Pinloom
+  launcher by name, alias, `#tag`, and text preview/content. The resident
+  picker's empty/default view is temporary history only; saved clips are kept
+  out of that default history and exact saved-text recaptures are ignored as
+  duplicates by content hash. Main launcher Enter inserts Saved Clip text
+  through the same clip insertion service, while anchor results keep their
+  native jump behavior.
 
 ## Frozen Or Demoted Work
 

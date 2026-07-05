@@ -104,10 +104,10 @@ The current codebase already has useful foundations:
   recent use, and contextual signals.
 - A reusable Qt panel that can be embedded and can expose selected targets to a
   host.
-- The default Qt panel now behaves as a lightweight anchor launcher surface:
-  search-first, compact result list, anchor locator summaries, keyboard
-  activation, alias/tag editing, PDF capture from selected context, edit entry,
-  and delete placeholder.
+- The default Qt panel now behaves as a lightweight launcher bar: a focused
+  horizontal search box with an optional compact result list. It searches
+  anchors and Saved Clips, with management controls kept off the default
+  surface.
 - PDF-XChange manual jump execution now has a tested command builder for page
   and rectangle locators, launcher activation integration, and executable path
   resolution through `PINLOOM_PDFXCHANGE_PATH`, common install paths, or host
@@ -128,11 +128,12 @@ The mismatch is intentional technical debt for the reset:
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, `Ctrl+Shift+V` picker,
   automatic system clipboard text capture, temporary history insertion, row
-  timestamps, and explicit Save Clip metadata.
+  timestamps, and explicit Save Clip metadata. Saved Clips are also available
+  in the main launcher bar.
 - The main Pinloom launcher panel registers a separate global `Ctrl+Space`
-  summon hotkey. It restores the main window and focuses the search box; on
-  Windows this can conflict with IMEs or another application that already owns
-  `Ctrl+Space`.
+  summon hotkey. It restores/raises a compact horizontal launcher bar and
+  focuses the search box; on Windows this can conflict with IMEs or another
+  application that already owns `Ctrl+Space`.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
@@ -156,16 +157,18 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 ```
 
 Pinloom starts with two global shortcuts: `Ctrl+Space` summons the main Pinloom
-panel and focuses search, while `Ctrl+Shift+V` opens Pinloom Clip. Pinloom Clip
-listens to the system clipboard automatically, so text copied with `Ctrl+C` in
-another app appears in the Clip temporary history. Press Enter in the picker to
-paste the selected text clip into the current application.
+launcher bar and focuses search, while `Ctrl+Shift+V` opens Pinloom Clip.
+Search the main bar for anchors or Saved Clips; Enter jumps anchors to their
+native target and inserts Saved Clip text into the current foreground app.
 
 Clip rows show when each item was captured. The default resident Clip view is a
 temporary-history view; once a temporary item is saved, it is no longer mixed
 into that default history. Saved Clips remain searchable by name, alias, and
-tag. Re-copying exact text already stored as a Saved Clip is ignored by the
-content hash duplicate check.
+tag in both the Clip picker and the main launcher bar. The Clip picker remains
+the temporary history and Save Clip surface, not the only insertion path.
+Re-copying exact text already stored as a Saved Clip is ignored by the content
+hash duplicate check. The current Clip MVP captures and inserts text only;
+rich content is future work.
 
 ## Phase 0 Validation
 

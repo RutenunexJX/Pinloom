@@ -13,6 +13,7 @@
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
+#include "pinloom/clip/ClipSearch.h"
 
 #include <QDateTime>
 #include <QList>
@@ -35,6 +36,7 @@ class IndexingService;
 
 struct PinloomOpenTarget {
     QString resourceId;
+    QString clipId;
     ResourceKind resourceKind = ResourceKind::Unknown;
     QString title;
     QString location;
@@ -82,6 +84,8 @@ struct PinloomPanelOptions {
     std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
+    std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
+    std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
     std::function<std::optional<ManualExcelAnchorCreationRequest>()> manualExcelAnchorRequestProvider;
     std::function<std::optional<ManualVisioAnchorCreationRequest>()> manualVisioAnchorRequestProvider;
     std::function<std::optional<ManualWordAnchorCreationRequest>()> manualWordAnchorRequestProvider;
@@ -101,8 +105,13 @@ struct PinloomPanelOptions {
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
     bool showLibraryRootControls = false;
-    bool showManualEditControls = true;
-    bool showPinControls = true;
+    bool showLibraryRootManagementButton = false;
+    bool showOpenButton = false;
+    bool showManualEditControls = false;
+    bool showPinControls = false;
+    bool showStatusLine = false;
+    bool showRelationLine = false;
+    bool compactLauncherMode = true;
 };
 
 struct PinloomHostContext {
@@ -239,6 +248,7 @@ private:
     bool activateWordTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void configureIndexingService(IndexingService &indexer) const;
+    void refreshLauncherVisibility();
 
     ILibraryRepository &repository_;
     PinloomPanelOptions options_;

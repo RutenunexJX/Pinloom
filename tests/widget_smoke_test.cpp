@@ -1,3 +1,4 @@
+#include "pinloom/clip/ClipArchive.h"
 #include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
@@ -43,6 +44,8 @@ private slots:
     void clipPickerEmptyQueryShowsSavedPinnedRecentOnly();
     void clipPickerRefreshesForNameAliasTagAndHashTag();
     void clipPickerEnterActivatesInjectedInsertionHandler();
+    void clipPickerSavedSearchEnterInsertsTextThroughService();
+    void clipPickerImportedSavedClipEnterInsertsTextThroughService();
     void clipPickerShowsErrorAndStaysOpenOnInsertionFailure();
     void clipPickerCanIncludeTemporaryResults();
     void clipPickerTemporaryHistoryShowsTimestampAndHidesSavedItems();
@@ -75,6 +78,7 @@ private slots:
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDefaultsToLauncherSurface();
+    void panelSearchesSavedClipsAndEnterInserts();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
@@ -544,6 +548,127 @@ void WidgetSmokeTest::clipPickerEnterActivatesInjectedInsertionHandler()
     QCOMPARE(picker.statusText(), QStringLiteral("Inserted clip"));
 }
 
+void WidgetSmokeTest::clipPickerSavedSearchEnterInsertsTextThroughService()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary default history"),
+                                                               {},
+                                                               {},
+                                                               base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+    const QString savedId = saveWidgetClip(repository,
+                                           QStringLiteral("Saved clip body for insertion"),
+                                           QStringLiteral("Saved Insertable"),
+                                           {QStringLiteral("saved insert alias")},
+                                           {QStringLiteral("saved-insert")},
+                                           false,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    FakeClipboardTextAccessor clipboard;
+    int pasteCalls = 0;
+    ClipInsertionService insertion(&clipboard, repository, [&]() {
+        ++pasteCalls;
+        return true;
+    });
+    ClipInsertionOptions insertionOptions;
+    insertionOptions.restoreOriginalClipboardOnSuccess = false;
+    insertion.setOptions(insertionOptions);
+
+    ClipSearchOptions searchOptions;
+    searchOptions.includeTemporary = true;
+    ClipPickerOptions options;
+    options.searchOptions = searchOptions;
+    options.closeOnActivationSuccess = false;
+    options.insertionHandler = makeClipPickerInsertionHandler(insertion);
+
+    ClipSearchService search(repository);
+    ClipPickerPanel picker(search, options);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    QVERIFY(searchEdit);
+
+    QCOMPARE(picker.query(), QString());
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, temporary.clip->id);
+
+    picker.setQuery(QStringLiteral("saved insert alias"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, savedId);
+    QVERIFY(picker.currentResult().state == ClipState::Saved);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(pasteCalls, 1);
+    QCOMPARE(clipboard.text(), QStringLiteral("Saved clip body for insertion"));
+    QCOMPARE(insertion.lastInsertedId(), savedId);
+    QVERIFY(picker.lastActivationSucceeded());
+    QCOMPARE(picker.statusText(), QStringLiteral("Inserted clip"));
+}
+
+void WidgetSmokeTest::clipPickerImportedSavedClipEnterInsertsTextThroughService()
+{
+    InMemoryClipRepository source;
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+
+    const QString sourceId = saveWidgetClip(source,
+                                            QStringLiteral("Imported saved clip body"),
+                                            QStringLiteral("Imported Saved Insert"),
+                                            {QStringLiteral("import insert alias")},
+                                            {QStringLiteral("import-insert")},
+                                            false,
+                                            base,
+                                            base.addSecs(1));
+    QVERIFY(!sourceId.isEmpty());
+
+    const QString archivePath = dir.filePath(QStringLiteral("saved-clips.json"));
+    const ClipArchiveResult exported = ClipArchive(source).exportSavedClips(archivePath);
+    QVERIFY2(exported.succeeded(), qPrintable(exported.error));
+
+    SqliteClipRepository imported;
+    QVERIFY2(imported.open(dir.filePath(QStringLiteral("pinloom_clip.sqlite3"))), qPrintable(imported.lastError()));
+    QVERIFY2(imported.initialize(), qPrintable(imported.lastError()));
+    const ClipArchiveResult importedResult = ClipArchive(imported).importSavedClips(archivePath);
+    QVERIFY2(importedResult.succeeded(), qPrintable(importedResult.error));
+    QCOMPARE(importedResult.imported, 1);
+
+    FakeClipboardTextAccessor clipboard;
+    int pasteCalls = 0;
+    ClipInsertionService insertion(&clipboard, imported, [&]() {
+        ++pasteCalls;
+        return true;
+    });
+    ClipInsertionOptions insertionOptions;
+    insertionOptions.restoreOriginalClipboardOnSuccess = false;
+    insertion.setOptions(insertionOptions);
+
+    ClipPickerOptions options;
+    options.closeOnActivationSuccess = false;
+    options.insertionHandler = makeClipPickerInsertionHandler(insertion);
+
+    ClipSearchService search(imported);
+    ClipPickerPanel picker(search, options);
+    auto *searchEdit = picker.findChild<QLineEdit *>(QStringLiteral("clipPickerSearchEdit"));
+    QVERIFY(searchEdit);
+
+    picker.setQuery(QStringLiteral("#import-insert"));
+    QCOMPARE(picker.resultCount(), 1);
+    QCOMPARE(picker.currentResult().clipId, sourceId);
+    QVERIFY(picker.currentResult().state == ClipState::Saved);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(pasteCalls, 1);
+    QCOMPARE(clipboard.text(), QStringLiteral("Imported saved clip body"));
+    QCOMPARE(insertion.lastInsertedId(), sourceId);
+    QVERIFY(picker.lastActivationSucceeded());
+}
+
 void WidgetSmokeTest::clipPickerShowsErrorAndStaysOpenOnInsertionFailure()
 {
     InMemoryClipRepository repository;
@@ -574,6 +699,14 @@ void WidgetSmokeTest::clipPickerShowsErrorAndStaysOpenOnInsertionFailure()
     auto *status = picker.findChild<QLabel *>(QStringLiteral("clipPickerStatusLabel"));
     QVERIFY(searchEdit);
     QVERIFY(status);
+    QStringList signalFailedIds;
+    QStringList signalErrors;
+    QObject::connect(&picker,
+                     &ClipPickerPanel::activationFailed,
+                     [&](const QString &failedClipId, const QString &error) {
+                         signalFailedIds.append(failedClipId);
+                         signalErrors.append(error);
+                     });
     picker.show();
     QVERIFY(picker.isVisible());
 
@@ -583,6 +716,8 @@ void WidgetSmokeTest::clipPickerShowsErrorAndStaysOpenOnInsertionFailure()
     QVERIFY(!picker.lastActivationSucceeded());
     QCOMPARE(picker.lastError(), QStringLiteral("paste target unavailable"));
     QCOMPARE(status->text(), QStringLiteral("paste target unavailable"));
+    QCOMPARE(signalFailedIds, QStringList{clipId});
+    QCOMPARE(signalErrors, QStringList{QStringLiteral("paste target unavailable")});
     QVERIFY(picker.isVisible());
 }
 
@@ -2188,22 +2323,139 @@ void WidgetSmokeTest::panelDefaultsToLauncherSurface()
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
     auto *manageButton = panel.findChild<QPushButton *>(QStringLiteral("manageLibraryButton"));
+    auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
+    auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
+    auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
+    auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
     QVERIFY(rootControls);
     QVERIFY(rootList);
     QVERIFY(searchEdit);
     QVERIFY(results);
     QVERIFY(manageButton);
+    QVERIFY(openButton);
+    QVERIFY(addAliasButton);
+    QVERIFY(addAnchorButton);
+    QVERIFY(pinButton);
 
     QVERIFY(rootControls->isHidden());
     QVERIFY(rootList->isHidden());
     QVERIFY(!searchEdit->isHidden());
-    QVERIFY(!results->isHidden());
+    QVERIFY(results->isHidden());
+    QVERIFY(openButton->isHidden());
+    QVERIFY(addAliasButton->isHidden());
+    QVERIFY(addAnchorButton->isHidden());
+    QVERIFY(pinButton->isHidden());
+    QVERIFY(manageButton->isHidden());
     QVERIFY(searchEdit->placeholderText().contains(QStringLiteral("anchors")));
+    QVERIFY(searchEdit->placeholderText().contains(QStringLiteral("Saved Clips")));
+    QCOMPARE(panel.focusWidget(), static_cast<QWidget *>(searchEdit));
+    QVERIFY(panel.sizeHint().height() <= 120);
     QCOMPARE(rootList->count(), 1);
 
-    manageButton->click();
-    QVERIFY(!rootControls->isHidden());
-    QVERIFY(!rootList->isHidden());
+    panel.setSearchText(QStringLiteral("Anchor Note"));
+    QVERIFY(!results->isHidden());
+    QCOMPARE(results->count(), 1);
+
+    PinloomPanelOptions managementOptions;
+    managementOptions.showLibraryRootManagementButton = true;
+    PinloomPanel managementPanel(repository, managementOptions);
+    auto *managementRootControls = managementPanel.findChild<QWidget *>(QStringLiteral("libraryRootControls"));
+    auto *managementRootList = managementPanel.findChild<QListWidget *>(QStringLiteral("libraryRootList"));
+    auto *managementButton = managementPanel.findChild<QPushButton *>(QStringLiteral("manageLibraryButton"));
+    QVERIFY(managementRootControls);
+    QVERIFY(managementRootList);
+    QVERIFY(managementButton);
+    QVERIFY(!managementButton->isHidden());
+    managementButton->click();
+    QVERIFY(!managementRootControls->isHidden());
+    QVERIFY(!managementRootList->isHidden());
+}
+
+void WidgetSmokeTest::panelSearchesSavedClipsAndEnterInserts()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("anchor-note");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Anchor Control Note");
+    resource.location = QStringLiteral("anchor-control.md");
+    Anchor anchor;
+    anchor.type = AnchorType::TextHeading;
+    anchor.target = QStringLiteral("Anchor control heading");
+    anchor.line = 12;
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    InMemoryClipRepository clipRepository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(clipRepository,
+                                          QStringLiteral("Primary launcher saved clip body"),
+                                          QStringLiteral("Launcher Saved Clip"),
+                                          {QStringLiteral("primary clip alias")},
+                                          {QStringLiteral("launcher-clip")},
+                                          true,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+
+    ClipSearchService clipSearch(clipRepository);
+    QStringList insertedClipIds;
+    QList<PinloomOpenTarget> openedTargets;
+    PinloomPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        return clipSearch.search(query, searchOptions);
+    };
+    options.clipInsertionHandler = [&](const QString &selectedClipId, QString *error) {
+        if (error) {
+            error->clear();
+        }
+        insertedClipIds.append(selectedClipId);
+        return true;
+    };
+    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
+        openedTargets.append(target);
+        return true;
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("Launcher Saved Clip"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().clipId, clipId);
+    QCOMPARE(panel.currentOpenTarget().resourceId, QString());
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] Launcher Saved Clip")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Primary launcher saved clip body")));
+
+    panel.setSearchText(QStringLiteral("primary clip alias"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().clipId, clipId);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: primary clip alias")));
+
+    panel.setSearchText(QStringLiteral("#launcher-clip"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().clipId, clipId);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("#launcher-clip")));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(insertedClipIds, QStringList{clipId});
+    QVERIFY(openedTargets.isEmpty());
+    QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
+
+    panel.setSearchText(QStringLiteral("Anchor control heading"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(panel.currentOpenTarget().clipId.isEmpty());
+    QCOMPARE(panel.currentOpenTarget().resourceId, resource.id);
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(insertedClipIds, QStringList{clipId});
+    QCOMPARE(openedTargets.size(), 1);
+    QCOMPARE(openedTargets.first().resourceId, resource.id);
+    QVERIFY(openedTargets.first().anchor.has_value());
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
@@ -2918,7 +3170,7 @@ void WidgetSmokeTest::panelSupportsEmbeddedChromeOptions()
     QVERIFY(addAnchorButton->isHidden());
     QVERIFY(pinButton->isHidden());
     QVERIFY(pinRootButton->isHidden());
-    QVERIFY(!openButton->isHidden());
+    QVERIFY(openButton->isHidden());
 
     panel.setSearchText(QStringLiteral("UART"));
     QCOMPARE(results->count(), 1);
@@ -3189,6 +3441,10 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     QVERIFY(panel.openTargetForResourceId(QStringLiteral("missing")).resourceId.isEmpty());
     QVERIFY(panel.openTargetForResourceId(QString()).resourceId.isEmpty());
 
+    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QVERIFY(panel.currentResults().isEmpty());
+
+    panel.setSearchText(QStringLiteral("ZeroSlack"));
     QCOMPARE(panel.currentOpenTarget().resourceId, resource.id);
     QCOMPARE(panel.currentOpenTarget().resultRow, 0);
     QCOMPARE(panel.resultAt(0).resourceId, resource.id);
@@ -3330,12 +3586,16 @@ void WidgetSmokeTest::panelNotifiesHostWhenResultCountChanges()
 
     PinloomPanel panel(repository, options);
     QVERIFY(!counts.isEmpty());
-    QCOMPARE(counts.last(), 2);
+    QCOMPARE(counts.last(), 0);
     QVERIFY(!resultSnapshots.isEmpty());
+    QVERIFY(resultSnapshots.last().isEmpty());
+
+    panel.setSearchText(QStringLiteral("UART"));
+    QCOMPARE(counts.last(), 2);
     QCOMPARE(resultSnapshots.last().size(), 2);
     QCOMPARE(resultSnapshots.last().at(0).resultRow, 0);
     QCOMPARE(resultSnapshots.last().at(1).resultRow, 1);
-    QVERIFY(resultSnapshots.last().at(0).matchSummary.contains(QStringLiteral("Match: all")));
+    QVERIFY(resultSnapshots.last().at(0).matchSummary.contains(QStringLiteral("Match:")));
 
     panel.setSearchText(QStringLiteral("missing"));
     QCOMPARE(counts.last(), 0);

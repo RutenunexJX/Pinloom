@@ -332,10 +332,10 @@ the picker with `Ctrl+Shift+V` or the tray menu's `Show Clipboard`, search, and
 press Enter to paste the selected text into the current application.
 
 `pinloom_app.exe` also registers a separate `Ctrl+Space` global hotkey for the
-main Pinloom panel. That hotkey restores/raises the main window and focuses the
-search box. It is intentionally separate from the Clip picker hotkey, but on
-Windows `Ctrl+Space` can conflict with IMEs or another application that already
-registered the same shortcut.
+main Pinloom launcher. That hotkey restores/raises a compact horizontal search
+bar and focuses the search box. It is intentionally separate from the Clip
+picker hotkey, but on Windows `Ctrl+Space` can conflict with IMEs or another
+application that already registered the same shortcut.
 
 The picker includes temporary history for the resident app. A `Save Clip`
 button and `Ctrl+S` shortcut save the selected temporary clip as a Saved Clip
@@ -346,9 +346,17 @@ history list. Saved Clips are still searchable inside the Clip picker by name,
 alias, and `#tag`. Re-copying exact text already stored as a Saved Clip is
 ignored as a duplicate by the content hash check.
 
+The main `Ctrl+Space` launcher uses the same `pinloom_clip.sqlite3` repository
+as the resident Clip picker. Its default surface is a single focused search
+bar with a compact results dropdown. Explicit searches can return anchors and
+Saved Clips; Saved Clip rows are labeled as clips and show concise metadata
+such as tags, aliases, timestamp, and preview. Pressing Enter on a Saved Clip
+in the main launcher inserts the text clip into the current foreground
+application through `ClipInsertionService::insertClip(clipId)`. Pressing Enter
+on an anchor result still follows the normal native jump path.
+
 Current limits remain explicit:
 
-- Saved Clips are not yet surfaced in the main Pinloom anchor search.
 - The MVP captures and inserts text only.
 - Native foreground-window recovery, paste timing polish, target-window
   selection, rich text, images, files, HTML/RTF/blob handling, and autostart are

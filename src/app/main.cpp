@@ -59,8 +59,32 @@ int main(int argc, char *argv[])
 
     QMainWindow window;
     window.setWindowTitle(QStringLiteral("Pinloom"));
-    window.resize(900, 560);
-    auto *panel = new Pinloom::PinloomPanel(repository, &window);
+    window.setMinimumWidth(560);
+    window.resize(760, 72);
+
+    Pinloom::PinloomPanelOptions panelOptions;
+    panelOptions.clipSearchHandler =
+        [&clipHost](const QString &query, const Pinloom::ClipSearchOptions &options) -> QList<Pinloom::ClipSearchResult> {
+        if (!clipHost || !clipHost->runtime()) {
+            return {};
+        }
+        return clipHost->runtime()->searchService().search(query, options);
+    };
+    panelOptions.clipInsertionHandler = [&clipHost](const QString &clipId, QString *error) {
+        if (!clipHost || !clipHost->runtime()) {
+            if (error) {
+                *error = QStringLiteral("Pinloom Clip is not running");
+            }
+            return false;
+        }
+        const Pinloom::ClipInsertionResult result = clipHost->runtime()->insertionService().insertClip(clipId);
+        if (!result.inserted() && error) {
+            *error = result.error;
+        }
+        return result.inserted();
+    };
+
+    auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);
 
     std::unique_ptr<Pinloom::ClipHotkeyBackend> mainPanelHotkeyBackend = Pinloom::createMainPanelHotkeyBackend();
