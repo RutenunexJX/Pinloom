@@ -24,6 +24,7 @@ private slots:
     void searchesAliasesAndTags();
     void persistsAndSearchesAnchorLocatorFields();
     void buildsPdfXChangeRectCommand();
+    void buildsPdfXChangeViewRectCommand();
     void buildsPdfXChangePageCommandFromLegacyAnchor();
     void reportsMissingPdfXChangeTargetPath();
     void resolvesPdfXChangeExecutableFromEnvironment();
@@ -164,10 +165,30 @@ void CoreSmokeTest::buildsPdfXChangeRectCommand()
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.command.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
     QCOMPARE(result.command.filePath, anchor.targetFile);
-    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
     QCOMPARE(result.command.arguments,
              QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"),
+                          QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"),
+                          anchor.targetFile}));
+}
+
+void CoreSmokeTest::buildsPdfXChangeViewRectCommand()
+{
+    Anchor anchor;
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral(
+        "{\"type\":\"pdfxchange.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\",\"mode\":\"viewrect\"}");
+
+    const PdfXChangeCommandResult result =
+        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;viewrect=420,860,360,60;usept=yes"));
+    QCOMPARE(result.command.arguments,
+             QStringList({QStringLiteral("/A"),
+                          QStringLiteral("page=12;zoom=250;viewrect=420,860,360,60;usept=yes"),
                           anchor.targetFile}));
 }
 

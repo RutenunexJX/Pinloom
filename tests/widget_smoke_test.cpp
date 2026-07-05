@@ -4246,10 +4246,10 @@ void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
     QVERIFY(panel.activateCurrentOpenTarget());
     QVERIFY(launched);
     QCOMPARE(capturedCommand.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
-    QCOMPARE(capturedCommand.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(capturedCommand.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
     QCOMPARE(capturedCommand.arguments,
              QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"),
+                          QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"),
                           resource.location}));
     QCOMPARE(panel.statusText(), QStringLiteral("Opened PDF-XChange target"));
     QCOMPARE(statusNotifications.last(), panel.statusText());

@@ -19,8 +19,21 @@ namespace Pinloom {
 namespace {
 
 struct RectValues {
-    QList<double> values;
+    double left = 0.0;
+    double top = 0.0;
+    double right = 0.0;
+    double bottom = 0.0;
     bool valid = false;
+};
+
+enum class RectAction {
+    Highlight,
+    ViewRect,
+};
+
+struct LocatedRect {
+    RectValues rect;
+    RectAction action = RectAction::Highlight;
 };
 
 QString normalizedToken(QString value)
@@ -95,44 +108,62 @@ std::optional<double> locatorZoom(const QJsonObject &locator)
     return numberValue(locator.value(QStringLiteral("zoom")));
 }
 
-RectValues rectFromArray(const QJsonArray &array)
+std::optional<QList<double>> fourNumbersFromArray(const QJsonArray &array)
 {
-    RectValues rect;
     if (array.size() != 4) {
-        return rect;
+        return std::nullopt;
     }
 
+    QList<double> values;
     for (const QJsonValue &value : array) {
         const std::optional<double> number = numberValue(value);
         if (!number.has_value()) {
-            rect.values.clear();
-            return rect;
+            return std::nullopt;
         }
-        rect.values.append(number.value());
+        values.append(number.value());
     }
+    return values;
+}
+
+RectValues boundedRect(double left, double top, double right, double bottom)
+{
+    RectValues rect;
+    rect.left = left;
+    rect.top = top;
+    rect.right = right;
+    rect.bottom = bottom;
     rect.valid = true;
     return rect;
 }
 
-RectValues exactRectFromLocator(const QJsonObject &locator, const QString &key)
+RectValues boundsFromRectArray(const QJsonArray &array)
 {
-    const QJsonValue value = locator.value(key);
-    if (!value.isArray()) {
+    const std::optional<QList<double>> values = fourNumbersFromArray(array);
+    if (!values.has_value()) {
         return {};
     }
-    return rectFromArray(value.toArray());
+    return boundedRect(values->at(0), values->at(1), values->at(2), values->at(3));
 }
 
-RectValues legacyRegionFromArray(const QJsonArray &array)
+RectValues boundsFromHighlightArray(const QJsonArray &array)
 {
-    RectValues region = rectFromArray(array);
-    if (!region.valid) {
-        return region;
+    const std::optional<QList<double>> values = fourNumbersFromArray(array);
+    if (!values.has_value()) {
+        return {};
     }
+    return boundedRect(values->at(0), values->at(2), values->at(1), values->at(3));
+}
 
-    region.values[2] = region.values.at(0) + region.values.at(2);
-    region.values[3] = region.values.at(1) + region.values.at(3);
-    return region;
+RectValues boundsFromViewRectArray(const QJsonArray &array)
+{
+    const std::optional<QList<double>> values = fourNumbersFromArray(array);
+    if (!values.has_value()) {
+        return {};
+    }
+    return boundedRect(values->at(0),
+                       values->at(1),
+                       values->at(0) + values->at(2),
+                       values->at(1) + values->at(3));
 }
 
 RectValues rectFromAnchorRegion(const Anchor &anchor)
@@ -142,40 +173,56 @@ RectValues rectFromAnchorRegion(const Anchor &anchor)
         return rect;
     }
 
-    rect.values = {anchor.region.x(),
-                   anchor.region.y(),
-                   anchor.region.x() + anchor.region.width(),
-                   anchor.region.y() + anchor.region.height()};
-    rect.valid = true;
-    return rect;
+    return boundedRect(anchor.region.x(),
+                       anchor.region.y(),
+                       anchor.region.x() + anchor.region.width(),
+                       anchor.region.y() + anchor.region.height());
 }
 
-RectValues locatorRect(const Anchor &anchor, const QJsonObject &locator)
+bool wantsViewRect(const QJsonObject &locator)
 {
-    RectValues rect = exactRectFromLocator(locator, QStringLiteral("rect"));
-    if (rect.valid) {
-        return rect;
+    const QString mode = locator.value(QStringLiteral("mode")).toString().trimmed().toLower();
+    const QString action = locator.value(QStringLiteral("action")).toString().trimmed().toLower();
+    return mode == QLatin1String("viewrect")
+        || action == QLatin1String("viewrect");
+}
+
+LocatedRect locatorRect(const Anchor &anchor, const QJsonObject &locator)
+{
+    const QJsonValue rectValue = locator.value(QStringLiteral("rect"));
+    if (rectValue.isArray()) {
+        const RectValues rect = boundsFromRectArray(rectValue.toArray());
+        if (rect.valid) {
+            return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
+        }
     }
 
-    rect = exactRectFromLocator(locator, QStringLiteral("highlight"));
-    if (rect.valid) {
-        return rect;
+    const QJsonValue highlightValue = locator.value(QStringLiteral("highlight"));
+    if (highlightValue.isArray()) {
+        const RectValues rect = boundsFromHighlightArray(highlightValue.toArray());
+        if (rect.valid) {
+            return {rect, RectAction::Highlight};
+        }
     }
 
-    rect = exactRectFromLocator(locator, QStringLiteral("viewrect"));
-    if (rect.valid) {
-        return rect;
+    const QJsonValue viewRectValue = locator.value(QStringLiteral("viewrect"));
+    if (viewRectValue.isArray()) {
+        const RectValues rect = boundsFromViewRectArray(viewRectValue.toArray());
+        if (rect.valid) {
+            return {rect, RectAction::ViewRect};
+        }
     }
 
     const QJsonValue legacyRegion = locator.value(QStringLiteral("region"));
     if (legacyRegion.isArray()) {
-        rect = legacyRegionFromArray(legacyRegion.toArray());
+        const RectValues rect = boundsFromViewRectArray(legacyRegion.toArray());
         if (rect.valid) {
-            return rect;
+            return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
         }
     }
 
-    return rectFromAnchorRegion(anchor);
+    const RectValues rect = rectFromAnchorRegion(anchor);
+    return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
 }
 
 QString decimalText(double value)
@@ -190,13 +237,22 @@ QString decimalText(double value)
     return text;
 }
 
-QString rectText(const RectValues &rect)
+QString highlightText(const RectValues &rect)
 {
-    QStringList parts;
-    for (double value : rect.values) {
-        parts.append(decimalText(value));
-    }
-    return parts.join(QLatin1Char(','));
+    return QStringLiteral("%1,%2,%3,%4")
+        .arg(decimalText(rect.left),
+             decimalText(rect.right),
+             decimalText(rect.top),
+             decimalText(rect.bottom));
+}
+
+QString viewRectText(const RectValues &rect)
+{
+    return QStringLiteral("%1,%2,%3,%4")
+        .arg(decimalText(rect.left),
+             decimalText(rect.top),
+             decimalText(rect.right - rect.left),
+             decimalText(rect.bottom - rect.top));
 }
 
 bool locatorUsesPoints(const QJsonObject &locator)
@@ -207,14 +263,6 @@ bool locatorUsesPoints(const QJsonObject &locator)
         || unit == QLatin1String("pts")
         || unit == QLatin1String("point")
         || unit == QLatin1String("points");
-}
-
-bool wantsViewRect(const QJsonObject &locator)
-{
-    const QString mode = locator.value(QStringLiteral("mode")).toString().trimmed().toLower();
-    const QString action = locator.value(QStringLiteral("action")).toString().trimmed().toLower();
-    return mode == QLatin1String("viewrect")
-        || action == QLatin1String("viewrect");
 }
 
 QString filePathFromUri(const QString &targetUri)
@@ -360,15 +408,17 @@ PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
         || locatorType == QLatin1String("pdf.region")
         || anchor.type == AnchorType::PdfRegion;
     if (isRectLocator) {
-        const RectValues rect = locatorRect(anchor, locator);
-        if (!rect.valid) {
+        const LocatedRect locatedRect = locatorRect(anchor, locator);
+        if (!locatedRect.rect.valid) {
             result.error = QStringLiteral("PDF-XChange locator rectangle is missing");
             return result;
         }
 
-        actions.append(QStringLiteral("%1=%2")
-                           .arg(wantsViewRect(locator) ? QStringLiteral("viewrect") : QStringLiteral("highlight"),
-                                rectText(rect)));
+        if (locatedRect.action == RectAction::ViewRect) {
+            actions.append(QStringLiteral("viewrect=%1").arg(viewRectText(locatedRect.rect)));
+        } else {
+            actions.append(QStringLiteral("highlight=%1").arg(highlightText(locatedRect.rect)));
+        }
         if (locatorUsesPoints(locator)) {
             actions.append(QStringLiteral("usept=yes"));
         }

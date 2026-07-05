@@ -304,7 +304,7 @@ void AnchorCaptureTest::buildsAnchorCompatibleWithPdfXChangeExecutor()
 
     QVERIFY2(command.success(), qPrintable(command.error));
     QCOMPARE(command.command.filePath, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
 }
 
 void AnchorCaptureTest::buildsManualExcelRangeAnchor()
@@ -975,7 +975,7 @@ void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithPdfXChangeExecut
 
     QVERIFY2(command.success(), qPrintable(command.error));
     QCOMPARE(command.command.filePath, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,860,780,920;usept=yes"));
+    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
 }
 
 void AnchorCaptureTest::rejectsInvalidManualPdfRectAnchorInputsWithoutSaving()
