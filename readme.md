@@ -34,6 +34,8 @@ fast, compact, keyboard-first, and predictable.
 Mainline:
 
 - Manual anchor creation in native applications.
+- Pinloom Inbox capture for user-selected local file objects that should enter
+  the name, alias, tag, search, and launch loop.
 - Anchor naming, aliases, tags, pinned state, and recent-use recall.
 - A Listary-style overlay with one search box and a compact result list.
 - Search over anchor name, alias, tag, and target metadata.
@@ -131,6 +133,12 @@ The mismatch is intentional technical debt for the reset:
   automatic system clipboard text capture, temporary history insertion, row
   timestamps, and explicit Save Clip metadata. Saved Clips are also available
   in the main launcher bar.
+- Pinloom Inbox is implemented as a local file object capture MVP. It is
+  Link-only by default: Pinloom records the original file path and does not
+  move or copy user files. Dropping a file on the Command Window or using
+  `i n` from a recent Explorer selection saves a searchable Inbox file with
+  name, alias, tag, pinned, and default-app launch behavior. Re-saving the
+  same path updates the existing Inbox entry instead of creating duplicates.
 - The main Pinloom launcher panel registers a separate global `Ctrl+Space`
   summon hotkey. It restores/raises a compact horizontal launcher bar and
   focuses the search box; on Windows this can conflict with IMEs or another
@@ -174,6 +182,13 @@ Type `k` to see anchor commands. `k n` is the new-anchor/capture-anchor entry
 point, but native current-application context capture is still pending in this
 slice; the older `Ctrl+K` fallback path remains temporarily available and will
 migrate behind `k n`.
+
+Type `i` to see Inbox commands. Drop a local file on the Command Window, then
+press Enter on `i n` to save it as a Link-mode Inbox file; if no file is
+pending, `i n` tries the file selection from the Explorer window that was in
+front before `Ctrl+Space` opened Pinloom. Type `i s <query>` to open the main
+Pinloom search for archived Inbox files. Inbox is not a file manager and does
+not parse file contents, sync files, or move/copy files in this MVP.
 
 Clip rows show when each item was captured. The resident Clip command view
 shows temporary history alongside Saved Clips; once a temporary item is saved,

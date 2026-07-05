@@ -90,9 +90,14 @@ private slots:
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
     void commandPanelAnchorCaptureCommandCallsHandler();
+    void commandPanelInboxRootCommandShowsCandidates();
+    void commandPanelInboxNewCommandSavesPendingFile();
+    void commandPanelInboxNewReportsMissingPendingAndExplorerSelection();
+    void commandPanelInboxSearchOpensSearchWindow();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
     void commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext();
     void panelDisplaysAnchorAwareResults();
+    void panelDisplaysAndOpensInboxFileEntries();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
     void panelDisplaysBeaconLineResults();
@@ -2918,6 +2923,158 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
 }
 
+void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
+{
+    PinloomCommandPanel panel;
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("i"));
+
+    QCOMPARE(results->count(), 2);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Inbox File -> Open")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("i n")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Inbox Search -> Open")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("i s <query>")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Inbox commands"));
+
+    QTest::keyClick(commandEdit, Qt::Key_Return);
+    QCOMPARE(panel.commandText(), QStringLiteral("i n"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Inbox: drop a file or use Explorer selection"));
+
+    panel.setCommandText(QStringLiteral("i"));
+    QTest::keyClick(commandEdit, Qt::Key_Down);
+    QVERIFY(QMetaObject::invokeMethod(results,
+                                      "itemActivated",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QListWidgetItem *, results->currentItem())));
+    QCOMPARE(panel.commandText(), QStringLiteral("i s"));
+}
+
+void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString filePath = dir.filePath(QStringLiteral("Board Spec.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("board spec");
+    file.close();
+
+    InMemoryLibraryRepository repository;
+    int requestProviderCalls = 0;
+    bool requestParentProvided = false;
+    QString requestedPath;
+    InboxFileSaveRequest capturedRequest;
+    QStringList savedResourceIds;
+
+    PinloomCommandPanelOptions options;
+    options.inboxSaveRequestProvider =
+        [&](QWidget *parent, const QString &path) -> std::optional<InboxFileSaveRequest> {
+        ++requestProviderCalls;
+        requestParentProvided = parent != nullptr;
+        requestedPath = path;
+        InboxFileSaveRequest request;
+        request.filePath = path;
+        request.name = QStringLiteral("Board Spec Inbox");
+        request.aliases = {QStringLiteral("board alias")};
+        request.tags = {QStringLiteral("#hardware")};
+        request.pinned = true;
+        return request;
+    };
+    options.inboxSaveHandler = [&](const InboxFileSaveRequest &request, QString *status) {
+        capturedRequest = request;
+        const InboxFileSaveResult result = saveInboxFile(repository, request);
+        if (status) {
+            *status = result.status;
+        }
+        return result.success();
+    };
+
+    PinloomCommandPanel panel(options);
+    QObject::connect(&panel, &PinloomCommandPanel::inboxSaved, [&](const QString &resourceId) {
+        savedResourceIds.append(resourceId);
+    });
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setPendingInboxFiles({filePath});
+    panel.setCommandText(QStringLiteral("i n"));
+
+    QCOMPARE(panel.pendingInboxFiles(), QStringList{filePath});
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Link mode")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Board Spec.txt")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Inbox pending: Board Spec.txt"));
+
+    QVERIFY(QMetaObject::invokeMethod(commandEdit, "returnPressed", Qt::DirectConnection));
+
+    QCOMPARE(requestProviderCalls, 1);
+    QVERIFY(requestParentProvided);
+    QCOMPARE(requestedPath, filePath);
+    QCOMPARE(capturedRequest.mode, InboxFileArchiveMode::Link);
+    QCOMPARE(capturedRequest.name, QStringLiteral("Board Spec Inbox"));
+    QCOMPARE(capturedRequest.aliases, QStringList{QStringLiteral("board alias")});
+    QCOMPARE(capturedRequest.tags, QStringList{QStringLiteral("hardware")});
+    QVERIFY(panel.pendingInboxFiles().isEmpty());
+    QCOMPARE(panel.commandText(), QStringLiteral("i s Board Spec Inbox"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Saved Inbox file \"Board Spec Inbox\""));
+    QCOMPARE(savedResourceIds, QStringList{inboxResourceIdForPath(filePath)});
+
+    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("board alias")});
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().resource.id, inboxResourceIdForPath(filePath));
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(inboxResourceIdForPath(filePath));
+    QVERIFY(usage.has_value());
+    QVERIFY(usage->pinned);
+}
+
+void WidgetSmokeTest::commandPanelInboxNewReportsMissingPendingAndExplorerSelection()
+{
+    int selectionCalls = 0;
+    int saveCalls = 0;
+    PinloomCommandPanelOptions options;
+    options.inboxSelectionProvider = [&](QString *status) {
+        ++selectionCalls;
+        if (status) {
+            *status = QStringLiteral("Explorer selection did not contain files");
+        }
+        return QStringList{};
+    };
+    options.inboxSaveHandler = [&](const InboxFileSaveRequest &, QString *) {
+        ++saveCalls;
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    panel.setCommandText(QStringLiteral("i n"));
+
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QCOMPARE(selectionCalls, 1);
+    QCOMPARE(saveCalls, 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("Explorer selection did not contain files"));
+}
+
+void WidgetSmokeTest::commandPanelInboxSearchOpensSearchWindow()
+{
+    QStringList queries;
+    PinloomCommandPanelOptions options;
+    options.searchWindowHandler = [&](const QString &query) {
+        queries.append(query);
+    };
+
+    PinloomCommandPanel panel(options);
+    panel.setCommandText(QStringLiteral("i s clock alias"));
+
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(queries, QStringList{QStringLiteral("clock alias")});
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Pinloom search for \"clock alias\""));
+}
+
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
 {
     InMemoryLibraryRepository repository;
@@ -3051,6 +3208,61 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
     QVERIFY(results->item(0)->toolTip().contains(resource.location));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Anchor: Heading")));
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 3);
+}
+
+void WidgetSmokeTest::panelDisplaysAndOpensInboxFileEntries()
+{
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString filePath = dir.filePath(QStringLiteral("Inbox Launch.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("launch me");
+    file.close();
+
+    InMemoryLibraryRepository repository;
+    InboxFileSaveRequest request;
+    request.filePath = filePath;
+    request.name = QStringLiteral("Inbox Launch");
+    request.aliases = {QStringLiteral("launch alias")};
+    request.tags = {QStringLiteral("inbox-open")};
+    const InboxFileSaveResult saveResult = saveInboxFile(repository, request);
+    QVERIFY(saveResult.success());
+
+    {
+        PinloomPanel panel(repository);
+        auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+        QVERIFY(results);
+
+        panel.setSearchText(QStringLiteral("launch alias"));
+        QCOMPARE(results->count(), 1);
+        QVERIFY(results->item(0)->text().contains(QStringLiteral("[Inbox] Inbox Launch")));
+        QCOMPARE(panel.currentOpenTarget().resourceId, saveResult.resourceId);
+        QCOMPARE(panel.currentOpenTarget().location, normalizedInboxFilePath(filePath));
+
+        QVERIFY(panel.activateCurrentOpenTarget());
+        QCOMPARE(fileHandler.openCount, 1);
+        QCOMPARE(fileHandler.lastUrl.toLocalFile(), normalizedInboxFilePath(filePath));
+        const std::optional<ResourceUsage> usage = repository.resourceUsage(saveResult.resourceId);
+        QVERIFY(usage.has_value());
+        QCOMPARE(usage->openCount, 1);
+    }
+
+    QVERIFY(QFile::remove(filePath));
+
+    {
+        PinloomPanel panel(repository);
+        panel.setSearchText(QStringLiteral("Inbox Launch"));
+        QVERIFY(!panel.activateCurrentOpenTarget());
+        QCOMPARE(panel.statusText(),
+                 QStringLiteral("Inbox file no longer exists: %1").arg(normalizedInboxFilePath(filePath)));
+        QCOMPARE(fileHandler.openCount, 1);
+    }
+
+    QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()

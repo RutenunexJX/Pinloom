@@ -1,4 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/ExplorerFileSelection.h"
+#include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/PdfXChangeForegroundCapture.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -154,6 +156,30 @@ int main(int argc, char *argv[])
             *status = panel->statusText();
         }
         return captured;
+    };
+    commandOptions.inboxSelectionProvider =
+        [&lastForegroundContext, &commandWindowForForegroundCapture](QString *status) -> QStringList {
+        const bool useLastForegroundContext =
+            commandWindowForForegroundCapture
+            && commandWindowForForegroundCapture->isVisible()
+            && lastForegroundContext.isValid();
+        const Pinloom::ForegroundAppWindowContext context =
+            useLastForegroundContext
+                ? lastForegroundContext
+                : Pinloom::currentForegroundAppWindowContext();
+        const Pinloom::ExplorerFileSelectionResult result =
+            Pinloom::captureExplorerFileSelection(context);
+        if (status) {
+            *status = result.status;
+        }
+        return result.filePaths;
+    };
+    commandOptions.inboxSaveHandler = [&repository](const Pinloom::InboxFileSaveRequest &request, QString *status) {
+        const Pinloom::InboxFileSaveResult result = Pinloom::saveInboxFile(repository, request);
+        if (status) {
+            *status = result.status;
+        }
+        return result.success();
     };
     commandOptions.searchWindowHandler = [&window, panel](const QString &query) {
         Pinloom::showMainPanelForHotkey(window, *panel);

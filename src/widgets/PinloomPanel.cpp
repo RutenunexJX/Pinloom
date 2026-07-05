@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include "pinloom/core/IndexingService.h"
+#include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/LegacyCompatibility.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
@@ -114,6 +115,14 @@ QString resourceKindLabel(ResourceKind kind)
         break;
     }
     return QStringLiteral("Resource");
+}
+
+QString resourceResultLabel(const Resource &resource)
+{
+    if (isInboxResource(resource)) {
+        return QStringLiteral("Inbox");
+    }
+    return resourceKindLabel(resource.kind);
 }
 
 QString compactValue(QString value, int maxLength = 96)
@@ -338,7 +347,7 @@ QString resultText(const SearchResult &result)
 {
     if (!result.matchedAnchor.has_value()) {
         return QStringLiteral("[%1] %2\n%3")
-            .arg(resourceKindLabel(result.resource.kind),
+            .arg(resourceResultLabel(result.resource),
                  result.resource.title,
                  result.resource.location);
     }
@@ -2347,6 +2356,14 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         recordOpen();
         preview.exec();
         return true;
+    }
+
+    if (isInboxResourceId(target.resourceId)) {
+        const QFileInfo fileInfo(target.location);
+        if (!fileInfo.exists() || !fileInfo.isFile()) {
+            updateStatus(tr("Inbox file no longer exists: %1").arg(target.location));
+            return false;
+        }
     }
 
     QUrl targetUrl = urlForLocation(target.location);

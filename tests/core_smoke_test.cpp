@@ -2,6 +2,8 @@
 #include "pinloom/core/AnchorHealthCheck.h"
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
+#include "pinloom/core/ExplorerFileSelection.h"
+#include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
@@ -54,6 +56,9 @@ private slots:
     void reportsPowerPointCommandInputErrors();
     void recognizesPowerPointTargetAppAliases();
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
+    void validatesInboxFileRequests();
+    void savesInboxFilesByStablePathAndSearchesMetadata();
+    void recognizesExplorerForegroundWindows();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
     void ranksExactMatchesWithinMatchType();
@@ -1128,6 +1133,114 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     QCOMPARE(results.at(3).matchedField, QStringLiteral("anchor_metadata"));
     QCOMPARE(results.at(4).resource.id, coldMetadataResource.id);
     QCOMPARE(results.at(4).matchedField, QStringLiteral("anchor_metadata"));
+}
+
+void CoreSmokeTest::validatesInboxFileRequests()
+{
+    InboxFileSaveRequest emptyPath;
+    QCOMPARE(inboxFileSaveRequestError(emptyPath), QStringLiteral("Inbox file path is required"));
+
+    InboxFileSaveRequest copyRequest;
+    copyRequest.filePath = QStringLiteral("E:/docs/spec.pdf");
+    copyRequest.mode = InboxFileArchiveMode::Copy;
+    QCOMPARE(inboxFileSaveRequestError(copyRequest), QStringLiteral("Inbox MVP supports Link mode only"));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    InboxFileSaveRequest folderRequest;
+    folderRequest.filePath = dir.path();
+    QCOMPARE(inboxFileSaveRequestError(folderRequest), QStringLiteral("Inbox captures files only"));
+}
+
+void CoreSmokeTest::savesInboxFilesByStablePathAndSearchesMetadata()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString filePath = dir.filePath(QStringLiteral("Clock Plan.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("clock plan");
+    file.close();
+
+    InMemoryLibraryRepository repository;
+
+    InboxFileSaveRequest firstRequest;
+    firstRequest.filePath = filePath;
+    firstRequest.name = QStringLiteral("Clock Inbox Plan");
+    firstRequest.aliases = {QStringLiteral("timing inbox")};
+    firstRequest.tags = {QStringLiteral("#review")};
+    firstRequest.pinned = true;
+
+    const InboxFileSaveResult firstResult = saveInboxFile(repository, firstRequest);
+    QVERIFY(firstResult.success());
+    QCOMPARE(firstResult.saveStatus, InboxFileSaveStatus::Created);
+    QVERIFY(isInboxResourceId(firstResult.resourceId));
+    QCOMPARE(firstResult.filePath, normalizedInboxFilePath(filePath));
+
+    const std::optional<Resource> stored = repository.findResource(firstResult.resourceId);
+    QVERIFY(stored.has_value());
+    QVERIFY(isInboxResource(stored.value()));
+    QCOMPARE(stored->kind, ResourceKind::File);
+    QCOMPARE(stored->title, QStringLiteral("Clock Inbox Plan"));
+    QCOMPARE(stored->location, normalizedInboxFilePath(filePath));
+    QCOMPARE(stored->aliases, QStringList{QStringLiteral("timing inbox")});
+    QCOMPARE(stored->tags, QStringList{QStringLiteral("review")});
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(firstResult.resourceId);
+    QVERIFY(usage.has_value());
+    QVERIFY(usage->pinned);
+
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Clock Inbox Plan")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("timing inbox")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("review")}).size(), 1);
+
+    InboxFileSaveRequest secondRequest;
+    secondRequest.filePath = filePath;
+    secondRequest.name = QStringLiteral("Clock Inbox Plan Updated");
+    secondRequest.aliases = {QStringLiteral("handoff inbox")};
+    secondRequest.tags = {QStringLiteral("urgent")};
+
+    const InboxFileSaveResult secondResult = saveInboxFile(repository, secondRequest);
+    QVERIFY(secondResult.success());
+    QCOMPARE(secondResult.saveStatus, InboxFileSaveStatus::Updated);
+    QCOMPARE(secondResult.resourceId, firstResult.resourceId);
+
+    const std::optional<Resource> updated = repository.findResource(firstResult.resourceId);
+    QVERIFY(updated.has_value());
+    QCOMPARE(updated->title, QStringLiteral("Clock Inbox Plan Updated"));
+    QCOMPARE(updated->aliases,
+             (QStringList{QStringLiteral("timing inbox"), QStringLiteral("handoff inbox")}));
+    QCOMPARE(updated->tags,
+             (QStringList{QStringLiteral("review"), QStringLiteral("urgent")}));
+
+    SearchQuery allInbox;
+    allInbox.requiredKinds = {ResourceKind::File};
+    allInbox.limit = 0;
+    int matchingPathCount = 0;
+    for (const SearchResult &result : repository.search(allInbox)) {
+        if (result.resource.location == normalizedInboxFilePath(filePath)) {
+            ++matchingPathCount;
+        }
+    }
+    QCOMPARE(matchingPathCount, 1);
+}
+
+void CoreSmokeTest::recognizesExplorerForegroundWindows()
+{
+    ForegroundAppWindowContext explorer;
+    explorer.processName = QStringLiteral("explorer.exe");
+    QVERIFY(isExplorerForegroundWindow(explorer));
+
+    ForegroundAppWindowContext explorerPath;
+    explorerPath.processPath = QStringLiteral("C:/Windows/explorer.exe");
+    QVERIFY(isExplorerForegroundWindow(explorerPath));
+
+    ForegroundAppWindowContext pdfXChange;
+    pdfXChange.processName = QStringLiteral("PDFXEdit.exe");
+    QVERIFY(!isExplorerForegroundWindow(pdfXChange));
+
+    const ExplorerFileSelectionResult result = captureExplorerFileSelection(pdfXChange);
+    QVERIFY(!result.success());
+    QVERIFY(!result.recognizedExplorer);
 }
 
 void CoreSmokeTest::normalizesLegacyTextResourceInputs()

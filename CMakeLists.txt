@@ -23,6 +23,8 @@ add_library(pinloom_core STATIC
     include/pinloom/core/AnchorHealthCheck.h
     include/pinloom/core/ApplicationLaunchSettings.h
     include/pinloom/core/ExcelCommand.h
+    include/pinloom/core/ExplorerFileSelection.h
+    include/pinloom/core/InboxFileCapture.h
     include/pinloom/core/InMemoryLibraryRepository.h
     include/pinloom/core/DirectoryLibrarySource.h
     include/pinloom/core/IndexingService.h
@@ -52,6 +54,8 @@ add_library(pinloom_core STATIC
     src/core/ApplicationLaunchSettings.cpp
     src/core/DirectoryLibrarySource.cpp
     src/core/ExcelCommand.cpp
+    src/core/ExplorerFileSelection.cpp
+    src/core/InboxFileCapture.cpp
     src/core/IndexingService.cpp
     src/core/InMemoryLibraryRepository.cpp
     src/core/LegacyCompatibility.cpp
@@ -86,6 +90,8 @@ if(WIN32)
     target_link_libraries(pinloom_core
         PRIVATE
             user32
+            ole32
+            oleaut32
     )
 endif()
 

@@ -3,14 +3,20 @@
 #include <QCheckBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDragEnterEvent>
+#include <QDragMoveEvent>
+#include <QDropEvent>
 #include <QEvent>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
 #include <QListWidgetItem>
+#include <QMimeData>
 #include <QSize>
+#include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <utility>
@@ -41,6 +47,7 @@ enum class CommandNamespace {
     None,
     Clip,
     Anchor,
+    Inbox,
     Search
 };
 
@@ -49,6 +56,8 @@ enum class CommandAction {
     ClipSearch,
     ClipNew,
     AnchorNew,
+    InboxNew,
+    InboxSearch,
     OpenSearch
 };
 
@@ -58,6 +67,7 @@ enum class CommandRowAction {
     ClipInsert,
     ClipSave,
     AnchorCapture,
+    InboxSave,
     OpenSearchWindow
 };
 
@@ -110,6 +120,36 @@ QStringList cleanedValues(const QStringList &source, bool tags = false)
         appendUniqueValue(values, tags ? cleanTag(value) : value);
     }
     return values;
+}
+
+QString inboxFilesSummary(const QStringList &filePaths)
+{
+    if (filePaths.isEmpty()) {
+        return QStringLiteral("drop a file or use Explorer selection");
+    }
+    if (filePaths.size() == 1) {
+        return QFileInfo(filePaths.first()).fileName();
+    }
+    return QStringLiteral("%1 files").arg(filePaths.size());
+}
+
+QStringList localFilePathsFromMimeData(const QMimeData *mimeData)
+{
+    QStringList filePaths;
+    if (!mimeData || !mimeData->hasUrls()) {
+        return filePaths;
+    }
+
+    for (const QUrl &url : mimeData->urls()) {
+        if (!url.isLocalFile()) {
+            continue;
+        }
+        const QString filePath = url.toLocalFile().trimmed();
+        if (!filePath.isEmpty()) {
+            appendUniqueValue(filePaths, filePath);
+        }
+    }
+    return filePaths;
 }
 
 QString clipTagsText(const QStringList &tags)
@@ -277,6 +317,26 @@ CommandState parseCommandState(const QString &text)
         return state;
     }
 
+    if (firstToken == QLatin1String("i")) {
+        CommandState state;
+        state.commandNamespace = CommandNamespace::Inbox;
+        const QString option = readCommandToken(text, &index).toCaseFolded();
+        if (option.isEmpty()) {
+            return state;
+        }
+        if (option == QLatin1String("n")) {
+            state.action = CommandAction::InboxNew;
+            state.query = text.mid(index).trimmed();
+            return state;
+        }
+        if (option == QLatin1String("s")) {
+            state.action = CommandAction::InboxSearch;
+            state.query = text.mid(index).trimmed();
+            return state;
+        }
+        return state;
+    }
+
     if (firstToken == QLatin1String("s") || firstToken == QLatin1String("search")) {
         CommandState state;
         state.commandNamespace = CommandNamespace::Search;
@@ -352,6 +412,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 {
     setObjectName(QStringLiteral("pinloomCommandPanel"));
     setWindowTitle(tr("Pinloom Command"));
+    setAcceptDrops(true);
     resize(760, 300);
 
     auto *layout = new QVBoxLayout(this);
@@ -362,12 +423,14 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     commandEdit_->setObjectName(QStringLiteral("commandSearchEdit"));
     commandEdit_->setPlaceholderText(tr("Command"));
     commandEdit_->setClearButtonEnabled(true);
+    commandEdit_->setAcceptDrops(true);
 
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
     resultList_->setAlternatingRowColors(true);
     resultList_->setUniformItemSizes(true);
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+    resultList_->setAcceptDrops(true);
 
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("commandStatusLabel"));
@@ -406,6 +469,20 @@ void PinloomCommandPanel::openClipSearch(const QString &query)
                        ? QStringLiteral("c s")
                        : QStringLiteral("c s %1").arg(trimmedQuery));
     focusCommand();
+}
+
+void PinloomCommandPanel::setPendingInboxFiles(const QStringList &filePaths)
+{
+    pendingInboxFiles_.clear();
+    for (const QString &filePath : filePaths) {
+        appendUniqueValue(pendingInboxFiles_, filePath);
+    }
+    refreshResults();
+}
+
+QStringList PinloomCommandPanel::pendingInboxFiles() const
+{
+    return pendingInboxFiles_;
 }
 
 void PinloomCommandPanel::focusCommand()
@@ -494,6 +571,12 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
         } else if (command.commandNamespace == CommandNamespace::Anchor
                    && command.action == CommandAction::AnchorNew) {
             updateStatus(tr("No anchor context available"));
+        } else if (command.commandNamespace == CommandNamespace::Inbox
+                   && command.action == CommandAction::InboxNew) {
+            updateStatus(tr("No pending Inbox file; drop a file or select one in Explorer"));
+        } else if (command.commandNamespace == CommandNamespace::Inbox
+                   && command.action == CommandAction::InboxSearch) {
+            updateStatus(tr("No Inbox search command selected"));
         } else {
             updateStatus(tr("Unknown command"));
         }
@@ -505,6 +588,15 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
 
 bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == commandEdit_ || watched == resultList_) {
+        if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
+            return handleInboxDragEnter(event);
+        }
+        if (event->type() == QEvent::Drop) {
+            return handleInboxDrop(event);
+        }
+    }
+
     if ((watched == commandEdit_ || watched == resultList_) && event->type() == QEvent::KeyPress) {
         auto *keyEvent = static_cast<QKeyEvent *>(event);
         const Qt::KeyboardModifiers modifiers =
@@ -536,6 +628,21 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
     }
 
     return QWidget::eventFilter(watched, event);
+}
+
+void PinloomCommandPanel::dragEnterEvent(QDragEnterEvent *event)
+{
+    handleInboxDragEnter(event);
+}
+
+void PinloomCommandPanel::dragMoveEvent(QDragMoveEvent *event)
+{
+    handleInboxDragEnter(event);
+}
+
+void PinloomCommandPanel::dropEvent(QDropEvent *event)
+{
+    handleInboxDrop(event);
 }
 
 void PinloomCommandPanel::refreshResults()
@@ -640,6 +747,32 @@ void PinloomCommandPanel::refreshResults()
                             tr("New Anchor / Capture Anchor"),
                             tr("Capture"),
                             tr("k n - capture current app position"));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::None) {
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("i n"),
+                            tr("New Inbox File"),
+                            tr("Open"),
+                            tr("i n - save pending dropped file or current Explorer selection"));
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("i s"),
+                            tr("Inbox Search"),
+                            tr("Open"),
+                            tr("i s <query> - search archived Inbox files"));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::InboxNew) {
+        appendCommandResult(CommandRowAction::InboxSave,
+                            QStringLiteral("i n"),
+                            tr("New Inbox File"),
+                            tr("Save"),
+                            tr("Link mode - %1").arg(inboxFilesSummary(pendingInboxFiles_)));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::InboxSearch) {
+        auto *item = new QListWidgetItem(QStringLiteral("[Command] Inbox Search -> Open\ni s <query> - open Inbox results in Pinloom search"),
+                                         resultList_);
+        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+        item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenSearchWindow));
+        item->setData(CommandSearchQueryRole, command.query);
     } else if (command.commandNamespace == CommandNamespace::Search
                && command.action == CommandAction::OpenSearch) {
         auto *item = new QListWidgetItem(QStringLiteral("[Command] Pinloom Search -> Open\nsearch <query> - open the search window"),
@@ -654,7 +787,7 @@ void PinloomCommandPanel::refreshResults()
     }
 
     if (commandEdit_->text().trimmed().isEmpty()) {
-        updateStatus(tr("Type c for Clip commands or k for Anchor commands"));
+        updateStatus(tr("Type c for Clip commands, k for Anchor commands, or i for Inbox commands"));
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::None) {
         updateStatus(tr("Clip commands"));
@@ -674,6 +807,19 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorNew) {
         updateStatus(tr("Capture anchor current app context pending"));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::None) {
+        updateStatus(tr("Inbox commands"));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::InboxNew) {
+        updateStatus(pendingInboxFiles_.isEmpty()
+                         ? tr("Inbox: drop a file or use Explorer selection")
+                         : tr("Inbox pending: %1").arg(inboxFilesSummary(pendingInboxFiles_)));
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::InboxSearch) {
+        updateStatus(command.query.trimmed().isEmpty()
+                         ? tr("Open Inbox search")
+                         : tr("Open Inbox search for \"%1\"").arg(command.query.trimmed()));
     } else if (command.commandNamespace == CommandNamespace::Search
                && command.action == CommandAction::OpenSearch) {
         updateStatus(tr("Open Pinloom search window"));
@@ -728,6 +874,9 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
     }
     if (action == CommandRowAction::AnchorCapture) {
         return captureAnchor();
+    }
+    if (action == CommandRowAction::InboxSave) {
+        return saveInboxFromCommand();
     }
     if (action == CommandRowAction::OpenSearchWindow) {
         return openSearchWindow(item);
@@ -821,6 +970,94 @@ bool PinloomCommandPanel::captureAnchor()
     return captured;
 }
 
+bool PinloomCommandPanel::saveInboxFromCommand()
+{
+    if (!options_.inboxSaveHandler) {
+        updateStatus(tr("Inbox saving is not configured"));
+        return false;
+    }
+
+    QStringList filePaths = pendingInboxFiles_;
+    if (filePaths.isEmpty() && options_.inboxSelectionProvider) {
+        QString selectionStatus;
+        filePaths = options_.inboxSelectionProvider(&selectionStatus);
+        if (filePaths.isEmpty() && !selectionStatus.trimmed().isEmpty()) {
+            updateStatus(selectionStatus.trimmed());
+            return false;
+        }
+    }
+
+    filePaths.removeDuplicates();
+    if (filePaths.isEmpty()) {
+        updateStatus(tr("No pending Inbox file; drop a file or select one in Explorer"));
+        return false;
+    }
+
+    QStringList savedResourceIds;
+    QStringList savedNames;
+    QString lastStatus;
+    for (int i = 0; i < filePaths.size(); ++i) {
+        const QString filePath = filePaths.at(i);
+        InboxFileSaveRequest request;
+        if (filePaths.size() == 1) {
+            std::optional<InboxFileSaveRequest> promptedRequest = options_.inboxSaveRequestProvider
+                ? options_.inboxSaveRequestProvider(this, filePath)
+                : promptInboxSaveRequest(filePath);
+            if (!promptedRequest.has_value()) {
+                updateStatus(tr("Inbox save canceled"));
+                return false;
+            }
+            request = promptedRequest.value();
+        } else {
+            request.filePath = filePath;
+            request.name = defaultInboxFileName(filePath);
+            request.mode = InboxFileArchiveMode::Link;
+        }
+
+        if (request.filePath.trimmed().isEmpty()) {
+            request.filePath = filePath;
+        }
+        request.name = request.name.trimmed();
+        request.aliases = cleanedValues(request.aliases);
+        request.tags = cleanedValues(request.tags, true);
+        request.mode = InboxFileArchiveMode::Link;
+
+        if (request.name.isEmpty()) {
+            request.name = defaultInboxFileName(request.filePath);
+        }
+
+        QString status;
+        if (!options_.inboxSaveHandler(request, &status)) {
+            updateStatus(status.trimmed().isEmpty() ? tr("Unable to save Inbox file") : status.trimmed());
+            return false;
+        }
+        savedResourceIds.append(inboxResourceIdForPath(request.filePath));
+        savedNames.append(request.name);
+        lastStatus = status.trimmed();
+    }
+
+    pendingInboxFiles_.clear();
+
+    if (savedResourceIds.size() == 1) {
+        const QString savedName = savedNames.first().trimmed();
+        setCommandText(savedName.isEmpty()
+                           ? QStringLiteral("i s")
+                           : QStringLiteral("i s %1").arg(savedName));
+        updateStatus(lastStatus.isEmpty()
+                         ? tr("Saved Inbox file \"%1\"").arg(savedName)
+                         : lastStatus);
+        emit inboxSaved(savedResourceIds.first());
+        return true;
+    }
+
+    setCommandText(QStringLiteral("i s"));
+    updateStatus(tr("Saved %n Inbox file(s) in Link mode", nullptr, savedResourceIds.size()));
+    for (const QString &resourceId : savedResourceIds) {
+        emit inboxSaved(resourceId);
+    }
+    return true;
+}
+
 bool PinloomCommandPanel::openSearchWindow(const QListWidgetItem *item)
 {
     const QString query = item ? item->data(CommandSearchQueryRole).toString() : QString();
@@ -874,6 +1111,90 @@ std::optional<PinloomClipSaveRequest> PinloomCommandPanel::promptClipSaveRequest
     request.tags = valuesFromCommaText(tagsEdit->text(), true);
     request.pinned = pinnedCheck->isChecked();
     return request;
+}
+
+std::optional<InboxFileSaveRequest> PinloomCommandPanel::promptInboxSaveRequest(const QString &filePath)
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Save Inbox File"));
+    auto *form = new QFormLayout(&dialog);
+    auto *nameEdit = new QLineEdit(defaultInboxFileName(filePath), &dialog);
+    nameEdit->setObjectName(QStringLiteral("commandInboxSaveNameEdit"));
+    auto *aliasesEdit = new QLineEdit(&dialog);
+    aliasesEdit->setObjectName(QStringLiteral("commandInboxSaveAliasesEdit"));
+    auto *tagsEdit = new QLineEdit(&dialog);
+    tagsEdit->setObjectName(QStringLiteral("commandInboxSaveTagsEdit"));
+    auto *modeLabel = new QLabel(tr("Link"), &dialog);
+    modeLabel->setObjectName(QStringLiteral("commandInboxSaveModeLabel"));
+    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    pinnedCheck->setObjectName(QStringLiteral("commandInboxSavePinnedCheck"));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->setObjectName(QStringLiteral("commandInboxSaveButtons"));
+
+    form->addRow(tr("Name"), nameEdit);
+    form->addRow(tr("Aliases"), aliasesEdit);
+    form->addRow(tr("Tags"), tagsEdit);
+    form->addRow(tr("Mode"), modeLabel);
+    form->addRow(QString(), pinnedCheck);
+    form->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return std::nullopt;
+    }
+
+    InboxFileSaveRequest request;
+    request.filePath = filePath;
+    request.name = nameEdit->text();
+    request.aliases = valuesFromCommaText(aliasesEdit->text());
+    request.tags = valuesFromCommaText(tagsEdit->text(), true);
+    request.pinned = pinnedCheck->isChecked();
+    request.mode = InboxFileArchiveMode::Link;
+    return request;
+}
+
+bool PinloomCommandPanel::handleInboxDragEnter(QEvent *event)
+{
+    const QMimeData *mimeData = nullptr;
+    if (event->type() == QEvent::DragEnter) {
+        mimeData = static_cast<QDragEnterEvent *>(event)->mimeData();
+    } else if (event->type() == QEvent::DragMove) {
+        mimeData = static_cast<QDragMoveEvent *>(event)->mimeData();
+    } else {
+        return false;
+    }
+
+    if (localFilePathsFromMimeData(mimeData).isEmpty()) {
+        return false;
+    }
+
+    if (event->type() == QEvent::DragEnter) {
+        static_cast<QDragEnterEvent *>(event)->acceptProposedAction();
+    } else {
+        static_cast<QDragMoveEvent *>(event)->acceptProposedAction();
+    }
+    return true;
+}
+
+bool PinloomCommandPanel::handleInboxDrop(QEvent *event)
+{
+    if (event->type() != QEvent::Drop) {
+        return false;
+    }
+
+    auto *dropEvent = static_cast<QDropEvent *>(event);
+    const QStringList filePaths = localFilePathsFromMimeData(dropEvent->mimeData());
+    if (filePaths.isEmpty()) {
+        return false;
+    }
+
+    setPendingInboxFiles(filePaths);
+    setCommandText(QStringLiteral("i n"));
+    updateStatus(tr("Inbox pending: %1").arg(inboxFilesSummary(pendingInboxFiles_)));
+    dropEvent->acceptProposedAction();
+    return true;
 }
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel)

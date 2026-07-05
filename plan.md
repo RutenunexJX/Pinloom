@@ -295,6 +295,19 @@ Status:
   PDF-XChange native current-view/coordinate capture is not implemented here,
   and the existing `Ctrl+K` fallback path remains temporary until it migrates
   behind `k n`.
+- Pinloom Inbox MVP is implemented as a local file object capture entrypoint,
+  not a file manager. The Command Window now exposes `i`, `i n`, and
+  `i s <query>`; users can drop local files on the Command Window or use
+  `i n` to capture the Explorer selection that was in front before
+  `Ctrl+Space`. The MVP is Link-only: it records the original path, name,
+  aliases, tags, and pinned state without moving, copying, parsing, syncing, or
+  full-text indexing the file.
+- Inbox files are saved as searchable local file resources with stable
+  path-based IDs, so re-saving the same path updates the existing entry instead
+  of creating duplicates. Main launcher results display Inbox entries as
+  `[Inbox]`, and Enter opens them through the system default application.
+  Missing local files are reported at open time rather than by a background
+  scanner.
 
 ## Frozen Or Demoted Work
 

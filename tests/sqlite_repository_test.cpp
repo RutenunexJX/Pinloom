@@ -1,7 +1,9 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/InboxFileCapture.h"
 
 #include <QDir>
 #include <QDateTime>
+#include <QFile>
 #include <QSqlDatabase>
 #include <QSqlError>
 #include <QSqlQuery>
@@ -21,6 +23,7 @@ private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
     void persistsAndSearchesAnchorLocatorFields();
+    void persistsAndSearchesInboxFiles();
     void filtersLegacyPdfManualLineAnchorsFromSearch();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
@@ -460,6 +463,59 @@ void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
     QSqlDatabase::removeDatabase(rawConnectionName);
+}
+
+void SqliteRepositoryTest::persistsAndSearchesInboxFiles()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    const QString filePath = dir.filePath(QStringLiteral("Inbox Spec.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("inbox spec");
+    file.close();
+
+    QString resourceId;
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+        InboxFileSaveRequest request;
+        request.filePath = filePath;
+        request.name = QStringLiteral("Inbox Spec");
+        request.aliases = {QStringLiteral("inbox alias")};
+        request.tags = {QStringLiteral("#handoff")};
+        const InboxFileSaveResult result = saveInboxFile(repository, request);
+        QVERIFY2(result.success(), qPrintable(result.status));
+        QCOMPARE(result.saveStatus, InboxFileSaveStatus::Created);
+        resourceId = result.resourceId;
+    }
+
+    SqliteLibraryRepository reopened;
+    QVERIFY2(reopened.open(databasePath), qPrintable(reopened.lastError()));
+    QVERIFY2(reopened.initialize(), qPrintable(reopened.lastError()));
+
+    const std::optional<Resource> stored = reopened.findResource(resourceId);
+    QVERIFY(stored.has_value());
+    QVERIFY(isInboxResource(stored.value()));
+    QCOMPARE(stored->title, QStringLiteral("Inbox Spec"));
+    QCOMPARE(stored->location, normalizedInboxFilePath(filePath));
+    QCOMPARE(stored->aliases, QStringList{QStringLiteral("inbox alias")});
+    QCOMPARE(stored->tags, QStringList{QStringLiteral("handoff")});
+
+    const QList<SearchResult> nameResults = reopened.search(SearchQuery{QStringLiteral("Inbox Spec")});
+    QCOMPARE(nameResults.size(), 1);
+    QCOMPARE(nameResults.first().resource.id, resourceId);
+
+    const QList<SearchResult> aliasResults = reopened.search(SearchQuery{QStringLiteral("inbox alias")});
+    QCOMPARE(aliasResults.size(), 1);
+    QCOMPARE(aliasResults.first().resource.id, resourceId);
+
+    const QList<SearchResult> tagResults = reopened.search(SearchQuery{QStringLiteral("handoff")});
+    QCOMPARE(tagResults.size(), 1);
+    QCOMPARE(tagResults.first().resource.id, resourceId);
 }
 
 void SqliteRepositoryTest::filtersLegacyPdfManualLineAnchorsFromSearch()
