@@ -26,6 +26,7 @@ private slots:
     void buildsPdfXChangeRectCommand();
     void buildsPdfXChangeViewRectCommand();
     void buildsPdfXChangePageCommandFromLegacyAnchor();
+    void doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor();
     void reportsMissingPdfXChangeTargetPath();
     void resolvesPdfXChangeExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
@@ -63,6 +64,7 @@ private slots:
     void ranksRelatedContextResourcesWithinMatchType();
     void ranksOpenedAnchorsWithinAnchorMatches();
     void searchesExtractedContent();
+    void filtersLegacyPdfManualLineAnchorsFromSearch();
     void exposesSqliteFts5SchemaDraft();
 };
 
@@ -213,6 +215,25 @@ void CoreSmokeTest::buildsPdfXChangePageCommandFromLegacyAnchor()
              QStringList({QStringLiteral("/A"),
                           QStringLiteral("page=3;zoom=175"),
                           QStringLiteral("E:/docs/spec.pdf")}));
+}
+
+void CoreSmokeTest::doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor()
+{
+    Anchor anchor;
+    anchor.type = AnchorType::Manual;
+    anchor.targetApp = QStringLiteral("pdf");
+    anchor.targetFile = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
+    anchor.locatorType = QStringLiteral("manual");
+    anchor.locatorJson = QStringLiteral("{\"line\":12}");
+    anchor.line = 12;
+
+    QVERIFY(!isPdfXChangeAnchor(anchor));
+
+    const PdfXChangeCommandResult result =
+        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("PDF-XChange locator type is unsupported"));
 }
 
 void CoreSmokeTest::reportsMissingPdfXChangeTargetPath()
@@ -1465,6 +1486,50 @@ void CoreSmokeTest::searchesExtractedContent()
     QCOMPARE(results.size(), 1);
     QCOMPARE(results.first().resource.id, resource.id);
     QCOMPARE(results.first().matchedField, QStringLiteral("content"));
+}
+
+void CoreSmokeTest::filtersLegacyPdfManualLineAnchorsFromSearch()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource pdf;
+    pdf.id = QStringLiteral("iso-pdf");
+    pdf.kind = ResourceKind::Pdf;
+    pdf.title = QStringLiteral("ISO 11898-1");
+    pdf.location = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
+    Anchor legacyPdfLine;
+    legacyPdfLine.type = AnchorType::Manual;
+    legacyPdfLine.name = QStringLiteral("legacy PDF line anchor");
+    legacyPdfLine.target = legacyPdfLine.name;
+    legacyPdfLine.line = 12;
+    legacyPdfLine.locatorType = QStringLiteral("manual");
+    legacyPdfLine.locatorJson = QStringLiteral("{\"line\":12}");
+    pdf.anchors = {legacyPdfLine};
+    QVERIFY(repository.upsertResource(pdf));
+
+    Resource text;
+    text.id = QStringLiteral("bringup-note");
+    text.kind = ResourceKind::File;
+    text.title = QStringLiteral("Bringup Note");
+    text.location = QStringLiteral("E:/test_dir/bringup.txt");
+    Anchor textLine;
+    textLine.type = AnchorType::Manual;
+    textLine.name = QStringLiteral("legacy text line anchor");
+    textLine.target = textLine.name;
+    textLine.line = 12;
+    text.anchors = {textLine};
+    QVERIFY(repository.upsertResource(text));
+
+    const QList<SearchResult> pdfResults =
+        repository.search(SearchQuery{QStringLiteral("legacy PDF line anchor")});
+    QCOMPARE(pdfResults.size(), 0);
+
+    const QList<SearchResult> textResults =
+        repository.search(SearchQuery{QStringLiteral("legacy text line anchor")});
+    QCOMPARE(textResults.size(), 1);
+    QCOMPARE(textResults.first().resource.id, text.id);
+    QVERIFY(textResults.first().matchedAnchor.has_value());
+    QCOMPARE(textResults.first().matchedAnchor->line, 12);
 }
 
 void CoreSmokeTest::exposesSqliteFts5SchemaDraft()

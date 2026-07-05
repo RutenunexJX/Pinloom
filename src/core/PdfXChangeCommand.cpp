@@ -100,7 +100,10 @@ int locatorPage(const Anchor &anchor, const QJsonObject &locator)
     if (page.has_value()) {
         return static_cast<int>(std::round(page.value()));
     }
-    return anchor.page > 0 ? anchor.page : -1;
+    if (anchor.page > 0) {
+        return anchor.page;
+    }
+    return -1;
 }
 
 std::optional<double> locatorZoom(const QJsonObject &locator)
@@ -322,6 +325,11 @@ bool isPdfXChangeAnchor(const Anchor &anchor)
     const QString type = effectiveLocatorType(anchor, locator);
     if (isPdfXChangeLocatorType(type)) {
         return true;
+    }
+
+    if (anchor.type == AnchorType::Manual
+        && (type.isEmpty() || type == QLatin1String("manual"))) {
+        return false;
     }
 
     const QString app = normalizedToken(anchor.targetApp);

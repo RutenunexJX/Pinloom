@@ -371,8 +371,12 @@ SearchResult anchorSearchResult(const Resource &resource,
     return SearchResult{resource, match.score, match.field, anchor};
 }
 
-bool shouldIndexAnchor(const Anchor &anchor)
+bool shouldIndexAnchor(const Resource &resource, const Anchor &anchor)
 {
+    if (isDeprecatedPdfManualLineAnchor(resource, anchor)) {
+        return false;
+    }
+
     if (anchorSearchText(anchor).trimmed().isEmpty()) {
         return false;
     }
@@ -827,7 +831,7 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
             return false;
         }
 
-        if (shouldIndexAnchor(anchor)) {
+        if (shouldIndexAnchor(storedResource, anchor)) {
             QSqlQuery anchorFtsQuery(database_);
             anchorFtsQuery.prepare(QStringLiteral("INSERT INTO anchor_fts(resource_id, anchor_order, type, target) "
                                                   "VALUES (?, ?, ?, ?)"));
@@ -982,8 +986,12 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             if (!matchesRequiredKinds(resource->kind, query.requiredKinds)) {
                 continue;
             }
+            const Anchor &anchor = resource->anchors.at(anchorOrder);
+            if (isDeprecatedPdfManualLineAnchor(resource.value(), anchor)) {
+                continue;
+            }
             SearchResult result = anchorSearchResult(resource.value(),
-                                                     resource->anchors.at(anchorOrder),
+                                                     anchor,
                                                      plainTokens,
                                                      query.text);
             applyRankingSignals(result, query);

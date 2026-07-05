@@ -89,6 +89,54 @@ bool looksLikeUri(const QString &location)
         || location.startsWith(QStringLiteral("file://"), Qt::CaseInsensitive);
 }
 
+bool isPositiveNumber(const QJsonValue &value)
+{
+    if (value.isDouble()) {
+        return value.toDouble() > 0.0;
+    }
+    if (value.isString()) {
+        bool ok = false;
+        const double number = value.toString().trimmed().toDouble(&ok);
+        return ok && number > 0.0;
+    }
+    return false;
+}
+
+QJsonObject locatorObject(const QString &locatorJson)
+{
+    const QString trimmed = locatorJson.trimmed();
+    if (trimmed.isEmpty()) {
+        return {};
+    }
+
+    QJsonParseError parseError;
+    const QJsonDocument document = QJsonDocument::fromJson(trimmed.toUtf8(), &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
+        return {};
+    }
+    return document.object();
+}
+
+bool hasOnlyLegacyManualLineFields(const QJsonObject &locator)
+{
+    for (const QString &key : locator.keys()) {
+        const QString normalizedKey = key.trimmed().toLower();
+        if (normalizedKey == QLatin1String("line")) {
+            continue;
+        }
+        if (normalizedKey == QLatin1String("type")
+            && locator.value(key).toString().trimmed().compare(QStringLiteral("manual"), Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        if (normalizedKey == QLatin1String("source")
+            && locator.value(key).toString().trimmed().compare(QStringLiteral("manual"), Qt::CaseInsensitive) == 0) {
+            continue;
+        }
+        return false;
+    }
+    return true;
+}
+
 } // namespace
 
 Anchor normalizedAnchor(Anchor anchor)
@@ -133,6 +181,30 @@ Resource normalizedResource(Resource resource)
         }
     }
     return resource;
+}
+
+bool isDeprecatedPdfManualLineAnchor(const Resource &resource, const Anchor &anchor)
+{
+    if (normalizedResourceKind(resource.kind) != ResourceKind::Pdf
+        || normalizedAnchorType(anchor.type) != AnchorType::Manual) {
+        return false;
+    }
+
+    const QString locatorType = anchor.locatorType.trimmed().toLower();
+    if (!locatorType.isEmpty() && locatorType != QLatin1String("manual")) {
+        return false;
+    }
+
+    if (anchor.page > 0 || anchor.region.isValid()) {
+        return false;
+    }
+
+    const QJsonObject locator = locatorObject(anchor.locatorJson);
+    if (!hasOnlyLegacyManualLineFields(locator)) {
+        return false;
+    }
+
+    return anchor.line > 0 || isPositiveNumber(locator.value(QStringLiteral("line")));
 }
 
 bool resourceKindMatchesFilter(ResourceKind kind, const QList<ResourceKind> &requiredKinds)

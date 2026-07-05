@@ -21,6 +21,7 @@ private slots:
     void initializesIdempotently();
     void persistsAndSearchesResourceMetadata();
     void persistsAndSearchesAnchorLocatorFields();
+    void filtersLegacyPdfManualLineAnchorsFromSearch();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
@@ -459,6 +460,57 @@ void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
     QSqlDatabase::removeDatabase(rawConnectionName);
+}
+
+void SqliteRepositoryTest::filtersLegacyPdfManualLineAnchorsFromSearch()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource resource;
+    resource.id = QStringLiteral("iso-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("ISO CAN Spec");
+    resource.location = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
+
+    Anchor legacy;
+    legacy.type = AnchorType::Manual;
+    legacy.name = QStringLiteral("legacy manual line 12");
+    legacy.target = legacy.name;
+    legacy.line = 12;
+    legacy.locatorType = QStringLiteral("manual");
+    legacy.locatorJson = QStringLiteral("{\"line\":12}");
+
+    Anchor rect;
+    rect.type = AnchorType::Manual;
+    rect.name = QStringLiteral("stable PDF-XChange rect");
+    rect.target = rect.name;
+    rect.targetApp = QStringLiteral("PDF-XChange");
+    rect.targetFile = resource.location;
+    rect.locatorType = QStringLiteral("pdfxchange.rect");
+    rect.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920]}");
+
+    resource.anchors = {legacy, rect};
+    QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 2);
+
+    const QList<SearchResult> legacyResults =
+        repository.search(SearchQuery{QStringLiteral("legacy manual line 12")});
+    QCOMPARE(legacyResults.size(), 0);
+
+    const QList<SearchResult> rectResults =
+        repository.search(SearchQuery{QStringLiteral("stable PDF-XChange rect")});
+    QCOMPARE(rectResults.size(), 1);
+    QVERIFY(rectResults.first().matchedAnchor.has_value());
+    QCOMPARE(rectResults.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
 }
 
 void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()

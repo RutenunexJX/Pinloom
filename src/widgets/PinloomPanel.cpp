@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include "pinloom/core/IndexingService.h"
+#include "pinloom/core/LegacyCompatibility.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
@@ -449,6 +450,18 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     }
 
     return target;
+}
+
+bool isDeprecatedPdfManualLineOpenTarget(const PinloomOpenTarget &target)
+{
+    if (!target.anchor.has_value()) {
+        return false;
+    }
+
+    Resource resource;
+    resource.kind = target.resourceKind;
+    resource.location = target.location;
+    return isDeprecatedPdfManualLineAnchor(resource, target.anchor.value());
 }
 
 PinloomLibraryRootTarget libraryRootTargetForRoot(const LibraryRoot &root, int row)
@@ -1507,6 +1520,11 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
         return false;
     }
 
+    if (normalizedResourceKind(resource->kind) == ResourceKind::Pdf) {
+        updateStatus(tr("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+        return false;
+    }
+
     Anchor anchor;
     anchor.type = AnchorType::Manual;
     anchor.target = trimmedTarget;
@@ -1892,6 +1910,11 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
             }
         }
     };
+
+    if (isDeprecatedPdfManualLineOpenTarget(target)) {
+        updateStatus(tr("Legacy PDF line anchor is deprecated; delete it and recreate a PDF-XChange anchor"));
+        return false;
+    }
 
     if (tryHostOpenTarget(target)) {
         recordOpen();
@@ -2290,6 +2313,12 @@ void PinloomPanel::promptDeleteSelectedAnchor()
 
 void PinloomPanel::promptAddManualAnchor()
 {
+    const PinloomOpenTarget selectedTarget = currentOpenTarget();
+    if (normalizedResourceKind(selectedTarget.resourceKind) == ResourceKind::Pdf) {
+        updateStatus(tr("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+        return;
+    }
+
     bool accepted = false;
     const QString target = QInputDialog::getText(
         this,

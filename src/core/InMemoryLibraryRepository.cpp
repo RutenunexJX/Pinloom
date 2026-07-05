@@ -466,6 +466,9 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 
         if (!needle.isEmpty()) {
             for (const Anchor &anchor : resource.anchors) {
+                if (isDeprecatedPdfManualLineAnchor(resource, anchor)) {
+                    continue;
+                }
                 const AnchorMatch match = classifyAnchorMatch(anchor, needle);
                 if (match.matched) {
                     SearchResult result = anchorResult(resource, anchor, match);

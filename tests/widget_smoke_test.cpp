@@ -72,10 +72,12 @@ private slots:
     void panelDisplaysBeaconLineResults();
     void panelDisplaysFileLineResults();
     void panelDisplaysPdfPageResults();
+    void panelFiltersLegacyPdfManualLineAnchors();
     void panelPreservesPdfRegionOpenTarget();
     void panelDisplaysRelationSummary();
     void panelExposesCurrentRelatedTargetsForHostPreview();
     void panelAddsManualAliasAndAnchor();
+    void panelRejectsGenericManualPdfLineAnchors();
     void panelPinsSelectedResource();
     void panelPinsSelectedLibraryRoot();
     void panelSupportsEmbeddedChromeOptions();
@@ -2147,6 +2149,47 @@ void WidgetSmokeTest::panelDisplaysPdfPageResults()
     QCOMPARE(results->item(0)->data(Qt::UserRole + 6).toInt(), 2);
 }
 
+void WidgetSmokeTest::panelFiltersLegacyPdfManualLineAnchors()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("iso-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("ISO CAN Spec");
+    resource.location = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
+    Anchor legacy;
+    legacy.type = AnchorType::Manual;
+    legacy.name = QStringLiteral("legacy manual line 12");
+    legacy.target = legacy.name;
+    legacy.line = 12;
+    legacy.locatorType = QStringLiteral("manual");
+    legacy.locatorJson = QStringLiteral("{\"line\":12}");
+    Anchor page;
+    page.type = AnchorType::Manual;
+    page.name = QStringLiteral("stable PDF-XChange page");
+    page.target = page.name;
+    page.targetApp = QStringLiteral("PDF-XChange");
+    page.targetFile = resource.location;
+    page.locatorType = QStringLiteral("pdfxchange.page");
+    page.locatorJson = QStringLiteral("{\"page\":12}");
+    resource.anchors = {legacy, page};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomPanel panel(repository);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("legacy manual line 12"));
+    QCOMPARE(results->count(), 0);
+
+    panel.setSearchText(QStringLiteral("stable PDF-XChange page"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("stable PDF-XChange page")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdfxchange.page")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 26).toString(), QStringLiteral("pdfxchange.page"));
+}
+
 void WidgetSmokeTest::panelPreservesPdfRegionOpenTarget()
 {
     InMemoryLibraryRepository repository;
@@ -2416,6 +2459,34 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
     QVERIFY(results->item(0)->text().contains(QStringLiteral("\"line\":11")));
     QCOMPARE(results->item(0)->data(Qt::UserRole).toString(), hostResource.id);
     QCOMPARE(results->item(0)->data(Qt::UserRole + 3).toInt(), 11);
+}
+
+void WidgetSmokeTest::panelRejectsGenericManualPdfLineAnchors()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Spec PDF");
+    resource.location = QStringLiteral("E:/docs/spec.pdf");
+    QVERIFY(repository.upsertResource(resource));
+
+    QStringList statusNotifications;
+    PinloomPanelOptions options;
+    options.statusChangedHandler = [&](const QString &statusText) {
+        statusNotifications.append(statusText);
+    };
+
+    PinloomPanel panel(repository, options);
+
+    QVERIFY(!panel.addManualAnchorToResource(resource.id, QStringLiteral("Page twelve"), 12));
+    QCOMPARE(panel.statusText(), QStringLiteral("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+    QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 0);
 }
 
 void WidgetSmokeTest::panelPinsSelectedResource()
