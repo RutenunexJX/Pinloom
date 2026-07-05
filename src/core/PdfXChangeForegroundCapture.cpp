@@ -3,6 +3,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QStringList>
+#include <QUrl>
 #include <algorithm>
 #include <optional>
 
@@ -58,6 +59,39 @@ QString normalizedPathKey(const QString &value)
     QString normalized = QDir::cleanPath(trimmed);
     normalized.replace(QLatin1Char('\\'), QLatin1Char('/'));
     return normalized.toCaseFolded();
+}
+
+bool hasPathShape(const QString &value);
+
+QString cleanPdfPathCandidate(QString value)
+{
+    value = stripOuterDocumentDecorations(value);
+    if (value.isEmpty()) {
+        return {};
+    }
+
+    const int pdfIndex = value.lastIndexOf(QStringLiteral(".pdf"), -1, Qt::CaseInsensitive);
+    if (pdfIndex < 0) {
+        return {};
+    }
+    value = value.left(pdfIndex + 4).trimmed();
+    value = stripOuterDocumentDecorations(value);
+    if (value.isEmpty()) {
+        return {};
+    }
+
+    if (value.startsWith(QStringLiteral("file:"), Qt::CaseInsensitive)) {
+        const QUrl url(value);
+        if (url.isLocalFile()) {
+            value = url.toLocalFile();
+        }
+    }
+
+    if (!hasPathShape(value)) {
+        return {};
+    }
+
+    return QDir::cleanPath(QDir::fromNativeSeparators(value));
 }
 
 void appendUniqueKey(QStringList &keys, const QString &key)
@@ -172,6 +206,28 @@ PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &docume
     return result;
 }
 
+PdfXChangeForegroundCaptureResult resultForResolvedFilePath(const QString &documentTitle, const QString &filePath)
+{
+    PdfXChangeForegroundCaptureResult result;
+    result.recognizedPdfXChange = true;
+    result.documentTitle = stripOuterDocumentDecorations(documentTitle);
+
+    const QFileInfo fileInfo(filePath);
+    const QString defaultName = fileInfo.completeBaseName().trimmed().isEmpty()
+        ? stripOuterDocumentDecorations(documentTitle)
+        : fileInfo.completeBaseName().trimmed();
+
+    result.request.name = defaultName;
+    result.request.file = QDir::cleanPath(QDir::fromNativeSeparators(filePath.trimmed()));
+    result.request.page = 1;
+    result.request.rect = {0.0, 0.0, 612.0, 792.0};
+    result.request.zoom = -1.0;
+    result.request.unit = QStringLiteral("pt");
+    result.request.source = QString::fromLatin1(ForegroundPdfXChangeFallbackSource);
+    result.request.targetApp = QStringLiteral("PDF-XChange");
+    return result;
+}
+
 #ifdef Q_OS_WIN
 QString windowTitleForHandle(HWND window)
 {
@@ -227,7 +283,6 @@ bool ForegroundAppWindowContext::isValid() const
 bool PdfXChangeForegroundCaptureResult::success() const
 {
     return recognizedPdfXChange
-        && matchedResource
         && !request.file.trimmed().isEmpty();
 }
 
@@ -308,19 +363,49 @@ QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle)
     return {};
 }
 
+QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle)
+{
+    const QString documentTitle = pdfXChangeDocumentTitleFromWindowTitle(windowTitle);
+    QString path = cleanPdfPathCandidate(documentTitle);
+    if (!path.isEmpty()) {
+        return path;
+    }
+
+    QString title = stripOuterDocumentDecorations(windowTitle);
+    const QString prefix = QStringLiteral("PDF-XChange Editor - ");
+    if (title.startsWith(prefix, Qt::CaseInsensitive)) {
+        path = cleanPdfPathCandidate(title.mid(prefix.size()));
+        if (!path.isEmpty()) {
+            return path;
+        }
+    }
+
+    path = cleanPdfPathCandidate(title);
+    return path;
+}
+
 PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context)
 {
     PdfXChangeForegroundCaptureResult result;
     if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
+        result.status = QStringLiteral("Open or focus a PDF-XChange PDF before k n");
         return result;
     }
 
     result.recognizedPdfXChange = true;
     result.documentTitle = pdfXChangeDocumentTitleFromWindowTitle(context.windowTitle);
+    const QString documentPath = pdfXChangeDocumentPathFromWindowTitle(context.windowTitle);
+    if (!documentPath.trimmed().isEmpty()) {
+        return resultForResolvedFilePath(result.documentTitle.trimmed().isEmpty()
+                                             ? documentPath
+                                             : result.documentTitle,
+                                         documentPath);
+    }
+
     if (result.documentTitle.trimmed().isEmpty()) {
-        result.status = QStringLiteral("Foreground PDF-XChange window did not expose a document title");
+        result.status = QStringLiteral("Foreground PDF-XChange window did not expose a PDF document title or file path");
         return result;
     }
 
@@ -332,12 +417,12 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     }
 
     if (matches.isEmpty()) {
-        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" is not matched to a unique indexed PDF; select or index the PDF in Pinloom first")
+        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" did not expose a full PDF file path")
                             .arg(result.documentTitle);
         return result;
     }
     if (matches.size() > 1) {
-        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" matches multiple indexed PDFs; select the exact PDF in Pinloom first")
+        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" did not expose a full PDF file path and matches multiple indexed PDFs")
                             .arg(result.documentTitle);
         return result;
     }

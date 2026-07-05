@@ -4,6 +4,7 @@
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/PdfXChangeForegroundCapture.h"
 #include "pinloom/widgets/ClipPickerPanel.h"
 #include "pinloom/widgets/ClipResidentApp.h"
 #include "pinloom/widgets/ClipResidentAppConfigStore.h"
@@ -101,8 +102,10 @@ private slots:
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
+    void commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
-    void commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext();
+    void commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback();
+    void commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAndOpensInboxFileEntries();
     void panelDisplaysAnchorLocatorMetadata();
@@ -3524,6 +3527,77 @@ void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
     QCOMPARE(commandPanel.openTargetAt(4).resourceId, pathOnly.id);
 }
 
+void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext foregroundContext;
+    foregroundContext.windowTitle = QStringLiteral("E:/docs/live-foreground.pdf - PDF-XChange Editor");
+    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+
+    int foregroundRequestCount = 0;
+    ManualPdfAnchorCreationRequest capturedSuggested;
+    PinloomPanelOptions panelOptions;
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++foregroundRequestCount;
+        const PdfXChangeForegroundCaptureResult capture =
+            capturePdfXChangeForegroundContext(repository, foregroundContext);
+        if (status) {
+            *status = capture.status;
+        }
+        if (!capture.success()) {
+            return std::nullopt;
+        }
+        return capture.request;
+    };
+    panelOptions.pdfAnchorCaptureRequestProvider =
+        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
+        capturedSuggested = suggested;
+        ManualPdfAnchorCreationRequest request = suggested;
+        request.name = QStringLiteral("Live foreground anchor");
+        request.aliases = {QStringLiteral("live foreground alias")};
+        request.tags = {QStringLiteral("#foreground-tag")};
+        request.pinned = true;
+        return request;
+    };
+
+    PinloomPanel panel(repository, panelOptions);
+    QCOMPARE(panel.resultCount(), 0);
+
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
+        const bool captured = panel.captureForegroundPdfAnchor();
+        if (status) {
+            *status = panel.statusText();
+        }
+        return captured;
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(commandPanel.activateCurrentCommandItem());
+
+    QCOMPARE(foregroundRequestCount, 1);
+    QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/live-foreground.pdf"));
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(commandPanel.statusText(),
+             QStringLiteral("Captured PDF anchor \"Live foreground anchor\" (foreground PDF-XChange fallback)"));
+
+    const QList<SearchResult> byName = repository.search(SearchQuery{QStringLiteral("Live foreground anchor")});
+    QCOMPARE(byName.size(), 1);
+    QVERIFY(byName.first().matchedAnchor.has_value());
+    QCOMPARE(byName.first().matchedAnchor->targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(byName.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/live-foreground.pdf"));
+    QCOMPARE(byName.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QVERIFY(byName.first().matchedAnchor->pinned);
+
+    const QList<SearchResult> byAlias = repository.search(SearchQuery{QStringLiteral("live foreground alias")});
+    QCOMPARE(byAlias.size(), 1);
+    const QList<SearchResult> byTag = repository.search(SearchQuery{QStringLiteral("#foreground-tag")});
+    QCOMPARE(byTag.size(), 1);
+}
+
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
 {
     InMemoryLibraryRepository repository;
@@ -3568,7 +3642,7 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
 
     PinloomCommandPanelOptions commandOptions;
     commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureCurrentAppPosition();
+        const bool captured = panel.captureForegroundPdfAnchor();
         if (status) {
             *status = panel.statusText();
         }
@@ -3594,9 +3668,16 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
         QStringLiteral("\"source\":\"foreground-pdfxchange-fallback\"")));
 }
 
-void WidgetSmokeTest::commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext()
+void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback()
 {
     InMemoryLibraryRepository repository;
+
+    Resource selectedResource;
+    selectedResource.id = QStringLiteral("selected-pdf");
+    selectedResource.kind = ResourceKind::Pdf;
+    selectedResource.title = QStringLiteral("Selected PDF");
+    selectedResource.location = QStringLiteral("E:/docs/selected.pdf");
+    QVERIFY(repository.upsertResource(selectedResource));
 
     int foregroundRequestCount = 0;
     PinloomPanelOptions panelOptions;
@@ -3604,16 +3685,18 @@ void WidgetSmokeTest::commandPanelAnchorCaptureFallsBackWhenForegroundProviderCa
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
         if (status) {
-            status->clear();
+            *status = QStringLiteral("Open or focus a PDF-XChange PDF before k n");
         }
         return std::nullopt;
     };
 
     PinloomPanel panel(repository, panelOptions);
+    panel.setSearchText(QStringLiteral("Selected PDF"));
+    QVERIFY(panel.selectFirstResult());
 
     PinloomCommandPanelOptions commandOptions;
     commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureCurrentAppPosition();
+        const bool captured = panel.captureForegroundPdfAnchor();
         if (status) {
             *status = panel.statusText();
         }
@@ -3625,8 +3708,54 @@ void WidgetSmokeTest::commandPanelAnchorCaptureFallsBackWhenForegroundProviderCa
     QVERIFY(!commandPanel.activateCurrentCommandItem());
 
     QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a PDF-XChange PDF before k n"));
     QCOMPARE(panel.statusText(), commandPanel.statusText());
+    const std::optional<Resource> selected = repository.findResource(selectedResource.id);
+    QVERIFY(selected.has_value());
+    QVERIFY(selected->anchors.isEmpty());
+}
+
+void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext foregroundContext;
+    foregroundContext.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
+    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+
+    int foregroundRequestCount = 0;
+    PinloomPanelOptions panelOptions;
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++foregroundRequestCount;
+        const PdfXChangeForegroundCaptureResult capture =
+            capturePdfXChangeForegroundContext(repository, foregroundContext);
+        if (status) {
+            *status = capture.status;
+        }
+        if (!capture.success()) {
+            return std::nullopt;
+        }
+        return capture.request;
+    };
+
+    PinloomPanel panel(repository, panelOptions);
+
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
+        const bool captured = panel.captureForegroundPdfAnchor();
+        if (status) {
+            *status = panel.statusText();
+        }
+        return captured;
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(!commandPanel.activateCurrentCommandItem());
+
+    QCOMPARE(foregroundRequestCount, 1);
+    QVERIFY(commandPanel.statusText().contains(QStringLiteral("did not expose a full PDF file path")));
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
 }
 

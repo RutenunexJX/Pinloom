@@ -42,6 +42,7 @@ private:
 ForegroundAppWindowContext currentForegroundAppWindowContext();
 bool isPdfXChangeForegroundWindow(const ForegroundAppWindowContext &context);
 QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle);
+QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle);
 PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context);

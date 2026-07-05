@@ -204,6 +204,7 @@ public:
     bool editSelectedAnchor(const QString &name, const QStringList &aliases, const QStringList &tags);
     bool requestDeleteSelectedAnchor();
     bool setSelectedAnchorPinned(bool pinned);
+    bool captureForegroundPdfAnchor();
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
@@ -249,6 +250,10 @@ private:
     QString selectedRootId() const;
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
+    bool capturePdfAnchorFromSuggestedRequest(
+        const std::optional<ManualPdfAnchorCreationRequest> &suggestedPdfRequest,
+        const QString &missingContextStatus,
+        bool allowManualFallback);
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);

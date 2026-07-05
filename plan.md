@@ -152,6 +152,13 @@ Acceptance:
 
 Status:
 
+- Command Window foreground PDF-XChange capture is now implemented for the MVP:
+  when `Ctrl+Space` opens Pinloom, the app remembers the foreground window
+  context, and `k n` uses that saved context to create a PDF-XChange anchor.
+- If PDF-XChange exposes a full PDF file path in the foreground window
+  title/text, Pinloom pre-fills `target_file` from that path and opens the
+  lightweight name/alias/tag/pinned dialog. The user no longer has to search
+  the PDF name in Pinloom before creating the anchor.
 - The PDF UX now treats `Ctrl+K` and the PDF `Add Anchor` path as
   `Capture PDF Anchor`: users enter name, aliases, tags, and pinned state while
   the locator comes from the selected PDF context.
@@ -159,13 +166,20 @@ Status:
   resource or PDF-XChange anchor is selected, Pinloom uses that file and falls
   back to page 1 plus an approximate full-page rectangle when no native current
   view/selection data is available.
+- The `k n` foreground path is stricter than the old selected-PDF fallback: if
+  the saved foreground context is not PDF-XChange, or PDF-XChange does not
+  expose a full PDF file path and no unique indexed-PDF fallback can identify
+  the file, the Command Window reports a clear status and does not create an
+  anchor.
 - Raw file/page/coordinate entry remains available only as an advanced/debug
   fallback and is no longer the default user path.
 - No-PDF-context attempts now report that a PDF must be opened or selected
   before capture.
 - This slice intentionally does not read PDF-XChange's current view, current
-  page, selection, annotations, or live coordinates. Native PDF-XChange capture
-  and any calibration mode remain research items for a later Phase 4 step.
+  page, selection, annotations, or live coordinates. Foreground `k n` capture
+  still uses page 1 plus a full-page rectangle unless the user edits the
+  advanced fallback locator. Native PDF-XChange coordinate capture and any
+  calibration mode remain research items for a later Phase 4 step.
 
 ## Phase 5: Office And Visio Executors
 
@@ -288,11 +302,13 @@ Status:
   exact saved-text recaptures are ignored as duplicates by content hash.
   Command Window and main launcher Enter both insert Clip text through the same
   clip insertion service, while anchor results keep their native jump behavior.
-- The `k n` command is now reserved as the new-anchor/capture-anchor entry.
-  This slice intentionally only exposes the command entry and pending status;
-  PDF-XChange native current-view/coordinate capture is not implemented here,
-  and the existing `Ctrl+K` fallback path remains temporary until it migrates
-  behind `k n`.
+- The `k n` command is now wired as the new-anchor/capture-anchor entry for
+  foreground PDF-XChange. It uses the foreground context saved immediately
+  before the Command Window is shown by `Ctrl+Space`, opens the lightweight
+  PDF anchor dialog with the foreground PDF file pre-filled when available, and
+  saves anchors into ordinary search by name, alias, tag, and metadata. Native
+  PDF-XChange current-view/coordinate capture is still pending; the existing
+  `Ctrl+K` selected-PDF fallback remains temporary for compatibility.
 - Pinloom Inbox MVP is implemented as a local file object capture entrypoint,
   not a file manager. The Command Window now exposes `i`, `i n`, and
   `i s <query>`; users can drop local files on the Command Window or use

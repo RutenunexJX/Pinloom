@@ -53,8 +53,9 @@ private slots:
     void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
     void rejectsInvalidManualPdfRectAnchorInputsWithoutSaving();
     void reportsManualPdfRectAnchorRepositorySaveFailure();
+    void capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf();
     void matchesForegroundPdfXChangeTitleToUniqueIndexedPdf();
-    void rejectsForegroundPdfXChangeTitleWithoutIndexedPdfMatch();
+    void reportsForegroundPdfXChangeTitleWithoutFilePath();
     void rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
 };
@@ -1028,6 +1029,39 @@ void AnchorCaptureTest::reportsManualPdfRectAnchorRepositorySaveFailure()
     QCOMPARE(repository.lastResource.location, QStringLiteral("E:/docs/clock.pdf"));
 }
 
+void AnchorCaptureTest::capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - PDF-XChange Editor");
+    context.processName = QStringLiteral("PDFXEdit.exe");
+
+    const PdfXChangeForegroundCaptureResult result =
+        capturePdfXChangeForegroundContext(repository, context);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(!result.matchedResource);
+    QVERIFY(result.matchedResourceId.isEmpty());
+    QCOMPARE(result.documentTitle, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.name, QStringLiteral("live foreground"));
+    QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.page, 1);
+    QCOMPARE(result.request.rect.left, 0.0);
+    QCOMPARE(result.request.rect.top, 0.0);
+    QCOMPARE(result.request.rect.right, 612.0);
+    QCOMPARE(result.request.rect.bottom, 792.0);
+    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(result.request.targetApp, QStringLiteral("PDF-XChange"));
+
+    QCOMPARE(pdfXChangeDocumentPathFromWindowTitle(context.windowTitle),
+             QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(pdfXChangeDocumentPathFromWindowTitle(
+                 QStringLiteral("PDF-XChange Editor - file:///E:/docs/live%20foreground.pdf")),
+             QStringLiteral("E:/docs/live foreground.pdf"));
+}
+
 void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
 {
     InMemoryLibraryRepository repository;
@@ -1066,7 +1100,7 @@ void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
              QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
 }
 
-void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithoutIndexedPdfMatch()
+void AnchorCaptureTest::reportsForegroundPdfXChangeTitleWithoutFilePath()
 {
     InMemoryLibraryRepository repository;
 
@@ -1088,7 +1122,7 @@ void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithoutIndexedPdfMatch()
     QVERIFY(result.recognizedPdfXChange);
     QVERIFY(!result.matchedResource);
     QCOMPARE(result.documentTitle, QStringLiteral("missing-spec"));
-    QVERIFY(result.status.contains(QStringLiteral("not matched to a unique indexed PDF")));
+    QVERIFY(result.status.contains(QStringLiteral("did not expose a full PDF file path")));
     QVERIFY(result.request.file.isEmpty());
 }
 
@@ -1121,6 +1155,7 @@ void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMa
     QVERIFY(result.recognizedPdfXChange);
     QVERIFY(!result.matchedResource);
     QCOMPARE(result.documentTitle, QStringLiteral("clock"));
+    QVERIFY(result.status.contains(QStringLiteral("did not expose a full PDF file path")));
     QVERIFY(result.status.contains(QStringLiteral("matches multiple indexed PDFs")));
     QVERIFY(result.request.file.isEmpty());
 }

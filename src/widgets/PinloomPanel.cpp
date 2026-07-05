@@ -1499,6 +1499,91 @@ std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCap
     return request;
 }
 
+bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
+    const std::optional<ManualPdfAnchorCreationRequest> &suggestedPdfRequest,
+    const QString &missingContextStatus,
+    bool allowManualFallback)
+{
+    std::optional<ManualPdfAnchorCreationRequest> request;
+    if (options_.pdfAnchorCaptureRequestProvider
+        && (suggestedPdfRequest.has_value() || allowManualFallback)) {
+        request = options_.pdfAnchorCaptureRequestProvider(
+            suggestedPdfRequest.value_or(ManualPdfAnchorCreationRequest{}));
+    } else if (suggestedPdfRequest.has_value()) {
+        const bool foregroundPdfFallback =
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"),
+                                                          Qt::CaseInsensitive) == 0;
+        if (options_.pdfAnchorCaptureDialogHandler) {
+            request = options_.pdfAnchorCaptureDialogHandler(this, suggestedPdfRequest.value());
+        } else if (options_.manualPdfAnchorDialogHandler) {
+            request = options_.manualPdfAnchorDialogHandler(this);
+        } else {
+            ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
+            updateStatus(foregroundPdfFallback
+                             ? tr("Capturing PDF anchor from foreground PDF-XChange fallback; page defaults to 1, edit if needed")
+                             : tr("Capturing PDF anchor from selected PDF fallback"));
+            if (dialog.exec() == QDialog::Accepted) {
+                request = dialog.request();
+            }
+        }
+    } else if (allowManualFallback && options_.manualPdfAnchorRequestProvider) {
+        request = options_.manualPdfAnchorRequestProvider();
+    } else if (allowManualFallback && options_.manualPdfAnchorDialogHandler) {
+        request = options_.manualPdfAnchorDialogHandler(this);
+    } else {
+        const QString status = missingContextStatus.trimmed();
+        updateStatus(status.isEmpty()
+                         ? tr("Open or focus a PDF-XChange PDF before k n")
+                         : status);
+        return false;
+    }
+
+    if (!request.has_value()) {
+        updateStatus(tr("Capture canceled"));
+        return false;
+    }
+
+    ManualPdfAnchorCreationService creationService(repository_);
+    const ManualPdfAnchorCreationResult result =
+        creationService.createManualPdfXChangeRectAnchor(request.value());
+    if (!result.success()) {
+        updateStatus(result.error);
+        return false;
+    }
+
+    refreshResults();
+    if (!selectResultResource(result.resource.id)) {
+        setSearchText(result.anchor.name);
+        selectResultResource(result.resource.id);
+    }
+    const bool selectedPdfFallback =
+        request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
+    const bool foregroundPdfFallback =
+        request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0;
+    updateStatus(foregroundPdfFallback
+                     ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange fallback)").arg(result.anchor.name)
+                     : selectedPdfFallback
+                           ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
+                           : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
+    return true;
+}
+
+bool PinloomPanel::captureForegroundPdfAnchor()
+{
+    QString foregroundPdfStatus;
+    std::optional<ManualPdfAnchorCreationRequest> foregroundPdfRequest;
+    if (options_.foregroundPdfAnchorCaptureRequestProvider) {
+        foregroundPdfRequest = options_.foregroundPdfAnchorCaptureRequestProvider(&foregroundPdfStatus);
+    }
+
+    return capturePdfAnchorFromSuggestedRequest(
+        foregroundPdfRequest,
+        foregroundPdfStatus.trimmed().isEmpty()
+            ? tr("Open or focus a PDF-XChange PDF before k n")
+            : foregroundPdfStatus.trimmed(),
+        false);
+}
+
 bool PinloomPanel::captureCurrentAppPosition()
 {
     if (options_.manualExcelAnchorRequestProvider) {
@@ -1601,7 +1686,6 @@ bool PinloomPanel::captureCurrentAppPosition()
         return true;
     }
 
-    std::optional<ManualPdfAnchorCreationRequest> request;
     QString foregroundPdfStatus;
     std::optional<ManualPdfAnchorCreationRequest> foregroundPdfRequest;
     if (options_.foregroundPdfAnchorCaptureRequestProvider) {
@@ -1612,65 +1696,12 @@ bool PinloomPanel::captureCurrentAppPosition()
         selectedPdfAnchorCaptureRequest();
     const std::optional<ManualPdfAnchorCreationRequest> suggestedPdfRequest =
         foregroundPdfRequest.has_value() ? foregroundPdfRequest : selectedPdfRequest;
-    if (options_.pdfAnchorCaptureRequestProvider) {
-        request = options_.pdfAnchorCaptureRequestProvider(
-            suggestedPdfRequest.value_or(ManualPdfAnchorCreationRequest{}));
-    } else if (suggestedPdfRequest.has_value()) {
-        const bool foregroundPdfFallback =
-            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"),
-                                                          Qt::CaseInsensitive) == 0;
-        if (options_.pdfAnchorCaptureDialogHandler) {
-            request = options_.pdfAnchorCaptureDialogHandler(this, suggestedPdfRequest.value());
-        } else if (options_.manualPdfAnchorDialogHandler) {
-            request = options_.manualPdfAnchorDialogHandler(this);
-        } else {
-            ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
-            updateStatus(foregroundPdfFallback
-                             ? tr("Capturing PDF anchor from foreground PDF-XChange fallback; page defaults to 1, edit if needed")
-                             : tr("Capturing PDF anchor from selected PDF fallback"));
-            if (dialog.exec() == QDialog::Accepted) {
-                request = dialog.request();
-            }
-        }
-    } else if (options_.manualPdfAnchorRequestProvider) {
-        request = options_.manualPdfAnchorRequestProvider();
-    } else if (options_.manualPdfAnchorDialogHandler) {
-        request = options_.manualPdfAnchorDialogHandler(this);
-    } else {
-        updateStatus(foregroundPdfStatus.trimmed().isEmpty()
-                         ? tr("Open or select a PDF before capturing an anchor")
-                         : foregroundPdfStatus.trimmed());
-        return false;
-    }
-
-    if (!request.has_value()) {
-        updateStatus(tr("Capture canceled"));
-        return false;
-    }
-
-    ManualPdfAnchorCreationService creationService(repository_);
-    const ManualPdfAnchorCreationResult result =
-        creationService.createManualPdfXChangeRectAnchor(request.value());
-    if (!result.success()) {
-        updateStatus(result.error);
-        return false;
-    }
-
-    refreshResults();
-    if (!selectResultResource(result.resource.id)) {
-        setSearchText(result.anchor.name);
-        selectResultResource(result.resource.id);
-    }
-    const bool selectedPdfFallback =
-        request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
-    const bool foregroundPdfFallback =
-        request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0;
-    updateStatus(foregroundPdfFallback
-                     ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange fallback)").arg(result.anchor.name)
-                     : selectedPdfFallback
-                           ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
-                           : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
-    return true;
+    return capturePdfAnchorFromSuggestedRequest(
+        suggestedPdfRequest,
+        foregroundPdfStatus.trimmed().isEmpty()
+            ? tr("Open or select a PDF before capturing an anchor")
+            : foregroundPdfStatus.trimmed(),
+        true);
 }
 
 bool PinloomPanel::addAliasToSelectedTarget(const QString &alias)

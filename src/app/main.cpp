@@ -173,7 +173,7 @@ int main(int argc, char *argv[])
     commandOptions.clipInsertionHandler = panelOptions.clipInsertionHandler;
     commandOptions.clipSaveHandler = clipSaveHandler;
     commandOptions.anchorCaptureHandler = [panel](QString *status) {
-        const bool captured = panel->captureCurrentAppPosition();
+        const bool captured = panel->captureForegroundPdfAnchor();
         if (status) {
             *status = panel->statusText();
         }

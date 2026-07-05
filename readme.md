@@ -63,12 +63,17 @@ not widen those surfaces unless it directly supports the anchor launcher loop.
    - Unified PDF host for v1.
    - Supports page, zoom, viewrect, highlight, and `usept`.
    - Text PDFs and scanned PDFs are treated the same: the user names an anchor
-     against a selected PDF context and Pinloom stores page plus rectangle.
-   - The current default capture path is a selected-PDF fallback: when native
-     PDF-XChange current-view capture is not available, Pinloom uses the
-     selected PDF file with page 1 and an approximate full-page rectangle.
-     Raw coordinate entry is an advanced/debug fallback, not the main user
-     flow.
+     against a foreground or selected PDF context and Pinloom stores page plus
+     rectangle.
+   - The current Command Window capture path is a foreground PDF-XChange
+     fallback: when `Ctrl+Space` is pressed, Pinloom remembers the foreground
+     PDF-XChange window, resolves the PDF file path when the window title/text
+     exposes it, then `k n` opens a lightweight anchor naming dialog. This no
+     longer requires searching the PDF name in Pinloom first.
+   - Native current-view coordinates are still pending. Until they are stable,
+     foreground capture pre-fills the PDF file and uses page 1 plus an
+     approximate full-page rectangle; page/rect/zoom remain editable in the
+     advanced locator fallback.
    - Example locator:
 
 ```json
@@ -124,9 +129,12 @@ The mismatch is intentional technical debt for the reset:
 - Search still indexes resource content and broad source metadata.
 - Folder management and resource-library controls still exist for
   compatibility, but they are no longer the default first surface.
-- Native PDF-XChange current-view/selection capture is still pending; the
-  current PDF UX uses selected-PDF fallback capture and keeps raw coordinates
-  in an advanced path.
+- Foreground PDF-XChange file capture is now wired into the Command Window:
+  focus an open PDF in PDF-XChange, press `Ctrl+Space`, type `k n`, name the
+  anchor, and save. Pinloom uses the foreground PDF path when PDF-XChange
+  exposes it, so the user does not need to search the PDF name first. Native
+  current-page/current-rectangle capture is still pending; page 1 plus a
+  full-page rectangle remains the explicit fallback locator.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
   launcher access through ordinary Command Window search plus explicit `c s`
@@ -186,10 +194,14 @@ aliases, and pinned state. The tray `Show Clipboard` action routes back to this
 same `c s` launcher path instead of opening a separate picker as the primary
 workflow.
 
-Type `k` to see anchor commands. `k n` is the new-anchor/capture-anchor entry
-point, but native current-application context capture is still pending in this
-slice; the older `Ctrl+K` fallback path remains temporarily available and will
-migrate behind `k n`.
+Type `k` to see anchor commands. The recommended PDF-XChange flow is: open or
+focus the target PDF in PDF-XChange Editor, press `Ctrl+Space`, type `k n`,
+enter the anchor name plus optional aliases/tags/pinned state, then save. The
+dialog defaults `target_app` to PDF-XChange and `target_file` to the foreground
+PDF path when PDF-XChange exposes it, so you do not need to search the PDF name
+inside Pinloom before adding the anchor. Current page/rectangle capture is still
+a fallback: page defaults to 1 and the rectangle defaults to an approximate
+full-page region until precise PDF-XChange coordinate capture lands.
 
 Type `i` to see Inbox commands. Drop a local file on the Command Window, then
 press Enter on `i n` to save it as a Link-mode Inbox file; if no file is
