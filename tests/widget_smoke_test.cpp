@@ -12,6 +12,7 @@
 #include "pinloom/widgets/ClipTrayPresenter.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
+#include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
@@ -78,16 +79,17 @@ private slots:
     void clipResidentAppConfigStoreConfiguresAppFromExplicitFile();
     void clipResidentAppConfigStoreRequiresExplicitPathWithoutUserDataFallback();
     void mainWindowCloseHidesToTray();
-    void mainPanelHotkeyRegistersAndShowsMainWindow();
+    void mainPanelHotkeyRegistersAndShowsCommandWindow();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
-    void panelClipRootCommandShowsCandidates();
-    void panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
-    void panelClipNewCommandShowsTemporaryHistoryAndSaves();
-    void panelAnchorCaptureCommandShowsPendingEntry();
+    void panelTreatsCommandPrefixesAsPlainSearchText();
+    void commandPanelClipRootCommandShowsCandidates();
+    void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
+    void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
+    void commandPanelAnchorCaptureCommandCallsHandler();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
@@ -2070,22 +2072,32 @@ void WidgetSmokeTest::mainWindowCloseHidesToTray()
     QCOMPARE(hiddenSignals, 2);
 }
 
-void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsMainWindow()
+void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
 {
     InMemoryLibraryRepository repository;
-    QMainWindow window;
-    auto *panel = new PinloomPanel(repository, &window);
-    window.setCentralWidget(panel);
-    window.hide();
+    QMainWindow searchWindow;
+    auto *panel = new PinloomPanel(repository, &searchWindow);
+    searchWindow.setCentralWidget(panel);
+    searchWindow.hide();
 
+    QMainWindow commandWindow;
+    auto *commandPanel = new PinloomCommandPanel(&commandWindow);
+    commandWindow.setCentralWidget(commandPanel);
+    commandWindow.hide();
+
+    auto *commandEdit = commandPanel->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
     auto *searchEdit = panel->findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    QVERIFY(commandEdit);
     QVERIFY(searchEdit);
-    panel->setSearchText(QStringLiteral("direct typing target"));
-    searchEdit->clearFocus();
+    commandPanel->setCommandText(QStringLiteral("c"));
+    commandEdit->clearFocus();
 
     FakeClipHotkeyBackend hotkeyBackend;
     ClipHotkeyService service(defaultMainPanelHotkeyConfig(), &hotkeyBackend);
-    MainPanelHotkeyController controller(service, window, *panel);
+    MainPanelHotkeyController controller(service,
+                                         [&commandWindow, commandPanel]() {
+                                             showCommandPanelForHotkey(commandWindow, *commandPanel);
+                                         });
     int showRequestedCount = 0;
     QObject::connect(&controller, &MainPanelHotkeyController::showRequested, [&]() {
         ++showRequestedCount;
@@ -2099,10 +2111,12 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsMainWindow()
     hotkeyBackend.activate();
     QApplication::processEvents();
 
-    QVERIFY(window.isVisible());
+    QVERIFY(commandWindow.isVisible());
+    QVERIFY(!searchWindow.isVisible());
     QCOMPARE(showRequestedCount, 1);
-    QCOMPARE(panel->focusWidget(), static_cast<QWidget *>(searchEdit));
-    QCOMPARE(searchEdit->selectedText(), QStringLiteral("direct typing target"));
+    QCOMPARE(commandPanel->focusWidget(), static_cast<QWidget *>(commandEdit));
+    QCOMPARE(commandEdit->selectedText(), QStringLiteral("c"));
+    QVERIFY(!searchEdit->hasFocus());
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()
@@ -2552,17 +2566,22 @@ void WidgetSmokeTest::panelSearchesSavedClipsAndEnterInserts()
     QVERIFY(openedTargets.first().anchor.has_value());
 }
 
-void WidgetSmokeTest::panelClipRootCommandShowsCandidates()
+void WidgetSmokeTest::panelTreatsCommandPrefixesAsPlainSearchText()
 {
     InMemoryLibraryRepository repository;
 
-    int clipSearchCalls = 0;
+    QStringList clipQueries;
+    QList<ClipSearchOptions> clipOptions;
+    int manualPdfRequestCount = 0;
     PinloomPanelOptions options;
     options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
-        Q_UNUSED(query);
-        Q_UNUSED(searchOptions);
-        ++clipSearchCalls;
+        clipQueries.append(query);
+        clipOptions.append(searchOptions);
         return QList<ClipSearchResult>{};
+    };
+    options.manualPdfAnchorRequestProvider = [&]() -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++manualPdfRequestCount;
+        return std::nullopt;
     };
 
     PinloomPanel panel(repository, options);
@@ -2571,7 +2590,49 @@ void WidgetSmokeTest::panelClipRootCommandShowsCandidates()
     QVERIFY(searchEdit);
     QVERIFY(results);
 
-    panel.setSearchText(QStringLiteral("c"));
+    panel.setSearchText(QStringLiteral("c s"));
+
+    QCOMPARE(clipQueries, QStringList{QStringLiteral("c s")});
+    QCOMPARE(clipOptions.size(), 1);
+    QVERIFY(clipOptions.first().includeSaved);
+    QVERIFY(!clipOptions.first().includeTemporary);
+    QCOMPARE(results->count(), 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("0 result(s)"));
+
+    clipQueries.clear();
+    clipOptions.clear();
+    panel.setSearchText(QStringLiteral("k n"));
+
+    QCOMPARE(clipQueries, QStringList{QStringLiteral("k n")});
+    QCOMPARE(clipOptions.size(), 1);
+    QVERIFY(clipOptions.first().includeSaved);
+    QVERIFY(!clipOptions.first().includeTemporary);
+    QCOMPARE(results->count(), 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("0 result(s)"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(manualPdfRequestCount, 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("No resource selected"));
+}
+
+void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
+{
+    int clipSearchCalls = 0;
+    PinloomCommandPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        Q_UNUSED(query);
+        Q_UNUSED(searchOptions);
+        ++clipSearchCalls;
+        return QList<ClipSearchResult>{};
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("c"));
 
     QCOMPARE(clipSearchCalls, 0);
     QCOMPARE(results->count(), 2);
@@ -2581,31 +2642,21 @@ void WidgetSmokeTest::panelClipRootCommandShowsCandidates()
     QVERIFY(results->item(1)->text().contains(QStringLiteral("c n")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 
-    QTest::keyClick(searchEdit, Qt::Key_Return);
-    QCOMPARE(panel.searchText(), QStringLiteral("c s"));
+    QTest::keyClick(commandEdit, Qt::Key_Return);
+    QCOMPARE(panel.commandText(), QStringLiteral("c s"));
 
-    panel.setSearchText(QStringLiteral("c"));
-    QTest::keyClick(searchEdit, Qt::Key_Down);
+    panel.setCommandText(QStringLiteral("c"));
+    QTest::keyClick(commandEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
     QVERIFY(QMetaObject::invokeMethod(results,
                                       "itemActivated",
                                       Qt::DirectConnection,
                                       Q_ARG(QListWidgetItem *, results->currentItem())));
-    QCOMPARE(panel.searchText(), QStringLiteral("c n"));
+    QCOMPARE(panel.commandText(), QStringLiteral("c n"));
 }
 
-void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts()
+void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts()
 {
-    InMemoryLibraryRepository repository;
-
-    Resource resource;
-    resource.id = QStringLiteral("clip-command-anchor");
-    resource.kind = ResourceKind::File;
-    resource.title = QStringLiteral("Unrelated Anchor");
-    resource.location = QStringLiteral("unrelated-anchor.md");
-    resource.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Unrelated heading"), 4}};
-    QVERIFY(repository.upsertResource(resource));
-
     InMemoryClipRepository clipRepository;
     const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
     const ClipCaptureResult temporary = clipRepository.captureText(QStringLiteral("temporary command body"),
@@ -2629,8 +2680,7 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QStringList clipQueries;
     QList<ClipSearchOptions> clipOptions;
     QStringList insertedClipIds;
-    QList<PinloomOpenTarget> openedTargets;
-    PinloomPanelOptions options;
+    PinloomCommandPanelOptions options;
     options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
         clipQueries.append(query);
         clipOptions.append(searchOptions);
@@ -2643,25 +2693,16 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
         insertedClipIds.append(selectedClipId);
         return true;
     };
-    options.openTargetHandler = [&](const PinloomOpenTarget &target) {
-        openedTargets.append(target);
-        return true;
-    };
 
-    PinloomPanel panel(repository, options);
-    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
-    QVERIFY(searchEdit);
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
     QVERIFY(results);
-
-    panel.setSearchText(QStringLiteral("Clip Command Saved"));
-    QCOMPARE(results->count(), 1);
-    QVERIFY(!clipOptions.isEmpty());
-    QVERIFY(!clipOptions.last().includeTemporary);
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setSearchText(QStringLiteral("c s"));
+    panel.setCommandText(QStringLiteral("c s"));
 
     QCOMPARE(clipQueries, (QStringList{QString(), QString()}));
     QCOMPARE(clipOptions.size(), 2);
@@ -2671,10 +2712,7 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QVERIFY(!clipOptions.at(1).includeTemporary);
     QCOMPARE(results->count(), 2);
     QCOMPARE(panel.resultAt(0).clipId, temporary.clip->id);
-    QCOMPARE(panel.resultAt(0).matchSummary, QStringLiteral("Clip History"));
     QCOMPARE(panel.resultAt(1).clipId, savedId);
-    QCOMPARE(panel.resultAt(1).matchSummary, QStringLiteral("Saved Clip"));
-    QVERIFY(panel.resultAt(0).resourceId.isEmpty());
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body -> Insert")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved -> Insert")));
     QCOMPARE(results->currentRow(), 0);
@@ -2682,20 +2720,19 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
 
     panel.show();
     QVERIFY(panel.isVisible());
-    searchEdit->setFocus(Qt::OtherFocusReason);
+    commandEdit->setFocus(Qt::OtherFocusReason);
     QApplication::processEvents();
-    QCOMPARE(QApplication::focusWidget(), searchEdit);
+    QCOMPARE(QApplication::focusWidget(), commandEdit);
 
-    QVERIFY(QMetaObject::invokeMethod(searchEdit, "returnPressed", Qt::DirectConnection));
+    QVERIFY(QMetaObject::invokeMethod(commandEdit, "returnPressed", Qt::DirectConnection));
     QCOMPARE(insertedClipIds, QStringList{temporary.clip->id});
-    QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
-    QTest::keyClick(searchEdit, Qt::Key_Down);
+    QTest::keyClick(commandEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
-    QTest::keyClick(searchEdit, Qt::Key_Up);
+    QTest::keyClick(commandEdit, Qt::Key_Up);
     QCOMPARE(results->currentRow(), 0);
-    QTest::keyClick(searchEdit, Qt::Key_Down);
+    QTest::keyClick(commandEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
     results->setFocus(Qt::OtherFocusReason);
     QApplication::processEvents();
@@ -2703,42 +2740,38 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QTest::keyClick(results, Qt::Key_Return);
 
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId}));
-    QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setSearchText(QStringLiteral("c s saved command alias"));
+    panel.setCommandText(QStringLiteral("c s saved command alias"));
 
     QCOMPARE(clipQueries, QStringList{QStringLiteral("saved command alias")});
     QCOMPARE(clipOptions.size(), 1);
     QVERIFY(clipOptions.first().includeSaved);
     QVERIFY(clipOptions.first().includeTemporary);
     QCOMPARE(results->count(), 1);
-    QCOMPARE(panel.currentOpenTarget().clipId, savedId);
-    QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
+    QCOMPARE(panel.currentResult().clipId, savedId);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: saved command alias")));
 
-    searchEdit->setFocus(Qt::OtherFocusReason);
-    QApplication::processEvents();
-    QCOMPARE(QApplication::focusWidget(), static_cast<QWidget *>(searchEdit));
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QVERIFY(QMetaObject::invokeMethod(results,
+                                      "itemActivated",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QListWidgetItem *, results->currentItem())));
 
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
-    QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
-    panel.setSearchText(QStringLiteral("c s zzzz-no-such-clip"));
+    panel.setCommandText(QStringLiteral("c s zzzz-no-such-clip"));
     QCOMPARE(results->count(), 0);
     QCOMPARE(panel.statusText(), QStringLiteral("No clips to insert"));
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QTest::keyClick(commandEdit, Qt::Key_Return);
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
     QCOMPARE(panel.statusText(), QStringLiteral("No clips to insert"));
 }
 
-void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
+void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
 {
-    InMemoryLibraryRepository repository;
     InMemoryClipRepository clipRepository;
     const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
     const ClipCaptureResult temporary = clipRepository.captureText(QStringLiteral("temporary save candidate body"),
@@ -2763,7 +2796,7 @@ void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
     int saveHandlerCalls = 0;
     bool saveRequestParentProvided = false;
     QStringList saveRequestClipIds;
-    PinloomPanelOptions options;
+    PinloomCommandPanelOptions options;
     options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
         return clipSearch.search(query, searchOptions);
     };
@@ -2793,27 +2826,27 @@ void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
                                    request.pinned);
     };
 
-    PinloomPanel panel(repository, options);
-    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
-    QVERIFY(searchEdit);
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
     QVERIFY(results);
 
-    panel.setSearchText(QStringLiteral("c n"));
+    panel.setCommandText(QStringLiteral("c n"));
 
     QCOMPARE(results->count(), 1);
-    QCOMPARE(panel.currentOpenTarget().clipId, temporary.clip->id);
+    QCOMPARE(panel.currentResult().clipId, temporary.clip->id);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[History] temporary save candidate body -> Save")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip save: 1 history item(s)"));
 
-    QVERIFY(QMetaObject::invokeMethod(searchEdit, "returnPressed", Qt::DirectConnection));
+    QVERIFY(QMetaObject::invokeMethod(commandEdit, "returnPressed", Qt::DirectConnection));
 
     QCOMPARE(saveRequestCalls, 1);
     QVERIFY(saveRequestParentProvided);
     QCOMPARE(saveRequestClipIds, QStringList{temporary.clip->id});
     QCOMPARE(saveHandlerCalls, 1);
-    QCOMPARE(panel.searchText(), QStringLiteral("c s Saved From Launcher"));
-    QCOMPARE(panel.currentOpenTarget().clipId, temporary.clip->id);
+    QCOMPARE(panel.commandText(), QStringLiteral("c s Saved From Launcher"));
+    QCOMPARE(panel.currentResult().clipId, temporary.clip->id);
     QCOMPARE(panel.statusText(), QStringLiteral("Saved clip \"Saved From Launcher\""));
 
     const std::optional<Clip> saved = clipRepository.findClip(temporary.clip->id);
@@ -2825,65 +2858,62 @@ void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
     QVERIFY(saved->pinned);
     QCOMPARE(clipRepository.temporaryClips().size(), 0);
 
-    panel.setSearchText(QStringLiteral("c n"));
+    panel.setCommandText(QStringLiteral("c n"));
     QCOMPARE(results->count(), 0);
 }
 
-void WidgetSmokeTest::panelAnchorCaptureCommandShowsPendingEntry()
+void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 {
-    InMemoryLibraryRepository repository;
-    int requestCount = 0;
+    int captureCount = 0;
     QStringList statusNotifications;
-    PinloomPanelOptions options;
+    PinloomCommandPanelOptions options;
     options.statusChangedHandler = [&](const QString &statusText) {
         statusNotifications.append(statusText);
     };
-    options.manualPdfAnchorRequestProvider = [&]() -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++requestCount;
-        ManualPdfAnchorCreationRequest request;
-        request.name = QStringLiteral("Command capture anchor");
-        request.file = QStringLiteral("E:/docs/command-capture.pdf");
-        request.page = 5;
-        request.rect = {20.0, 30.0, 220.0, 180.0};
-        request.zoom = 125.0;
-        request.aliases = {QStringLiteral("command capture alias")};
-        request.tags = {QStringLiteral("#command-capture")};
-        request.pinned = true;
-        return request;
+    options.anchorCaptureHandler = [&](QString *status) {
+        ++captureCount;
+        if (status) {
+            *status = QStringLiteral("Captured via test handler");
+        }
+        return true;
     };
 
-    PinloomPanel panel(repository, options);
-    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
-    QVERIFY(searchEdit);
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
     QVERIFY(results);
 
-    panel.setSearchText(QStringLiteral("k"));
+    panel.setCommandText(QStringLiteral("k"));
 
     QCOMPARE(results->count(), 1);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Open")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("k n")));
     QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
 
-    QTest::keyClick(searchEdit, Qt::Key_Return);
-    QCOMPARE(panel.searchText(), QStringLiteral("k n"));
+    QTest::keyClick(commandEdit, Qt::Key_Return);
+    QCOMPARE(panel.commandText(), QStringLiteral("k n"));
     QCOMPARE(results->count(), 1);
     QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
 
-    QTest::keyClick(searchEdit, Qt::Key_Return);
-    QCOMPARE(requestCount, 1);
-    QCOMPARE(panel.searchText(), QStringLiteral("Command capture anchor"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Captured PDF anchor \"Command capture anchor\""));
+    QTest::keyClick(commandEdit, Qt::Key_Return);
+    QCOMPARE(captureCount, 1);
+    QCOMPARE(panel.commandText(), QStringLiteral("k n"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured via test handler"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
-    const QList<SearchResult> capturedResults = repository.search(SearchQuery{QStringLiteral("command capture alias")});
-    QCOMPARE(capturedResults.size(), 1);
-    QVERIFY(capturedResults.first().matchedAnchor.has_value());
-    QCOMPARE(capturedResults.first().matchedAnchor->name, QStringLiteral("Command capture anchor"));
-    QCOMPARE(capturedResults.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/command-capture.pdf"));
-    QCOMPARE(capturedResults.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
-    QCOMPARE(capturedResults.first().matchedAnchor->tags, QStringList{QStringLiteral("command-capture")});
-    QVERIFY(capturedResults.first().matchedAnchor->pinned);
+    PinloomCommandPanelOptions noContextOptions;
+    noContextOptions.anchorCaptureHandler = [](QString *status) {
+        if (status) {
+            *status = QStringLiteral("Open or select a PDF before capturing an anchor");
+        }
+        return false;
+    };
+    PinloomCommandPanel noContextPanel(noContextOptions);
+    noContextPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(!noContextPanel.activateCurrentCommandItem());
+    QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
@@ -4373,15 +4403,6 @@ void WidgetSmokeTest::panelReportsNoPdfContextForPdfCapture()
     QVERIFY(searchEdit);
 
     QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
-
-    QCOMPARE(panel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
-    QCOMPARE(statusNotifications.last(), panel.statusText());
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
-
-    panel.setSearchText(QStringLiteral("k n"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
-
-    QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QCOMPARE(panel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
     QCOMPARE(statusNotifications.last(), panel.statusText());

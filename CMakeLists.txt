@@ -129,6 +129,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/ClipTrayPresenter.h
     include/pinloom/widgets/MainPanelHotkey.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
+    include/pinloom/widgets/PinloomCommandPanel.h
     include/pinloom/widgets/PinloomMainWindow.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/TextPreviewDialog.h
@@ -140,6 +141,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
     src/widgets/ManualPdfAnchorDialog.cpp
+    src/widgets/PinloomCommandPanel.cpp
     src/widgets/PinloomMainWindow.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/TextPreviewDialog.cpp

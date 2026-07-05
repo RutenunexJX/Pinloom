@@ -94,10 +94,6 @@ struct PinloomPanelOptions {
     std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
     std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
-    std::function<std::optional<PinloomClipSaveRequest>(
-        QWidget *parent,
-        const ClipSearchResult &result)> clipSaveRequestProvider;
-    std::function<bool(const PinloomClipSaveRequest &request, QString *error)> clipSaveHandler;
     std::function<std::optional<ManualExcelAnchorCreationRequest>()> manualExcelAnchorRequestProvider;
     std::function<std::optional<ManualVisioAnchorCreationRequest>()> manualVisioAnchorRequestProvider;
     std::function<std::optional<ManualWordAnchorCreationRequest>()> manualWordAnchorRequestProvider;
@@ -253,12 +249,8 @@ private:
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
-    void refreshCommandResults(const QString &searchText);
     bool activateCurrentLauncherItem();
     bool activateLauncherItem(QListWidgetItem *item);
-    bool activateCommandItem(const QListWidgetItem *item);
-    bool saveClipFromItem(const QListWidgetItem *item);
-    std::optional<PinloomClipSaveRequest> promptClipSaveRequest(const ClipSearchResult &result);
     bool activateOpenTarget(const PinloomOpenTarget &target);
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
