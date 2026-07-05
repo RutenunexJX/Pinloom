@@ -57,4 +57,3 @@ private:
 QString defaultPinloomSingleInstanceServerName();
 
 } // namespace Pinloom
-

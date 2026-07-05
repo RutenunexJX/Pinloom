@@ -184,4 +184,3 @@ QString PinloomSettingsDialog::commaSeparatedText(const QStringList &values) con
 }
 
 } // namespace Pinloom
-
