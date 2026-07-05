@@ -260,6 +260,13 @@ Status:
   paths, non-local targets, and unsupported locators.
 - This is intentionally not yet wired into realtime UI scanning, background
   monitoring, or a persisted health cache.
+- Anchor import/export now has a core `AnchorArchive` skeleton for explicit
+  JSON file paths using schema `pinloom.anchors` v1. Export is driven by a
+  caller-provided resource list and only writes resource containers that carry
+  anchors plus anchor fields. Import conservatively skips resources whose ids
+  already exist instead of overwriting local resources.
+- This is intentionally not yet connected to UI, tray actions, app data
+  defaults, or remote sync.
 
 ## Frozen Or Demoted Work
 

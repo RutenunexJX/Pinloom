@@ -61,6 +61,15 @@ bool anyContainsNeedle(const QStringList &values, const QString &needle)
     });
 }
 
+QString tagNeedleFromQuery(const QString &needle)
+{
+    const QString trimmed = needle.trimmed();
+    if (trimmed.startsWith(QLatin1Char('#')) && trimmed.size() > 1) {
+        return trimmed.mid(1);
+    }
+    return trimmed;
+}
+
 QString effectiveAnchorName(const Anchor &anchor)
 {
     return anchor.name.trimmed().isEmpty() ? anchor.target : anchor.name;
@@ -102,8 +111,9 @@ AnchorMatch classifyAnchorMatch(const Anchor &anchor, const QString &needle)
         return {true, 5.0 + exactMatchScoreAdjustment(anchor.aliases, needle), QStringLiteral("anchor_alias")};
     }
 
-    if (anyContainsNeedle(anchor.tags, needle)) {
-        return {true, 8.0 + exactMatchScoreAdjustment(anchor.tags, needle), QStringLiteral("anchor_tag")};
+    const QString tagNeedle = tagNeedleFromQuery(needle);
+    if (!tagNeedle.isEmpty() && anyContainsNeedle(anchor.tags, tagNeedle)) {
+        return {true, 8.0 + exactMatchScoreAdjustment(anchor.tags, tagNeedle), QStringLiteral("anchor_tag")};
     }
 
     const QStringList metadata = anchorMetadataValues(anchor);
@@ -390,6 +400,7 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 {
     QList<SearchResult> results;
     const QString needle = query.text.trimmed();
+    const QString tagNeedle = tagNeedleFromQuery(needle);
     const Qt::CaseSensitivity caseMode = Qt::CaseInsensitive;
 
     for (const Resource &resource : resources_) {
@@ -432,9 +443,10 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
                                                  QStringLiteral("alias"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
-        } else if (resource.tags.join(QLatin1Char('\n')).contains(needle, caseMode)) {
+        } else if (!tagNeedle.isEmpty()
+                   && resource.tags.join(QLatin1Char('\n')).contains(tagNeedle, caseMode)) {
             SearchResult result = resourceResult(resource,
-                                                 30.0 + exactMatchScoreAdjustment(resource.tags, needle),
+                                                 30.0 + exactMatchScoreAdjustment(resource.tags, tagNeedle),
                                                  QStringLiteral("tag"));
             applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
             results.append(result);
