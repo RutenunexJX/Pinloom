@@ -14,6 +14,7 @@ namespace Pinloom {
 struct ClipSearchOptions {
     bool includeSaved = true;
     bool includeTemporary = false;
+    bool includeDeleted = false;
     bool emptyQueryReturnsPinnedAndRecent = true;
     int limit = 20;
 };
@@ -49,6 +50,7 @@ public:
                                                 const QStringList &tags,
                                                 bool pinned,
                                                 const QDateTime &now)>;
+    using ClipStateMutationCallback = std::function<bool(const QString &clipId, const QDateTime &now)>;
     using LastErrorCallback = std::function<QString()>;
 
     explicit ClipSearchService(InMemoryClipRepository &repository);
@@ -57,6 +59,8 @@ public:
                       ListClipsCallback listSavedClips = {},
                       FindClipCallback findClip = {},
                       SaveClipCallback saveClip = {},
+                      ClipStateMutationCallback softDeleteClip = {},
+                      ClipStateMutationCallback restoreClip = {},
                       LastErrorCallback lastError = {});
 
     QList<ClipSearchResult> search(const QString &query, const ClipSearchOptions &options = {}) const;
@@ -67,6 +71,8 @@ public:
                   const QStringList &tags = {},
                   bool pinned = false,
                   const QDateTime &now = {}) const;
+    bool softDeleteClip(const QString &clipId, const QDateTime &now = {}) const;
+    bool restoreClip(const QString &clipId, const QDateTime &now = {}) const;
     QString lastError() const;
 
 private:
@@ -74,6 +80,8 @@ private:
     ListClipsCallback listSavedClips_;
     FindClipCallback findClip_;
     SaveClipCallback saveClip_;
+    ClipStateMutationCallback softDeleteClip_;
+    ClipStateMutationCallback restoreClip_;
     LastErrorCallback lastError_;
 };
 

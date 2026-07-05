@@ -31,6 +31,7 @@ struct Resource {
     QList<Anchor> anchors;
     QList<ResourceRelation> relations;
     QString content;
+    bool deleted = false;
     QDateTime updatedAt;
 };
 

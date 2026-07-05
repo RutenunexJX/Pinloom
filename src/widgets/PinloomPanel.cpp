@@ -235,7 +235,10 @@ QString clipToolTip(const ClipSearchResult &result)
 QString clipMatchSummary(const ClipSearchResult &result)
 {
     if (result.matchedField == QLatin1String("empty")) {
-        return result.state == ClipState::Temporary ? QStringLiteral("Clip History") : QStringLiteral("Saved Clip");
+        if (result.state == ClipState::Temporary) {
+            return QStringLiteral("Clip History");
+        }
+        return result.state == ClipState::Deleted ? QStringLiteral("Deleted Clip") : QStringLiteral("Saved Clip");
     }
 
     const QString match = clipMatchText(result);
@@ -244,6 +247,9 @@ QString clipMatchSummary(const ClipSearchResult &result)
     }
     if (result.state == ClipState::Temporary) {
         return QStringLiteral("Clip History");
+    }
+    if (result.state == ClipState::Deleted) {
+        return QStringLiteral("Deleted Clip");
     }
     return QStringLiteral("Saved Clip");
 }
@@ -1896,8 +1902,26 @@ bool PinloomPanel::requestDeleteSelectedAnchor()
         return false;
     }
 
-    updateStatus(tr("Anchor deletion is not implemented yet; repository needs an anchor delete API"));
-    return false;
+    const QString anchorName = anchorDisplayName(target.anchor.value(), Resource{});
+    const QMessageBox::StandardButton choice = QMessageBox::question(
+        this,
+        tr("Delete Anchor"),
+        tr("Delete \"%1\" from Pinloom?\n\nThis only removes the Pinloom anchor. It will not delete the target file.")
+            .arg(anchorName));
+    if (choice != QMessageBox::Yes) {
+        updateStatus(tr("Delete canceled"));
+        return false;
+    }
+
+    if (!repository_.softDeleteAnchor(target.resourceId, target.anchor.value())) {
+        updateStatus(tr("Unable to delete anchor"));
+        refreshResults();
+        return false;
+    }
+
+    refreshResults();
+    updateStatus(tr("Deleted anchor \"%1\" from Pinloom").arg(anchorName));
+    return true;
 }
 
 bool PinloomPanel::setSelectedAnchorPinned(bool pinned)

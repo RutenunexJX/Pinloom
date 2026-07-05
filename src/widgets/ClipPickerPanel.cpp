@@ -58,6 +58,8 @@ QString stateLabel(ClipState state)
         return QStringLiteral("saved");
     case ClipState::Temporary:
         return QStringLiteral("temporary");
+    case ClipState::Deleted:
+        return QStringLiteral("deleted");
     }
     return QStringLiteral("saved");
 }

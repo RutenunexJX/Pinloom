@@ -296,6 +296,7 @@ private slots:
     void clipSearchFindsAliasTagHashTagPreviewAndText();
     void clipSearchUsesPinnedAndRecentForStableOrdering();
     void clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary();
+    void softDeletesSavedClipsAndRestoresSearch();
     void clipSearchEmptyQueryWithTemporaryHistoryHidesSavedClips();
     void clipSearchEmptyQueryReturnsPinnedThenRecentSavedClips();
     void savedClipContentCaptureIsIgnoredAsDuplicate();
@@ -958,6 +959,72 @@ void ClipTest::clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary()
     QVERIFY(std::any_of(results.cbegin(), results.cend(), [&](const ClipSearchResult &result) {
         return result.clipId == savedId && result.state == ClipState::Saved;
     }));
+}
+
+void ClipTest::softDeletesSavedClipsAndRestoresSearch()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("soft delete me"));
+    QVERIFY(captured.captured());
+    QVERIFY(repository.saveClip(captured.clip->id,
+                                QStringLiteral("Soft Clip"),
+                                {QStringLiteral("restore alias")},
+                                {QStringLiteral("restore")},
+                                false));
+
+    ClipSearchService service(repository);
+    QCOMPARE(service.search(QStringLiteral("Soft Clip")).size(), 1);
+    QCOMPARE(service.search(QStringLiteral("restore alias")).size(), 1);
+    QCOMPARE(service.search(QStringLiteral("#restore")).size(), 1);
+    QVERIFY(service.softDeleteClip(captured.clip->id));
+    QVERIFY(service.search(QStringLiteral("Soft Clip")).isEmpty());
+    QVERIFY(service.search(QStringLiteral("restore alias")).isEmpty());
+    QVERIFY(service.search(QStringLiteral("#restore")).isEmpty());
+
+    std::optional<Clip> deleted = service.findClip(captured.clip->id);
+    QVERIFY(deleted.has_value());
+    QVERIFY(deleted->state == ClipState::Deleted);
+
+    ClipSearchOptions deletedOptions;
+    deletedOptions.includeSaved = false;
+    deletedOptions.includeDeleted = true;
+    const QList<ClipSearchResult> deletedResults =
+        service.search(QStringLiteral("restore alias"), deletedOptions);
+    QCOMPARE(deletedResults.size(), 1);
+    QVERIFY(deletedResults.first().state == ClipState::Deleted);
+
+    QVERIFY(service.restoreClip(captured.clip->id));
+    QCOMPARE(service.search(QStringLiteral("Soft Clip")).size(), 1);
+    QCOMPARE(service.search(QStringLiteral("restore alias")).size(), 1);
+    QCOMPARE(service.search(QStringLiteral("#restore")).size(), 1);
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository sqliteRepository;
+    QVERIFY2(sqliteRepository.open(dir.filePath(QStringLiteral("clips.sqlite3"))),
+             qPrintable(sqliteRepository.lastError()));
+    QVERIFY2(sqliteRepository.initialize(), qPrintable(sqliteRepository.lastError()));
+
+    const ClipCaptureResult sqliteCaptured = sqliteRepository.captureText(QStringLiteral("sqlite soft delete me"));
+    QVERIFY(sqliteCaptured.captured());
+    QVERIFY2(sqliteRepository.saveClip(sqliteCaptured.clip->id,
+                                       QStringLiteral("SQLite Soft Clip"),
+                                       {QStringLiteral("sqlite restore alias")},
+                                       {},
+                                       false),
+             qPrintable(sqliteRepository.lastError()));
+
+    ClipSearchService sqliteService(sqliteRepository);
+    QCOMPARE(sqliteService.search(QStringLiteral("sqlite restore alias")).size(), 1);
+    QVERIFY2(sqliteService.softDeleteClip(sqliteCaptured.clip->id),
+             qPrintable(sqliteService.lastError()));
+    QVERIFY(sqliteService.search(QStringLiteral("sqlite restore alias")).isEmpty());
+    std::optional<Clip> sqliteDeleted = sqliteService.findClip(sqliteCaptured.clip->id);
+    QVERIFY(sqliteDeleted.has_value());
+    QVERIFY(sqliteDeleted->state == ClipState::Deleted);
+    QVERIFY2(sqliteService.restoreClip(sqliteCaptured.clip->id),
+             qPrintable(sqliteService.lastError()));
+    QCOMPARE(sqliteService.search(QStringLiteral("sqlite restore alias")).size(), 1);
 }
 
 void ClipTest::clipSearchEmptyQueryWithTemporaryHistoryHidesSavedClips()

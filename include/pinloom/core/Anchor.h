@@ -37,6 +37,7 @@ struct Anchor {
     QStringList aliases;
     QStringList tags;
     bool pinned = false;
+    bool deleted = false;
     QDateTime createdAt;
     QDateTime updatedAt;
     QDateTime usedAt;

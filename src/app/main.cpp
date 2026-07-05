@@ -374,9 +374,9 @@ int main(int argc, char *argv[])
                       QStringLiteral("Metadata editing requires a Saved Clip"));
             addAction(QStringLiteral("remove"),
                       QStringLiteral("Delete / Remove"),
-                      QStringLiteral("Remove Saved Clip"),
-                      false,
-                      QStringLiteral("Saved Clip deletion needs a repository delete API"));
+                      QStringLiteral("Archive this Saved Clip inside Pinloom"),
+                      savedClip,
+                      QStringLiteral("Delete requires a Saved Clip"));
             return actions;
         }
 
@@ -393,9 +393,7 @@ int main(int argc, char *argv[])
                       QStringLiteral("Edit anchor name, aliases, tags, and pinned state"));
             addAction(QStringLiteral("remove"),
                       QStringLiteral("Delete / Remove"),
-                      QStringLiteral("Delete anchor"),
-                      false,
-                      QStringLiteral("Anchor deletion is not implemented yet; repository needs an anchor delete API"));
+                      QStringLiteral("Delete this Pinloom anchor without deleting the target file"));
             return actions;
         }
 
@@ -434,13 +432,16 @@ int main(int argc, char *argv[])
                   QStringLiteral("Metadata editing requires a saved resource"));
         addAction(QStringLiteral("remove"),
                   QStringLiteral("Delete / Remove"),
-                  QStringLiteral("Remove resource"),
-                  false,
-                  QStringLiteral("Resource deletion needs a repository delete API"));
+                  Pinloom::isInboxResourceId(target.resourceId)
+                      ? QStringLiteral("Remove this Inbox file from Pinloom without deleting the original file")
+                      : QStringLiteral("Remove this resource from Pinloom without deleting the original file"),
+                  hasResource,
+                  QStringLiteral("Remove requires a saved resource"));
         return actions;
     };
     commandOptions.unifiedActionHandler =
         [&repository,
+         &clipHost,
          panel,
          &targetTitle,
          &cleanTag,
@@ -465,6 +466,35 @@ int main(int argc, char *argv[])
                     *status = QStringLiteral("Action requires a Saved Clip");
                 }
                 return false;
+            }
+
+            if (actionId == QLatin1String("remove")) {
+                const QMessageBox::StandardButton choice = QMessageBox::question(
+                    parent,
+                    QStringLiteral("Delete Saved Clip"),
+                    QStringLiteral("Remove \"%1\" from ordinary Pinloom search?\n\n"
+                                   "This archives the Saved Clip inside Pinloom and does not delete files or external clipboard data.")
+                        .arg(targetTitle(target)));
+                if (choice != QMessageBox::Yes) {
+                    if (status) {
+                        *status = QStringLiteral("Remove canceled");
+                    }
+                    return false;
+                }
+                if (!clipHost || !clipHost->runtime()
+                    || !clipHost->runtime()->searchService().softDeleteClip(clip->id)) {
+                    if (status) {
+                        const QString error = clipHost && clipHost->runtime()
+                            ? clipHost->runtime()->searchService().lastError().trimmed()
+                            : QString();
+                        *status = error.isEmpty() ? QStringLiteral("Unable to remove Saved Clip") : error;
+                    }
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Removed Saved Clip from Pinloom");
+                }
+                return true;
             }
 
             if (actionId == QLatin1String("pin") || actionId == QLatin1String("unpin")) {
@@ -566,6 +596,48 @@ int main(int argc, char *argv[])
                 *status = QStringLiteral("Selected result is no longer available");
             }
             return false;
+        }
+
+        if (actionId == QLatin1String("remove")) {
+            const QString title = target.anchor.has_value()
+                ? QStringLiteral("Delete Anchor")
+                : Pinloom::isInboxResourceId(target.resourceId)
+                      ? QStringLiteral("Remove Inbox File")
+                      : QStringLiteral("Remove Resource");
+            const QString body = target.anchor.has_value()
+                ? QStringLiteral("Delete \"%1\" from Pinloom?\n\nThis only removes the Pinloom anchor. It will not delete the target file.")
+                      .arg(targetTitle(target))
+                : QStringLiteral("Remove \"%1\" from Pinloom?\n\nThis hides Pinloom's record only. The original file is not deleted.")
+                      .arg(targetTitle(target));
+            const QMessageBox::StandardButton choice = QMessageBox::question(parent, title, body);
+            if (choice != QMessageBox::Yes) {
+                if (status) {
+                    *status = QStringLiteral("Remove canceled");
+                }
+                return false;
+            }
+
+            const bool removed = target.anchor.has_value()
+                ? repository.softDeleteAnchor(target.resourceId, target.anchor.value())
+                : repository.softDeleteResource(target.resourceId);
+            if (!removed) {
+                if (status) {
+                    *status = target.anchor.has_value()
+                        ? QStringLiteral("Unable to delete anchor")
+                        : QStringLiteral("Unable to remove resource from Pinloom");
+                }
+                return false;
+            }
+
+            panel->setSearchText(panel->searchText());
+            if (status) {
+                *status = target.anchor.has_value()
+                    ? QStringLiteral("Deleted anchor from Pinloom")
+                    : Pinloom::isInboxResourceId(target.resourceId)
+                          ? QStringLiteral("Removed Inbox file from Pinloom; original file was not deleted")
+                          : QStringLiteral("Removed resource from Pinloom; original file was not deleted");
+            }
+            return true;
         }
 
         if (actionId == QLatin1String("pin") || actionId == QLatin1String("unpin")) {

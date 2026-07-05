@@ -74,6 +74,10 @@ public:
 
     std::optional<Resource> findResource(const QString &) const override { return std::nullopt; }
     QList<SearchResult> search(const SearchQuery &) const override { return {}; }
+    bool softDeleteResource(const QString &) override { return false; }
+    bool restoreResource(const QString &) override { return false; }
+    bool softDeleteAnchor(const QString &, const Anchor &) override { return false; }
+    bool restoreAnchor(const QString &, const Anchor &) override { return false; }
     bool clearResources() override { return true; }
     bool upsertResourceRelation(const ResourceRelation &) override { return false; }
     QList<ResourceRelation> resourceRelations(const QString &) const override { return {}; }

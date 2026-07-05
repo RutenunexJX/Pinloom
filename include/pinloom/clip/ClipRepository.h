@@ -20,7 +20,8 @@ enum class ClipKind {
 
 enum class ClipState {
     Temporary,
-    Saved
+    Saved,
+    Deleted
 };
 
 enum class ClipCaptureStatus {
@@ -87,6 +88,8 @@ public:
                   bool pinned = false,
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
+    bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
+    bool restoreClip(const QString &id, const QDateTime &now = {});
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 
@@ -121,6 +124,8 @@ public:
                   bool pinned = false,
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
+    bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
+    bool restoreClip(const QString &id, const QDateTime &now = {});
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 

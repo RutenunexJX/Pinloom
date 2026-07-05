@@ -42,6 +42,8 @@ QString clipStateToJson(ClipState state)
         return QStringLiteral("temporary");
     case ClipState::Saved:
         return QStringLiteral("saved");
+    case ClipState::Deleted:
+        return QStringLiteral("deleted");
     }
     return QStringLiteral("temporary");
 }

@@ -18,6 +18,7 @@ struct SearchQuery {
     QStringList contextResourceIds;
     QStringList contextRelationLabels;
     int limit = 50;
+    bool includeDeleted = false;
 };
 
 struct SearchResult {

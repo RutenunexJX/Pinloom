@@ -11,6 +11,10 @@ public:
     bool upsertResource(const Resource &resource) override;
     std::optional<Resource> findResource(const QString &id) const override;
     QList<SearchResult> search(const SearchQuery &query) const override;
+    bool softDeleteResource(const QString &resourceId) override;
+    bool restoreResource(const QString &resourceId) override;
+    bool softDeleteAnchor(const QString &resourceId, const Anchor &anchor) override;
+    bool restoreAnchor(const QString &resourceId, const Anchor &anchor) override;
     bool clearResources() override;
 
     bool upsertResourceRelation(const ResourceRelation &relation) override;

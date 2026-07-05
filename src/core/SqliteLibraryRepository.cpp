@@ -373,6 +373,10 @@ SearchResult anchorSearchResult(const Resource &resource,
 
 bool shouldIndexAnchor(const Resource &resource, const Anchor &anchor)
 {
+    if (resource.deleted) {
+        return false;
+    }
+
     if (isDeprecatedPdfManualLineAnchor(resource, anchor)) {
         return false;
     }
@@ -686,6 +690,11 @@ bool SqliteLibraryRepository::initialize()
         return false;
     }
 
+    if (!ensureSoftDeleteColumns()) {
+        rollbackTransaction();
+        return false;
+    }
+
     if (!recordMigration(1, QStringLiteral("initial_sqlite_fts5_schema"))
         || !recordMigration(2, QStringLiteral("library_roots"))
         || !recordMigration(3, QStringLiteral("anchor_fts"))
@@ -693,7 +702,8 @@ bool SqliteLibraryRepository::initialize()
         || !recordMigration(5, QStringLiteral("resource_usage"))
         || !recordMigration(6, QStringLiteral("anchor_usage"))
         || !recordMigration(7, QStringLiteral("pinned_library_roots"))
-        || !recordMigration(8, QStringLiteral("anchor_locator_fields"))) {
+        || !recordMigration(8, QStringLiteral("anchor_locator_fields"))
+        || !recordMigration(9, QStringLiteral("soft_delete_flags"))) {
         rollbackTransaction();
         return false;
     }
@@ -729,17 +739,19 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     }
 
     QSqlQuery query(database_);
-    query.prepare(QStringLiteral("INSERT INTO resources(id, kind, title, location, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?) "
+    query.prepare(QStringLiteral("INSERT INTO resources(id, kind, title, location, deleted, updated_at) "
+                                 "VALUES (?, ?, ?, ?, ?, ?) "
                                  "ON CONFLICT(id) DO UPDATE SET "
                                  "kind = excluded.kind,"
                                  "title = excluded.title,"
                                  "location = excluded.location,"
+                                 "deleted = excluded.deleted,"
                                  "updated_at = excluded.updated_at"));
     query.addBindValue(storedResource.id);
     query.addBindValue(resourceKindToString(storedResource.kind));
     query.addBindValue(storedResource.title);
     query.addBindValue(storedResource.location);
+    query.addBindValue(storedResource.deleted ? 1 : 0);
     query.addBindValue(storedResource.updatedAt.isValid()
                            ? storedResource.updatedAt.toUTC().toString(Qt::ISODate)
                            : QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
@@ -793,9 +805,9 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         QSqlQuery anchorQuery(database_);
         anchorQuery.prepare(QStringLiteral("INSERT INTO anchors(resource_id, anchor_order, id, name, target_app, "
                                            "target_file, target_uri, locator_type, locator_json, aliases, tags, "
-                                           "pinned, created_at, updated_at, used_at, type, target, line, page, "
+                                           "pinned, deleted, created_at, updated_at, used_at, type, target, line, page, "
                                            "x, y, width, height) "
-                                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
+                                           "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"));
         anchorQuery.addBindValue(storedResource.id);
         anchorQuery.addBindValue(i);
         anchorQuery.addBindValue(anchor.id);
@@ -808,6 +820,7 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         anchorQuery.addBindValue(anchor.aliases.join(QLatin1Char('\n')));
         anchorQuery.addBindValue(anchor.tags.join(QLatin1Char('\n')));
         anchorQuery.addBindValue(anchor.pinned ? 1 : 0);
+        anchorQuery.addBindValue(anchor.deleted ? 1 : 0);
         anchorQuery.addBindValue(anchor.createdAt.isValid()
                                      ? anchor.createdAt.toUTC().toString(Qt::ISODate)
                                      : QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
@@ -847,19 +860,21 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         }
     }
 
-    QSqlQuery ftsQuery(database_);
-    ftsQuery.prepare(QStringLiteral("INSERT INTO resource_fts(resource_id, title, aliases, tags, location, content) "
-                                    "VALUES (?, ?, ?, ?, ?, ?)"));
-    ftsQuery.addBindValue(storedResource.id);
-    ftsQuery.addBindValue(storedResource.title);
-    ftsQuery.addBindValue(storedResource.aliases.join(QLatin1Char(' ')));
-    ftsQuery.addBindValue(storedResource.tags.join(QLatin1Char(' ')));
-    ftsQuery.addBindValue(storedResource.location);
-    ftsQuery.addBindValue(storedResource.content);
-    if (!ftsQuery.exec()) {
-        setLastError(ftsQuery.lastError().text());
-        rollbackTransaction();
-        return false;
+    if (!storedResource.deleted) {
+        QSqlQuery ftsQuery(database_);
+        ftsQuery.prepare(QStringLiteral("INSERT INTO resource_fts(resource_id, title, aliases, tags, location, content) "
+                                        "VALUES (?, ?, ?, ?, ?, ?)"));
+        ftsQuery.addBindValue(storedResource.id);
+        ftsQuery.addBindValue(storedResource.title);
+        ftsQuery.addBindValue(storedResource.aliases.join(QLatin1Char(' ')));
+        ftsQuery.addBindValue(storedResource.tags.join(QLatin1Char(' ')));
+        ftsQuery.addBindValue(storedResource.location);
+        ftsQuery.addBindValue(storedResource.content);
+        if (!ftsQuery.exec()) {
+            setLastError(ftsQuery.lastError().text());
+            rollbackTransaction();
+            return false;
+        }
     }
 
     return commitTransaction();
@@ -937,6 +952,9 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
         if (!resource.has_value()) {
             continue;
         }
+        if (!query.includeDeleted && resource->deleted) {
+            continue;
+        }
         if (!matchesRequiredLocationPrefixes(resource->location, query.requiredLocationPrefixes)) {
             continue;
         }
@@ -980,6 +998,9 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             if (!resource.has_value() || anchorOrder < 0 || anchorOrder >= resource->anchors.size()) {
                 continue;
             }
+            if (!query.includeDeleted && resource->deleted) {
+                continue;
+            }
             if (!matchesRequiredLocationPrefixes(resource->location, query.requiredLocationPrefixes)) {
                 continue;
             }
@@ -987,6 +1008,9 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
                 continue;
             }
             const Anchor &anchor = resource->anchors.at(anchorOrder);
+            if (!query.includeDeleted && anchor.deleted) {
+                continue;
+            }
             if (isDeprecatedPdfManualLineAnchor(resource.value(), anchor)) {
                 continue;
             }
@@ -1006,6 +1030,98 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     }
 
     return results;
+}
+
+bool SqliteLibraryRepository::softDeleteResource(const QString &resourceId)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE resources SET deleted = 1, updated_at = ? WHERE id = ?"));
+    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    query.addBindValue(resourceId);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        setLastError(QStringLiteral("Resource not found"));
+        return false;
+    }
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteLibraryRepository::restoreResource(const QString &resourceId)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE resources SET deleted = 0, updated_at = ? WHERE id = ?"));
+    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
+    query.addBindValue(resourceId);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        setLastError(QStringLiteral("Resource not found"));
+        return false;
+    }
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteLibraryRepository::softDeleteAnchor(const QString &resourceId, const Anchor &anchor)
+{
+    std::optional<Resource> resource = findResource(resourceId);
+    if (!resource.has_value()) {
+        setLastError(QStringLiteral("Resource not found"));
+        return false;
+    }
+
+    const Anchor normalized = normalizedAnchor(anchor);
+    for (Anchor &storedAnchor : resource->anchors) {
+        if (anchorUsageKey(storedAnchor) != anchorUsageKey(normalized)) {
+            continue;
+        }
+        storedAnchor.deleted = true;
+        storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
+        resource->updatedAt = storedAnchor.updatedAt;
+        return upsertResource(resource.value());
+    }
+
+    setLastError(QStringLiteral("Anchor not found"));
+    return false;
+}
+
+bool SqliteLibraryRepository::restoreAnchor(const QString &resourceId, const Anchor &anchor)
+{
+    std::optional<Resource> resource = findResource(resourceId);
+    if (!resource.has_value()) {
+        setLastError(QStringLiteral("Resource not found"));
+        return false;
+    }
+
+    const Anchor normalized = normalizedAnchor(anchor);
+    for (Anchor &storedAnchor : resource->anchors) {
+        if (anchorUsageKey(storedAnchor) != anchorUsageKey(normalized)) {
+            continue;
+        }
+        storedAnchor.deleted = false;
+        storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
+        resource->updatedAt = storedAnchor.updatedAt;
+        return upsertResource(resource.value());
+    }
+
+    setLastError(QStringLiteral("Anchor not found"));
+    return false;
 }
 
 bool SqliteLibraryRepository::clearResources()
@@ -1508,6 +1624,42 @@ bool SqliteLibraryRepository::ensureAnchorLocatorColumns()
     return true;
 }
 
+bool SqliteLibraryRepository::ensureSoftDeleteColumns()
+{
+    const auto tableColumns = [this](const QString &table) -> QStringList {
+        QStringList columns;
+        QSqlQuery query(database_);
+        if (!query.exec(QStringLiteral("PRAGMA table_info(%1)").arg(table))) {
+            setLastError(query.lastError().text());
+            return columns;
+        }
+        while (query.next()) {
+            columns.append(query.value(1).toString());
+        }
+        return columns;
+    };
+
+    const QStringList resourceColumns = tableColumns(QStringLiteral("resources"));
+    if (resourceColumns.isEmpty()) {
+        return false;
+    }
+    if (!resourceColumns.contains(QStringLiteral("deleted"))
+        && !execute(QStringLiteral("ALTER TABLE resources ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"))) {
+        return false;
+    }
+
+    const QStringList anchorColumns = tableColumns(QStringLiteral("anchors"));
+    if (anchorColumns.isEmpty()) {
+        return false;
+    }
+    if (!anchorColumns.contains(QStringLiteral("deleted"))
+        && !execute(QStringLiteral("ALTER TABLE anchors ADD COLUMN deleted INTEGER NOT NULL DEFAULT 0"))) {
+        return false;
+    }
+
+    return true;
+}
+
 bool SqliteLibraryRepository::recordMigration(int version, const QString &name)
 {
     QSqlQuery query(database_);
@@ -1551,7 +1703,7 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     Resource resource;
 
     QSqlQuery query(database_);
-    query.prepare(QStringLiteral("SELECT id, kind, title, location, updated_at FROM resources WHERE id = ?"));
+    query.prepare(QStringLiteral("SELECT id, kind, title, location, deleted, updated_at FROM resources WHERE id = ?"));
     query.addBindValue(id);
     if (!query.exec() || !query.next()) {
         setLastError(query.lastError().text());
@@ -1562,7 +1714,8 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     resource.kind = resourceKindFromString(query.value(1).toString());
     resource.title = query.value(2).toString();
     resource.location = query.value(3).toString();
-    resource.updatedAt = QDateTime::fromString(query.value(4).toString(), Qt::ISODate);
+    resource.deleted = query.value(4).toInt() != 0;
+    resource.updatedAt = QDateTime::fromString(query.value(5).toString(), Qt::ISODate);
     resource.tags = readStrings(QStringLiteral("resource_tags"), QStringLiteral("tag"), id);
     resource.aliases = readStrings(QStringLiteral("resource_aliases"), QStringLiteral("alias"), id);
     resource.anchors = readAnchors(id);
@@ -1679,7 +1832,7 @@ QList<Anchor> SqliteLibraryRepository::readAnchors(const QString &resourceId) co
 
     QSqlQuery query(database_);
     query.prepare(QStringLiteral("SELECT id, name, target_app, target_file, target_uri, locator_type, "
-                                 "locator_json, aliases, tags, pinned, created_at, updated_at, used_at, "
+                                 "locator_json, aliases, tags, pinned, deleted, created_at, updated_at, used_at, "
                                  "type, target, line, page, x, y, width, height "
                                  "FROM anchors WHERE resource_id = ? ORDER BY anchor_order"));
     query.addBindValue(resourceId);
@@ -1700,17 +1853,18 @@ QList<Anchor> SqliteLibraryRepository::readAnchors(const QString &resourceId) co
         anchor.aliases = query.value(7).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         anchor.tags = query.value(8).toString().split(QLatin1Char('\n'), Qt::SkipEmptyParts);
         anchor.pinned = query.value(9).toInt() != 0;
-        anchor.createdAt = QDateTime::fromString(query.value(10).toString(), Qt::ISODate);
-        anchor.updatedAt = QDateTime::fromString(query.value(11).toString(), Qt::ISODate);
-        anchor.usedAt = QDateTime::fromString(query.value(12).toString(), Qt::ISODate);
-        anchor.type = anchorTypeFromString(query.value(13).toString());
-        anchor.target = query.value(14).toString();
-        anchor.line = query.value(15).isNull() ? -1 : query.value(15).toInt();
-        anchor.page = query.value(16).isNull() ? -1 : query.value(16).toInt();
-        anchor.region = QRectF(query.value(17).toDouble(),
-                               query.value(18).toDouble(),
+        anchor.deleted = query.value(10).toInt() != 0;
+        anchor.createdAt = QDateTime::fromString(query.value(11).toString(), Qt::ISODate);
+        anchor.updatedAt = QDateTime::fromString(query.value(12).toString(), Qt::ISODate);
+        anchor.usedAt = QDateTime::fromString(query.value(13).toString(), Qt::ISODate);
+        anchor.type = anchorTypeFromString(query.value(14).toString());
+        anchor.target = query.value(15).toString();
+        anchor.line = query.value(16).isNull() ? -1 : query.value(16).toInt();
+        anchor.page = query.value(17).isNull() ? -1 : query.value(17).toInt();
+        anchor.region = QRectF(query.value(18).toDouble(),
                                query.value(19).toDouble(),
-                               query.value(20).toDouble());
+                               query.value(20).toDouble(),
+                               query.value(21).toDouble());
         anchors.append(anchor);
     }
 

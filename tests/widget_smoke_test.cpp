@@ -30,6 +30,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
 #include <QTemporaryDir>
@@ -99,6 +100,7 @@ private slots:
     void commandPanelPlainQueryEnterDispatchesByTargetType();
     void commandPanelRightArrowShowsActionsForUnifiedResultTypes();
     void commandPanelActionListExecutesSelectedProviderAction();
+    void commandPanelActionListExecutesRemoveWithInjectedConfirmation();
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
@@ -3378,6 +3380,65 @@ void WidgetSmokeTest::commandPanelActionListExecutesSelectedProviderAction()
     QCOMPARE(panel.statusText(), QStringLiteral("Fake provider refused tag"));
 }
 
+void WidgetSmokeTest::commandPanelActionListExecutesRemoveWithInjectedConfirmation()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    bool confirmRemove = false;
+    QStringList removedResourceIds;
+    QStringList actionIds;
+
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.unifiedActionProvider = [](const PinloomOpenTarget &target) {
+        QList<PinloomCommandResultAction> actions = makeCommandPanelActionsForTarget(target);
+        actions.last().enabled = true;
+        actions.last().disabledReason.clear();
+        return actions;
+    };
+    options.unifiedActionHandler =
+        [&](QWidget *, const PinloomOpenTarget &target, const PinloomCommandResultAction &action, QString *status) {
+        actionIds.append(action.id);
+        if (action.id != QLatin1String("remove")) {
+            return true;
+        }
+        if (!confirmRemove) {
+            if (status) {
+                *status = QStringLiteral("Remove canceled by fake confirmation");
+            }
+            return false;
+        }
+        removedResourceIds.append(target.resourceId);
+        if (status) {
+            *status = QStringLiteral("Removed by fake handler");
+        }
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+
+    panel.setCommandText(QStringLiteral("launch"));
+    QVERIFY(panel.selectResultAt(0));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QCOMPARE(panel.resultCount(), 4);
+    QVERIFY(panel.selectResultAt(3));
+
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QCOMPARE(actionIds, QStringList{QStringLiteral("remove")});
+    QVERIFY(removedResourceIds.isEmpty());
+    QCOMPARE(panel.statusText(), QStringLiteral("Remove canceled by fake confirmation"));
+
+    confirmRemove = true;
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(actionIds, (QStringList{QStringLiteral("remove"), QStringLiteral("remove")}));
+    QCOMPARE(removedResourceIds, QStringList{QStringLiteral("anchor-spec")});
+    QCOMPARE(panel.statusText(), QStringLiteral("Removed by fake handler"));
+}
+
 void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
 {
     const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
@@ -5283,8 +5344,16 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     QVERIFY(statusNotifications.last().contains(QStringLiteral("Updated anchor")));
 
     panel.setSearchText(QStringLiteral("Edited keyboard command"));
+    QTimer::singleShot(0, [&]() {
+        auto *messageBox = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        QVERIFY(messageBox);
+        auto *noButton = messageBox->button(QMessageBox::No);
+        QVERIFY(noButton);
+        noButton->click();
+    });
     QTest::keyClick(searchEdit, Qt::Key_Delete);
-    QVERIFY(statusNotifications.last().contains(QStringLiteral("Anchor deletion is not implemented yet")));
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("Delete canceled")));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Edited keyboard command")}).size(), 1);
 }
 
 void WidgetSmokeTest::panelReportsNoPdfContextForPdfCapture()

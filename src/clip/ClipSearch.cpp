@@ -37,6 +37,8 @@ bool isIncludedState(ClipState state, const ClipSearchOptions &options)
         return options.includeSaved;
     case ClipState::Temporary:
         return options.includeTemporary;
+    case ClipState::Deleted:
+        return options.includeDeleted;
     }
     return false;
 }
@@ -44,7 +46,8 @@ bool isIncludedState(ClipState state, const ClipSearchOptions &options)
 bool isIncludedEmptyQueryState(ClipState state, const ClipSearchOptions &options)
 {
     if (options.includeTemporary) {
-        return state == ClipState::Temporary;
+        return state == ClipState::Temporary
+            || (options.includeDeleted && state == ClipState::Deleted);
     }
     return isIncludedState(state, options);
 }
@@ -193,7 +196,7 @@ QList<ClipSearchResult> searchClips(const QList<Clip> &clips,
     const bool emptyQuery = !tagQuery && effectiveQuery.isEmpty();
 
     if ((emptyQuery && !options.emptyQueryReturnsPinnedAndRecent) || (tagQuery && effectiveQuery.isEmpty())
-        || (!options.includeSaved && !options.includeTemporary) || options.limit == 0) {
+        || (!options.includeSaved && !options.includeTemporary && !options.includeDeleted) || options.limit == 0) {
         return {};
     }
 
@@ -257,6 +260,12 @@ ClipSearchService::ClipSearchService(InMemoryClipRepository &repository)
                                       bool pinned,
                                       const QDateTime &now) {
                             return repository.saveClip(clipId, name, aliases, tags, pinned, now);
+                        },
+                        [&repository](const QString &clipId, const QDateTime &now) {
+                            return repository.softDeleteSavedClip(clipId, now);
+                        },
+                        [&repository](const QString &clipId, const QDateTime &now) {
+                            return repository.restoreClip(clipId, now);
                         })
 {
 }
@@ -279,6 +288,12 @@ ClipSearchService::ClipSearchService(SqliteClipRepository &repository)
                                       const QDateTime &now) {
                             return repository.saveClip(clipId, name, aliases, tags, pinned, now);
                         },
+                        [&repository](const QString &clipId, const QDateTime &now) {
+                            return repository.softDeleteSavedClip(clipId, now);
+                        },
+                        [&repository](const QString &clipId, const QDateTime &now) {
+                            return repository.restoreClip(clipId, now);
+                        },
                         [&repository]() {
                             return repository.lastError();
                         })
@@ -289,18 +304,22 @@ ClipSearchService::ClipSearchService(ListClipsCallback listClips,
                                      ListClipsCallback listSavedClips,
                                      FindClipCallback findClip,
                                      SaveClipCallback saveClip,
+                                     ClipStateMutationCallback softDeleteClip,
+                                     ClipStateMutationCallback restoreClip,
                                      LastErrorCallback lastError)
     : listClips_(std::move(listClips))
     , listSavedClips_(std::move(listSavedClips))
     , findClip_(std::move(findClip))
     , saveClip_(std::move(saveClip))
+    , softDeleteClip_(std::move(softDeleteClip))
+    , restoreClip_(std::move(restoreClip))
     , lastError_(std::move(lastError))
 {
 }
 
 QList<ClipSearchResult> ClipSearchService::search(const QString &query, const ClipSearchOptions &options) const
 {
-    if (options.includeSaved && !options.includeTemporary && listSavedClips_) {
+    if (options.includeSaved && !options.includeTemporary && !options.includeDeleted && listSavedClips_) {
         return searchClips(listSavedClips_(), query, options);
     }
 
@@ -336,6 +355,24 @@ bool ClipSearchService::saveClip(const QString &clipId,
     }
 
     return saveClip_(clipId, name, aliases, tags, pinned, now);
+}
+
+bool ClipSearchService::softDeleteClip(const QString &clipId, const QDateTime &now) const
+{
+    if (!softDeleteClip_) {
+        return false;
+    }
+
+    return softDeleteClip_(clipId, now);
+}
+
+bool ClipSearchService::restoreClip(const QString &clipId, const QDateTime &now) const
+{
+    if (!restoreClip_) {
+        return false;
+    }
+
+    return restoreClip_(clipId, now);
 }
 
 QString ClipSearchService::lastError() const

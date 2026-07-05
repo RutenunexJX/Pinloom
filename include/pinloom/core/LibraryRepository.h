@@ -18,6 +18,10 @@ public:
     virtual bool upsertResource(const Resource &resource) = 0;
     virtual std::optional<Resource> findResource(const QString &id) const = 0;
     virtual QList<SearchResult> search(const SearchQuery &query) const = 0;
+    virtual bool softDeleteResource(const QString &resourceId) = 0;
+    virtual bool restoreResource(const QString &resourceId) = 0;
+    virtual bool softDeleteAnchor(const QString &resourceId, const Anchor &anchor) = 0;
+    virtual bool restoreAnchor(const QString &resourceId, const Anchor &anchor) = 0;
     virtual bool clearResources() = 0;
 
     virtual bool upsertResourceRelation(const ResourceRelation &relation) = 0;

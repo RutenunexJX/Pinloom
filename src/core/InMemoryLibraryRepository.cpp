@@ -159,6 +159,20 @@ QStringList anchorUsageKeys(const QString &resourceId, const Anchor &anchor)
     return keys;
 }
 
+bool sameAnchorIdentity(const Anchor &left, const Anchor &right)
+{
+    if (!left.id.trimmed().isEmpty() && !right.id.trimmed().isEmpty()) {
+        return left.id == right.id;
+    }
+    return left.type == right.type
+        && left.target == right.target
+        && left.line == right.line
+        && left.page == right.page
+        && left.region == right.region
+        && left.locatorType == right.locatorType
+        && left.locatorJson == right.locatorJson;
+}
+
 double usageScoreAdjustment(const ResourceUsage &usage)
 {
     double adjustment = 0.0;
@@ -404,6 +418,10 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
     const Qt::CaseSensitivity caseMode = Qt::CaseInsensitive;
 
     for (const Resource &resource : resources_) {
+        if (!query.includeDeleted && resource.deleted) {
+            continue;
+        }
+
         bool tagMatched = true;
         for (const QString &requiredTag : query.requiredTags) {
             if (!resource.tags.contains(requiredTag, caseMode)) {
@@ -466,6 +484,9 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 
         if (!needle.isEmpty()) {
             for (const Anchor &anchor : resource.anchors) {
+                if (!query.includeDeleted && anchor.deleted) {
+                    continue;
+                }
                 if (isDeprecatedPdfManualLineAnchor(resource, anchor)) {
                     continue;
                 }
@@ -491,6 +512,70 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
     }
 
     return results;
+}
+
+bool InMemoryLibraryRepository::softDeleteResource(const QString &resourceId)
+{
+    auto it = resources_.find(resourceId);
+    if (it == resources_.end()) {
+        return false;
+    }
+
+    it->deleted = true;
+    it->updatedAt = QDateTime::currentDateTimeUtc();
+    return true;
+}
+
+bool InMemoryLibraryRepository::restoreResource(const QString &resourceId)
+{
+    auto it = resources_.find(resourceId);
+    if (it == resources_.end()) {
+        return false;
+    }
+
+    it->deleted = false;
+    it->updatedAt = QDateTime::currentDateTimeUtc();
+    return true;
+}
+
+bool InMemoryLibraryRepository::softDeleteAnchor(const QString &resourceId, const Anchor &anchor)
+{
+    auto it = resources_.find(resourceId);
+    if (it == resources_.end()) {
+        return false;
+    }
+
+    const Anchor normalized = normalizedAnchor(anchor);
+    for (Anchor &storedAnchor : it->anchors) {
+        if (!sameAnchorIdentity(storedAnchor, normalized)) {
+            continue;
+        }
+        storedAnchor.deleted = true;
+        storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
+        it->updatedAt = storedAnchor.updatedAt;
+        return true;
+    }
+    return false;
+}
+
+bool InMemoryLibraryRepository::restoreAnchor(const QString &resourceId, const Anchor &anchor)
+{
+    auto it = resources_.find(resourceId);
+    if (it == resources_.end()) {
+        return false;
+    }
+
+    const Anchor normalized = normalizedAnchor(anchor);
+    for (Anchor &storedAnchor : it->anchors) {
+        if (!sameAnchorIdentity(storedAnchor, normalized)) {
+            continue;
+        }
+        storedAnchor.deleted = false;
+        storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
+        it->updatedAt = storedAnchor.updatedAt;
+        return true;
+    }
+    return false;
 }
 
 bool InMemoryLibraryRepository::clearResources()

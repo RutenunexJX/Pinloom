@@ -132,6 +132,8 @@ QString clipStateToString(ClipState state)
         return QStringLiteral("temporary");
     case ClipState::Saved:
         return QStringLiteral("saved");
+    case ClipState::Deleted:
+        return QStringLiteral("deleted");
     }
     return QStringLiteral("temporary");
 }
@@ -140,6 +142,9 @@ ClipState clipStateFromString(const QString &state)
 {
     if (state == QLatin1String("saved")) {
         return ClipState::Saved;
+    }
+    if (state == QLatin1String("deleted")) {
+        return ClipState::Deleted;
     }
     return ClipState::Temporary;
 }
@@ -560,6 +565,68 @@ bool SqliteClipRepository::importSavedClip(const Clip &clip)
     return true;
 }
 
+bool SqliteClipRepository::softDeleteSavedClip(const QString &id, const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    const std::optional<Clip> stored = findClip(id);
+    if (!stored.has_value()) {
+        setLastError(QStringLiteral("Clip not found"));
+        return false;
+    }
+    if (stored->state != ClipState::Saved) {
+        setLastError(QStringLiteral("Only Saved Clips can be deleted"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE clips SET state = ?, updated_at = ? WHERE id = ?"));
+    query.addBindValue(clipStateToString(ClipState::Deleted));
+    query.addBindValue(dateTimeToStorageValue(effectiveUtcNow(now)));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteClipRepository::restoreClip(const QString &id, const QDateTime &now)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    const std::optional<Clip> stored = findClip(id);
+    if (!stored.has_value()) {
+        setLastError(QStringLiteral("Clip not found"));
+        return false;
+    }
+    if (stored->state != ClipState::Deleted) {
+        setLastError(QStringLiteral("Only deleted clips can be restored"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("UPDATE clips SET state = ?, updated_at = ? WHERE id = ?"));
+    query.addBindValue(clipStateToString(ClipState::Saved));
+    query.addBindValue(dateTimeToStorageValue(effectiveUtcNow(now)));
+    query.addBindValue(id);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+
+    lastError_.clear();
+    return true;
+}
+
 bool SqliteClipRepository::markClipUsed(const QString &id, const QDateTime &now)
 {
     if (!isOpen()) {
@@ -871,6 +938,30 @@ bool InMemoryClipRepository::importSavedClip(const Clip &clip)
     }
 
     clips_.append(*normalized);
+    return true;
+}
+
+bool InMemoryClipRepository::softDeleteSavedClip(const QString &id, const QDateTime &now)
+{
+    const int index = clipIndexById(clips_, id);
+    if (index < 0 || clips_.at(index).state != ClipState::Saved) {
+        return false;
+    }
+
+    clips_[index].state = ClipState::Deleted;
+    clips_[index].updatedAt = effectiveUtcNow(now);
+    return true;
+}
+
+bool InMemoryClipRepository::restoreClip(const QString &id, const QDateTime &now)
+{
+    const int index = clipIndexById(clips_, id);
+    if (index < 0 || clips_.at(index).state != ClipState::Deleted) {
+        return false;
+    }
+
+    clips_[index].state = ClipState::Saved;
+    clips_[index].updatedAt = effectiveUtcNow(now);
     return true;
 }
 

@@ -58,6 +58,8 @@ private slots:
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void validatesInboxFileRequests();
     void savesInboxFilesByStablePathAndSearchesMetadata();
+    void softDeletesAndRestoresAnchorsInSearch();
+    void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
     void recognizesExplorerForegroundWindows();
     void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
@@ -1222,6 +1224,81 @@ void CoreSmokeTest::savesInboxFilesByStablePathAndSearchesMetadata()
         }
     }
     QCOMPARE(matchingPathCount, 1);
+}
+
+void CoreSmokeTest::softDeletesAndRestoresAnchorsInSearch()
+{
+    InMemoryLibraryRepository repository;
+
+    Anchor anchor;
+    anchor.id = QStringLiteral("clock#anchor");
+    anchor.type = AnchorType::Manual;
+    anchor.name = QStringLiteral("Clock anchor");
+    anchor.target = anchor.name;
+    anchor.aliases = {QStringLiteral("clock alias")};
+    anchor.tags = {QStringLiteral("review")};
+
+    Resource resource;
+    resource.id = QStringLiteral("clock");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Clock PDF");
+    resource.location = QStringLiteral("E:/docs/clock.pdf");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Clock anchor")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("clock alias")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("review")}).size(), 1);
+    QVERIFY(repository.softDeleteAnchor(resource.id, anchor));
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("Clock anchor")}).isEmpty());
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("clock alias")}).isEmpty());
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("review")}).isEmpty());
+
+    SearchQuery deletedQuery{QStringLiteral("clock alias")};
+    deletedQuery.includeDeleted = true;
+    const QList<SearchResult> deletedResults = repository.search(deletedQuery);
+    QCOMPARE(deletedResults.size(), 1);
+    QVERIFY(deletedResults.first().matchedAnchor.has_value());
+    QVERIFY(deletedResults.first().matchedAnchor->deleted);
+
+    QVERIFY(repository.restoreAnchor(resource.id, anchor));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Clock anchor")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("clock alias")}).size(), 1);
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("review")}).size(), 1);
+}
+
+void CoreSmokeTest::softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString filePath = dir.filePath(QStringLiteral("inbox.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("inbox") > 0);
+    file.close();
+
+    InMemoryLibraryRepository repository;
+    InboxFileSaveRequest request;
+    request.filePath = filePath;
+    request.name = QStringLiteral("Inbox target");
+    const InboxFileSaveResult result = saveInboxFile(repository, request);
+    QVERIFY(result.success());
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Inbox target")}).size(), 1);
+
+    QVERIFY(repository.softDeleteResource(result.resourceId));
+    QVERIFY(QFile::exists(filePath));
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("Inbox target")}).isEmpty());
+
+    SearchQuery deletedQuery{QStringLiteral("Inbox target")};
+    deletedQuery.includeDeleted = true;
+    const QList<SearchResult> deletedResults = repository.search(deletedQuery);
+    QCOMPARE(deletedResults.size(), 1);
+    QVERIFY(deletedResults.first().resource.deleted);
+
+    QVERIFY(repository.restoreResource(result.resourceId));
+    QVERIFY(QFile::exists(filePath));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Inbox target")}).size(), 1);
 }
 
 void CoreSmokeTest::recognizesExplorerForegroundWindows()

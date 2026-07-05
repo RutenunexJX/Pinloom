@@ -28,6 +28,7 @@ private slots:
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
+    void softDeletesAndRestoresResourcesAndAnchors();
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
     void ranksContextSignalsWithinMatchType();
@@ -731,6 +732,64 @@ void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
     QVERIFY(preservedUsage->pinned);
 }
 
+void SqliteRepositoryTest::softDeletesAndRestoresResourcesAndAnchors()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Anchor anchor;
+    anchor.id = QStringLiteral("note#anchor");
+    anchor.type = AnchorType::TextHeading;
+    anchor.name = QStringLiteral("Soft delete anchor");
+    anchor.target = anchor.name;
+    anchor.aliases = {QStringLiteral("anchor alias")};
+
+    Resource resource;
+    resource.id = QStringLiteral("note");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Resource Sentinel");
+    resource.location = QStringLiteral("E:/docs/plain.md");
+    resource.anchors = {anchor};
+    QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("anchor alias")}).size(), 1);
+    QVERIFY2(repository.softDeleteAnchor(resource.id, anchor), qPrintable(repository.lastError()));
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("anchor alias")}).isEmpty());
+
+    SearchQuery deletedAnchorQuery{QStringLiteral("anchor alias")};
+    deletedAnchorQuery.includeDeleted = true;
+    const QList<SearchResult> deletedAnchorResults = repository.search(deletedAnchorQuery);
+    QCOMPARE(deletedAnchorResults.size(), 1);
+    QVERIFY(deletedAnchorResults.first().matchedAnchor.has_value());
+    QVERIFY(deletedAnchorResults.first().matchedAnchor->deleted);
+
+    QVERIFY2(repository.restoreAnchor(resource.id, anchor), qPrintable(repository.lastError()));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("anchor alias")}).size(), 1);
+
+    QVERIFY2(repository.softDeleteResource(resource.id), qPrintable(repository.lastError()));
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("Resource Sentinel")}).isEmpty());
+    const std::optional<Resource> deletedResource = repository.findResource(resource.id);
+    QVERIFY(deletedResource.has_value());
+    QVERIFY(deletedResource->deleted);
+
+    SearchQuery deletedResourceQuery{QStringLiteral("Resource Sentinel")};
+    deletedResourceQuery.includeDeleted = true;
+    const QList<SearchResult> deletedResourceResults = repository.search(deletedResourceQuery);
+    QCOMPARE(deletedResourceResults.size(), 1);
+    QVERIFY(deletedResourceResults.first().resource.deleted);
+
+    QVERIFY2(repository.restoreResource(resource.id), qPrintable(repository.lastError()));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Resource Sentinel")}).size(), 1);
+    const std::optional<Resource> restored = repository.findResource(resource.id);
+    QVERIFY(restored.has_value());
+    QVERIFY(!restored->deleted);
+}
+
 void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()
 {
     QTemporaryDir dir;
@@ -1219,7 +1278,17 @@ void SqliteRepositoryTest::upgradesVersionSevenDatabaseWithLegacyAnchors()
     QVERIFY(columns.contains(QStringLiteral("locator_json")));
     QVERIFY(columns.contains(QStringLiteral("target_app")));
     QVERIFY(columns.contains(QStringLiteral("used_at")));
+    QVERIFY(columns.contains(QStringLiteral("deleted")));
+    QVERIFY(rawQuery.exec(QStringLiteral("PRAGMA table_info(resources)")));
+    QStringList resourceColumns;
+    while (rawQuery.next()) {
+        resourceColumns.append(rawQuery.value(1).toString());
+    }
+    QVERIFY(resourceColumns.contains(QStringLiteral("deleted")));
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 8")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 9")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toInt(), 1);
     rawQuery = QSqlQuery();
