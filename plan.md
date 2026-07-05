@@ -77,11 +77,8 @@ Scope:
   and alias hints.
 - Keyboard shortcuts:
   - Enter: jump.
-  - Ctrl+K: capture current app position.
-  - Alt+A: add alias.
-  - Alt+T: add tag.
-  - Ctrl+E: edit anchor.
-  - Delete: delete anchor.
+  - Capture and metadata actions should move behind explicit command/action
+    surfaces instead of adding launcher shortcuts.
 - Keep folder/index controls out of the default v1 surface.
 
 Status:
@@ -92,9 +89,9 @@ Status:
 - Anchor result rows prioritize anchor display name, target app/file/uri,
   locator summary, tags, and aliases while preserving resource-result
   compatibility.
-- Enter activation, Ctrl+K capture placeholder, Alt+A alias, Alt+T tag,
-  Ctrl+E lightweight anchor edit, and Delete deletion placeholder are covered
-  by widget tests.
+- Enter activation and the initial capture/metadata action placeholders are
+  covered by widget tests. Later command-window work moves fast actions behind
+  an explicit selected-result action list instead of implicit shortcuts.
 - Build and full `ctest --test-dir build --output-on-failure` validation
   passed for the phase implementation.
 
@@ -314,6 +311,16 @@ Status:
   and file/resource rows; Enter dispatches to anchor jump, clip insert, or
   resource open handlers. Explicit `c`, `k`, `i`, and search commands remain
   separate namespaces.
+- Launcher result actions now live behind the selected-result action list:
+  press Right Arrow (`->`) on an ordinary unified result to show compact
+  Jump/Insert/Open, Pin/Unpin, Add alias, Add tag, Edit name/metadata, and
+  explicit disabled Delete/Remove rows when the backing repository does not yet
+  expose a safe delete API. The action list keeps keyboard Up/Down navigation,
+  Enter execution, and Esc/Left Arrow return to ordinary results.
+- Ordinary Command Window mixed results use the shared ranking surface: exact
+  name/title buckets are shown before alias, tag, pinned/recent/frequency
+  tie-breaks, and target/path metadata. This keeps explicit `c`, `k`, and `i`
+  namespaces separate from normal search.
 
 ## Frozen Or Demoted Work
 

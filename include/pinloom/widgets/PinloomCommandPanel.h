@@ -19,10 +19,23 @@ class QListWidgetItem;
 
 namespace Pinloom {
 
+struct PinloomCommandResultAction {
+    QString id;
+    QString label;
+    QString detail;
+    bool enabled = true;
+    QString disabledReason;
+};
+
 struct PinloomCommandPanelOptions {
     std::function<QList<PinloomOpenTarget>(const QString &query)> unifiedSearchHandler;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> anchorJumpHandler;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> resourceOpenHandler;
+    std::function<QList<PinloomCommandResultAction>(const PinloomOpenTarget &target)> unifiedActionProvider;
+    std::function<bool(QWidget *parent,
+                       const PinloomOpenTarget &target,
+                       const PinloomCommandResultAction &action,
+                       QString *status)> unifiedActionHandler;
     std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
     std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
     std::function<std::optional<PinloomClipSaveRequest>(
@@ -64,6 +77,9 @@ public:
     bool selectNextResult();
     bool selectPreviousResult();
     bool activateCurrentCommandItem();
+    bool showActionsForCurrentResult();
+    bool returnToResultList();
+    bool isShowingResultActions() const;
 
 signals:
     void statusChanged(const QString &status);
@@ -94,6 +110,11 @@ private:
     bool captureAnchor();
     bool saveInboxFromCommand();
     bool openSearchWindow(const QListWidgetItem *item);
+    bool activateUnifiedTarget(const PinloomOpenTarget &target);
+    QList<PinloomCommandResultAction> actionsForTarget(const PinloomOpenTarget &target) const;
+    bool activateResultActionFromItem(const QListWidgetItem *item);
+    void populateActionResults(const PinloomOpenTarget &target, int sourceRow);
+    bool restoreResultSelection(const PinloomOpenTarget &target, int fallbackRow);
     std::optional<PinloomClipSaveRequest> promptClipSaveRequest(const ClipSearchResult &result);
     std::optional<InboxFileSaveRequest> promptInboxSaveRequest(const QString &filePath);
     bool handleInboxDragEnter(QEvent *event);
@@ -105,6 +126,9 @@ private:
     QLabel *statusLabel_ = nullptr;
     QString statusText_;
     QStringList pendingInboxFiles_;
+    bool showingResultActions_ = false;
+    PinloomOpenTarget actionSourceTarget_;
+    int actionSourceRow_ = -1;
 };
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel);

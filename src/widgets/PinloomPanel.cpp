@@ -456,6 +456,85 @@ QString resultToolTip(const SearchResult &result, const SearchQuery &query)
     return lines.join(QLatin1Char('\n'));
 }
 
+struct LauncherResultEntry {
+    SearchResult searchResult;
+    ClipSearchResult clipResult;
+    bool clip = false;
+    int priority = 100;
+    double score = 100.0;
+    QString title;
+    QString stableId;
+};
+
+int searchResultPriority(const SearchResult &result)
+{
+    const QString field = result.matchedField;
+    if (field == QLatin1String("anchor")
+        || field == QLatin1String("anchor_name")
+        || field == QLatin1String("title")) {
+        return 0;
+    }
+    if (field == QLatin1String("filename")) {
+        return 5;
+    }
+    if (field == QLatin1String("anchor_alias")
+        || field == QLatin1String("alias")) {
+        return 20;
+    }
+    if (field == QLatin1String("anchor_tag")
+        || field == QLatin1String("tag")) {
+        return 30;
+    }
+    if (field == QLatin1String("anchor_metadata")) {
+        return 70;
+    }
+    if (field == QLatin1String("content")
+        || field == QLatin1String("path")) {
+        return 80;
+    }
+    return 90;
+}
+
+int clipResultPriority(const ClipSearchResult &result)
+{
+    const QString field = result.matchedField;
+    if (field == QLatin1String("name")) {
+        return 0;
+    }
+    if (field == QLatin1String("alias")) {
+        return 20;
+    }
+    if (field == QLatin1String("tag")) {
+        return 30;
+    }
+    if (field == QLatin1String("preview")
+        || field == QLatin1String("text")) {
+        return 80;
+    }
+    return 90;
+}
+
+double clipComparableScore(const ClipSearchResult &result)
+{
+    // Clip search uses larger-is-better priorities; convert them to a small
+    // lower-is-better adjustment inside the shared match bucket.
+    return static_cast<double>(clipResultPriority(result)) - (result.score / 10000.0);
+}
+
+bool launcherEntryLessThan(const LauncherResultEntry &left, const LauncherResultEntry &right)
+{
+    if (left.priority != right.priority) {
+        return left.priority < right.priority;
+    }
+    if (left.score != right.score) {
+        return left.score < right.score;
+    }
+    if (left.title != right.title) {
+        return left.title < right.title;
+    }
+    return left.stableId < right.stableId;
+}
+
 QString relationText(const ResourceRelation &relation, const QString &currentResourceId, ILibraryRepository &repository)
 {
     const bool currentIsSource = relation.sourceResourceId == currentResourceId;
@@ -1781,6 +1860,43 @@ bool PinloomPanel::requestDeleteSelectedAnchor()
     return false;
 }
 
+bool PinloomPanel::setSelectedAnchorPinned(bool pinned)
+{
+    const PinloomOpenTarget target = currentOpenTarget();
+    if (target.resourceId.isEmpty() || !target.anchor.has_value()) {
+        updateStatus(tr("Select an anchor to pin"));
+        return false;
+    }
+
+    std::optional<Resource> resource = repository_.findResource(target.resourceId);
+    if (!resource.has_value()) {
+        updateStatus(tr("Selected resource no longer exists"));
+        refreshResults();
+        return false;
+    }
+
+    const int index = anchorIndex(resource.value(), target.anchor.value());
+    if (index < 0) {
+        updateStatus(tr("Selected anchor no longer exists"));
+        refreshResults();
+        return false;
+    }
+
+    Anchor &anchor = resource->anchors[index];
+    anchor.pinned = pinned;
+    anchor.updatedAt = QDateTime::currentDateTimeUtc();
+    resource->updatedAt = anchor.updatedAt;
+    if (!repository_.upsertResource(resource.value())) {
+        updateStatus(tr("Unable to update pinned anchor"));
+        return false;
+    }
+
+    refreshResults();
+    selectResultResource(target.resourceId);
+    updateStatus(pinned ? tr("Pinned anchor") : tr("Unpinned anchor"));
+    return true;
+}
+
 bool PinloomPanel::addManualAnchorToSelectedResource(const QString &target, int line)
 {
     return addManualAnchorToResource(selectedResultResourceId(), target, line);
@@ -2058,28 +2174,22 @@ void PinloomPanel::refreshResults()
 void PinloomPanel::refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget)
 {
     QStringList listedClipIds;
-    const auto appendClipResults = [this, &listedClipIds](const QList<ClipSearchResult> &clipResults) {
+    QList<LauncherResultEntry> entries;
+    const auto appendClipEntries = [&entries, &listedClipIds](const QList<ClipSearchResult> &clipResults) {
         for (const ClipSearchResult &result : clipResults) {
             if (!result.clipId.isEmpty() && listedClipIds.contains(result.clipId)) {
                 continue;
             }
             listedClipIds.append(result.clipId);
 
-            auto *item = new QListWidgetItem(clipResultText(result, QStringLiteral("insert")), resultList_);
-            item->setToolTip(clipToolTip(result));
-            item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
-            item->setData(LauncherActionRole, static_cast<int>(LauncherItemAction::ClipInsert));
-            item->setData(ClipIdRole, result.clipId);
-            item->setData(ClipDisplayNameRole, result.displayName);
-            item->setData(ClipPreviewRole, result.preview);
-            item->setData(ClipTagsRole, result.tags);
-            item->setData(ClipAliasesRole, result.aliases);
-            item->setData(ClipUpdatedAtRole, result.updatedAt);
-            item->setData(ClipUsedAtRole, result.usedAt);
-            item->setData(ClipStateRole, static_cast<int>(result.state));
-            item->setData(Qt::UserRole + 13, result.matchedField);
-            item->setData(Qt::UserRole + 14, result.score);
-            item->setData(Qt::UserRole + 20, clipMatchSummary(result));
+            LauncherResultEntry entry;
+            entry.clip = true;
+            entry.clipResult = result;
+            entry.priority = clipResultPriority(result);
+            entry.score = clipComparableScore(result);
+            entry.title = result.displayName.trimmed().isEmpty() ? result.preview : result.displayName;
+            entry.stableId = result.clipId;
+            entries.append(entry);
         }
     };
 
@@ -2099,6 +2209,54 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
         ? QList<SearchResult>{}
         : repository_.search(query);
     for (const SearchResult &result : results) {
+        LauncherResultEntry entry;
+        entry.searchResult = result;
+        entry.priority = searchResultPriority(result);
+        entry.score = result.score;
+        entry.title = result.matchedAnchor.has_value()
+            ? anchorDisplayName(result.matchedAnchor.value(), result.resource)
+            : result.resource.title;
+        entry.stableId = result.resource.id;
+        entries.append(entry);
+    }
+
+    if (!emptyCompactLauncherQuery && options_.clipSearchHandler) {
+        ClipSearchOptions clipOptions;
+        clipOptions.includeSaved = true;
+        clipOptions.includeTemporary = false;
+        clipOptions.emptyQueryReturnsPinnedAndRecent = false;
+        clipOptions.limit = std::max(0, query.limit - static_cast<int>(entries.size()));
+
+        appendClipEntries(options_.clipSearchHandler(searchText, clipOptions));
+    }
+
+    std::sort(entries.begin(), entries.end(), launcherEntryLessThan);
+    if (query.limit > 0 && entries.size() > query.limit) {
+        entries.erase(entries.begin() + query.limit, entries.end());
+    }
+
+    for (const LauncherResultEntry &entry : entries) {
+        if (entry.clip) {
+            const ClipSearchResult &result = entry.clipResult;
+            auto *item = new QListWidgetItem(clipResultText(result, QStringLiteral("insert")), resultList_);
+            item->setToolTip(clipToolTip(result));
+            item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+            item->setData(LauncherActionRole, static_cast<int>(LauncherItemAction::ClipInsert));
+            item->setData(ClipIdRole, result.clipId);
+            item->setData(ClipDisplayNameRole, result.displayName);
+            item->setData(ClipPreviewRole, result.preview);
+            item->setData(ClipTagsRole, result.tags);
+            item->setData(ClipAliasesRole, result.aliases);
+            item->setData(ClipUpdatedAtRole, result.updatedAt);
+            item->setData(ClipUsedAtRole, result.usedAt);
+            item->setData(ClipStateRole, static_cast<int>(result.state));
+            item->setData(Qt::UserRole + 13, result.matchedField);
+            item->setData(Qt::UserRole + 14, result.score);
+            item->setData(Qt::UserRole + 20, clipMatchSummary(result));
+            continue;
+        }
+
+        const SearchResult &result = entry.searchResult;
         auto *item = new QListWidgetItem(resultText(result), resultList_);
         item->setToolTip(resultToolTip(result, query));
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
@@ -2140,16 +2298,6 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
             item->setData(Qt::UserRole + 32, anchor.updatedAt);
             item->setData(Qt::UserRole + 33, anchor.usedAt);
         }
-    }
-
-    if (!emptyCompactLauncherQuery && options_.clipSearchHandler) {
-        ClipSearchOptions clipOptions;
-        clipOptions.includeSaved = true;
-        clipOptions.includeTemporary = false;
-        clipOptions.emptyQueryReturnsPinnedAndRecent = false;
-        clipOptions.limit = std::max(0, query.limit - resultList_->count());
-
-        appendClipResults(options_.clipSearchHandler(searchText, clipOptions));
     }
 
     bool restoredSelection = false;

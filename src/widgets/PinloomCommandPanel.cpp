@@ -72,6 +72,13 @@ constexpr int TargetAnchorPinnedRole = Qt::UserRole + 146;
 constexpr int TargetAnchorCreatedAtRole = Qt::UserRole + 147;
 constexpr int TargetAnchorUpdatedAtRole = Qt::UserRole + 148;
 constexpr int TargetAnchorUsedAtRole = Qt::UserRole + 149;
+constexpr int ResultActionIdRole = Qt::UserRole + 160;
+constexpr int ResultActionLabelRole = Qt::UserRole + 161;
+constexpr int ResultActionDetailRole = Qt::UserRole + 162;
+constexpr int ResultActionEnabledRole = Qt::UserRole + 163;
+constexpr int ResultActionDisabledReasonRole = Qt::UserRole + 164;
+
+constexpr const char *PrimaryResultActionId = "primary";
 
 enum class CommandNamespace {
     None,
@@ -99,7 +106,8 @@ enum class CommandRowAction {
     ClipSave,
     AnchorCapture,
     InboxSave,
-    OpenSearchWindow
+    OpenSearchWindow,
+    UnifiedTargetAction
 };
 
 struct CommandState {
@@ -747,6 +755,80 @@ PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row 
     return target;
 }
 
+QString commandActionText(const PinloomCommandResultAction &action, const PinloomOpenTarget &target)
+{
+    const QString label = action.enabled
+        ? action.label.trimmed()
+        : QStringLiteral("%1 (disabled)").arg(action.label.trimmed());
+    QString detail = action.enabled
+        ? action.detail.trimmed()
+        : action.disabledReason.trimmed();
+    if (detail.isEmpty()) {
+        detail = action.detail.trimmed();
+    }
+    if (detail.isEmpty()) {
+        detail = QStringLiteral("%1 %2").arg(action.label.trimmed(), commandTargetTitle(target));
+    }
+    return QStringLiteral("[Action] %1\n%2").arg(label, detail);
+}
+
+PinloomCommandResultAction resultActionForItem(const QListWidgetItem *item)
+{
+    PinloomCommandResultAction action;
+    if (!item || rowActionForItem(item) != CommandRowAction::UnifiedTargetAction) {
+        return action;
+    }
+    action.id = item->data(ResultActionIdRole).toString();
+    action.label = item->data(ResultActionLabelRole).toString();
+    action.detail = item->data(ResultActionDetailRole).toString();
+    action.enabled = item->data(ResultActionEnabledRole).toBool();
+    action.disabledReason = item->data(ResultActionDisabledReasonRole).toString();
+    return action;
+}
+
+void storeResultAction(QListWidgetItem *item,
+                       const PinloomOpenTarget &target,
+                       const PinloomCommandResultAction &action)
+{
+    if (!item) {
+        return;
+    }
+    item->setData(CommandActionRole, static_cast<int>(CommandRowAction::UnifiedTargetAction));
+    item->setData(ResultActionIdRole, action.id);
+    item->setData(ResultActionLabelRole, action.label);
+    item->setData(ResultActionDetailRole, action.detail);
+    item->setData(ResultActionEnabledRole, action.enabled);
+    item->setData(ResultActionDisabledReasonRole, action.disabledReason);
+    storeOpenTarget(item, target);
+}
+
+bool sameCommandTarget(const PinloomOpenTarget &left, const PinloomOpenTarget &right)
+{
+    if (!left.clipId.trimmed().isEmpty() || !right.clipId.trimmed().isEmpty()) {
+        return !left.clipId.trimmed().isEmpty() && left.clipId == right.clipId;
+    }
+    if (left.resourceId != right.resourceId) {
+        return false;
+    }
+    const QString leftAnchorId = left.anchor.has_value() ? left.anchor->id : QString();
+    const QString rightAnchorId = right.anchor.has_value() ? right.anchor->id : QString();
+    if (!leftAnchorId.isEmpty() || !rightAnchorId.isEmpty()) {
+        return !leftAnchorId.isEmpty() && leftAnchorId == rightAnchorId;
+    }
+    return left.anchor.has_value() == right.anchor.has_value();
+}
+
+bool canExpandResultActions(const QListWidgetItem *item)
+{
+    if (!item || rowActionForItem(item) != CommandRowAction::OpenUnifiedTarget) {
+        return false;
+    }
+    const PinloomOpenTarget target = openTargetForCommandItem(item);
+    return !target.clipId.trimmed().isEmpty()
+        || !target.resourceId.trimmed().isEmpty()
+        || !target.location.trimmed().isEmpty();
+}
+
 } // namespace
 
 PinloomCommandPanel::PinloomCommandPanel(QWidget *parent)
@@ -953,6 +1035,45 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
     return activateCommandItem(item);
 }
 
+bool PinloomCommandPanel::showActionsForCurrentResult()
+{
+    QListWidgetItem *item = resultList_->currentItem();
+    if (!item && resultList_->count() > 0) {
+        resultList_->setCurrentRow(0);
+        item = resultList_->currentItem();
+    }
+    if (!canExpandResultActions(item)) {
+        updateStatus(tr("Select a unified result before opening actions"));
+        return false;
+    }
+
+    const int sourceRow = resultList_->row(item);
+    const PinloomOpenTarget target = openTargetForCommandItem(item, sourceRow);
+    populateActionResults(target, sourceRow);
+    return true;
+}
+
+bool PinloomCommandPanel::returnToResultList()
+{
+    if (!showingResultActions_) {
+        return false;
+    }
+
+    const PinloomOpenTarget target = actionSourceTarget_;
+    const int sourceRow = actionSourceRow_;
+    showingResultActions_ = false;
+    actionSourceTarget_ = {};
+    actionSourceRow_ = -1;
+    refreshResults();
+    restoreResultSelection(target, sourceRow);
+    return true;
+}
+
+bool PinloomCommandPanel::isShowingResultActions() const
+{
+    return showingResultActions_;
+}
+
 bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == commandEdit_ || watched == resultList_) {
@@ -970,6 +1091,17 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
             keyEvent->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::ShiftModifier | Qt::MetaModifier);
         const int key = keyEvent->key();
 
+        if (showingResultActions_
+            && (key == Qt::Key_Left || key == Qt::Key_Escape)
+            && modifiers == Qt::NoModifier) {
+            returnToResultList();
+            return true;
+        }
+        if (!showingResultActions_
+            && key == Qt::Key_Right
+            && modifiers == Qt::NoModifier) {
+            return showActionsForCurrentResult();
+        }
         if (watched == resultList_
             && (key == Qt::Key_Return || key == Qt::Key_Enter)
             && modifiers == Qt::NoModifier) {
@@ -1014,6 +1146,9 @@ void PinloomCommandPanel::dropEvent(QDropEvent *event)
 
 void PinloomCommandPanel::refreshResults()
 {
+    showingResultActions_ = false;
+    actionSourceTarget_ = {};
+    actionSourceRow_ = -1;
     resultList_->clear();
 
     const CommandState command = parseCommandState(commandEdit_->text());
@@ -1273,6 +1408,9 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
     if (action == CommandRowAction::OpenSearchWindow) {
         return openSearchWindow(item);
     }
+    if (action == CommandRowAction::UnifiedTargetAction) {
+        return activateResultActionFromItem(item);
+    }
 
     updateStatus(tr("Unknown command"));
     return false;
@@ -1305,6 +1443,11 @@ bool PinloomCommandPanel::activateUnifiedTargetFromItem(const QListWidgetItem *i
 {
     const PinloomOpenTarget target =
         openTargetForCommandItem(item, item ? resultList_->row(item) : -1);
+    return activateUnifiedTarget(target);
+}
+
+bool PinloomCommandPanel::activateUnifiedTarget(const PinloomOpenTarget &target)
+{
     if (!target.clipId.trimmed().isEmpty()) {
         if (!options_.clipInsertionHandler) {
             updateStatus(tr("Clip insertion is not configured"));
@@ -1362,6 +1505,118 @@ bool PinloomCommandPanel::activateUnifiedTargetFromItem(const QListWidgetItem *i
                      : status.trimmed());
     emit resourceOpened(target.resourceId);
     return true;
+}
+
+QList<PinloomCommandResultAction> PinloomCommandPanel::actionsForTarget(const PinloomOpenTarget &target) const
+{
+    QList<PinloomCommandResultAction> actions;
+    if (options_.unifiedActionProvider) {
+        actions = options_.unifiedActionProvider(target);
+    }
+
+    const bool hasPrimaryAction = std::any_of(actions.cbegin(), actions.cend(), [](const PinloomCommandResultAction &action) {
+        return action.id == QLatin1String(PrimaryResultActionId);
+    });
+    if (!hasPrimaryAction) {
+        PinloomCommandResultAction primary;
+        primary.id = QString::fromLatin1(PrimaryResultActionId);
+        primary.label = commandTargetVerb(target);
+        primary.detail = QStringLiteral("%1 %2").arg(primary.label, commandTargetTitle(target));
+        actions.prepend(primary);
+    }
+
+    for (PinloomCommandResultAction &action : actions) {
+        action.id = action.id.trimmed();
+        action.label = action.label.trimmed();
+        if (action.id.isEmpty()) {
+            action.id = action.label.toCaseFolded().replace(QLatin1Char(' '), QLatin1Char('_'));
+        }
+        if (action.label.isEmpty()) {
+            action.label = action.id;
+        }
+    }
+    return actions;
+}
+
+void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target, int sourceRow)
+{
+    const QList<PinloomCommandResultAction> actions = actionsForTarget(target);
+
+    showingResultActions_ = true;
+    actionSourceTarget_ = target;
+    actionSourceRow_ = sourceRow;
+    resultList_->clear();
+
+    for (const PinloomCommandResultAction &action : actions) {
+        auto *item = new QListWidgetItem(commandActionText(action, target), resultList_);
+        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+        item->setToolTip(action.disabledReason.trimmed().isEmpty()
+                             ? action.detail
+                             : action.disabledReason);
+        storeResultAction(item, target, action);
+    }
+    if (resultList_->count() > 0) {
+        resultList_->setCurrentRow(0);
+    }
+
+    updateStatus(tr("Actions for %1; Enter runs, Esc/Left returns").arg(commandTargetTitle(target)));
+}
+
+bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *item)
+{
+    const PinloomCommandResultAction action = resultActionForItem(item);
+    const PinloomOpenTarget target =
+        openTargetForCommandItem(item, item ? resultList_->row(item) : -1);
+    if (action.id.trimmed().isEmpty()) {
+        updateStatus(tr("Unknown result action"));
+        return false;
+    }
+    if (!action.enabled) {
+        updateStatus(action.disabledReason.trimmed().isEmpty()
+                         ? tr("Action is not available")
+                         : action.disabledReason.trimmed());
+        return false;
+    }
+    if (action.id == QLatin1String(PrimaryResultActionId)) {
+        return activateUnifiedTarget(target);
+    }
+    if (!options_.unifiedActionHandler) {
+        updateStatus(tr("Result action is not configured"));
+        return false;
+    }
+
+    QString status;
+    if (!options_.unifiedActionHandler(this, target, action, &status)) {
+        updateStatus(status.trimmed().isEmpty()
+                         ? tr("Unable to run action \"%1\"").arg(action.label)
+                         : status.trimmed());
+        return false;
+    }
+
+    updateStatus(status.trimmed().isEmpty()
+                     ? tr("Completed action \"%1\"").arg(action.label)
+                     : status.trimmed());
+    return true;
+}
+
+bool PinloomCommandPanel::restoreResultSelection(const PinloomOpenTarget &target, int fallbackRow)
+{
+    if (fallbackRow >= 0 && fallbackRow < resultList_->count()) {
+        const PinloomOpenTarget candidate = openTargetForCommandItem(resultList_->item(fallbackRow), fallbackRow);
+        if (sameCommandTarget(candidate, target)) {
+            resultList_->setCurrentRow(fallbackRow);
+            return true;
+        }
+    }
+
+    for (int row = 0; row < resultList_->count(); ++row) {
+        const PinloomOpenTarget candidate = openTargetForCommandItem(resultList_->item(row), row);
+        if (sameCommandTarget(candidate, target)) {
+            resultList_->setCurrentRow(row);
+            return true;
+        }
+    }
+    return false;
 }
 
 bool PinloomCommandPanel::saveClipFromItem(const QListWidgetItem *item)

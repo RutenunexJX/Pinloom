@@ -96,6 +96,11 @@ private slots:
     void commandPanelInboxSearchOpensSearchWindow();
     void commandPanelPlainQueryShowsUnifiedMixedResults();
     void commandPanelPlainQueryEnterDispatchesByTargetType();
+    void commandPanelRightArrowShowsActionsForUnifiedResultTypes();
+    void commandPanelActionListExecutesSelectedProviderAction();
+    void commandPanelActionListReturnsWithEscapeOrLeft();
+    void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
+    void commandPanelPlainQueryUsesUnifiedRankingOrder();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
     void commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext();
     void panelDisplaysAnchorAwareResults();
@@ -439,6 +444,39 @@ static QList<PinloomOpenTarget> makeCommandPanelUnifiedTargets()
     targets.append(fileTarget);
 
     return targets;
+}
+
+static QList<PinloomCommandResultAction> makeCommandPanelActionsForTarget(const PinloomOpenTarget &target)
+{
+    QList<PinloomCommandResultAction> actions;
+    PinloomCommandResultAction primary;
+    primary.id = QStringLiteral("primary");
+    primary.label = target.clipId.isEmpty()
+        ? (target.anchor.has_value() ? QStringLiteral("Jump") : QStringLiteral("Open"))
+        : QStringLiteral("Insert");
+    primary.detail = QStringLiteral("Run primary action");
+    actions.append(primary);
+
+    PinloomCommandResultAction alias;
+    alias.id = QStringLiteral("add_alias");
+    alias.label = QStringLiteral("Add alias");
+    alias.detail = QStringLiteral("Add alias through fake provider");
+    actions.append(alias);
+
+    PinloomCommandResultAction tag;
+    tag.id = QStringLiteral("add_tag");
+    tag.label = QStringLiteral("Add tag");
+    tag.detail = QStringLiteral("Add tag through fake provider");
+    actions.append(tag);
+
+    PinloomCommandResultAction remove;
+    remove.id = QStringLiteral("remove");
+    remove.label = QStringLiteral("Delete / Remove");
+    remove.detail = QStringLiteral("Remove through fake provider");
+    remove.enabled = false;
+    remove.disabledReason = QStringLiteral("Remove is disabled in fake provider");
+    actions.append(remove);
+    return actions;
 }
 
 static ClipResidentRuntimeDependencies makeResidentRuntimeDependencies(FakeClipboardTextSource &captureClipboard,
@@ -3242,6 +3280,248 @@ void WidgetSmokeTest::commandPanelPlainQueryEnterDispatchesByTargetType()
     QCOMPARE(openedTargets.size(), 2);
     QCOMPARE(openedTargets.last().resourceId, QStringLiteral("file-schematic"));
     QCOMPARE(panel.statusText(), QStringLiteral("Unable to open schematic file"));
+}
+
+void WidgetSmokeTest::commandPanelRightArrowShowsActionsForUnifiedResultTypes()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.unifiedActionProvider = makeCommandPanelActionsForTarget;
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("launch"));
+    QCOMPARE(results->count(), 4);
+
+    const QStringList primaryLabels = {
+        QStringLiteral("Jump"),
+        QStringLiteral("Insert"),
+        QStringLiteral("Open"),
+        QStringLiteral("Open")
+    };
+    for (int row = 0; row < targets.size(); ++row) {
+        QVERIFY(panel.selectResultAt(row));
+        QTest::keyClick(commandEdit, Qt::Key_Right);
+        QVERIFY(panel.isShowingResultActions());
+        QCOMPARE(results->count(), 4);
+        QVERIFY(results->item(0)->text().contains(QStringLiteral("[Action] %1").arg(primaryLabels.at(row))));
+        QVERIFY(results->item(1)->text().contains(QStringLiteral("Add alias")));
+        QVERIFY(results->item(2)->text().contains(QStringLiteral("Add tag")));
+        QVERIFY(results->item(3)->text().contains(QStringLiteral("Delete / Remove (disabled)")));
+        QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
+        QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(row).resourceId);
+
+        QTest::keyClick(commandEdit, Qt::Key_Left);
+        QVERIFY(!panel.isShowingResultActions());
+        QCOMPARE(results->count(), 4);
+        QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
+        QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(row).resourceId);
+    }
+}
+
+void WidgetSmokeTest::commandPanelActionListExecutesSelectedProviderAction()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    QList<PinloomOpenTarget> actionTargets;
+    QStringList actionIds;
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.unifiedActionProvider = makeCommandPanelActionsForTarget;
+    options.unifiedActionHandler =
+        [&](QWidget *, const PinloomOpenTarget &target, const PinloomCommandResultAction &action, QString *status) {
+        actionTargets.append(target);
+        actionIds.append(action.id);
+        if (action.id == QLatin1String("add_tag")) {
+            if (status) {
+                *status = QStringLiteral("Fake provider refused tag");
+            }
+            return false;
+        }
+        if (status) {
+            *status = QStringLiteral("Ran %1").arg(action.id);
+        }
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+
+    panel.setCommandText(QStringLiteral("launch"));
+    QVERIFY(panel.selectResultAt(0));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+
+    QTest::keyClick(commandEdit, Qt::Key_Down);
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(actionIds, QStringList{QStringLiteral("add_alias")});
+    QCOMPARE(actionTargets.first().resourceId, QStringLiteral("anchor-spec"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Ran add_alias"));
+
+    QTest::keyClick(commandEdit, Qt::Key_Down);
+    QVERIFY(!panel.activateCurrentCommandItem());
+    const QStringList expectedActions = {QStringLiteral("add_alias"), QStringLiteral("add_tag")};
+    QCOMPARE(actionIds, expectedActions);
+    QCOMPARE(panel.statusText(), QStringLiteral("Fake provider refused tag"));
+}
+
+void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.unifiedActionProvider = makeCommandPanelActionsForTarget;
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("launch"));
+    QVERIFY(panel.selectResultAt(2));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QTest::keyClick(commandEdit, Qt::Key_Escape);
+    QVERIFY(!panel.isShowingResultActions());
+    QCOMPARE(results->count(), 4);
+    QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(2).resourceId);
+
+    QVERIFY(panel.selectResultAt(3));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QTest::keyClick(commandEdit, Qt::Key_Left);
+    QVERIFY(!panel.isShowingResultActions());
+    QCOMPARE(results->count(), 4);
+    QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(3).resourceId);
+}
+
+void WidgetSmokeTest::commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    int actionCalls = 0;
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.unifiedActionProvider = makeCommandPanelActionsForTarget;
+    options.unifiedActionHandler =
+        [&](QWidget *, const PinloomOpenTarget &, const PinloomCommandResultAction &, QString *) {
+        ++actionCalls;
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("launch"));
+    QCOMPARE(results->count(), 4);
+
+    QTest::keyClick(commandEdit, Qt::Key_A, Qt::AltModifier);
+    QVERIFY(!panel.isShowingResultActions());
+    QCOMPARE(actionCalls, 0);
+
+    QTest::keyClick(commandEdit, Qt::Key_E, Qt::ControlModifier);
+    QVERIFY(!panel.isShowingResultActions());
+    QCOMPARE(actionCalls, 0);
+
+    commandEdit->setCursorPosition(commandEdit->text().size());
+    QTest::keyClick(commandEdit, Qt::Key_Delete);
+    QVERIFY(!panel.isShowingResultActions());
+    QCOMPARE(actionCalls, 0);
+}
+
+void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource exact;
+    exact.id = QStringLiteral("exact-title");
+    exact.kind = ResourceKind::File;
+    exact.title = QStringLiteral("Launch");
+    exact.location = QStringLiteral("E:/docs/exact.txt");
+    QVERIFY(repository.upsertResource(exact));
+
+    Resource alias;
+    alias.id = QStringLiteral("alias-result");
+    alias.kind = ResourceKind::File;
+    alias.title = QStringLiteral("Alias Result");
+    alias.location = QStringLiteral("E:/docs/alias.txt");
+    alias.aliases = {QStringLiteral("Launch")};
+    QVERIFY(repository.upsertResource(alias));
+
+    Resource tagged;
+    tagged.id = QStringLiteral("tag-result");
+    tagged.kind = ResourceKind::File;
+    tagged.title = QStringLiteral("Tag Result");
+    tagged.location = QStringLiteral("E:/docs/tag.txt");
+    tagged.tags = {QStringLiteral("Launch")};
+    QVERIFY(repository.upsertResource(tagged));
+    QVERIFY(repository.setResourcePinned(tagged.id, true));
+    QVERIFY(repository.recordResourceOpen(tagged.id));
+
+    Resource pathOnly;
+    pathOnly.id = QStringLiteral("path-result");
+    pathOnly.kind = ResourceKind::File;
+    pathOnly.title = QStringLiteral("Path Result");
+    pathOnly.location = QStringLiteral("E:/docs/launch/path.txt");
+    QVERIFY(repository.upsertResource(pathOnly));
+
+    InMemoryClipRepository clipRepository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString clipId = saveWidgetClip(clipRepository,
+                                          QStringLiteral("body text"),
+                                          QStringLiteral("Launch"),
+                                          {},
+                                          {},
+                                          false,
+                                          base,
+                                          base.addSecs(1));
+    QVERIFY(!clipId.isEmpty());
+    ClipSearchService clipSearch(clipRepository);
+
+    PinloomPanelOptions panelOptions;
+    panelOptions.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &options) {
+        return clipSearch.search(query, options);
+    };
+    PinloomPanel mainPanel(repository, panelOptions);
+
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.unifiedSearchHandler = [&](const QString &query) {
+        mainPanel.setSearchText(query);
+        return mainPanel.currentResults();
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("Launch"));
+
+    QCOMPARE(commandPanel.resultCount(), 5);
+    const QList<PinloomOpenTarget> firstTwo = {
+        commandPanel.openTargetAt(0),
+        commandPanel.openTargetAt(1)
+    };
+    QVERIFY(std::any_of(firstTwo.cbegin(), firstTwo.cend(), [&](const PinloomOpenTarget &target) {
+        return target.clipId == clipId;
+    }));
+    QVERIFY(std::any_of(firstTwo.cbegin(), firstTwo.cend(), [&](const PinloomOpenTarget &target) {
+        return target.resourceId == exact.id;
+    }));
+    QCOMPARE(commandPanel.openTargetAt(2).resourceId, alias.id);
+    QCOMPARE(commandPanel.openTargetAt(3).resourceId, tagged.id);
+    QCOMPARE(commandPanel.openTargetAt(4).resourceId, pathOnly.id);
 }
 
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()

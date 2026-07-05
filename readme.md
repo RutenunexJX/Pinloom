@@ -170,6 +170,12 @@ to search unified results across Anchors, Saved Clips, Inbox files, and regular
 file/resource results. Result rows are labeled by type such as `[Anchor]`,
 `[Clip]`, `[Inbox]`, and `[File]`; Enter jumps Anchors, inserts Saved Clips into
 the current foreground app, and opens Inbox/File results with the default app.
+With a unified result selected, press Right Arrow (`->`) to open its compact
+action list. The action list supports Up/Down selection, Enter to run the
+selected action, and Esc or Left Arrow to return to ordinary results. Actions
+include the primary Jump/Insert/Open operation plus available metadata actions
+such as Pin/Unpin, Add alias, Add tag, Edit name/metadata, and explicit disabled
+states for operations that the current model cannot safely perform yet.
 
 The explicit command namespaces remain available. Type `c` to see Clip commands.
 Type `c s` to search all insertable Clip rows (temporary history plus Saved
