@@ -80,6 +80,31 @@ int main(int argc, char *argv[])
         }
         return result.inserted();
     };
+    panelOptions.clipSaveHandler = [&clipHost](const Pinloom::PinloomClipSaveRequest &request, QString *error) {
+        if (!clipHost || !clipHost->runtime()) {
+            if (error) {
+                *error = QStringLiteral("Pinloom Clip is not running");
+            }
+            return false;
+        }
+        if (!clipHost->runtime()->searchService().saveClip(request.clipId,
+                                                           request.name,
+                                                           request.aliases,
+                                                           request.tags,
+                                                           request.pinned)) {
+            if (error) {
+                const QString repositoryError = clipHost->runtime()->searchService().lastError().trimmed();
+                *error = repositoryError.isEmpty()
+                    ? QStringLiteral("Unable to save clip")
+                    : repositoryError;
+            }
+            return false;
+        }
+        if (error) {
+            error->clear();
+        }
+        return true;
+    };
 
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);
@@ -87,7 +112,7 @@ int main(int argc, char *argv[])
     if (clipHost && clipHost->runtime()) {
         clipHost->runtime()->trayController().setShowPickerHandler([&window, panel]() {
             Pinloom::showMainPanelForHotkey(window, *panel);
-            panel->setSearchText(QStringLiteral("c "));
+            panel->setSearchText(QStringLiteral("c s"));
         });
         if (!clipHost->start()) {
             QMessageBox::warning(&window,

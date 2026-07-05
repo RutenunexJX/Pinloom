@@ -278,15 +278,23 @@ Status:
   picker action to save a temporary clip as a named Saved Clip.
 - `pinloom_app.exe` registers a single global `Ctrl+Space` command entry for
   the main Pinloom launcher. The main path no longer registers the standalone
-  Clip `Ctrl+Shift+V` hotkey; type `c` or `c <query>` in the launcher to enter
-  Clip mode. `Ctrl+Space` can still conflict with an IME or another registered
-  global shortcut.
+  Clip `Ctrl+Shift+V` hotkey; type `c` to see Clip commands, `c s` or
+  `c s <query>` to search/insert temporary history plus Saved Clips, and
+  `c n` to save a recent temporary clipboard item as a Saved Clip.
+  `Ctrl+Space` can still conflict with an IME or another registered global
+  shortcut.
 - Saved Clips are searchable inside both the normal launcher search and the
-  `c` Clip mode by name, alias, `#tag`, and text preview/content. Clip mode also
-  shows temporary history; saved clips are kept out of temporary history and
-  exact saved-text recaptures are ignored as duplicates by content hash. Main
+  `c s` Clip command by name, alias, `#tag`, and text preview/content. `c s`
+  also shows temporary history; `c n` shows temporary history as save
+  candidates. Saved clips are kept out of temporary history and exact
+  saved-text recaptures are ignored as duplicates by content hash. Main
   launcher Enter inserts Clip text through the same clip insertion service,
   while anchor results keep their native jump behavior.
+- The `k n` command is now reserved as the new-anchor/capture-anchor entry.
+  This slice intentionally only exposes the command entry and pending status;
+  PDF-XChange native current-view/coordinate capture is not implemented here,
+  and the existing `Ctrl+K` fallback path remains temporary until it migrates
+  behind `k n`.
 
 ## Frozen Or Demoted Work
 

@@ -47,9 +47,34 @@ constexpr int ClipTagsRole = Qt::UserRole + 44;
 constexpr int ClipAliasesRole = Qt::UserRole + 45;
 constexpr int ClipUpdatedAtRole = Qt::UserRole + 46;
 constexpr int ClipUsedAtRole = Qt::UserRole + 47;
+constexpr int ClipStateRole = Qt::UserRole + 48;
+constexpr int ClipActionRole = Qt::UserRole + 49;
+constexpr int CommandIdRole = Qt::UserRole + 50;
+constexpr int CommandSearchTextRole = Qt::UserRole + 51;
 
 constexpr auto TargetKindResource = "resource";
 constexpr auto TargetKindClip = "clip";
+constexpr auto TargetKindCommand = "command";
+constexpr auto ClipActionInsert = "insert";
+constexpr auto ClipActionSave = "save";
+constexpr auto CommandClipSearch = "clip.search";
+constexpr auto CommandClipNew = "clip.new";
+constexpr auto CommandAnchorNew = "anchor.new";
+
+enum class LauncherCommandKind {
+    Search,
+    ClipRoot,
+    ClipSearch,
+    ClipNew,
+    AnchorRoot,
+    AnchorNew,
+    Unknown
+};
+
+struct LauncherCommand {
+    LauncherCommandKind kind = LauncherCommandKind::Search;
+    QString query;
+};
 
 QString rootItemText(const LibraryRoot &root)
 {
@@ -162,7 +187,7 @@ QString clipMatchText(const ClipSearchResult &result)
     return QStringLiteral("match: %1=%2").arg(result.matchedField, compactValue(result.matchedValue, 48));
 }
 
-QString clipResultText(const ClipSearchResult &result)
+QString clipResultText(const ClipSearchResult &result, const QString &action)
 {
     const QString displayName = compactValue(
         result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
@@ -190,8 +215,11 @@ QString clipResultText(const ClipSearchResult &result)
     }
 
     const QString preview = compactValue(result.preview, 96);
-    return QStringLiteral("[Clip] %1\n%2%3%4")
-        .arg(displayName,
+    const bool saveAction = action == QLatin1String(ClipActionSave);
+    return QStringLiteral("[%1] %2 -> %3\n%4%5%6")
+        .arg(saveAction ? QStringLiteral("History") : QStringLiteral("Clip"),
+             displayName,
+             saveAction ? QStringLiteral("Save") : QStringLiteral("Insert"),
              preview,
              preview.isEmpty() || metadata.isEmpty() ? QString() : QStringLiteral(" | "),
              metadata.join(QStringLiteral(" | ")));
@@ -232,26 +260,64 @@ QString clipMatchSummary(const ClipSearchResult &result)
     return QStringLiteral("Saved Clip");
 }
 
-std::optional<QString> clipCommandQueryForSearchText(const QString &text)
+int skipSpaces(const QString &text, int index)
 {
-    int commandStart = 0;
-    while (commandStart < text.size() && text.at(commandStart).isSpace()) {
-        ++commandStart;
+    while (index < text.size() && text.at(index).isSpace()) {
+        ++index;
     }
-    if (commandStart >= text.size()) {
-        return std::nullopt;
+    return index;
+}
+
+QString readCommandToken(const QString &text, int *index)
+{
+    if (!index) {
+        return {};
     }
 
-    if (text.at(commandStart).toCaseFolded() != QLatin1Char('c')) {
-        return std::nullopt;
+    int cursor = skipSpaces(text, *index);
+    const int start = cursor;
+    while (cursor < text.size() && !text.at(cursor).isSpace()) {
+        ++cursor;
     }
 
-    const int queryStart = commandStart + 1;
-    if (queryStart < text.size() && !text.at(queryStart).isSpace()) {
-        return std::nullopt;
+    *index = cursor;
+    return text.mid(start, cursor - start);
+}
+
+LauncherCommand parseLauncherCommand(const QString &text)
+{
+    int index = 0;
+    const QString firstToken = readCommandToken(text, &index).toCaseFolded();
+    if (firstToken.isEmpty()) {
+        return {};
     }
 
-    return text.mid(queryStart).trimmed();
+    if (firstToken == QLatin1String("c")) {
+        const QString option = readCommandToken(text, &index).toCaseFolded();
+        if (option.isEmpty()) {
+            return {LauncherCommandKind::ClipRoot, {}};
+        }
+        if (option == QLatin1String("s")) {
+            return {LauncherCommandKind::ClipSearch, text.mid(index).trimmed()};
+        }
+        if (option == QLatin1String("n")) {
+            return {LauncherCommandKind::ClipNew, text.mid(index).trimmed()};
+        }
+        return {LauncherCommandKind::ClipRoot, {}};
+    }
+
+    if (firstToken == QLatin1String("k")) {
+        const QString option = readCommandToken(text, &index).toCaseFolded();
+        if (option.isEmpty()) {
+            return {LauncherCommandKind::AnchorRoot, {}};
+        }
+        if (option == QLatin1String("n")) {
+            return {LauncherCommandKind::AnchorNew, {}};
+        }
+        return {LauncherCommandKind::AnchorRoot, {}};
+    }
+
+    return {LauncherCommandKind::Search, text};
 }
 
 QString anchorDisplayName(const Anchor &anchor, const Resource &resource)
@@ -555,6 +621,10 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
         return target;
     }
 
+    if (item->data(TargetKindRole).toString() == QLatin1String(TargetKindCommand)) {
+        return target;
+    }
+
     if (item->data(TargetKindRole).toString() == QLatin1String(TargetKindClip)) {
         target.resultRow = row;
         target.clipId = item->data(ClipIdRole).toString();
@@ -607,6 +677,26 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     }
 
     return target;
+}
+
+ClipSearchResult clipResultForItem(const QListWidgetItem *item)
+{
+    ClipSearchResult result;
+    if (!item || item->data(TargetKindRole).toString() != QLatin1String(TargetKindClip)) {
+        return result;
+    }
+
+    result.clipId = item->data(ClipIdRole).toString();
+    result.displayName = item->data(ClipDisplayNameRole).toString();
+    result.preview = item->data(ClipPreviewRole).toString();
+    result.tags = item->data(ClipTagsRole).toStringList();
+    result.aliases = item->data(ClipAliasesRole).toStringList();
+    result.updatedAt = item->data(ClipUpdatedAtRole).toDateTime();
+    result.usedAt = item->data(ClipUsedAtRole).toDateTime();
+    result.state = static_cast<ClipState>(item->data(ClipStateRole).toInt());
+    result.matchedField = item->data(Qt::UserRole + 13).toString();
+    result.score = item->data(Qt::UserRole + 14).toDouble();
+    return result;
 }
 
 bool isDeprecatedPdfManualLineOpenTarget(const PinloomOpenTarget &target)
@@ -891,6 +981,18 @@ bool PinloomPanel::eventFilter(QObject *watched, QEvent *event)
 
         if ((key == Qt::Key_Return || key == Qt::Key_Enter) && modifiers == Qt::NoModifier) {
             openSelectedResource();
+            return true;
+        }
+        if (key == Qt::Key_Down && modifiers == Qt::NoModifier) {
+            if (selectNextResult()) {
+                resultList_->scrollToItem(resultList_->currentItem());
+            }
+            return true;
+        }
+        if (key == Qt::Key_Up && modifiers == Qt::NoModifier) {
+            if (selectPreviousResult()) {
+                resultList_->scrollToItem(resultList_->currentItem());
+            }
             return true;
         }
         if (key == Qt::Key_K && modifiers == Qt::ControlModifier) {
@@ -2007,16 +2109,28 @@ void PinloomPanel::refreshResults()
     resultList_->clear();
 
     const QString searchText = searchEdit_->text();
-    const std::optional<QString> clipCommandQuery = clipCommandQueryForSearchText(searchText);
+    const LauncherCommand command = parseLauncherCommand(searchText);
+    const bool commandMode = command.kind != LauncherCommandKind::Search;
     QStringList listedClipIds;
-    const auto appendClipResults = [this, &listedClipIds](const QList<ClipSearchResult> &clipResults) {
+    const auto appendCommandResult = [this](const QString &commandId,
+                                            const QString &searchText,
+                                            const QString &title,
+                                            const QString &detail) {
+        auto *item = new QListWidgetItem(QStringLiteral("[Command] %1 -> Open\n%2").arg(title, detail), resultList_);
+        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+        item->setData(TargetKindRole, QString::fromLatin1(TargetKindCommand));
+        item->setData(CommandIdRole, commandId);
+        item->setData(CommandSearchTextRole, searchText);
+    };
+    const auto appendClipResults = [this, &listedClipIds](const QList<ClipSearchResult> &clipResults,
+                                                          const QString &clipAction) {
         for (const ClipSearchResult &result : clipResults) {
             if (!result.clipId.isEmpty() && listedClipIds.contains(result.clipId)) {
                 continue;
             }
             listedClipIds.append(result.clipId);
 
-            auto *item = new QListWidgetItem(clipResultText(result), resultList_);
+            auto *item = new QListWidgetItem(clipResultText(result, clipAction), resultList_);
             item->setToolTip(clipToolTip(result));
             item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
             item->setData(TargetKindRole, QString::fromLatin1(TargetKindClip));
@@ -2027,6 +2141,8 @@ void PinloomPanel::refreshResults()
             item->setData(ClipAliasesRole, result.aliases);
             item->setData(ClipUpdatedAtRole, result.updatedAt);
             item->setData(ClipUsedAtRole, result.usedAt);
+            item->setData(ClipStateRole, static_cast<int>(result.state));
+            item->setData(ClipActionRole, clipAction);
             item->setData(Qt::UserRole + 13, result.matchedField);
             item->setData(Qt::UserRole + 14, result.score);
             item->setData(Qt::UserRole + 20, clipMatchSummary(result));
@@ -2045,7 +2161,7 @@ void PinloomPanel::refreshResults()
     query.limit = 100;
 
     const bool emptyCompactLauncherQuery = options_.compactLauncherMode && searchText.trimmed().isEmpty();
-    const QList<SearchResult> results = emptyCompactLauncherQuery || clipCommandQuery.has_value()
+    const QList<SearchResult> results = emptyCompactLauncherQuery || commandMode
         ? QList<SearchResult>{}
         : repository_.search(query);
     for (const SearchResult &result : results) {
@@ -2092,30 +2208,54 @@ void PinloomPanel::refreshResults()
         }
     }
 
-    if (clipCommandQuery.has_value() && options_.clipSearchHandler) {
-        const QString clipQuery = clipCommandQuery.value();
-        if (clipQuery.isEmpty()) {
+    if (command.kind == LauncherCommandKind::ClipRoot) {
+        appendCommandResult(QString::fromLatin1(CommandClipSearch),
+                            QStringLiteral("c s"),
+                            tr("Clip Search"),
+                            tr("c s <query> - search Clip name, alias, tag, or content"));
+        appendCommandResult(QString::fromLatin1(CommandClipNew),
+                            QStringLiteral("c n"),
+                            tr("New Saved Clip"),
+                            tr("c n - save a recent clipboard history item"));
+    } else if (command.kind == LauncherCommandKind::ClipSearch && options_.clipSearchHandler) {
+        if (command.query.isEmpty()) {
             ClipSearchOptions temporaryOptions;
             temporaryOptions.includeSaved = false;
             temporaryOptions.includeTemporary = true;
             temporaryOptions.emptyQueryReturnsPinnedAndRecent = true;
             temporaryOptions.limit = query.limit;
-            appendClipResults(options_.clipSearchHandler(clipQuery, temporaryOptions));
+            appendClipResults(options_.clipSearchHandler(command.query, temporaryOptions),
+                              QString::fromLatin1(ClipActionInsert));
 
             ClipSearchOptions savedOptions;
             savedOptions.includeSaved = true;
             savedOptions.includeTemporary = false;
             savedOptions.emptyQueryReturnsPinnedAndRecent = true;
             savedOptions.limit = std::max(0, query.limit - resultList_->count());
-            appendClipResults(options_.clipSearchHandler(clipQuery, savedOptions));
+            appendClipResults(options_.clipSearchHandler(command.query, savedOptions),
+                              QString::fromLatin1(ClipActionInsert));
         } else {
             ClipSearchOptions clipOptions;
             clipOptions.includeSaved = true;
             clipOptions.includeTemporary = true;
             clipOptions.emptyQueryReturnsPinnedAndRecent = true;
             clipOptions.limit = query.limit;
-            appendClipResults(options_.clipSearchHandler(clipQuery, clipOptions));
+            appendClipResults(options_.clipSearchHandler(command.query, clipOptions),
+                              QString::fromLatin1(ClipActionInsert));
         }
+    } else if (command.kind == LauncherCommandKind::ClipNew && options_.clipSearchHandler) {
+        ClipSearchOptions temporaryOptions;
+        temporaryOptions.includeSaved = false;
+        temporaryOptions.includeTemporary = true;
+        temporaryOptions.emptyQueryReturnsPinnedAndRecent = true;
+        temporaryOptions.limit = query.limit;
+        appendClipResults(options_.clipSearchHandler(command.query, temporaryOptions),
+                          QString::fromLatin1(ClipActionSave));
+    } else if (command.kind == LauncherCommandKind::AnchorRoot || command.kind == LauncherCommandKind::AnchorNew) {
+        appendCommandResult(QString::fromLatin1(CommandAnchorNew),
+                            QStringLiteral("k n"),
+                            tr("New Anchor / Capture Anchor"),
+                            tr("k n - current-app native context capture pending"));
     } else if (!emptyCompactLauncherQuery && options_.clipSearchHandler) {
         ClipSearchOptions clipOptions;
         clipOptions.includeSaved = true;
@@ -2123,7 +2263,8 @@ void PinloomPanel::refreshResults()
         clipOptions.emptyQueryReturnsPinnedAndRecent = false;
         clipOptions.limit = std::max(0, query.limit - resultList_->count());
 
-        appendClipResults(options_.clipSearchHandler(searchText, clipOptions));
+        appendClipResults(options_.clipSearchHandler(searchText, clipOptions),
+                          QString::fromLatin1(ClipActionInsert));
     }
 
     bool restoredSelection = false;
@@ -2157,9 +2298,27 @@ void PinloomPanel::refreshResults()
         resultList_->setCurrentRow(0);
     }
 
-    updateStatus(clipCommandQuery.has_value()
-                     ? tr("Clip mode: %n clip(s)", nullptr, resultList_->count())
-                     : tr("%n result(s)", nullptr, resultList_->count()));
+    switch (command.kind) {
+    case LauncherCommandKind::ClipRoot:
+        updateStatus(tr("Clip commands"));
+        break;
+    case LauncherCommandKind::ClipSearch:
+        updateStatus(tr("Clip search: %n clip(s)", nullptr, resultList_->count()));
+        break;
+    case LauncherCommandKind::ClipNew:
+        updateStatus(tr("Clip save: %n history item(s)", nullptr, resultList_->count()));
+        break;
+    case LauncherCommandKind::AnchorRoot:
+        updateStatus(tr("Anchor commands"));
+        break;
+    case LauncherCommandKind::AnchorNew:
+        updateStatus(tr("Capture anchor current app context pending"));
+        break;
+    case LauncherCommandKind::Search:
+    case LauncherCommandKind::Unknown:
+        updateStatus(tr("%n result(s)", nullptr, resultList_->count()));
+        break;
+    }
     refreshLauncherVisibility();
     refreshRelationSummary();
     refreshPinButtonState();
@@ -2196,8 +2355,12 @@ void PinloomPanel::refreshRelationSummary()
 
 bool PinloomPanel::activateCurrentOpenTarget()
 {
-    const PinloomOpenTarget target = currentOpenTarget();
-    return activateOpenTarget(target);
+    QListWidgetItem *item = resultList_->currentItem();
+    if (!item && resultList_->count() > 0) {
+        resultList_->setCurrentRow(0);
+        item = resultList_->currentItem();
+    }
+    return activateResultItem(item);
 }
 
 bool PinloomPanel::activateResourceById(const QString &resourceId)
@@ -2213,6 +2376,135 @@ bool PinloomPanel::activateResourceById(const QString &resourceId)
         return false;
     }
     return activateOpenTarget(target);
+}
+
+bool PinloomPanel::activateResultItem(QListWidgetItem *item)
+{
+    if (!item) {
+        updateStatus(tr("No resource selected"));
+        return false;
+    }
+
+    resultList_->setCurrentItem(item);
+    const QString targetKind = item->data(TargetKindRole).toString();
+    if (targetKind == QLatin1String(TargetKindCommand)) {
+        return activateCommandItem(item->data(CommandIdRole).toString());
+    }
+
+    if (targetKind == QLatin1String(TargetKindClip)
+        && item->data(ClipActionRole).toString() == QLatin1String(ClipActionSave)) {
+        return saveClipFromItem(item);
+    }
+
+    return activateOpenTarget(openTargetForItem(item, resultList_->row(item)));
+}
+
+bool PinloomPanel::activateCommandItem(const QString &commandId)
+{
+    if (commandId == QLatin1String(CommandClipSearch)) {
+        setSearchText(QStringLiteral("c s"));
+        return true;
+    }
+
+    if (commandId == QLatin1String(CommandClipNew)) {
+        setSearchText(QStringLiteral("c n"));
+        return true;
+    }
+
+    if (commandId == QLatin1String(CommandAnchorNew)) {
+        if (searchEdit_->text().trimmed().compare(QStringLiteral("k n"), Qt::CaseInsensitive) != 0) {
+            setSearchText(QStringLiteral("k n"));
+            return true;
+        }
+
+        updateStatus(tr("Capture anchor current app context pending; existing Ctrl+K fallback will migrate to k n"));
+        return false;
+    }
+
+    updateStatus(tr("Unknown command"));
+    return false;
+}
+
+bool PinloomPanel::saveClipFromItem(const QListWidgetItem *item)
+{
+    const ClipSearchResult result = clipResultForItem(item);
+    if (result.clipId.trimmed().isEmpty()) {
+        updateStatus(tr("No clip selected"));
+        return false;
+    }
+    if (result.state == ClipState::Saved) {
+        updateStatus(tr("Clip is already saved"));
+        return false;
+    }
+    if (!options_.clipSaveHandler) {
+        updateStatus(tr("Clip saving is not configured"));
+        return false;
+    }
+
+    std::optional<PinloomClipSaveRequest> request = options_.clipSaveRequestProvider
+        ? options_.clipSaveRequestProvider(this, result)
+        : promptClipSaveRequest(result);
+    if (!request.has_value()) {
+        updateStatus(tr("Save canceled"));
+        return false;
+    }
+
+    if (request->clipId.trimmed().isEmpty()) {
+        request->clipId = result.clipId;
+    }
+    request->name = request->name.trimmed();
+    request->aliases = cleanedValues(request->aliases);
+    request->tags = cleanedValues(request->tags, true);
+
+    QString error;
+    if (!options_.clipSaveHandler(request.value(), &error)) {
+        updateStatus(error.trimmed().isEmpty() ? tr("Unable to save clip") : error.trimmed());
+        return false;
+    }
+
+    const QString savedName = request->name.isEmpty() ? result.preview : request->name;
+    setSearchText(QStringLiteral("c s %1").arg(savedName));
+    updateStatus(tr("Saved clip \"%1\"").arg(savedName));
+    return true;
+}
+
+std::optional<PinloomClipSaveRequest> PinloomPanel::promptClipSaveRequest(const ClipSearchResult &result)
+{
+    QDialog dialog(this);
+    dialog.setWindowTitle(tr("Save Clip"));
+    auto *form = new QFormLayout(&dialog);
+    auto *nameEdit = new QLineEdit(result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
+                                   &dialog);
+    nameEdit->setObjectName(QStringLiteral("panelClipSaveNameEdit"));
+    auto *aliasesEdit = new QLineEdit(&dialog);
+    aliasesEdit->setObjectName(QStringLiteral("panelClipSaveAliasesEdit"));
+    auto *tagsEdit = new QLineEdit(&dialog);
+    tagsEdit->setObjectName(QStringLiteral("panelClipSaveTagsEdit"));
+    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    pinnedCheck->setObjectName(QStringLiteral("panelClipSavePinnedCheck"));
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    buttons->setObjectName(QStringLiteral("panelClipSaveButtons"));
+
+    form->addRow(tr("Name"), nameEdit);
+    form->addRow(tr("Aliases"), aliasesEdit);
+    form->addRow(tr("Tags"), tagsEdit);
+    form->addRow(QString(), pinnedCheck);
+    form->addWidget(buttons);
+
+    connect(buttons, &QDialogButtonBox::accepted, &dialog, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
+
+    if (dialog.exec() != QDialog::Accepted) {
+        return std::nullopt;
+    }
+
+    PinloomClipSaveRequest request;
+    request.clipId = result.clipId;
+    request.name = nameEdit->text();
+    request.aliases = valuesFromCommaText(aliasesEdit->text());
+    request.tags = valuesFromCommaText(tagsEdit->text(), true);
+    request.pinned = pinnedCheck->isChecked();
+    return request;
 }
 
 bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)

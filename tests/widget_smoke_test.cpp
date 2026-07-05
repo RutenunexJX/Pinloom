@@ -83,7 +83,10 @@ private slots:
     void panelExposesHostIndexingControls();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
-    void panelClipCommandSearchesHistoryAndSavedClipsAndEnterInserts();
+    void panelClipRootCommandShowsCandidates();
+    void panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
+    void panelClipNewCommandShowsTemporaryHistoryAndSaves();
+    void panelAnchorCaptureCommandShowsPendingEntry();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAnchorLocatorMetadata();
     void panelDisplaysMarkerAnchors();
@@ -2548,7 +2551,46 @@ void WidgetSmokeTest::panelSearchesSavedClipsAndEnterInserts()
     QVERIFY(openedTargets.first().anchor.has_value());
 }
 
-void WidgetSmokeTest::panelClipCommandSearchesHistoryAndSavedClipsAndEnterInserts()
+void WidgetSmokeTest::panelClipRootCommandShowsCandidates()
+{
+    InMemoryLibraryRepository repository;
+
+    int clipSearchCalls = 0;
+    PinloomPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        Q_UNUSED(query);
+        Q_UNUSED(searchOptions);
+        ++clipSearchCalls;
+        return QList<ClipSearchResult>{};
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("c"));
+
+    QCOMPARE(clipSearchCalls, 0);
+    QCOMPARE(results->count(), 2);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("c s <query>")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] New Saved Clip -> Open")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("c n")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(panel.searchText(), QStringLiteral("c s"));
+
+    panel.setSearchText(QStringLiteral("c"));
+    QTest::keyClick(searchEdit, Qt::Key_Down);
+    QCOMPARE(results->currentRow(), 1);
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(panel.searchText(), QStringLiteral("c n"));
+}
+
+void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts()
 {
     InMemoryLibraryRepository repository;
 
@@ -2615,7 +2657,7 @@ void WidgetSmokeTest::panelClipCommandSearchesHistoryAndSavedClipsAndEnterInsert
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setSearchText(QStringLiteral("c"));
+    panel.setSearchText(QStringLiteral("c s"));
 
     QCOMPARE(clipQueries, (QStringList{QString(), QString()}));
     QCOMPARE(clipOptions.size(), 2);
@@ -2629,13 +2671,25 @@ void WidgetSmokeTest::panelClipCommandSearchesHistoryAndSavedClipsAndEnterInsert
     QCOMPARE(panel.resultAt(1).clipId, savedId);
     QCOMPARE(panel.resultAt(1).matchSummary, QStringLiteral("Saved Clip"));
     QVERIFY(panel.resultAt(0).resourceId.isEmpty());
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved")));
-    QCOMPARE(panel.statusText(), QStringLiteral("Clip mode: 2 clip(s)"));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body -> Insert")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved -> Insert")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Clip search: 2 clip(s)"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Down);
+    QCOMPARE(results->currentRow(), 1);
+    QTest::keyClick(searchEdit, Qt::Key_Up);
+    QCOMPARE(results->currentRow(), 0);
+    QTest::keyClick(searchEdit, Qt::Key_Down);
+    QCOMPARE(results->currentRow(), 1);
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(insertedClipIds, QStringList{savedId});
+    QVERIFY(openedTargets.isEmpty());
+    QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setSearchText(QStringLiteral("c saved command alias"));
+    panel.setSearchText(QStringLiteral("c s saved command alias"));
 
     QCOMPARE(clipQueries, QStringList{QStringLiteral("saved command alias")});
     QCOMPARE(clipOptions.size(), 1);
@@ -2648,9 +2702,128 @@ void WidgetSmokeTest::panelClipCommandSearchesHistoryAndSavedClipsAndEnterInsert
 
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
-    QCOMPARE(insertedClipIds, QStringList{savedId});
+    QCOMPARE(insertedClipIds, (QStringList{savedId, savedId}));
     QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
+}
+
+void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
+{
+    InMemoryLibraryRepository repository;
+    InMemoryClipRepository clipRepository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const ClipCaptureResult temporary = clipRepository.captureText(QStringLiteral("temporary save candidate body"),
+                                                                   {},
+                                                                   {},
+                                                                   base);
+    QVERIFY(temporary.captured());
+    QVERIFY(temporary.clip.has_value());
+
+    const QString savedId = saveWidgetClip(clipRepository,
+                                           QStringLiteral("already saved body"),
+                                           QStringLiteral("Already Saved"),
+                                           {},
+                                           {},
+                                           false,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+
+    ClipSearchService clipSearch(clipRepository);
+    int saveRequestCalls = 0;
+    int saveHandlerCalls = 0;
+    bool saveRequestParentProvided = false;
+    QStringList saveRequestClipIds;
+    PinloomPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        return clipSearch.search(query, searchOptions);
+    };
+    options.clipSaveRequestProvider = [&](QWidget *parent,
+                                          const ClipSearchResult &result) -> std::optional<PinloomClipSaveRequest> {
+        saveRequestParentProvided = parent != nullptr;
+        saveRequestClipIds.append(result.clipId);
+        ++saveRequestCalls;
+
+        PinloomClipSaveRequest request;
+        request.clipId = result.clipId;
+        request.name = QStringLiteral("Saved From Launcher");
+        request.aliases = {QStringLiteral("launcher save alias")};
+        request.tags = {QStringLiteral("#launcher-save")};
+        request.pinned = true;
+        return request;
+    };
+    options.clipSaveHandler = [&](const PinloomClipSaveRequest &request, QString *error) {
+        ++saveHandlerCalls;
+        if (error) {
+            error->clear();
+        }
+        return clipSearch.saveClip(request.clipId,
+                                   request.name,
+                                   request.aliases,
+                                   request.tags,
+                                   request.pinned);
+    };
+
+    PinloomPanel panel(repository, options);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("c n"));
+
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentOpenTarget().clipId, temporary.clip->id);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[History] temporary save candidate body -> Save")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Clip save: 1 history item(s)"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+
+    QCOMPARE(saveRequestCalls, 1);
+    QVERIFY(saveRequestParentProvided);
+    QCOMPARE(saveRequestClipIds, QStringList{temporary.clip->id});
+    QCOMPARE(saveHandlerCalls, 1);
+    QCOMPARE(panel.searchText(), QStringLiteral("c s Saved From Launcher"));
+    QCOMPARE(panel.currentOpenTarget().clipId, temporary.clip->id);
+    QCOMPARE(panel.statusText(), QStringLiteral("Saved clip \"Saved From Launcher\""));
+
+    const std::optional<Clip> saved = clipRepository.findClip(temporary.clip->id);
+    QVERIFY(saved.has_value());
+    QVERIFY(saved->state == ClipState::Saved);
+    QCOMPARE(saved->name, QStringLiteral("Saved From Launcher"));
+    QCOMPARE(saved->aliases, QStringList{QStringLiteral("launcher save alias")});
+    QCOMPARE(saved->tags, QStringList{QStringLiteral("launcher-save")});
+    QVERIFY(saved->pinned);
+    QCOMPARE(clipRepository.temporaryClips().size(), 0);
+
+    panel.setSearchText(QStringLiteral("c n"));
+    QCOMPARE(results->count(), 0);
+}
+
+void WidgetSmokeTest::panelAnchorCaptureCommandShowsPendingEntry()
+{
+    InMemoryLibraryRepository repository;
+    PinloomPanel panel(repository);
+    auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    QVERIFY(searchEdit);
+    QVERIFY(results);
+
+    panel.setSearchText(QStringLiteral("k"));
+
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Open")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("k n")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QCOMPARE(panel.searchText(), QStringLiteral("k n"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
+
+    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QVERIFY(panel.statusText().contains(QStringLiteral("current app context pending")));
+    QVERIFY(panel.statusText().contains(QStringLiteral("migrate to k n")));
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()

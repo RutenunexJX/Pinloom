@@ -331,24 +331,26 @@ The runtime uses the system tray menu, Qt clipboard capture, SQLite persistence,
 and the platform paste invoker. The main app deliberately disables the
 standalone Clip hotkey registration so `Ctrl+Space` is the single command
 entry. Copy plain text in any application with `Ctrl+C` to add it to temporary
-history, summon the launcher with `Ctrl+Space`, type `c` or `c <query>`, and
-press Enter to paste the selected text into the current application. The tray
-menu's `Show Clipboard` action routes back to the same launcher Clip mode, and
-`Quit Pinloom` exits the resident app.
+history, summon the launcher with `Ctrl+Space`, type `c s` or `c s <query>`,
+and press Enter to paste the selected text into the current application. Type
+`c n` to choose a recent temporary history item and save it as a named Saved
+Clip with aliases, tags, and pinned state. The tray menu's `Show Clipboard`
+action routes back to the same `c s` launcher path instead of making the
+standalone picker the primary workflow, and `Quit Pinloom` exits the resident
+app.
 
 `pinloom_app.exe` also registers a separate `Ctrl+Space` global hotkey for the
 main Pinloom launcher. That hotkey restores/raises a compact horizontal search
 bar and focuses the search box. On Windows `Ctrl+Space` can conflict with IMEs
 or another application that already registered the same shortcut.
 
-The picker includes temporary history for the resident app. A `Save Clip`
-button and `Ctrl+S` shortcut save the selected temporary clip as a Saved Clip
-with name, aliases, tags, and pinned state. Rows include a local timestamp for
-when the clip was captured. The default empty picker view is temporary history
-only; once a temporary clip is saved, it is no longer mixed into that default
-history list. Saved Clips are still searchable inside the Clip picker by name,
-alias, and `#tag`. Re-copying exact text already stored as a Saved Clip is
-ignored as a duplicate by the content hash check.
+The legacy standalone picker still exists as a support widget, but the daily
+path is the main launcher command surface. `c s` includes temporary history and
+Saved Clips for insertion. `c n` shows only temporary history as save
+candidates; once a temporary clip is saved, it is no longer mixed into
+temporary history. Saved Clips are still searchable by name, alias, and `#tag`.
+Re-copying exact text already stored as a Saved Clip is ignored as a duplicate
+by the content hash check.
 
 The main `Ctrl+Space` launcher uses the same `pinloom_clip.sqlite3` repository
 as the resident Clip picker. Its default surface is a single focused search

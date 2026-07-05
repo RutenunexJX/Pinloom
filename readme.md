@@ -127,7 +127,7 @@ The mismatch is intentional technical debt for the reset:
   in an advanced path.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
-  launcher access through the `c` command prefix,
+  launcher access through `c s` search/insert and `c n` save commands,
   automatic system clipboard text capture, temporary history insertion, row
   timestamps, and explicit Save Clip metadata. Saved Clips are also available
   in the main launcher bar.
@@ -160,8 +160,20 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 Pinloom starts as a resident app with one global shortcut: `Ctrl+Space` summons
 the main Pinloom launcher bar and focuses search. Search the main bar for
 anchors or Saved Clips; Enter jumps anchors to their native target and inserts
-Saved Clip text into the current foreground app. Type `c` or `c <query>` in the
-launcher to search Clip history and Saved Clips from the same command surface.
+Saved Clip text into the current foreground app.
+
+Type `c` to see Clip commands. Type `c s` to search all insertable Clip rows
+(temporary history plus Saved Clips), or `c s <query>` to search by name,
+alias, tag, preview, or content; Enter inserts the selected row into the
+foreground app. Type `c n` to choose a recent temporary clipboard item and save
+it as a named Saved Clip with tags, aliases, and pinned state. The tray
+`Show Clipboard` action routes back to this same `c s` launcher path instead
+of opening a separate picker as the primary workflow.
+
+Type `k` to see anchor commands. `k n` is the new-anchor/capture-anchor entry
+point, but native current-application context capture is still pending in this
+slice; the older `Ctrl+K` fallback path remains temporarily available and will
+migrate behind `k n`.
 
 Clip rows show when each item was captured. The resident Clip command view
 shows temporary history alongside Saved Clips; once a temporary item is saved,
