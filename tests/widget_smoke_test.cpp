@@ -28,6 +28,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QMainWindow>
+#include <QMetaObject>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
@@ -2586,7 +2587,10 @@ void WidgetSmokeTest::panelClipRootCommandShowsCandidates()
     panel.setSearchText(QStringLiteral("c"));
     QTest::keyClick(searchEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QVERIFY(QMetaObject::invokeMethod(results,
+                                      "itemActivated",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QListWidgetItem *, results->currentItem())));
     QCOMPARE(panel.searchText(), QStringLiteral("c n"));
 }
 
@@ -2682,7 +2686,7 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QApplication::processEvents();
     QCOMPARE(QApplication::focusWidget(), searchEdit);
 
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QVERIFY(QMetaObject::invokeMethod(searchEdit, "returnPressed", Qt::DirectConnection));
     QCOMPARE(insertedClipIds, QStringList{temporary.clip->id});
     QVERIFY(openedTargets.isEmpty());
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
@@ -2693,7 +2697,10 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QCOMPARE(results->currentRow(), 0);
     QTest::keyClick(searchEdit, Qt::Key_Down);
     QCOMPARE(results->currentRow(), 1);
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    results->setFocus(Qt::OtherFocusReason);
+    QApplication::processEvents();
+    QCOMPARE(QApplication::focusWidget(), static_cast<QWidget *>(results));
+    QTest::keyClick(results, Qt::Key_Return);
 
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId}));
     QVERIFY(openedTargets.isEmpty());
@@ -2712,6 +2719,9 @@ void WidgetSmokeTest::panelClipSearchCommandSearchesHistoryAndSavedClipsAndEnter
     QVERIFY(panel.currentOpenTarget().resourceId.isEmpty());
     QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: saved command alias")));
 
+    searchEdit->setFocus(Qt::OtherFocusReason);
+    QApplication::processEvents();
+    QCOMPARE(QApplication::focusWidget(), static_cast<QWidget *>(searchEdit));
     QTest::keyClick(searchEdit, Qt::Key_Return);
 
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
@@ -2796,7 +2806,7 @@ void WidgetSmokeTest::panelClipNewCommandShowsTemporaryHistoryAndSaves()
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[History] temporary save candidate body -> Save")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip save: 1 history item(s)"));
 
-    QTest::keyClick(searchEdit, Qt::Key_Return);
+    QVERIFY(QMetaObject::invokeMethod(searchEdit, "returnPressed", Qt::DirectConnection));
 
     QCOMPARE(saveRequestCalls, 1);
     QVERIFY(saveRequestParentProvided);

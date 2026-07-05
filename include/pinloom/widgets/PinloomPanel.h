@@ -252,8 +252,11 @@ private:
     QString selectedLocation() const;
     PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
-    bool activateResultItem(QListWidgetItem *item);
-    bool activateCommandItem(const QString &commandId);
+    void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
+    void refreshCommandResults(const QString &searchText);
+    bool activateCurrentLauncherItem();
+    bool activateLauncherItem(QListWidgetItem *item);
+    bool activateCommandItem(const QListWidgetItem *item);
     bool saveClipFromItem(const QListWidgetItem *item);
     std::optional<PinloomClipSaveRequest> promptClipSaveRequest(const ClipSearchResult &result);
     bool activateOpenTarget(const PinloomOpenTarget &target);
