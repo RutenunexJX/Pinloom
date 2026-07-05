@@ -69,6 +69,47 @@ bool containsExcludedSourceApp(const QStringList &excludedSourceApps, const QStr
     return false;
 }
 
+const QStringList &defaultSensitiveTextMarkers()
+{
+    static const QStringList markers = {
+        QStringLiteral("password="),
+        QStringLiteral("password:"),
+        QStringLiteral("passwd="),
+        QStringLiteral("passwd:"),
+        QStringLiteral("api_key"),
+        QStringLiteral("api-key"),
+        QStringLiteral("secret="),
+        QStringLiteral("secret:"),
+        QStringLiteral("token="),
+        QStringLiteral("authorization: bearer"),
+        QStringLiteral("-----BEGIN PRIVATE KEY-----"),
+        QStringLiteral("-----BEGIN RSA PRIVATE KEY-----"),
+        QStringLiteral("-----BEGIN EC PRIVATE KEY-----"),
+        QStringLiteral("-----BEGIN OPENSSH PRIVATE KEY-----")
+    };
+    return markers;
+}
+
+bool containsSensitiveTextMarker(const QString &text, const QStringList &markers)
+{
+    for (const QString &marker : markers) {
+        const QString normalizedMarker = marker.trimmed();
+        if (!normalizedMarker.isEmpty() && text.contains(normalizedMarker, Qt::CaseInsensitive)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool containsSensitiveText(const QString &text, const ClipCapturePolicy &policy)
+{
+    if (policy.excludeSensitiveText && containsSensitiveTextMarker(text, defaultSensitiveTextMarkers())) {
+        return true;
+    }
+
+    return containsSensitiveTextMarker(text, policy.sensitiveTextMarkers);
+}
+
 QString clipKindToString(ClipKind kind)
 {
     switch (kind) {
@@ -362,6 +403,10 @@ ClipCaptureResult SqliteClipRepository::captureText(const QString &text,
     const QByteArray bytes = text.toUtf8();
     if (policy.maxTextBytes >= 0 && bytes.size() > policy.maxTextBytes) {
         return {ClipCaptureStatus::IgnoredTooLarge, std::nullopt};
+    }
+
+    if (containsSensitiveText(text, policy)) {
+        return {ClipCaptureStatus::IgnoredSensitiveContent, std::nullopt};
     }
 
     const QString contentHash = contentHashForBytes(bytes);
@@ -753,6 +798,10 @@ ClipCaptureResult InMemoryClipRepository::captureText(const QString &text,
     const QByteArray bytes = text.toUtf8();
     if (policy.maxTextBytes >= 0 && bytes.size() > policy.maxTextBytes) {
         return {ClipCaptureStatus::IgnoredTooLarge, std::nullopt};
+    }
+
+    if (containsSensitiveText(text, policy)) {
+        return {ClipCaptureStatus::IgnoredSensitiveContent, std::nullopt};
     }
 
     const QString contentHash = contentHashForBytes(bytes);

@@ -29,7 +29,8 @@ enum class ClipCaptureStatus {
     IgnoredBlank,
     IgnoredTooLarge,
     IgnoredDuplicate,
-    IgnoredExcludedSource
+    IgnoredExcludedSource,
+    IgnoredSensitiveContent
 };
 
 enum class ClipInsertMode {
@@ -61,6 +62,8 @@ struct ClipCapturePolicy {
     qint64 temporaryTtlSeconds = 24 * 60 * 60;
     bool capturePaused = false;
     QStringList excludedSourceApps;
+    bool excludeSensitiveText = true;
+    QStringList sensitiveTextMarkers;
 };
 
 struct ClipCaptureResult {

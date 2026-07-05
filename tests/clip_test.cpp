@@ -279,6 +279,9 @@ class ClipTest : public QObject {
 private slots:
     void ignoresBlankText();
     void rejectsTextOverSizeLimit();
+    void filtersDefaultSensitiveTextInMemory();
+    void sqliteFiltersSensitiveTextBeforePersistence();
+    void supportsCustomSensitiveTextMarkersAndDefaultOptOut();
     void deduplicatesSameText();
     void distinguishesTemporaryAndSavedClips();
     void prunesTemporaryHistoryByTtlAndCount();
@@ -355,6 +358,76 @@ void ClipTest::rejectsTextOverSizeLimit()
     QVERIFY(!result.captured());
     QVERIFY(result.status == ClipCaptureStatus::IgnoredTooLarge);
     QVERIFY(repository.clips().isEmpty());
+}
+
+void ClipTest::filtersDefaultSensitiveTextInMemory()
+{
+    InMemoryClipRepository repository;
+
+    const ClipCaptureResult password = repository.captureText(QStringLiteral("password=hunter2"));
+    QVERIFY(!password.captured());
+    QVERIFY(password.status == ClipCaptureStatus::IgnoredSensitiveContent);
+
+    const ClipCaptureResult bearer =
+        repository.captureText(QStringLiteral("Authorization: Bearer abc.def.ghi"));
+    QVERIFY(!bearer.captured());
+    QVERIFY(bearer.status == ClipCaptureStatus::IgnoredSensitiveContent);
+
+    const ClipCaptureResult privateKey =
+        repository.captureText(QStringLiteral("-----BEGIN PRIVATE KEY-----\nnot-real-test-key"));
+    QVERIFY(!privateKey.captured());
+    QVERIFY(privateKey.status == ClipCaptureStatus::IgnoredSensitiveContent);
+
+    const ClipCaptureResult normal = repository.captureText(QStringLiteral("Release note: refresh dashboard cache"));
+    QVERIFY(normal.captured());
+    QCOMPARE(repository.clips().size(), 1);
+    QCOMPARE(repository.clips().first().text, QStringLiteral("Release note: refresh dashboard cache"));
+}
+
+void ClipTest::sqliteFiltersSensitiveTextBeforePersistence()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom_clip.sqlite3"));
+
+    {
+        SqliteClipRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+        const ClipCaptureResult sensitive = repository.captureText(QStringLiteral("api_key=abc123"));
+        QVERIFY(!sensitive.captured());
+        QVERIFY(sensitive.status == ClipCaptureStatus::IgnoredSensitiveContent);
+        QVERIFY(repository.clips().isEmpty());
+    }
+
+    SqliteClipRepository restarted;
+    QVERIFY2(restarted.open(databasePath), qPrintable(restarted.lastError()));
+    QVERIFY2(restarted.initialize(), qPrintable(restarted.lastError()));
+    QVERIFY(restarted.clips().isEmpty());
+}
+
+void ClipTest::supportsCustomSensitiveTextMarkersAndDefaultOptOut()
+{
+    ClipCapturePolicy customPolicy;
+    customPolicy.sensitiveTextMarkers = {QStringLiteral(" Internal-Only ")};
+
+    InMemoryClipRepository customRepository;
+    const ClipCaptureResult custom =
+        customRepository.captureText(QStringLiteral("Share INTERNAL-only launch note"), customPolicy);
+    QVERIFY(!custom.captured());
+    QVERIFY(custom.status == ClipCaptureStatus::IgnoredSensitiveContent);
+    QVERIFY(customRepository.clips().isEmpty());
+
+    ClipCapturePolicy optOutPolicy;
+    optOutPolicy.excludeSensitiveText = false;
+
+    InMemoryClipRepository optOutRepository;
+    const ClipCaptureResult captured = optOutRepository.captureText(QStringLiteral("password=hunter2"), optOutPolicy);
+    QVERIFY(captured.captured());
+    QVERIFY(captured.status == ClipCaptureStatus::Captured);
+    QCOMPARE(optOutRepository.clips().size(), 1);
+    QCOMPARE(optOutRepository.clips().first().text, QStringLiteral("password=hunter2"));
 }
 
 void ClipTest::deduplicatesSameText()

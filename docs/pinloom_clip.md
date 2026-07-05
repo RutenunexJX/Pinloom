@@ -327,8 +327,17 @@ Privacy constraints are part of the first implementation layer:
 - duplicate text is ignored by content hash
 - capture can be paused through policy
 - source application exclusion is modeled in policy
+- obvious marker-style sensitive text is ignored by default before storage,
+  including markers such as `password=`, `passwd:`, `api_key`, `secret=`,
+  `token=`, `authorization: bearer`, and private key headers
+- callers can add case-insensitive substring markers for local policy needs or
+  explicitly disable the built-in sensitive-text filter
 - temporary history can be pruned by TTL and maximum count
 - saved clips do not expire through temporary-history retention
+
+The sensitive-text filter is a conservative skeleton for clearly marked
+clipboard content. It is not semantic secret detection, a password manager, or
+a replacement for DLP controls.
 
 Tray UI, global hotkey capture, floating picker selection, and blacklist
 persistence should continue to call into these same policy checks before storing
