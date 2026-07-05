@@ -129,20 +129,19 @@ The mismatch is intentional technical debt for the reset:
   in an advanced path.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
-  launcher access through `c s` search/insert and `c n` save commands,
-  automatic system clipboard text capture, temporary history insertion, row
-  timestamps, and explicit Save Clip metadata. Saved Clips are also available
-  in the main launcher bar.
+  launcher access through ordinary Command Window search plus explicit `c s`
+  search/insert and `c n` save commands, automatic system clipboard text
+  capture, temporary history insertion, row timestamps, and explicit Save Clip
+  metadata.
 - Pinloom Inbox is implemented as a local file object capture MVP. It is
   Link-only by default: Pinloom records the original file path and does not
   move or copy user files. Dropping a file on the Command Window or using
   `i n` from a recent Explorer selection saves a searchable Inbox file with
   name, alias, tag, pinned, and default-app launch behavior. Re-saving the
   same path updates the existing Inbox entry instead of creating duplicates.
-- The main Pinloom launcher panel registers a separate global `Ctrl+Space`
-  summon hotkey. It restores/raises a compact horizontal launcher bar and
-  focuses the search box; on Windows this can conflict with IMEs or another
-  application that already owns `Ctrl+Space`.
+- The Command Window is the default global `Ctrl+Space` entry. It restores a
+  compact command/search window and focuses one input; on Windows this can
+  conflict with IMEs or another application that already owns `Ctrl+Space`.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
@@ -166,17 +165,20 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 ```
 
 Pinloom starts as a resident app with one global shortcut: `Ctrl+Space` summons
-the main Pinloom launcher bar and focuses search. Search the main bar for
-anchors or Saved Clips; Enter jumps anchors to their native target and inserts
-Saved Clip text into the current foreground app.
+the Command Window and focuses one search/command input. Type an ordinary query
+to search unified results across Anchors, Saved Clips, Inbox files, and regular
+file/resource results. Result rows are labeled by type such as `[Anchor]`,
+`[Clip]`, `[Inbox]`, and `[File]`; Enter jumps Anchors, inserts Saved Clips into
+the current foreground app, and opens Inbox/File results with the default app.
 
-Type `c` to see Clip commands. Type `c s` to search all insertable Clip rows
-(temporary history plus Saved Clips), or `c s <query>` to search by name,
-alias, tag, preview, or content; Enter inserts the selected row into the
-foreground app. Type `c n` to choose a recent temporary clipboard item and save
-it as a named Saved Clip with tags, aliases, and pinned state. The tray
-`Show Clipboard` action routes back to this same `c s` launcher path instead
-of opening a separate picker as the primary workflow.
+The explicit command namespaces remain available. Type `c` to see Clip commands.
+Type `c s` to search all insertable Clip rows (temporary history plus Saved
+Clips), or `c s <query>` to search by name, alias, tag, preview, or content;
+Enter inserts the selected row into the foreground app. Type `c n` to choose a
+recent temporary clipboard item and save it as a named Saved Clip with tags,
+aliases, and pinned state. The tray `Show Clipboard` action routes back to this
+same `c s` launcher path instead of opening a separate picker as the primary
+workflow.
 
 Type `k` to see anchor commands. `k n` is the new-anchor/capture-anchor entry
 point, but native current-application context capture is still pending in this
@@ -193,7 +195,8 @@ not parse file contents, sync files, or move/copy files in this MVP.
 Clip rows show when each item was captured. The resident Clip command view
 shows temporary history alongside Saved Clips; once a temporary item is saved,
 it is no longer mixed into temporary history. Saved Clips remain searchable by
-name, alias, and tag in the main launcher bar and in `c` mode.
+name, alias, and tag in ordinary Command Window queries, the main launcher bar,
+and in `c` mode.
 Re-copying exact text already stored as a Saved Clip is ignored by the content
 hash duplicate check. The current Clip MVP captures and inserts text only;
 rich content is future work.

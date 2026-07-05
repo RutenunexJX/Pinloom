@@ -147,6 +147,20 @@ int main(int argc, char *argv[])
     commandWindow.resize(760, 300);
 
     Pinloom::PinloomCommandPanelOptions commandOptions;
+    commandOptions.unifiedSearchHandler = [panel](const QString &query) {
+        panel->setSearchText(query);
+        return panel->currentResults();
+    };
+    const auto activateOpenTargetFromPanel =
+        [panel](const Pinloom::PinloomOpenTarget &target, QString *status) {
+        const bool activated = panel->activateOpenTarget(target);
+        if (status) {
+            *status = panel->statusText();
+        }
+        return activated;
+    };
+    commandOptions.anchorJumpHandler = activateOpenTargetFromPanel;
+    commandOptions.resourceOpenHandler = activateOpenTargetFromPanel;
     commandOptions.clipSearchHandler = panelOptions.clipSearchHandler;
     commandOptions.clipInsertionHandler = panelOptions.clipInsertionHandler;
     commandOptions.clipSaveHandler = clipSaveHandler;

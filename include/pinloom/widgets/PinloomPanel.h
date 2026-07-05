@@ -184,6 +184,7 @@ public:
     bool selectPreviousResult();
     bool activateCurrentOpenTarget();
     bool activateResourceById(const QString &resourceId);
+    bool activateOpenTarget(const PinloomOpenTarget &target);
     void setRemoteWebFetchingEnabled(bool enabled);
     bool remoteWebFetchingEnabled() const;
     QString statusText() const;
@@ -252,7 +253,6 @@ private:
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
     bool activateCurrentLauncherItem();
     bool activateLauncherItem(QListWidgetItem *item);
-    bool activateOpenTarget(const PinloomOpenTarget &target);
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
     bool activatePowerPointTarget(const PinloomOpenTarget &target);

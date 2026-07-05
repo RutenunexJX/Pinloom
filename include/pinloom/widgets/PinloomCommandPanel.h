@@ -20,6 +20,9 @@ class QListWidgetItem;
 namespace Pinloom {
 
 struct PinloomCommandPanelOptions {
+    std::function<QList<PinloomOpenTarget>(const QString &query)> unifiedSearchHandler;
+    std::function<bool(const PinloomOpenTarget &target, QString *status)> anchorJumpHandler;
+    std::function<bool(const PinloomOpenTarget &target, QString *status)> resourceOpenHandler;
     std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
     std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
     std::function<std::optional<PinloomClipSaveRequest>(
@@ -54,6 +57,8 @@ public:
     int resultCount() const;
     ClipSearchResult resultAt(int row) const;
     ClipSearchResult currentResult() const;
+    PinloomOpenTarget openTargetAt(int row) const;
+    PinloomOpenTarget currentOpenTarget() const;
     bool selectResultAt(int row);
     bool selectFirstResult();
     bool selectNextResult();
@@ -65,6 +70,8 @@ signals:
     void clipInserted(const QString &clipId);
     void clipSaved(const QString &clipId);
     void anchorCaptureRequested();
+    void anchorJumped(const QString &resourceId);
+    void resourceOpened(const QString &resourceId);
     void inboxSaved(const QString &resourceId);
     void searchWindowRequested(const QString &query);
 
@@ -82,6 +89,7 @@ private:
     void updateStatus(const QString &status);
     bool activateCommandItem(QListWidgetItem *item);
     bool insertClipFromItem(const QListWidgetItem *item);
+    bool activateUnifiedTargetFromItem(const QListWidgetItem *item);
     bool saveClipFromItem(const QListWidgetItem *item);
     bool captureAnchor();
     bool saveInboxFromCommand();

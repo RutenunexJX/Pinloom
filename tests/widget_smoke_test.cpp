@@ -94,6 +94,8 @@ private slots:
     void commandPanelInboxNewCommandSavesPendingFile();
     void commandPanelInboxNewReportsMissingPendingAndExplorerSelection();
     void commandPanelInboxSearchOpensSearchWindow();
+    void commandPanelPlainQueryShowsUnifiedMixedResults();
+    void commandPanelPlainQueryEnterDispatchesByTargetType();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
     void commandPanelAnchorCaptureFallsBackWhenForegroundProviderCannotRecognizeContext();
     void panelDisplaysAnchorAwareResults();
@@ -384,6 +386,59 @@ static QString saveWidgetClip(InMemoryClipRepository &repository,
     }
 
     return captured.clip->id;
+}
+
+static QList<PinloomOpenTarget> makeCommandPanelUnifiedTargets()
+{
+    QList<PinloomOpenTarget> targets;
+
+    PinloomOpenTarget anchorTarget;
+    anchorTarget.resourceId = QStringLiteral("anchor-spec");
+    anchorTarget.resourceKind = ResourceKind::Pdf;
+    anchorTarget.title = QStringLiteral("Clock Spec");
+    anchorTarget.location = QStringLiteral("E:/docs/clock.pdf");
+    anchorTarget.matchedField = QStringLiteral("anchor_name");
+    anchorTarget.matchSummary = QStringLiteral("Match: anchor_name");
+    Anchor anchor;
+    anchor.id = QStringLiteral("anchor-spec#jitter");
+    anchor.type = AnchorType::PdfRegion;
+    anchor.name = QStringLiteral("PLL jitter budget");
+    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetFile = anchorTarget.location;
+    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorJson = QStringLiteral("{\"page\":12}");
+    anchor.aliases = {QStringLiteral("pll budget")};
+    anchor.tags = {QStringLiteral("clock")};
+    anchorTarget.anchor = anchor;
+    targets.append(anchorTarget);
+
+    PinloomOpenTarget clipTarget;
+    clipTarget.clipId = QStringLiteral("clip-launch");
+    clipTarget.title = QStringLiteral("Launch Clip");
+    clipTarget.location = QStringLiteral("launch clip body");
+    clipTarget.matchedField = QStringLiteral("name");
+    clipTarget.matchSummary = QStringLiteral("match: name=Launch Clip");
+    targets.append(clipTarget);
+
+    PinloomOpenTarget inboxTarget;
+    inboxTarget.resourceId = inboxResourceIdForPath(QStringLiteral("E:/inbox/Board Spec.txt"));
+    inboxTarget.resourceKind = ResourceKind::File;
+    inboxTarget.title = QStringLiteral("Board Spec Inbox");
+    inboxTarget.location = QStringLiteral("E:/inbox/Board Spec.txt");
+    inboxTarget.matchedField = QStringLiteral("alias");
+    inboxTarget.matchSummary = QStringLiteral("Match: alias");
+    targets.append(inboxTarget);
+
+    PinloomOpenTarget fileTarget;
+    fileTarget.resourceId = QStringLiteral("file-schematic");
+    fileTarget.resourceKind = ResourceKind::File;
+    fileTarget.title = QStringLiteral("Schematic File");
+    fileTarget.location = QStringLiteral("E:/docs/schematic.pdf");
+    fileTarget.matchedField = QStringLiteral("title");
+    fileTarget.matchSummary = QStringLiteral("Match: title");
+    targets.append(fileTarget);
+
+    return targets;
 }
 
 static ClipResidentRuntimeDependencies makeResidentRuntimeDependencies(FakeClipboardTextSource &captureClipboard,
@@ -3073,6 +3128,120 @@ void WidgetSmokeTest::commandPanelInboxSearchOpensSearchWindow()
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(queries, QStringList{QStringLiteral("clock alias")});
     QCOMPARE(panel.statusText(), QStringLiteral("Opened Pinloom search for \"clock alias\""));
+}
+
+void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    QStringList unifiedQueries;
+    int clipCommandSearchCalls = 0;
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &query) {
+        unifiedQueries.append(query);
+        return targets;
+    };
+    options.clipSearchHandler = [&](const QString &, const ClipSearchOptions &) {
+        ++clipCommandSearchCalls;
+        return QList<ClipSearchResult>{};
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("launch"));
+
+    QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
+    QCOMPARE(results->count(), 4);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] PLL jitter budget -> Jump")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("#clock")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Launch Clip -> Insert")));
+    QVERIFY(results->item(2)->text().contains(QStringLiteral("[Inbox] Board Spec Inbox -> Open")));
+    QVERIFY(results->item(3)->text().contains(QStringLiteral("[File] Schematic File -> Open")));
+    QCOMPARE(panel.openTargetAt(0).resourceId, QStringLiteral("anchor-spec"));
+    QVERIFY(panel.openTargetAt(0).anchor.has_value());
+    QCOMPARE(panel.openTargetAt(1).clipId, QStringLiteral("clip-launch"));
+    QCOMPARE(panel.resultAt(1).clipId, QStringLiteral("clip-launch"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Unified search: 4 result(s)"));
+
+    panel.setCommandText(QStringLiteral("c"));
+
+    QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
+    QCOMPARE(clipCommandSearchCalls, 0);
+    QCOMPARE(results->count(), 2);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
+}
+
+void WidgetSmokeTest::commandPanelPlainQueryEnterDispatchesByTargetType()
+{
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
+    QStringList insertedClipIds;
+    QList<PinloomOpenTarget> jumpedTargets;
+    QList<PinloomOpenTarget> openedTargets;
+
+    PinloomCommandPanelOptions options;
+    options.unifiedSearchHandler = [&](const QString &) {
+        return targets;
+    };
+    options.clipInsertionHandler = [&](const QString &clipId, QString *error) {
+        if (error) {
+            error->clear();
+        }
+        insertedClipIds.append(clipId);
+        return true;
+    };
+    options.anchorJumpHandler = [&](const PinloomOpenTarget &target, QString *status) {
+        jumpedTargets.append(target);
+        if (status) {
+            *status = QStringLiteral("Jumped anchor from command");
+        }
+        return true;
+    };
+    options.resourceOpenHandler = [&](const PinloomOpenTarget &target, QString *status) {
+        openedTargets.append(target);
+        if (target.resourceId == QStringLiteral("file-schematic")) {
+            if (status) {
+                *status = QStringLiteral("Unable to open schematic file");
+            }
+            return false;
+        }
+        if (status) {
+            *status = isInboxResourceId(target.resourceId)
+                ? QStringLiteral("Opened Inbox file from command")
+                : QStringLiteral("Opened file from command");
+        }
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    panel.setCommandText(QStringLiteral("launch"));
+
+    QVERIFY(panel.selectResultAt(1));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(insertedClipIds, QStringList{QStringLiteral("clip-launch")});
+    QCOMPARE(jumpedTargets.size(), 0);
+    QCOMPARE(openedTargets.size(), 0);
+    QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
+
+    QVERIFY(panel.selectResultAt(0));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(jumpedTargets.size(), 1);
+    QCOMPARE(jumpedTargets.first().resourceId, QStringLiteral("anchor-spec"));
+    QVERIFY(jumpedTargets.first().anchor.has_value());
+    QCOMPARE(panel.statusText(), QStringLiteral("Jumped anchor from command"));
+
+    QVERIFY(panel.selectResultAt(2));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(openedTargets.size(), 1);
+    QVERIFY(isInboxResourceId(openedTargets.first().resourceId));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Inbox file from command"));
+
+    QVERIFY(panel.selectResultAt(3));
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QCOMPARE(openedTargets.size(), 2);
+    QCOMPARE(openedTargets.last().resourceId, QStringLiteral("file-schematic"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Unable to open schematic file"));
 }
 
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()

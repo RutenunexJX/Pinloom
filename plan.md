@@ -277,19 +277,20 @@ Status:
   clipboard text capture, timestamped temporary text history insertion, and a
   picker action to save a temporary clip as a named Saved Clip.
 - `pinloom_app.exe` registers a single global `Ctrl+Space` command entry for
-  the main Pinloom launcher. The main path no longer registers the standalone
-  Clip `Ctrl+Shift+V` hotkey; type `c` to see Clip commands, `c s` or
-  `c s <query>` to search/insert temporary history plus Saved Clips, and
+  the Command Window. The main path no longer registers the standalone Clip
+  `Ctrl+Shift+V` hotkey; type an ordinary query to search unified
+  Anchor/Saved Clip/Inbox/File results, or type `c` to see Clip commands,
+  `c s`/`c s <query>` to search/insert temporary history plus Saved Clips, and
   `c n` to save a recent temporary clipboard item as a Saved Clip.
   `Ctrl+Space` can still conflict with an IME or another registered global
   shortcut.
-- Saved Clips are searchable inside both the normal launcher search and the
-  `c s` Clip command by name, alias, `#tag`, and text preview/content. `c s`
-  also shows temporary history; `c n` shows temporary history as save
-  candidates. Saved clips are kept out of temporary history and exact
-  saved-text recaptures are ignored as duplicates by content hash. Main
-  launcher Enter inserts Clip text through the same clip insertion service,
-  while anchor results keep their native jump behavior.
+- Saved Clips are searchable inside ordinary Command Window queries, the normal
+  launcher search, and the `c s` Clip command by name, alias, `#tag`, and text
+  preview/content. `c s` also shows temporary history; `c n` shows temporary
+  history as save candidates. Saved clips are kept out of temporary history and
+  exact saved-text recaptures are ignored as duplicates by content hash.
+  Command Window and main launcher Enter both insert Clip text through the same
+  clip insertion service, while anchor results keep their native jump behavior.
 - The `k n` command is now reserved as the new-anchor/capture-anchor entry.
   This slice intentionally only exposes the command entry and pending status;
   PDF-XChange native current-view/coordinate capture is not implemented here,
@@ -304,10 +305,15 @@ Status:
   full-text indexing the file.
 - Inbox files are saved as searchable local file resources with stable
   path-based IDs, so re-saving the same path updates the existing entry instead
-  of creating duplicates. Main launcher results display Inbox entries as
-  `[Inbox]`, and Enter opens them through the system default application.
-  Missing local files are reported at open time rather than by a background
-  scanner.
+  of creating duplicates. Command Window and main launcher results display
+  Inbox entries as `[Inbox]`, and Enter opens them through the system default
+  application. Missing local files are reported at open time rather than by a
+  background scanner.
+- The Command Window now has a Unified Command Results / Actions MVP: ordinary
+  non-namespace input displays compact mixed `[Anchor]`, `[Clip]`, `[Inbox]`,
+  and file/resource rows; Enter dispatches to anchor jump, clip insert, or
+  resource open handlers. Explicit `c`, `k`, `i`, and search commands remain
+  separate namespaces.
 
 ## Frozen Or Demoted Work
 

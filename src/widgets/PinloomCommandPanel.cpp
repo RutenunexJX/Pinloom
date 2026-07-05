@@ -42,6 +42,36 @@ constexpr int ClipScoreRole = Qt::UserRole + 93;
 constexpr int ClipRankRole = Qt::UserRole + 94;
 constexpr int ClipPinnedRole = Qt::UserRole + 95;
 constexpr int ClipCreatedAtRole = Qt::UserRole + 96;
+constexpr int TargetResourceIdRole = Qt::UserRole + 120;
+constexpr int TargetClipIdRole = Qt::UserRole + 121;
+constexpr int TargetKindRole = Qt::UserRole + 122;
+constexpr int TargetTitleRole = Qt::UserRole + 123;
+constexpr int TargetLocationRole = Qt::UserRole + 124;
+constexpr int TargetMatchedFieldRole = Qt::UserRole + 125;
+constexpr int TargetScoreRole = Qt::UserRole + 126;
+constexpr int TargetMatchSummaryRole = Qt::UserRole + 127;
+constexpr int TargetHasAnchorRole = Qt::UserRole + 128;
+constexpr int TargetAnchorTypeRole = Qt::UserRole + 129;
+constexpr int TargetAnchorTargetRole = Qt::UserRole + 130;
+constexpr int TargetAnchorLineRole = Qt::UserRole + 131;
+constexpr int TargetAnchorPageRole = Qt::UserRole + 132;
+constexpr int TargetAnchorRegionXRole = Qt::UserRole + 133;
+constexpr int TargetAnchorRegionYRole = Qt::UserRole + 134;
+constexpr int TargetAnchorRegionWidthRole = Qt::UserRole + 135;
+constexpr int TargetAnchorRegionHeightRole = Qt::UserRole + 136;
+constexpr int TargetAnchorIdRole = Qt::UserRole + 137;
+constexpr int TargetAnchorNameRole = Qt::UserRole + 138;
+constexpr int TargetAnchorTargetAppRole = Qt::UserRole + 139;
+constexpr int TargetAnchorTargetFileRole = Qt::UserRole + 140;
+constexpr int TargetAnchorTargetUriRole = Qt::UserRole + 141;
+constexpr int TargetAnchorLocatorTypeRole = Qt::UserRole + 142;
+constexpr int TargetAnchorLocatorJsonRole = Qt::UserRole + 143;
+constexpr int TargetAnchorAliasesRole = Qt::UserRole + 144;
+constexpr int TargetAnchorTagsRole = Qt::UserRole + 145;
+constexpr int TargetAnchorPinnedRole = Qt::UserRole + 146;
+constexpr int TargetAnchorCreatedAtRole = Qt::UserRole + 147;
+constexpr int TargetAnchorUpdatedAtRole = Qt::UserRole + 148;
+constexpr int TargetAnchorUsedAtRole = Qt::UserRole + 149;
 
 enum class CommandNamespace {
     None,
@@ -64,6 +94,7 @@ enum class CommandAction {
 enum class CommandRowAction {
     Unknown = 0,
     OpenCommand,
+    OpenUnifiedTarget,
     ClipInsert,
     ClipSave,
     AnchorCapture,
@@ -250,6 +281,223 @@ QString clipToolTip(const ClipSearchResult &result)
     return lines.join(QLatin1Char('\n'));
 }
 
+QString commandResourceKindLabel(ResourceKind kind)
+{
+    switch (kind) {
+    case ResourceKind::Folder:
+        return QStringLiteral("Folder");
+    case ResourceKind::Pdf:
+        return QStringLiteral("PDF");
+    case ResourceKind::Markdown:
+    case ResourceKind::TextSnippet:
+        return QStringLiteral("Text");
+    case ResourceKind::Url:
+        return QStringLiteral("URL");
+    case ResourceKind::Note:
+        return QStringLiteral("Note");
+    case ResourceKind::ManualAnchor:
+        return QStringLiteral("Anchor");
+    case ResourceKind::File:
+        return QStringLiteral("File");
+    case ResourceKind::Unknown:
+        break;
+    }
+    return QStringLiteral("Resource");
+}
+
+QString commandAnchorTitle(const Anchor &anchor, const PinloomOpenTarget &target)
+{
+    if (!anchor.name.trimmed().isEmpty()) {
+        return anchor.name.trimmed();
+    }
+    if (!anchor.target.trimmed().isEmpty()) {
+        return anchor.target.trimmed();
+    }
+    if (!target.title.trimmed().isEmpty()) {
+        return target.title.trimmed();
+    }
+    return target.location.trimmed();
+}
+
+QString commandAnchorLocatorSummary(const Anchor &anchor)
+{
+    const QString locatorType = anchor.locatorType.trimmed();
+    const QString locatorJson = compactValue(anchor.locatorJson.trimmed(), 72);
+    if (!locatorType.isEmpty() && !locatorJson.isEmpty()) {
+        return QStringLiteral("%1 %2").arg(locatorType, locatorJson);
+    }
+    if (!locatorType.isEmpty()) {
+        return locatorType;
+    }
+
+    QStringList parts;
+    if (anchor.page > 0) {
+        parts.append(QStringLiteral("page %1").arg(anchor.page));
+    }
+    if (anchor.line > 0) {
+        parts.append(QStringLiteral("line %1").arg(anchor.line));
+    }
+    if (anchor.region.isValid()) {
+        parts.append(QStringLiteral("region %1,%2,%3,%4")
+                         .arg(QString::number(anchor.region.x(), 'f', 2),
+                              QString::number(anchor.region.y(), 'f', 2),
+                              QString::number(anchor.region.width(), 'f', 2),
+                              QString::number(anchor.region.height(), 'f', 2)));
+    }
+    return parts.join(QStringLiteral(", "));
+}
+
+QString commandAnchorHintsSummary(const Anchor &anchor)
+{
+    QStringList parts;
+    if (!anchor.tags.isEmpty()) {
+        QStringList tags;
+        for (const QString &tag : anchor.tags) {
+            const QString trimmed = tag.trimmed();
+            if (!trimmed.isEmpty()) {
+                tags.append(QStringLiteral("#%1").arg(trimmed));
+            }
+        }
+        if (!tags.isEmpty()) {
+            parts.append(tags.join(QLatin1Char(' ')));
+        }
+    }
+    if (!anchor.aliases.isEmpty()) {
+        parts.append(QStringLiteral("aliases: %1").arg(compactValue(anchor.aliases.join(QStringLiteral(", ")), 64)));
+    }
+    return parts.join(QStringLiteral(" | "));
+}
+
+QString commandTargetTitle(const PinloomOpenTarget &target)
+{
+    if (target.anchor.has_value()) {
+        return commandAnchorTitle(target.anchor.value(), target);
+    }
+    if (!target.title.trimmed().isEmpty()) {
+        return target.title.trimmed();
+    }
+    if (!target.location.trimmed().isEmpty()) {
+        const QString fileName = QFileInfo(target.location).fileName().trimmed();
+        return fileName.isEmpty() ? target.location.trimmed() : fileName;
+    }
+    if (!target.clipId.trimmed().isEmpty()) {
+        return target.clipId.trimmed();
+    }
+    return QStringLiteral("Untitled");
+}
+
+QString commandTargetKindLabel(const PinloomOpenTarget &target)
+{
+    if (!target.clipId.trimmed().isEmpty()) {
+        return QStringLiteral("Clip");
+    }
+    if (target.anchor.has_value()) {
+        return QStringLiteral("Anchor");
+    }
+    if (isInboxResourceId(target.resourceId)) {
+        return QStringLiteral("Inbox");
+    }
+    return commandResourceKindLabel(target.resourceKind);
+}
+
+QString commandTargetVerb(const PinloomOpenTarget &target)
+{
+    if (!target.clipId.trimmed().isEmpty()) {
+        return QStringLiteral("Insert");
+    }
+    if (target.anchor.has_value()) {
+        return QStringLiteral("Jump");
+    }
+    return QStringLiteral("Open");
+}
+
+QString commandTargetDetails(const PinloomOpenTarget &target)
+{
+    QStringList details;
+    if (target.anchor.has_value()) {
+        const Anchor &anchor = target.anchor.value();
+        if (!anchor.targetApp.trimmed().isEmpty()) {
+            details.append(anchor.targetApp.trimmed());
+        }
+
+        QString targetPath = anchor.targetFile.trimmed();
+        if (targetPath.isEmpty()) {
+            targetPath = anchor.targetUri.trimmed();
+        }
+        if (targetPath.isEmpty()) {
+            targetPath = target.location.trimmed();
+        }
+        if (!targetPath.isEmpty()) {
+            details.append(compactValue(targetPath, 80));
+        }
+
+        const QString locator = commandAnchorLocatorSummary(anchor);
+        if (!locator.isEmpty()) {
+            details.append(locator);
+        }
+        const QString hints = commandAnchorHintsSummary(anchor);
+        if (!hints.isEmpty()) {
+            details.append(hints);
+        }
+    } else {
+        const QString location = compactValue(target.location, 96);
+        if (!location.isEmpty()) {
+            details.append(location);
+        }
+    }
+
+    const QString match = target.matchSummary.trimmed().isEmpty()
+        ? target.matchedField.trimmed()
+        : target.matchSummary.trimmed();
+    if (!match.isEmpty()) {
+        details.append(compactValue(match, 80));
+    }
+
+    return details.join(QStringLiteral(" | "));
+}
+
+QString commandTargetText(const PinloomOpenTarget &target)
+{
+    return QStringLiteral("[%1] %2 -> %3\n%4")
+        .arg(commandTargetKindLabel(target),
+             compactValue(commandTargetTitle(target), 84),
+             commandTargetVerb(target),
+             commandTargetDetails(target));
+}
+
+QString commandTargetToolTip(const PinloomOpenTarget &target)
+{
+    QStringList lines;
+    lines.append(QStringLiteral("%1: %2").arg(commandTargetKindLabel(target), commandTargetTitle(target)));
+    if (!target.resourceId.trimmed().isEmpty()) {
+        lines.append(QStringLiteral("Resource: %1").arg(target.resourceId));
+    }
+    if (!target.clipId.trimmed().isEmpty()) {
+        lines.append(QStringLiteral("Clip: %1").arg(target.clipId));
+    }
+    if (!target.location.trimmed().isEmpty()) {
+        lines.append(QStringLiteral("Location: %1").arg(target.location));
+    }
+    if (target.anchor.has_value()) {
+        const Anchor &anchor = target.anchor.value();
+        lines.append(QStringLiteral("Anchor: %1").arg(anchor.id));
+        const QString locator = commandAnchorLocatorSummary(anchor);
+        if (!locator.isEmpty()) {
+            lines.append(QStringLiteral("Locator: %1").arg(locator));
+        }
+        const QString hints = commandAnchorHintsSummary(anchor);
+        if (!hints.isEmpty()) {
+            lines.append(hints);
+        }
+    }
+    if (!target.matchSummary.trimmed().isEmpty()) {
+        lines.append(target.matchSummary.trimmed());
+    } else if (!target.matchedField.trimmed().isEmpty()) {
+        lines.append(QStringLiteral("Match: %1").arg(target.matchedField.trimmed()));
+    }
+    return lines.join(QLatin1Char('\n'));
+}
+
 int skipSpaces(const QString &text, int index)
 {
     while (index < text.size() && text.at(index).isSpace()) {
@@ -360,7 +608,9 @@ ClipSearchResult clipResultForItem(const QListWidgetItem *item)
 {
     ClipSearchResult result;
     const CommandRowAction action = rowActionForItem(item);
-    if (!item || (action != CommandRowAction::ClipInsert && action != CommandRowAction::ClipSave)) {
+    if (!item || (action != CommandRowAction::ClipInsert
+                  && action != CommandRowAction::ClipSave
+                  && action != CommandRowAction::OpenUnifiedTarget)) {
         return result;
     }
 
@@ -397,6 +647,104 @@ void storeClipResult(QListWidgetItem *item, const ClipSearchResult &result)
     item->setData(ClipRankRole, result.rank);
     item->setData(ClipPinnedRole, result.pinned);
     item->setData(ClipCreatedAtRole, result.createdAt);
+}
+
+void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
+{
+    if (!item) {
+        return;
+    }
+
+    item->setData(TargetResourceIdRole, target.resourceId);
+    item->setData(TargetClipIdRole, target.clipId);
+    item->setData(TargetKindRole, static_cast<int>(target.resourceKind));
+    item->setData(TargetTitleRole, target.title);
+    item->setData(TargetLocationRole, target.location);
+    item->setData(TargetMatchedFieldRole, target.matchedField);
+    item->setData(TargetScoreRole, target.score);
+    item->setData(TargetMatchSummaryRole, target.matchSummary);
+
+    if (!target.clipId.trimmed().isEmpty()) {
+        item->setData(ClipIdRole, target.clipId);
+        item->setData(ClipDisplayNameRole, target.title);
+        item->setData(ClipPreviewRole, target.location);
+        item->setData(ClipMatchedFieldRole, target.matchedField);
+        item->setData(ClipScoreRole, target.score);
+    }
+
+    item->setData(TargetHasAnchorRole, target.anchor.has_value());
+    if (!target.anchor.has_value()) {
+        return;
+    }
+
+    const Anchor &anchor = target.anchor.value();
+    item->setData(TargetAnchorTypeRole, static_cast<int>(anchor.type));
+    item->setData(TargetAnchorTargetRole, anchor.target);
+    item->setData(TargetAnchorLineRole, anchor.line);
+    item->setData(TargetAnchorPageRole, anchor.page);
+    item->setData(TargetAnchorRegionXRole, anchor.region.x());
+    item->setData(TargetAnchorRegionYRole, anchor.region.y());
+    item->setData(TargetAnchorRegionWidthRole, anchor.region.width());
+    item->setData(TargetAnchorRegionHeightRole, anchor.region.height());
+    item->setData(TargetAnchorIdRole, anchor.id);
+    item->setData(TargetAnchorNameRole, anchor.name);
+    item->setData(TargetAnchorTargetAppRole, anchor.targetApp);
+    item->setData(TargetAnchorTargetFileRole, anchor.targetFile);
+    item->setData(TargetAnchorTargetUriRole, anchor.targetUri);
+    item->setData(TargetAnchorLocatorTypeRole, anchor.locatorType);
+    item->setData(TargetAnchorLocatorJsonRole, anchor.locatorJson);
+    item->setData(TargetAnchorAliasesRole, anchor.aliases);
+    item->setData(TargetAnchorTagsRole, anchor.tags);
+    item->setData(TargetAnchorPinnedRole, anchor.pinned);
+    item->setData(TargetAnchorCreatedAtRole, anchor.createdAt);
+    item->setData(TargetAnchorUpdatedAtRole, anchor.updatedAt);
+    item->setData(TargetAnchorUsedAtRole, anchor.usedAt);
+}
+
+PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row = -1)
+{
+    PinloomOpenTarget target;
+    if (!item) {
+        return target;
+    }
+
+    target.resultRow = row;
+    target.resourceId = item->data(TargetResourceIdRole).toString();
+    target.clipId = item->data(TargetClipIdRole).toString();
+    target.resourceKind = static_cast<ResourceKind>(item->data(TargetKindRole).toInt());
+    target.title = item->data(TargetTitleRole).toString();
+    target.location = item->data(TargetLocationRole).toString();
+    target.matchedField = item->data(TargetMatchedFieldRole).toString();
+    target.score = item->data(TargetScoreRole).toDouble();
+    target.matchSummary = item->data(TargetMatchSummaryRole).toString();
+
+    if (item->data(TargetHasAnchorRole).toBool()) {
+        Anchor anchor;
+        anchor.type = static_cast<AnchorType>(item->data(TargetAnchorTypeRole).toInt());
+        anchor.target = item->data(TargetAnchorTargetRole).toString();
+        anchor.line = item->data(TargetAnchorLineRole).toInt();
+        anchor.page = item->data(TargetAnchorPageRole).toInt();
+        anchor.region = QRectF(item->data(TargetAnchorRegionXRole).toDouble(),
+                               item->data(TargetAnchorRegionYRole).toDouble(),
+                               item->data(TargetAnchorRegionWidthRole).toDouble(),
+                               item->data(TargetAnchorRegionHeightRole).toDouble());
+        anchor.id = item->data(TargetAnchorIdRole).toString();
+        anchor.name = item->data(TargetAnchorNameRole).toString();
+        anchor.targetApp = item->data(TargetAnchorTargetAppRole).toString();
+        anchor.targetFile = item->data(TargetAnchorTargetFileRole).toString();
+        anchor.targetUri = item->data(TargetAnchorTargetUriRole).toString();
+        anchor.locatorType = item->data(TargetAnchorLocatorTypeRole).toString();
+        anchor.locatorJson = item->data(TargetAnchorLocatorJsonRole).toString();
+        anchor.aliases = item->data(TargetAnchorAliasesRole).toStringList();
+        anchor.tags = item->data(TargetAnchorTagsRole).toStringList();
+        anchor.pinned = item->data(TargetAnchorPinnedRole).toBool();
+        anchor.createdAt = item->data(TargetAnchorCreatedAtRole).toDateTime();
+        anchor.updatedAt = item->data(TargetAnchorUpdatedAtRole).toDateTime();
+        anchor.usedAt = item->data(TargetAnchorUsedAtRole).toDateTime();
+        target.anchor = anchor;
+    }
+
+    return target;
 }
 
 } // namespace
@@ -514,6 +862,19 @@ ClipSearchResult PinloomCommandPanel::currentResult() const
     return clipResultForItem(resultList_->currentItem());
 }
 
+PinloomOpenTarget PinloomCommandPanel::openTargetAt(int row) const
+{
+    if (row < 0 || row >= resultList_->count()) {
+        return {};
+    }
+    return openTargetForCommandItem(resultList_->item(row), row);
+}
+
+PinloomOpenTarget PinloomCommandPanel::currentOpenTarget() const
+{
+    return openTargetForCommandItem(resultList_->currentItem(), resultList_->currentRow());
+}
+
 bool PinloomCommandPanel::selectResultAt(int row)
 {
     if (row < 0 || row >= resultList_->count()) {
@@ -577,6 +938,12 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
         } else if (command.commandNamespace == CommandNamespace::Inbox
                    && command.action == CommandAction::InboxSearch) {
             updateStatus(tr("No Inbox search command selected"));
+        } else if (command.commandNamespace == CommandNamespace::None
+                   && commandEdit_
+                   && !commandEdit_->text().trimmed().isEmpty()) {
+            updateStatus(options_.unifiedSearchHandler
+                             ? tr("No unified results")
+                             : tr("Unified search is not configured"));
         } else {
             updateStatus(tr("Unknown command"));
         }
@@ -681,9 +1048,23 @@ void PinloomCommandPanel::refreshResults()
             storeClipResult(item, result);
         }
     };
+    const auto appendUnifiedResults = [this](const QList<PinloomOpenTarget> &targets) {
+        for (const PinloomOpenTarget &target : targets) {
+            auto *item = new QListWidgetItem(commandTargetText(target), resultList_);
+            item->setToolTip(commandTargetToolTip(target));
+            item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+            item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenUnifiedTarget));
+            storeOpenTarget(item, target);
+        }
+    };
 
     constexpr int resultLimit = 100;
-    if (command.commandNamespace == CommandNamespace::Clip
+    const QString plainQuery = commandEdit_->text().trimmed();
+    if (command.commandNamespace == CommandNamespace::None
+        && !plainQuery.isEmpty()
+        && options_.unifiedSearchHandler) {
+        appendUnifiedResults(options_.unifiedSearchHandler(plainQuery));
+    } else if (command.commandNamespace == CommandNamespace::Clip
         && command.action == CommandAction::None) {
         appendCommandResult(CommandRowAction::OpenCommand,
                             QStringLiteral("c s"),
@@ -787,7 +1168,15 @@ void PinloomCommandPanel::refreshResults()
     }
 
     if (commandEdit_->text().trimmed().isEmpty()) {
-        updateStatus(tr("Type c for Clip commands, k for Anchor commands, or i for Inbox commands"));
+        updateStatus(tr("Type to search Anchor, Clip, Inbox, or File; c/k/i for commands"));
+    } else if (command.commandNamespace == CommandNamespace::None) {
+        if (!options_.unifiedSearchHandler) {
+            updateStatus(tr("Unified search is not configured"));
+        } else {
+            updateStatus(resultList_->count() > 0
+                             ? tr("Unified search: %n result(s)", nullptr, resultList_->count())
+                             : tr("No unified results"));
+        }
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::None) {
         updateStatus(tr("Clip commands"));
@@ -866,6 +1255,9 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
         return false;
     }
 
+    if (action == CommandRowAction::OpenUnifiedTarget) {
+        return activateUnifiedTargetFromItem(item);
+    }
     if (action == CommandRowAction::ClipInsert) {
         return insertClipFromItem(item);
     }
@@ -906,6 +1298,69 @@ bool PinloomCommandPanel::insertClipFromItem(const QListWidgetItem *item)
 
     updateStatus(tr("Inserted clip"));
     emit clipInserted(result.clipId);
+    return true;
+}
+
+bool PinloomCommandPanel::activateUnifiedTargetFromItem(const QListWidgetItem *item)
+{
+    const PinloomOpenTarget target =
+        openTargetForCommandItem(item, item ? resultList_->row(item) : -1);
+    if (!target.clipId.trimmed().isEmpty()) {
+        if (!options_.clipInsertionHandler) {
+            updateStatus(tr("Clip insertion is not configured"));
+            return false;
+        }
+
+        QString error;
+        if (!options_.clipInsertionHandler(target.clipId, &error)) {
+            updateStatus(error.trimmed().isEmpty() ? tr("Clip insertion failed") : error.trimmed());
+            return false;
+        }
+
+        updateStatus(tr("Inserted clip"));
+        emit clipInserted(target.clipId);
+        return true;
+    }
+
+    if (target.anchor.has_value()) {
+        if (!options_.anchorJumpHandler && !options_.resourceOpenHandler) {
+            updateStatus(tr("Anchor jump is not configured"));
+            return false;
+        }
+
+        QString status;
+        const bool jumped = options_.anchorJumpHandler
+            ? options_.anchorJumpHandler(target, &status)
+            : options_.resourceOpenHandler(target, &status);
+        if (!jumped) {
+            updateStatus(status.trimmed().isEmpty() ? tr("Anchor jump failed") : status.trimmed());
+            return false;
+        }
+
+        updateStatus(status.trimmed().isEmpty() ? tr("Jumped anchor") : status.trimmed());
+        emit anchorJumped(target.resourceId);
+        return true;
+    }
+
+    if (target.resourceId.trimmed().isEmpty() && target.location.trimmed().isEmpty()) {
+        updateStatus(tr("No unified result selected"));
+        return false;
+    }
+    if (!options_.resourceOpenHandler) {
+        updateStatus(tr("Resource opening is not configured"));
+        return false;
+    }
+
+    QString status;
+    if (!options_.resourceOpenHandler(target, &status)) {
+        updateStatus(status.trimmed().isEmpty() ? tr("Resource open failed") : status.trimmed());
+        return false;
+    }
+
+    updateStatus(status.trimmed().isEmpty()
+                     ? (isInboxResourceId(target.resourceId) ? tr("Opened Inbox file") : tr("Opened resource"))
+                     : status.trimmed());
+    emit resourceOpened(target.resourceId);
     return true;
 }
 
