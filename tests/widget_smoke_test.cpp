@@ -137,6 +137,7 @@ private slots:
     void panelReportsNoPdfContextForPdfCapture();
     void panelCapturesSelectedPdfFallbackAnchorWithMetadataOnly();
     void manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault();
+    void manualPdfCaptureDialogExplainsForegroundViewStateFallback();
     void panelRoutesCtrlKThroughManualPdfAnchorRequestProvider();
     void panelCreatesManualPdfAnchorThroughDialogHook();
     void panelCancelsManualPdfAnchorDialogHookWithoutSaving();
@@ -5426,6 +5427,30 @@ void WidgetSmokeTest::manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault
     QVERIFY(foregroundSummary->text().contains(QStringLiteral("foreground PDF-XChange fallback")));
     QVERIFY(foregroundSummary->text().contains(QStringLiteral("page defaults to 1")));
     QCOMPARE(foregroundDialog.request().source, QStringLiteral("foreground-pdfxchange-fallback"));
+}
+
+void WidgetSmokeTest::manualPdfCaptureDialogExplainsForegroundViewStateFallback()
+{
+    ManualPdfAnchorCreationRequest suggested;
+    suggested.file = QStringLiteral("E:/docs/spec.pdf");
+    suggested.page = 37;
+    suggested.rect = {0.0, 0.0, 612.0, 792.0};
+    suggested.zoom = 175.0;
+    suggested.source = QStringLiteral("foreground-pdfxchange-viewstate");
+
+    ManualPdfAnchorDialog dialog(suggested);
+    dialog.show();
+    QApplication::processEvents();
+
+    auto *summary = dialog.findChild<QLabel *>(QStringLiteral("manualPdfAnchorSummaryLabel"));
+    QVERIFY(summary);
+    QVERIFY(summary->text().contains(QStringLiteral("foreground PDF-XChange page/zoom")));
+    QVERIFY(summary->text().contains(QStringLiteral("rectangle is full-page fallback")));
+    QVERIFY(summary->text().contains(QStringLiteral("page 37")));
+    QVERIFY(summary->text().contains(QStringLiteral("zoom 175")));
+    QCOMPARE(dialog.request().source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(dialog.request().page, 37);
+    QCOMPARE(dialog.request().zoom, 175.0);
 }
 
 void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()

@@ -1513,15 +1513,20 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         const bool foregroundPdfFallback =
             suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"),
                                                           Qt::CaseInsensitive) == 0;
+        const bool foregroundPdfViewState =
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-viewstate"),
+                                                          Qt::CaseInsensitive) == 0;
         if (options_.pdfAnchorCaptureDialogHandler) {
             request = options_.pdfAnchorCaptureDialogHandler(this, suggestedPdfRequest.value());
         } else if (options_.manualPdfAnchorDialogHandler) {
             request = options_.manualPdfAnchorDialogHandler(this);
         } else {
             ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
-            updateStatus(foregroundPdfFallback
-                             ? tr("Capturing PDF anchor from foreground PDF-XChange fallback; page defaults to 1, edit if needed")
-                             : tr("Capturing PDF anchor from selected PDF fallback"));
+            updateStatus(foregroundPdfViewState
+                             ? tr("Capturing PDF anchor from foreground PDF-XChange page/zoom; rectangle is full-page fallback")
+                             : foregroundPdfFallback
+                                   ? tr("Capturing PDF anchor from foreground PDF-XChange fallback; page defaults to 1, edit if needed")
+                                   : tr("Capturing PDF anchor from selected PDF fallback"));
             if (dialog.exec() == QDialog::Accepted) {
                 request = dialog.request();
             }
@@ -1560,11 +1565,15 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfFallback =
         request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0;
-    updateStatus(foregroundPdfFallback
-                     ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange fallback)").arg(result.anchor.name)
-                     : selectedPdfFallback
-                           ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
-                           : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
+    const bool foregroundPdfViewState =
+        request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-viewstate"), Qt::CaseInsensitive) == 0;
+    updateStatus(foregroundPdfViewState
+                     ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange page/zoom; rect fallback)").arg(result.anchor.name)
+                     : foregroundPdfFallback
+                           ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange fallback)").arg(result.anchor.name)
+                           : selectedPdfFallback
+                                 ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
+                                 : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
     return true;
 }
 

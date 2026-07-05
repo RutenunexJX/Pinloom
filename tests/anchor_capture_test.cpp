@@ -55,6 +55,9 @@ private slots:
     void reportsManualPdfRectAnchorRepositorySaveFailure();
     void capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf();
     void matchesForegroundPdfXChangeTitleToUniqueIndexedPdf();
+    void parsesPdfXChangeViewStateFromStatusText();
+    void reportsUnparseablePdfXChangeViewStateText();
+    void injectsForegroundPdfXChangeViewStateIntoCaptureRequest();
     void reportsForegroundPdfXChangeTitleWithoutFilePath();
     void rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
@@ -1098,6 +1101,78 @@ void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
     QCOMPARE(pdfXChangeDocumentTitleFromWindowTitle(
                  QStringLiteral("*IHI0022K_amba_axi_protocol_spec[axi] - PDF-XChange Editor")),
              QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
+}
+
+void AnchorCaptureTest::parsesPdfXChangeViewStateFromStatusText()
+{
+    const PdfXChangeViewState state = parsePdfXChangeViewStateText(
+        QStringLiteral("Status: Page: 12 of 345   Zoom: 250%"),
+        QStringLiteral("test-status"));
+
+    QVERIFY(state.hasAnyViewState());
+    QVERIFY(state.hasCurrentPage());
+    QVERIFY(state.hasZoom());
+    QCOMPARE(state.currentPage, 12);
+    QCOMPARE(state.totalPages, 345);
+    QCOMPARE(state.zoom, 250.0);
+    QCOMPARE(state.source, QStringLiteral("test-status"));
+    QVERIFY(state.diagnostics.isEmpty());
+
+    const PdfXChangeViewState slashState = parsePdfXChangeViewStateText(
+        QStringLiteral("PDF-XChange Editor  7 / 91  175%"),
+        QStringLiteral("test-toolbar"));
+    QCOMPARE(slashState.currentPage, 7);
+    QCOMPARE(slashState.totalPages, 91);
+    QCOMPARE(slashState.zoom, 175.0);
+}
+
+void AnchorCaptureTest::reportsUnparseablePdfXChangeViewStateText()
+{
+    const PdfXChangeViewState state = parsePdfXChangeViewStateText(
+        QStringLiteral("Ready - no deterministic page or zoom here"),
+        QStringLiteral("test-status"));
+
+    QVERIFY(!state.hasAnyViewState());
+    QVERIFY(!state.hasCurrentPage());
+    QVERIFY(!state.hasZoom());
+    QCOMPARE(state.currentPage, -1);
+    QCOMPARE(state.totalPages, -1);
+    QCOMPARE(state.zoom, -1.0);
+    QVERIFY(state.diagnostics.contains(QStringLiteral("did not contain")));
+}
+
+void AnchorCaptureTest::injectsForegroundPdfXChangeViewStateIntoCaptureRequest()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - PDF-XChange Editor");
+    context.processName = QStringLiteral("PDFXEdit.exe");
+
+    PdfXChangeViewState viewState;
+    viewState.currentPage = 37;
+    viewState.totalPages = 220;
+    viewState.zoom = 175.0;
+    viewState.source = QStringLiteral("fake-status");
+
+    const PdfXChangeForegroundCaptureResult result =
+        capturePdfXChangeForegroundContext(repository, context, viewState);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.page, 37);
+    QCOMPARE(result.request.zoom, 175.0);
+    QCOMPARE(result.request.rect.left, 0.0);
+    QCOMPARE(result.request.rect.top, 0.0);
+    QCOMPARE(result.request.rect.right, 612.0);
+    QCOMPARE(result.request.rect.bottom, 792.0);
+    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(result.viewState.currentPage, 37);
+    QCOMPARE(result.viewState.totalPages, 220);
+    QCOMPARE(result.viewState.zoom, 175.0);
+    QVERIFY(result.status.contains(QStringLiteral("page 37")));
+    QVERIFY(result.status.contains(QStringLiteral("zoom 175%")));
+    QVERIFY(result.status.contains(QStringLiteral("rectangle is full-page fallback")));
 }
 
 void AnchorCaptureTest::reportsForegroundPdfXChangeTitleWithoutFilePath()

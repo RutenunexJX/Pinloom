@@ -199,19 +199,22 @@ void ManualPdfAnchorDialog::updateSummary()
     QString sourceSummary;
     if (source_.compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground PDF-XChange fallback; page defaults to 1, edit if needed");
+    } else if (source_.compare(QStringLiteral("foreground-pdfxchange-viewstate"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground PDF-XChange page/zoom; rectangle is full-page fallback, edit if needed");
     } else if (source_.compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("selected-PDF fallback, not native current-view capture");
     } else {
         sourceSummary = tr("%1 fallback, not native current-view capture").arg(source_);
     }
 
-    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | %7")
+    summaryLabel_->setText(tr("%1 | page %2 | rect %3,%4,%5,%6 | zoom %7% | %8")
                                .arg(fileSummary,
                                     QString::number(pageSpin_->value()),
                                     QString::number(leftSpin_->value(), 'f', 2),
                                     QString::number(topSpin_->value(), 'f', 2),
                                     QString::number(rightSpin_->value(), 'f', 2),
                                     QString::number(bottomSpin_->value(), 'f', 2),
+                                    QString::number(zoomSpin_->value(), 'f', 2),
                                     sourceSummary));
 }
 

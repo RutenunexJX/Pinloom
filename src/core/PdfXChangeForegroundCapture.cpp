@@ -2,10 +2,13 @@
 
 #include <QDir>
 #include <QFileInfo>
+#include <QRegularExpression>
 #include <QStringList>
 #include <QUrl>
 #include <algorithm>
+#include <cmath>
 #include <optional>
+#include <utility>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -20,6 +23,7 @@ namespace Pinloom {
 namespace {
 
 constexpr const char *ForegroundPdfXChangeFallbackSource = "foreground-pdfxchange-fallback";
+constexpr const char *ForegroundPdfXChangeViewStateSource = "foreground-pdfxchange-viewstate";
 
 QString stripOuterDocumentDecorations(QString value)
 {
@@ -206,6 +210,70 @@ PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &docume
     return result;
 }
 
+QString decimalText(double value)
+{
+    QString text = QString::number(value, 'f', 2);
+    while (text.contains(QLatin1Char('.')) && text.endsWith(QLatin1Char('0'))) {
+        text.chop(1);
+    }
+    if (text.endsWith(QLatin1Char('.'))) {
+        text.chop(1);
+    }
+    return text;
+}
+
+QString viewStateStatus(const PdfXChangeViewState &viewState)
+{
+    if (!viewState.hasAnyViewState()) {
+        const QString diagnostics = viewState.diagnostics.trimmed();
+        return diagnostics.isEmpty()
+            ? QStringLiteral("PDF-XChange view state unavailable; page defaults to 1 and rectangle is full-page fallback")
+            : QStringLiteral("%1; page defaults to 1 and rectangle is full-page fallback").arg(diagnostics);
+    }
+
+    QStringList parts;
+    if (viewState.hasCurrentPage()) {
+        QString pageText = QStringLiteral("page %1").arg(viewState.currentPage);
+        if (viewState.totalPages > 0) {
+            pageText += QStringLiteral(" of %1").arg(viewState.totalPages);
+        }
+        parts.append(pageText);
+    } else {
+        parts.append(QStringLiteral("page unavailable; defaulting to 1"));
+    }
+
+    parts.append(viewState.hasZoom()
+                     ? QStringLiteral("zoom %1%").arg(decimalText(viewState.zoom))
+                     : QStringLiteral("zoom unavailable"));
+    parts.append(QStringLiteral("rectangle is full-page fallback"));
+    return QStringLiteral("Captured PDF-XChange view state: %1").arg(parts.join(QStringLiteral("; ")));
+}
+
+void applyViewState(PdfXChangeForegroundCaptureResult &result, const PdfXChangeViewState &viewState)
+{
+    result.viewState = viewState;
+    if (viewState.hasCurrentPage()) {
+        result.request.page = viewState.currentPage;
+    }
+    if (viewState.hasZoom()) {
+        result.request.zoom = viewState.zoom;
+    }
+    if (viewState.hasAnyViewState()) {
+        result.request.source = QString::fromLatin1(ForegroundPdfXChangeViewStateSource);
+    }
+    result.status = viewStateStatus(viewState);
+}
+
+PdfXChangeForegroundCaptureResult resultForMatchedResource(
+    const QString &documentTitle,
+    const Resource &resource,
+    const PdfXChangeViewState &viewState)
+{
+    PdfXChangeForegroundCaptureResult result = resultForMatchedResource(documentTitle, resource);
+    applyViewState(result, viewState);
+    return result;
+}
+
 PdfXChangeForegroundCaptureResult resultForResolvedFilePath(const QString &documentTitle, const QString &filePath)
 {
     PdfXChangeForegroundCaptureResult result;
@@ -225,6 +293,16 @@ PdfXChangeForegroundCaptureResult resultForResolvedFilePath(const QString &docum
     result.request.unit = QStringLiteral("pt");
     result.request.source = QString::fromLatin1(ForegroundPdfXChangeFallbackSource);
     result.request.targetApp = QStringLiteral("PDF-XChange");
+    return result;
+}
+
+PdfXChangeForegroundCaptureResult resultForResolvedFilePath(
+    const QString &documentTitle,
+    const QString &filePath,
+    const PdfXChangeViewState &viewState)
+{
+    PdfXChangeForegroundCaptureResult result = resultForResolvedFilePath(documentTitle, filePath);
+    applyViewState(result, viewState);
     return result;
 }
 
@@ -267,6 +345,20 @@ QString processPathForId(DWORD processId)
     CloseHandle(process);
     return path;
 }
+
+BOOL CALLBACK collectChildWindowText(HWND window, LPARAM lParam)
+{
+    auto *fragments = reinterpret_cast<QStringList *>(lParam);
+    if (!fragments) {
+        return TRUE;
+    }
+
+    const QString text = windowTitleForHandle(window).trimmed();
+    if (!text.isEmpty() && !fragments->contains(text)) {
+        fragments->append(text);
+    }
+    return TRUE;
+}
 #endif
 
 } // namespace
@@ -280,6 +372,21 @@ bool ForegroundAppWindowContext::isValid() const
         || processId != 0;
 }
 
+bool PdfXChangeViewState::hasCurrentPage() const
+{
+    return currentPage > 0;
+}
+
+bool PdfXChangeViewState::hasZoom() const
+{
+    return std::isfinite(zoom) && zoom > 0.0;
+}
+
+bool PdfXChangeViewState::hasAnyViewState() const
+{
+    return hasCurrentPage() || totalPages > 0 || hasZoom();
+}
+
 bool PdfXChangeForegroundCaptureResult::success() const
 {
     return recognizedPdfXChange
@@ -289,13 +396,25 @@ bool PdfXChangeForegroundCaptureResult::success() const
 PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
     const ILibraryRepository &repository)
     : repository_(repository)
+    , viewStateProvider_(capturePdfXChangeViewState)
+{
+}
+
+PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
+    const ILibraryRepository &repository,
+    ViewStateProvider viewStateProvider)
+    : repository_(repository)
+    , viewStateProvider_(std::move(viewStateProvider))
 {
 }
 
 PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::capture(
     const ForegroundAppWindowContext &context) const
 {
-    return capturePdfXChangeForegroundContext(repository_, context);
+    const PdfXChangeViewState viewState = viewStateProvider_
+        ? viewStateProvider_(context)
+        : PdfXChangeViewState{};
+    return capturePdfXChangeForegroundContext(repository_, context, viewState);
 }
 
 PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::captureCurrentForeground() const
@@ -384,9 +503,142 @@ QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle)
     return path;
 }
 
+PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QString &source)
+{
+    PdfXChangeViewState state;
+    state.source = source.trimmed().isEmpty() ? QStringLiteral("text") : source.trimmed();
+
+    const QString normalized = text.simplified();
+    if (normalized.isEmpty()) {
+        state.diagnostics = QStringLiteral("PDF-XChange view state text is empty");
+        return state;
+    }
+
+    const QList<QRegularExpression> pageExpressions = {
+        QRegularExpression(QStringLiteral("\\bpage\\s*[:#]?\\s*(\\d{1,6})\\s*(?:/|of)\\s*(\\d{1,6})\\b"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("\\b(\\d{1,6})\\s*(?:/|of)\\s*(\\d{1,6})\\s*(?:pages?)?\\b"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    for (const QRegularExpression &expression : pageExpressions) {
+        const QRegularExpressionMatch match = expression.match(normalized);
+        if (!match.hasMatch()) {
+            continue;
+        }
+
+        const int currentPage = match.captured(1).toInt();
+        const int totalPages = match.captured(2).toInt();
+        if (currentPage > 0 && totalPages > 0 && totalPages >= currentPage) {
+            state.currentPage = currentPage;
+            state.totalPages = totalPages;
+            break;
+        }
+    }
+
+    if (!state.hasCurrentPage()) {
+        const QRegularExpression pageOnly(
+            QStringLiteral("\\bpage\\s*[:#]?\\s*(\\d{1,6})\\b"),
+            QRegularExpression::CaseInsensitiveOption);
+        const QRegularExpressionMatch match = pageOnly.match(normalized);
+        if (match.hasMatch()) {
+            const int currentPage = match.captured(1).toInt();
+            if (currentPage > 0) {
+                state.currentPage = currentPage;
+            }
+        }
+    }
+
+    const QList<QRegularExpression> zoomExpressions = {
+        QRegularExpression(QStringLiteral("\\bzoom\\s*[:=]?\\s*(\\d{1,4}(?:[\\.,]\\d+)?)\\s*%"),
+                           QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("\\b(\\d{1,4}(?:[\\.,]\\d+)?)\\s*%"),
+                           QRegularExpression::CaseInsensitiveOption),
+    };
+    for (const QRegularExpression &expression : zoomExpressions) {
+        const QRegularExpressionMatch match = expression.match(normalized);
+        if (!match.hasMatch()) {
+            continue;
+        }
+
+        QString zoomText = match.captured(1);
+        zoomText.replace(QLatin1Char(','), QLatin1Char('.'));
+        bool ok = false;
+        const double parsedZoom = zoomText.toDouble(&ok);
+        if (ok && std::isfinite(parsedZoom) && parsedZoom > 0.0) {
+            state.zoom = parsedZoom;
+            break;
+        }
+    }
+
+    if (!state.hasAnyViewState()) {
+        state.diagnostics = QStringLiteral("PDF-XChange view state text did not contain a current page or zoom");
+        return state;
+    }
+
+    QStringList missing;
+    if (!state.hasCurrentPage()) {
+        missing.append(QStringLiteral("current page"));
+    }
+    if (state.hasCurrentPage() && state.totalPages <= 0) {
+        missing.append(QStringLiteral("total pages"));
+    }
+    if (!state.hasZoom()) {
+        missing.append(QStringLiteral("zoom"));
+    }
+    if (!missing.isEmpty()) {
+        state.diagnostics = QStringLiteral("PDF-XChange view state parsed partially; missing %1")
+                                .arg(missing.join(QStringLiteral(", ")));
+    }
+    return state;
+}
+
+PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext &context)
+{
+    PdfXChangeViewState state;
+    state.source = QStringLiteral("win32-window-text");
+
+    if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
+        state.diagnostics = QStringLiteral("Foreground window is not PDF-XChange");
+        return state;
+    }
+
+    QStringList fragments;
+    if (!context.windowTitle.trimmed().isEmpty()) {
+        fragments.append(context.windowTitle.trimmed());
+    }
+
+#ifdef Q_OS_WIN
+    if (context.windowHandle != 0) {
+        HWND window = reinterpret_cast<HWND>(context.windowHandle);
+        const QString rootText = windowTitleForHandle(window).trimmed();
+        if (!rootText.isEmpty() && !fragments.contains(rootText)) {
+            fragments.append(rootText);
+        }
+        EnumChildWindows(window, collectChildWindowText, reinterpret_cast<LPARAM>(&fragments));
+    }
+#endif
+
+    if (fragments.isEmpty()) {
+        state.diagnostics = QStringLiteral("No PDF-XChange window text was readable");
+        return state;
+    }
+
+    state = parsePdfXChangeViewStateText(fragments.join(QLatin1Char('\n')),
+                                         QStringLiteral("win32-window-text"));
+    return state;
+}
+
 PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context)
+{
+    return capturePdfXChangeForegroundContext(repository, context, capturePdfXChangeViewState(context));
+}
+
+PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+    const ILibraryRepository &repository,
+    const ForegroundAppWindowContext &context,
+    const PdfXChangeViewState &viewState)
 {
     PdfXChangeForegroundCaptureResult result;
     if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
@@ -401,7 +653,8 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
         return resultForResolvedFilePath(result.documentTitle.trimmed().isEmpty()
                                              ? documentPath
                                              : result.documentTitle,
-                                         documentPath);
+                                         documentPath,
+                                         viewState);
     }
 
     if (result.documentTitle.trimmed().isEmpty()) {
@@ -427,7 +680,7 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
         return result;
     }
 
-    return resultForMatchedResource(result.documentTitle, matches.first());
+    return resultForMatchedResource(result.documentTitle, matches.first(), viewState);
 }
 
 } // namespace Pinloom
