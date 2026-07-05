@@ -329,14 +329,41 @@ Status:
   separate namespaces.
 - Launcher result actions now live behind the selected-result action list:
   press Right Arrow (`->`) on an ordinary unified result to show compact
-  Jump/Insert/Open, Pin/Unpin, Add alias, Add tag, Edit name/metadata, and
-  explicit disabled Delete/Remove rows when the backing repository does not yet
-  expose a safe delete API. The action list keeps keyboard Up/Down navigation,
-  Enter execution, and Esc/Left Arrow return to ordinary results.
+  Jump/Insert/Open, Rename, Edit aliases, Edit tags, Pin/Unpin, Delete/Remove,
+  Restore for deleted Entries, and explicit disabled rows with reasons when an
+  action is not valid for the current object state. The action list keeps
+  keyboard Up/Down navigation, Enter execution, and Esc/Left Arrow return to
+  ordinary results.
 - Ordinary Command Window mixed results use the shared ranking surface: exact
   name/title buckets are shown before alias, tag, pinned/recent/frequency
   tie-breaks, and target/path metadata. This keeps explicit `c`, `k`, and `i`
   namespaces separate from normal search.
+- The Entry management loop is now closed for the daily-use objects that appear
+  in ordinary Command Window search. Right Arrow actions expose Rename, Edit
+  aliases, Edit tags, Pin/Unpin, confirmed Delete / Remove, and Restore. Delete
+  / Remove is a Pinloom soft delete only and does not remove original files,
+  PDFs, Inbox source paths, or external clipboard source content. Type
+  `restore <query>` or `trash <query>` to search soft-deleted Entries, then use
+  the same action list to restore them. Disabled actions carry a reason instead
+  of failing silently.
+- PDF-XChange foreground `k n` capture now has a reusable user-facing locator
+  summary for file, page, rectangle, zoom, unit, and capture source. Diagnostics
+  distinguish missing foreground PDF-XChange, missing exposed file path,
+  ambiguous indexed-PDF fallback, unparseable view-state text, and full-page
+  fallback locator generation.
+- Saved Clip insertion remains available from ordinary Command Window search
+  and `c s`; the main settings dialog now exposes whether successful insertion
+  restores the original clipboard. The default remains restore-on-success, and
+  privacy controls for source-app blacklist, sensitive markers, size limit,
+  history limit, and TTL feed the capture policy.
+- Pinloom Inbox remains Link-only by default. Drag/drop and `i n` create
+  searchable Inbox Entries without moving or copying the original file; Inbox
+  Entries use the same metadata, pin, soft-delete, restore, search, and default
+  open/reveal path as other local resources.
+- The Command Window now has a forward-compatible command/action result shape:
+  UI handlers can consume `success`, `message`, `diagnostics`, and
+  `nextUiHint`. The current Qt window is a caller of this protocol, keeping the
+  surface ready for a future ZeroSlack host without adding a larger framework.
 
 ## Frozen Or Demoted Work
 

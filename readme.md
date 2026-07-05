@@ -181,9 +181,14 @@ the current foreground app, and opens Inbox/File results with the default app.
 With a unified result selected, press Right Arrow (`->`) to open its compact
 action list. The action list supports Up/Down selection, Enter to run the
 selected action, and Esc or Left Arrow to return to ordinary results. Actions
-include the primary Jump/Insert/Open operation plus available metadata actions
-such as Pin/Unpin, Add alias, Add tag, Edit name/metadata, and explicit disabled
-states for operations that the current model cannot safely perform yet.
+include the primary Jump/Insert/Open operation plus object-level metadata
+actions: Rename, Edit aliases, Edit tags, Pin/Unpin, Delete / Remove, and
+Restore. Delete / Remove is a confirmed Pinloom soft delete; it hides Pinloom's
+record and does not delete the original file, native PDF, Inbox source file, or
+external clipboard source content. Type `restore <query>` or `trash <query>` to
+search soft-deleted Pinloom Entries, then press Right Arrow and choose Restore.
+Actions that are not valid for the current object state remain visible with a
+disabled reason instead of failing silently.
 
 The explicit command namespaces remain available. Type `c` to see Clip commands.
 Type `c s` to search all insertable Clip rows (temporary history plus Saved
@@ -201,7 +206,11 @@ dialog defaults `target_app` to PDF-XChange and `target_file` to the foreground
 PDF path when PDF-XChange exposes it, so you do not need to search the PDF name
 inside Pinloom before adding the anchor. Current page/rectangle capture is still
 a fallback: page defaults to 1 and the rectangle defaults to an approximate
-full-page region until precise PDF-XChange coordinate capture lands.
+full-page region until precise PDF-XChange coordinate capture lands. The capture
+dialog shows a readable locator summary with file, page, rectangle, zoom, and
+capture source. Failure statuses distinguish "PDF-XChange not detected",
+"document/file path not exposed", ambiguous indexed-PDF matches, and missing
+view-state data.
 
 Type `i` to see Inbox commands. Drop a local file on the Command Window, then
 press Enter on `i n` to save it as a Link-mode Inbox file; if no file is
@@ -217,7 +226,17 @@ name, alias, and tag in ordinary Command Window queries, the main launcher bar,
 and in `c` mode.
 Re-copying exact text already stored as a Saved Clip is ignored by the content
 hash duplicate check. The current Clip MVP captures and inserts text only;
-rich content is future work.
+rich content is future work. Clip insertion defaults to restoring the original
+clipboard text after a successful paste; this can be changed in Pinloom
+Settings. The same settings surface contains the app blacklist, sensitive-text
+markers, maximum text size, temporary history limit, and history TTL so Clip
+history is not an unbounded default store.
+
+Internally, the Command Window now routes ordinary work through
+`command -> entry/action -> result`: commands search `PinloomEntry` objects,
+actions return `success`, `message`, `diagnostics`, and a `next UI hint`, and
+the Qt UI is only one caller of that protocol. This keeps the path reusable for
+future hosts such as ZeroSlack without adding a new framework.
 
 ## Phase 0 Validation
 

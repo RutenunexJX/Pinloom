@@ -20,6 +20,13 @@ The v1 promise is a small, repeatable loop:
 5. Press Enter.
 6. Land back at the same native-app position.
 
+The same loop now applies to every Pinloom Entry that appears in the Command
+Window: Anchors, Saved Clips, Inbox files, and regular local file resources can
+be searched, executed with Enter, expanded with Right Arrow, renamed, retagged,
+re-aliased, pinned, soft-deleted, and restored where the backing model supports
+it. Unsupported actions must stay visible with a disabled reason so failure is
+diagnosable.
+
 This is a deterministic launcher, not a general content discovery system.
 
 ## Architecture Principles
@@ -32,6 +39,10 @@ This is a deterministic launcher, not a general content discovery system.
   `locator_type`.
 - Keyboard first: the main UI should feel like a command palette or Listary
   overlay, not a library dashboard.
+- Entry/action first: command surfaces should call a reusable
+  command -> entry/action -> result protocol with success, message,
+  diagnostics, and next-UI-hint fields instead of burying product behavior in a
+  Qt-only widget branch.
 - Manual capture first: user-authored anchors are more important than automatic
   discovery.
 - Deterministic over semantic: exact file, app, page, rectangle, range,
