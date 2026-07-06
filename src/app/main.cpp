@@ -21,6 +21,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QFileDialog>
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QLineEdit>
@@ -166,10 +167,45 @@ int main(int argc, char *argv[])
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
-    Pinloom::PdfXChangeForegroundCaptureProvider foregroundPdfCaptureProvider(repository);
+    const auto lookupPdfXChangeTitlePath =
+        [&appSettingsStore](const QString &, const QString &normalizedTitleKey)
+            -> std::optional<QString> {
+        const QString key = normalizedTitleKey.trimmed();
+        if (key.isEmpty()) {
+            return std::nullopt;
+        }
+
+        appSettingsStore.beginGroup(QStringLiteral("PdfXChangeDocumentTitlePaths"));
+        const bool hasMapping = appSettingsStore.contains(key);
+        const QString mappedPath = appSettingsStore.value(key).toString();
+        appSettingsStore.endGroup();
+        if (!hasMapping) {
+            return std::nullopt;
+        }
+        return mappedPath;
+    };
+    const auto rememberPdfXChangeTitlePath =
+        [&appSettingsStore](const QString &documentTitle, const QString &filePath) {
+        const QString key = Pinloom::normalizedPdfXChangeDocumentTitleKey(documentTitle);
+        if (key.isEmpty() || !Pinloom::isPdfXChangeFullPdfPath(filePath)) {
+            return;
+        }
+
+        appSettingsStore.beginGroup(QStringLiteral("PdfXChangeDocumentTitlePaths"));
+        appSettingsStore.setValue(key, QDir::cleanPath(QDir::fromNativeSeparators(filePath.trimmed())));
+        appSettingsStore.endGroup();
+        appSettingsStore.sync();
+    };
+    Pinloom::PdfXChangeForegroundCaptureProvider foregroundPdfCaptureProvider(
+        repository,
+        Pinloom::capturePdfXChangeViewState,
+        lookupPdfXChangeTitlePath);
 
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&foregroundPdfCaptureProvider, &lastForegroundContext, &commandWindowForForegroundCapture](QString *status)
+        [&foregroundPdfCaptureProvider,
+         &lastForegroundContext,
+         &commandWindowForForegroundCapture,
+         rememberPdfXChangeTitlePath](QString *status)
         -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
         const bool useLastForegroundContext =
             commandWindowForForegroundCapture
@@ -183,6 +219,39 @@ int main(int argc, char *argv[])
             foregroundPdfCaptureProvider.capture(context);
         if (status) {
             *status = result.status;
+        }
+        if (!result.success() && result.needsFileConfirmation) {
+            QWidget *parent = commandWindowForForegroundCapture;
+            const QString selectedFile = QFileDialog::getOpenFileName(
+                parent,
+                QStringLiteral("Confirm PDF File"),
+                QString(),
+                QStringLiteral("PDF files (*.pdf);;All files (*)"));
+            if (selectedFile.trimmed().isEmpty()) {
+                if (status) {
+                    *status = QStringLiteral("PDF selection canceled for PDF-XChange document \"%1\"")
+                                  .arg(result.documentTitle);
+                }
+                return std::nullopt;
+            }
+
+            const Pinloom::PdfXChangeForegroundCaptureResult confirmed =
+                Pinloom::pdfXChangeForegroundCaptureResultForConfirmedPdfFile(
+                    result.documentTitle,
+                    selectedFile,
+                    result.viewState);
+            if (!confirmed.success()) {
+                if (status) {
+                    *status = confirmed.status;
+                }
+                return std::nullopt;
+            }
+
+            rememberPdfXChangeTitlePath(result.documentTitle, confirmed.request.file);
+            if (status) {
+                *status = confirmed.status;
+            }
+            return confirmed.request;
         }
         if (!result.success()) {
             return std::nullopt;

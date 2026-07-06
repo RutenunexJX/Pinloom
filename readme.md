@@ -65,11 +65,13 @@ not widen those surfaces unless it directly supports the anchor launcher loop.
    - Text PDFs and scanned PDFs are treated the same: the user names an anchor
      against a foreground or selected PDF context and Pinloom stores page plus
      rectangle.
-   - The current Command Window capture path is a foreground PDF-XChange
-     fallback: when `Ctrl+Space` is pressed, Pinloom remembers the foreground
-     PDF-XChange window, resolves the PDF file path when the window title/text
-     exposes it, then `k n` opens a lightweight anchor naming dialog. This no
-     longer requires searching the PDF name in Pinloom first.
+  - The current Command Window capture path is a foreground PDF-XChange
+  fallback: when `Ctrl+Space` is pressed, Pinloom remembers the foreground
+  PDF-XChange window, resolves the PDF file path when the window title/text
+  exposes it, or falls back through a remembered document-title mapping and
+  indexed PDF title matching. If the title is not unique, `k n` asks the user to
+  confirm the PDF file once and remembers that mapping for the next capture.
+  This no longer requires searching the PDF name in Pinloom first.
    - Native current-view coordinates are still pending. Until they are stable,
      foreground capture pre-fills the PDF file and uses page 1 plus an
      approximate full-page rectangle; page/rect/zoom remain editable in the
@@ -203,14 +205,16 @@ Type `k` to see anchor commands. The recommended PDF-XChange flow is: open or
 focus the target PDF in PDF-XChange Editor, press `Ctrl+Space`, type `k n`,
 enter the anchor name plus optional aliases/tags/pinned state, then save. The
 dialog defaults `target_app` to PDF-XChange and `target_file` to the foreground
-PDF path when PDF-XChange exposes it, so you do not need to search the PDF name
-inside Pinloom before adding the anchor. Current page/rectangle capture is still
-a fallback: page defaults to 1 and the rectangle defaults to an approximate
+PDF path when PDF-XChange exposes it. If PDF-XChange only exposes the document
+title, Pinloom uses a remembered title mapping or a unique indexed PDF match;
+when neither is unique, it asks the user to confirm the PDF file and remembers
+that choice for the same title. Current page/rectangle capture is still a
+fallback: page defaults to 1 and the rectangle defaults to an approximate
 full-page region until precise PDF-XChange coordinate capture lands. The capture
 dialog shows a readable locator summary with file, page, rectangle, zoom, and
 capture source. Failure statuses distinguish "PDF-XChange not detected",
-"document/file path not exposed", ambiguous indexed-PDF matches, and missing
-view-state data.
+invalid saved title mappings, no unique PDF match, canceled confirmation, and
+missing view-state data.
 
 Type `i` to see Inbox commands. Drop a local file on the Command Window, then
 press Enter on `i n` to save it as a Link-mode Inbox file; if no file is

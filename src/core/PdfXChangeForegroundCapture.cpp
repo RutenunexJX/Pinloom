@@ -1,5 +1,7 @@
 #include "pinloom/core/PdfXChangeForegroundCapture.h"
 
+#include "pinloom/core/LegacyCompatibility.h"
+
 #include <QDir>
 #include <QFileInfo>
 #include <QRegularExpression>
@@ -51,7 +53,7 @@ QString withoutPdfExtension(QString value)
 
 QString normalizedNameKey(const QString &value)
 {
-    return withoutPdfExtension(value).simplified().toCaseFolded();
+    return normalizedPdfXChangeDocumentTitleKey(value);
 }
 
 QString normalizedPathKey(const QString &value)
@@ -96,6 +98,18 @@ QString cleanPdfPathCandidate(QString value)
     }
 
     return QDir::cleanPath(QDir::fromNativeSeparators(value));
+}
+
+QString cleanFullPdfPath(QString value)
+{
+    const QString cleaned = cleanPdfPathCandidate(std::move(value));
+    if (cleaned.isEmpty()) {
+        return {};
+    }
+    if (!cleaned.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
+        return {};
+    }
+    return cleaned;
 }
 
 void appendUniqueKey(QStringList &keys, const QString &key)
@@ -170,16 +184,21 @@ QString defaultAnchorNameForDocument(const QString &documentTitle, const Resourc
     return resource.title.trimmed();
 }
 
+bool isPdfResourceCandidate(const Resource &resource)
+{
+    return normalizedResourceKind(resource.kind) == ResourceKind::Pdf
+        || resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive);
+}
+
 QList<Resource> uniquePdfResources(const ILibraryRepository &repository)
 {
     SearchQuery query;
-    query.requiredKinds = {ResourceKind::Pdf};
     query.limit = 0;
 
     QList<Resource> resources;
     QStringList seenIds;
     for (const SearchResult &result : repository.search(query)) {
-        if (result.resource.kind != ResourceKind::Pdf) {
+        if (!isPdfResourceCandidate(result.resource)) {
             continue;
         }
         if (!result.resource.id.isEmpty() && seenIds.contains(result.resource.id)) {
@@ -191,6 +210,18 @@ QList<Resource> uniquePdfResources(const ILibraryRepository &repository)
     return resources;
 }
 
+QStringList resourceIds(const QList<Resource> &resources)
+{
+    QStringList ids;
+    for (const Resource &resource : resources) {
+        if (!resource.id.trimmed().isEmpty()) {
+            ids.append(resource.id);
+        }
+    }
+    ids.removeDuplicates();
+    return ids;
+}
+
 PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &documentTitle, const Resource &resource)
 {
     PdfXChangeForegroundCaptureResult result;
@@ -198,6 +229,7 @@ PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &docume
     result.matchedResource = true;
     result.documentTitle = stripOuterDocumentDecorations(documentTitle);
     result.matchedResourceId = resource.id;
+    result.matchedResourceIds = {resource.id};
 
     result.request.name = defaultAnchorNameForDocument(documentTitle, resource);
     result.request.file = resource.location.trimmed();
@@ -207,6 +239,22 @@ PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &docume
     result.request.unit = QStringLiteral("pt");
     result.request.source = QString::fromLatin1(ForegroundPdfXChangeFallbackSource);
     result.request.targetApp = QStringLiteral("PDF-XChange");
+    return result;
+}
+
+PdfXChangeForegroundCaptureResult resultNeedsFileConfirmation(
+    const QString &documentTitle,
+    const PdfXChangeViewState &viewState,
+    const QString &status,
+    const QList<Resource> &matches = {})
+{
+    PdfXChangeForegroundCaptureResult result;
+    result.recognizedPdfXChange = true;
+    result.documentTitle = stripOuterDocumentDecorations(documentTitle);
+    result.viewState = viewState;
+    result.status = status;
+    result.needsFileConfirmation = true;
+    result.matchedResourceIds = resourceIds(matches);
     return result;
 }
 
@@ -408,13 +456,31 @@ PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
 {
 }
 
+PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
+    const ILibraryRepository &repository,
+    ViewStateProvider viewStateProvider,
+    TitlePathProvider titlePathProvider)
+    : repository_(repository)
+    , viewStateProvider_(std::move(viewStateProvider))
+    , titlePathProvider_(std::move(titlePathProvider))
+{
+}
+
 PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::capture(
     const ForegroundAppWindowContext &context) const
 {
     const PdfXChangeViewState viewState = viewStateProvider_
         ? viewStateProvider_(context)
         : PdfXChangeViewState{};
-    return capturePdfXChangeForegroundContext(repository_, context, viewState);
+    std::optional<QString> savedDocumentPath;
+    if (titlePathProvider_) {
+        const QString documentTitle = pdfXChangeDocumentTitleFromWindowTitle(context.windowTitle);
+        const QString key = normalizedPdfXChangeDocumentTitleKey(documentTitle);
+        if (!documentTitle.trimmed().isEmpty() && !key.isEmpty()) {
+            savedDocumentPath = titlePathProvider_(documentTitle, key);
+        }
+    }
+    return capturePdfXChangeForegroundContext(repository_, context, viewState, savedDocumentPath);
 }
 
 PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::captureCurrentForeground() const
@@ -455,6 +521,16 @@ bool isPdfXChangeForegroundWindow(const ForegroundAppWindowContext &context)
         || processName.contains(QStringLiteral("PDFXEdit"), Qt::CaseInsensitive)
         || processName.contains(QStringLiteral("PXCEditor"), Qt::CaseInsensitive)
         || processPath.contains(QStringLiteral("PDF-XChange Editor"), Qt::CaseInsensitive);
+}
+
+QString normalizedPdfXChangeDocumentTitleKey(const QString &documentTitle)
+{
+    return withoutPdfExtension(documentTitle).simplified().toCaseFolded();
+}
+
+bool isPdfXChangeFullPdfPath(const QString &filePath)
+{
+    return !cleanFullPdfPath(filePath).isEmpty();
 }
 
 QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle)
@@ -628,6 +704,58 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
     return state;
 }
 
+QList<Resource> pdfXChangeTitleMatchedPdfResources(
+    const ILibraryRepository &repository,
+    const QString &documentTitle)
+{
+    QList<Resource> matches;
+    const QString title = stripOuterDocumentDecorations(documentTitle);
+    if (title.trimmed().isEmpty()) {
+        return matches;
+    }
+
+    for (const Resource &resource : uniquePdfResources(repository)) {
+        if (documentMatchesResource(title, resource)) {
+            matches.append(resource);
+        }
+    }
+    return matches;
+}
+
+std::optional<Resource> uniquePdfXChangeTitleMatchedPdfResource(
+    const ILibraryRepository &repository,
+    const QString &documentTitle)
+{
+    const QList<Resource> matches = pdfXChangeTitleMatchedPdfResources(repository, documentTitle);
+    if (matches.size() != 1) {
+        return std::nullopt;
+    }
+    return matches.first();
+}
+
+PdfXChangeForegroundCaptureResult pdfXChangeForegroundCaptureResultForConfirmedPdfFile(
+    const QString &documentTitle,
+    const QString &filePath,
+    const PdfXChangeViewState &viewState)
+{
+    const QString cleanedPath = cleanFullPdfPath(filePath);
+    if (cleanedPath.isEmpty()) {
+        PdfXChangeForegroundCaptureResult result;
+        result.recognizedPdfXChange = true;
+        result.documentTitle = stripOuterDocumentDecorations(documentTitle);
+        result.viewState = viewState;
+        result.needsFileConfirmation = true;
+        result.status = QStringLiteral("Selected file for PDF-XChange document \"%1\" is not a valid full PDF path")
+                            .arg(result.documentTitle);
+        return result;
+    }
+
+    PdfXChangeForegroundCaptureResult result =
+        resultForResolvedFilePath(documentTitle, cleanedPath, viewState);
+    result.confirmedFile = true;
+    return result;
+}
+
 PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context)
@@ -639,6 +767,15 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
     const PdfXChangeViewState &viewState)
+{
+    return capturePdfXChangeForegroundContext(repository, context, viewState, std::nullopt);
+}
+
+PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+    const ILibraryRepository &repository,
+    const ForegroundAppWindowContext &context,
+    const PdfXChangeViewState &viewState,
+    const std::optional<QString> &savedDocumentPath)
 {
     PdfXChangeForegroundCaptureResult result;
     if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
@@ -662,22 +799,41 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
         return result;
     }
 
-    QList<Resource> matches;
-    for (const Resource &resource : uniquePdfResources(repository)) {
-        if (documentMatchesResource(result.documentTitle, resource)) {
-            matches.append(resource);
+    if (savedDocumentPath.has_value()) {
+        const QString mappedPath = cleanFullPdfPath(savedDocumentPath.value());
+        if (mappedPath.isEmpty()) {
+            PdfXChangeForegroundCaptureResult mappedResult =
+                resultNeedsFileConfirmation(
+                    result.documentTitle,
+                    viewState,
+                    QStringLiteral("Saved PDF-XChange mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
+                        .arg(result.documentTitle));
+            mappedResult.rejectedTitleMapping = true;
+            return mappedResult;
         }
+
+        PdfXChangeForegroundCaptureResult mappedResult =
+            resultForResolvedFilePath(result.documentTitle, mappedPath, viewState);
+        mappedResult.resolvedFromTitleMapping = true;
+        return mappedResult;
     }
 
+    const QList<Resource> matches = pdfXChangeTitleMatchedPdfResources(repository, result.documentTitle);
     if (matches.isEmpty()) {
-        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" did not expose a full PDF file path")
-                            .arg(result.documentTitle);
-        return result;
+        return resultNeedsFileConfirmation(
+            result.documentTitle,
+            viewState,
+            QStringLiteral("Confirm the PDF file for PDF-XChange document \"%1\": PDF-XChange did not expose a full path and no indexed PDF matched the title")
+                .arg(result.documentTitle));
     }
     if (matches.size() > 1) {
-        result.status = QStringLiteral("Foreground PDF-XChange document \"%1\" did not expose a full PDF file path and matches multiple indexed PDFs")
-                            .arg(result.documentTitle);
-        return result;
+        return resultNeedsFileConfirmation(
+            result.documentTitle,
+            viewState,
+            QStringLiteral("Confirm the PDF file for PDF-XChange document \"%1\": PDF-XChange did not expose a full path and %2 indexed PDFs matched the title")
+                .arg(result.documentTitle)
+                .arg(matches.size()),
+            matches);
     }
 
     return resultForMatchedResource(result.documentTitle, matches.first(), viewState);

@@ -166,11 +166,12 @@ Status:
   resource or PDF-XChange anchor is selected, Pinloom uses that file and falls
   back to page 1 plus an approximate full-page rectangle when no native current
   view/selection data is available.
-- The `k n` foreground path is stricter than the old selected-PDF fallback: if
-  the saved foreground context is not PDF-XChange, or PDF-XChange does not
-  expose a full PDF file path and no unique indexed-PDF fallback can identify
-  the file, the Command Window reports a clear status and does not create an
-  anchor.
+- The `k n` foreground path stays tied to foreground PDF-XChange. If
+  PDF-XChange does not expose a full PDF file path, Pinloom now falls back
+  through a saved document-title mapping and indexed PDF title matching. A
+  unique match pre-fills the anchor request; no match, multiple matches, or an
+  invalid saved mapping asks the user to confirm the PDF file and remembers the
+  confirmed title-to-path mapping.
 - Raw file/page/coordinate entry remains available only as an advanced/debug
   fallback and is no longer the default user path.
 - No-PDF-context attempts now report that a PDF must be opened or selected
@@ -348,9 +349,10 @@ Status:
   of failing silently.
 - PDF-XChange foreground `k n` capture now has a reusable user-facing locator
   summary for file, page, rectangle, zoom, unit, and capture source. Diagnostics
-  distinguish missing foreground PDF-XChange, missing exposed file path,
-  ambiguous indexed-PDF fallback, unparseable view-state text, and full-page
-  fallback locator generation.
+  distinguish missing foreground PDF-XChange, missing exposed file path, saved
+  title mapping use/rejection, no unique indexed-PDF match, canceled
+  confirmation, unparseable view-state text, and full-page fallback locator
+  generation.
 - Saved Clip insertion remains available from ordinary Command Window search
   and `c s`; the main settings dialog now exposes whether successful insertion
   restores the original clipboard. The default remains restore-on-success, and

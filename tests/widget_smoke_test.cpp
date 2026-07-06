@@ -120,6 +120,7 @@ private slots:
     void entryActionProviderBuildsActionsForUnifiedTypes();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
     void commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult();
+    void commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFullPath();
     void commandPanelAnchorCapturePrefersForegroundPdfFallback();
     void commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback();
     void commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath();
@@ -4259,6 +4260,84 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
     QCOMPARE(byTag.size(), 1);
 }
 
+void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFullPath()
+{
+    InMemoryLibraryRepository repository;
+
+    Resource resource;
+    resource.id = QStringLiteral("hb0823");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI");
+    resource.location = QStringLiteral("E:/docs/HB0823_MIV_RV32IMA_L1_AXI.pdf");
+    QVERIFY(repository.upsertResource(resource));
+
+    ForegroundAppWindowContext foregroundContext;
+    foregroundContext.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - PDF-XChange Editor");
+    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+
+    PdfXChangeViewState viewState;
+    viewState.currentPage = 26;
+    viewState.totalPages = 31;
+    viewState.zoom = 300.0;
+    viewState.source = QStringLiteral("test-toolbar");
+
+    int foregroundRequestCount = 0;
+    ManualPdfAnchorCreationRequest capturedSuggested;
+    PinloomPanelOptions panelOptions;
+    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
+        ++foregroundRequestCount;
+        const PdfXChangeForegroundCaptureResult capture =
+            capturePdfXChangeForegroundContext(repository, foregroundContext, viewState);
+        if (status) {
+            *status = capture.status;
+        }
+        if (!capture.success()) {
+            return std::nullopt;
+        }
+        return capture.request;
+    };
+    panelOptions.pdfAnchorCaptureRequestProvider =
+        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
+        capturedSuggested = suggested;
+        ManualPdfAnchorCreationRequest request = suggested;
+        request.name = QStringLiteral("HB0823 selected text");
+        request.aliases = {QStringLiteral("hb0823 note")};
+        return request;
+    };
+
+    PinloomPanel panel(repository, panelOptions);
+    PinloomCommandPanelOptions commandOptions;
+    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
+        const bool captured = panel.captureForegroundPdfAnchor();
+        if (status) {
+            *status = panel.statusText();
+        }
+        return captured;
+    };
+    PinloomCommandPanel commandPanel(commandOptions);
+    commandPanel.setCommandText(QStringLiteral("k n"));
+
+    QVERIFY(commandPanel.activateCurrentCommandItem());
+
+    QCOMPARE(foregroundRequestCount, 1);
+    QCOMPARE(capturedSuggested.file, resource.location);
+    QCOMPARE(capturedSuggested.page, 26);
+    QCOMPARE(capturedSuggested.zoom, 300.0);
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(commandPanel.statusText(),
+             QStringLiteral("Captured PDF anchor \"HB0823 selected text\" (foreground PDF-XChange page/zoom; rect fallback)"));
+
+    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("hb0823 note")});
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().matchedAnchor.has_value());
+    QCOMPARE(results.first().matchedAnchor->targetFile, resource.location);
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"page\":26")));
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"zoom\":300")));
+    QVERIFY(results.first().matchedAnchor->locatorJson.contains(
+        QStringLiteral("\"source\":\"foreground-pdfxchange-viewstate\"")));
+}
+
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
 {
     InMemoryLibraryRepository repository;
@@ -4416,7 +4495,8 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePa
     QVERIFY(!commandPanel.activateCurrentCommandItem());
 
     QCOMPARE(foregroundRequestCount, 1);
-    QVERIFY(commandPanel.statusText().contains(QStringLiteral("did not expose a full PDF file path")));
+    QVERIFY(commandPanel.statusText().contains(QStringLiteral("Confirm the PDF file")));
+    QVERIFY(commandPanel.statusText().contains(QStringLiteral("no indexed PDF matched")));
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
 }
 
