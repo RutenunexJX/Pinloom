@@ -1214,6 +1214,89 @@ int main(int argc, char *argv[])
         return false;
     };
 
+    const auto enrichEntryForCommandAction =
+        [&repository, &findClip](const Pinloom::PinloomEntry &entry) {
+        const std::optional<Pinloom::Clip> clip = entry.clipId.trimmed().isEmpty()
+            ? std::nullopt
+            : findClip(entry.clipId);
+        const std::optional<Pinloom::Resource> resource = entry.resourceId.trimmed().isEmpty()
+            ? std::nullopt
+            : repository.findResource(entry.resourceId);
+        const std::optional<Pinloom::ResourceUsage> usage = entry.resourceId.trimmed().isEmpty()
+            ? std::nullopt
+            : repository.resourceUsage(entry.resourceId);
+        return Pinloom::enrichedPinloomEntryForAction(entry, clip, resource, usage);
+    };
+    const auto entryTypeText = [](Pinloom::PinloomEntryType type) {
+        switch (type) {
+        case Pinloom::PinloomEntryType::Anchor:
+            return QStringLiteral("Anchor");
+        case Pinloom::PinloomEntryType::SavedClip:
+            return QStringLiteral("SavedClip");
+        case Pinloom::PinloomEntryType::Inbox:
+            return QStringLiteral("Inbox");
+        case Pinloom::PinloomEntryType::FileResource:
+            return QStringLiteral("FileResource");
+        }
+        return QStringLiteral("Unknown");
+    };
+    const auto entryActionDiagnostics =
+        [entryTypeText](const Pinloom::PinloomEntry &entry,
+                        const Pinloom::PinloomCommandResultAction &action) {
+        QStringList diagnostics;
+        diagnostics.append(QStringLiteral("action=%1").arg(action.id));
+        diagnostics.append(QStringLiteral("entry=%1").arg(entry.id));
+        diagnostics.append(QStringLiteral("type=%1").arg(entryTypeText(entry.type)));
+        if (!entry.resourceId.trimmed().isEmpty()) {
+            diagnostics.append(QStringLiteral("resourceId=%1").arg(entry.resourceId));
+        }
+        if (!entry.clipId.trimmed().isEmpty()) {
+            diagnostics.append(QStringLiteral("clipId=%1").arg(entry.clipId));
+        }
+        if (entry.anchor.has_value()) {
+            diagnostics.append(QStringLiteral("anchorId=%1").arg(entry.anchor->id));
+        }
+        diagnostics.append(QStringLiteral("deleted=%1").arg(entry.deleted ? QStringLiteral("true") : QStringLiteral("false")));
+        return diagnostics.join(QStringLiteral("; "));
+    };
+    commandOptions.unifiedEntryActionProvider =
+        [enrichEntryForCommandAction](const Pinloom::PinloomEntry &entry) {
+        return Pinloom::defaultActionsForPinloomEntry(enrichEntryForCommandAction(entry));
+    };
+    const auto legacyUnifiedActionHandler = commandOptions.unifiedActionHandler;
+    commandOptions.unifiedEntryCommandHandler =
+        [enrichEntryForCommandAction,
+         entryActionDiagnostics,
+         legacyUnifiedActionHandler](QWidget *parent,
+                                     const Pinloom::PinloomEntry &entry,
+                                     const Pinloom::PinloomCommandResultAction &action) {
+        const Pinloom::PinloomEntry enriched = enrichEntryForCommandAction(entry);
+        Pinloom::PinloomCommandActionResult result;
+        if (!legacyUnifiedActionHandler) {
+            result.success = false;
+            result.message = QStringLiteral("Entry action is not configured");
+            result.diagnostics = entryActionDiagnostics(enriched, action);
+            result.nextUiHint = QStringLiteral("keep actions open");
+            return result;
+        }
+
+        QString status;
+        const Pinloom::PinloomOpenTarget target = Pinloom::openTargetFromEntry(enriched);
+        result.success = legacyUnifiedActionHandler(parent, target, action, &status);
+        result.message = status.trimmed().isEmpty()
+            ? (result.success
+                   ? QStringLiteral("Completed action \"%1\"").arg(action.label)
+                   : QStringLiteral("Unable to run action \"%1\"").arg(action.label))
+            : status.trimmed();
+        if (!result.success) {
+            result.diagnostics = entryActionDiagnostics(enriched, action);
+            result.nextUiHint = QStringLiteral("keep actions open");
+        } else if (action.id == QLatin1String("remove") || action.id == QLatin1String("restore")) {
+            result.nextUiHint = QStringLiteral("refresh ordinary search");
+        }
+        return result;
+    };
+
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &commandWindow);
     commandWindow.setCentralWidget(commandPanel);
 

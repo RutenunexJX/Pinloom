@@ -1710,9 +1710,6 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
                          : action.disabledReason.trimmed());
         return false;
     }
-    if (action.id == QLatin1String(PrimaryResultActionId)) {
-        return activateUnifiedTarget(target);
-    }
     if (options_.unifiedEntryCommandHandler) {
         const PinloomEntry entry = entryFromOpenTarget(target);
         const PinloomCommandActionResult result =
@@ -1737,6 +1734,9 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
                          ? tr("Completed action \"%1\"").arg(action.label)
                          : status.trimmed());
         return true;
+    }
+    if (action.id == QLatin1String(PrimaryResultActionId)) {
+        return activateUnifiedTarget(target);
     }
     if (!options_.unifiedActionHandler) {
         updateStatus(tr("Result action is not configured"));
@@ -2076,6 +2076,88 @@ void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &pane
     commandWindow.raise();
     commandWindow.activateWindow();
     panel.focusCommand();
+}
+
+PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
+                                           const std::optional<Clip> &clip,
+                                           const std::optional<Resource> &resource,
+                                           const std::optional<ResourceUsage> &usage)
+{
+    PinloomEntry enriched = entry;
+
+    if (clip.has_value()) {
+        enriched.type = PinloomEntryType::SavedClip;
+        enriched.id = QStringLiteral("clip:%1").arg(clip->id);
+        enriched.clipId = clip->id;
+        enriched.resourceId.clear();
+        enriched.anchor.reset();
+        enriched.name = clip->name.trimmed().isEmpty() ? clip->preview : clip->name;
+        enriched.aliases = clip->aliases;
+        enriched.tags = clip->tags;
+        enriched.pinned = clip->pinned;
+        enriched.deleted = clip->state == ClipState::Deleted;
+        enriched.location = clip->preview;
+        enriched.targetSummary = clip->preview;
+        enriched.usedAt = clip->usedAt;
+    }
+
+    if (resource.has_value()) {
+        enriched.resourceId = resource->id;
+        enriched.resourceKind = resource->kind;
+        enriched.location = resource->location;
+        enriched.targetSummary = resource->location;
+
+        if (enriched.anchor.has_value()) {
+            auto anchor = enriched.anchor.value();
+            for (const Anchor &candidate : resource->anchors) {
+                if (!anchor.id.trimmed().isEmpty() && candidate.id == anchor.id) {
+                    anchor = candidate;
+                    break;
+                }
+            }
+            enriched.type = PinloomEntryType::Anchor;
+            enriched.anchor = anchor;
+            enriched.id = anchor.id.trimmed().isEmpty()
+                ? QStringLiteral("anchor:%1").arg(resource->id)
+                : QStringLiteral("anchor:%1").arg(anchor.id);
+            enriched.name = anchor.name.trimmed().isEmpty()
+                ? (resource->title.trimmed().isEmpty() ? resource->location : resource->title)
+                : anchor.name;
+            enriched.aliases = anchor.aliases;
+            enriched.tags = anchor.tags;
+            enriched.pinned = anchor.pinned;
+            enriched.deleted = entry.deleted || resource->deleted || anchor.deleted;
+            if (!anchor.targetFile.trimmed().isEmpty()) {
+                enriched.targetSummary = anchor.targetFile;
+                enriched.location = anchor.targetFile;
+            }
+        } else {
+            enriched.type = isInboxResourceId(resource->id) ? PinloomEntryType::Inbox : PinloomEntryType::FileResource;
+            enriched.id = QStringLiteral("resource:%1").arg(resource->id);
+            enriched.name = resource->title.trimmed().isEmpty()
+                ? QFileInfo(resource->location).fileName()
+                : resource->title;
+            enriched.aliases = resource->aliases;
+            enriched.tags = resource->tags;
+            enriched.pinned = usage.has_value() && usage->pinned;
+            enriched.deleted = entry.deleted || resource->deleted;
+        }
+    } else if (enriched.anchor.has_value()) {
+        enriched.type = PinloomEntryType::Anchor;
+        enriched.aliases = enriched.anchor->aliases;
+        enriched.tags = enriched.anchor->tags;
+        enriched.pinned = enriched.anchor->pinned;
+        enriched.deleted = entry.deleted || enriched.anchor->deleted;
+    }
+
+    if (enriched.name.trimmed().isEmpty()) {
+        enriched.name = enriched.id.trimmed().isEmpty() ? QStringLiteral("Pinloom entry") : enriched.id;
+    }
+    enriched.metadata.insert(QStringLiteral("resourceId"), enriched.resourceId);
+    enriched.metadata.insert(QStringLiteral("clipId"), enriched.clipId);
+    enriched.metadata.insert(QStringLiteral("location"), enriched.location);
+    enriched.metadata.insert(QStringLiteral("deleted"), enriched.deleted);
+    return enriched;
 }
 
 QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry, bool removeEnabled)

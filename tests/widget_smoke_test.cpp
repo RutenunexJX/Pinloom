@@ -112,6 +112,7 @@ private slots:
     void commandPanelActionListExecutesRemoveWithInjectedConfirmation();
     void commandPanelRestoreCommandUsesDeletedEntrySearchHandler();
     void commandPanelStructuredEntryActionResultReportsDiagnostics();
+    void commandPanelRightArrowPrimaryUsesStructuredEntryCommandHandler();
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void pinloomEntriesSortMixedResultsByMatchBucketAndSignals();
@@ -3772,6 +3773,71 @@ void WidgetSmokeTest::commandPanelStructuredEntryActionResultReportsDiagnostics(
     QVERIFY(panel.statusText().contains(QStringLiteral("Next: keep-actions-open")));
 }
 
+void WidgetSmokeTest::commandPanelRightArrowPrimaryUsesStructuredEntryCommandHandler()
+{
+    PinloomEntry file;
+    file.id = QStringLiteral("resource:primary");
+    file.type = PinloomEntryType::FileResource;
+    file.name = QStringLiteral("Primary File");
+    file.resourceId = QStringLiteral("primary-resource");
+    file.resourceKind = ResourceKind::File;
+    file.location = QStringLiteral("E:/docs/primary.txt");
+    file.matchedField = QStringLiteral("title");
+
+    int structuredCalls = 0;
+    int legacyActionCalls = 0;
+    int openCalls = 0;
+    QStringList actionIds;
+    PinloomCommandPanelOptions options;
+    options.unifiedEntrySearchHandler = [&](const QString &) {
+        return QList<PinloomEntry>{file};
+    };
+    options.unifiedEntryActionProvider = [](const PinloomEntry &entry) {
+        return defaultActionsForPinloomEntry(entry);
+    };
+    options.resourceOpenHandler = [&](const PinloomOpenTarget &, QString *status) {
+        ++openCalls;
+        if (status) {
+            *status = QStringLiteral("legacy open path");
+        }
+        return false;
+    };
+    options.unifiedActionHandler =
+        [&](QWidget *, const PinloomOpenTarget &, const PinloomCommandResultAction &, QString *) {
+        ++legacyActionCalls;
+        return false;
+    };
+    options.unifiedEntryCommandHandler =
+        [&](QWidget *, const PinloomEntry &entry, const PinloomCommandResultAction &action) {
+        ++structuredCalls;
+        actionIds.append(action.id);
+        PinloomCommandActionResult result;
+        result.success = false;
+        result.message = QStringLiteral("Structured primary failed for %1").arg(entry.name);
+        result.diagnostics = QStringLiteral("structured diagnostics");
+        result.nextUiHint = QStringLiteral("keep-actions-open");
+        return result;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+
+    panel.setCommandText(QStringLiteral("primary"));
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QVERIFY(panel.isShowingResultActions());
+    QVERIFY(panel.selectResultAt(0));
+    QVERIFY(!panel.activateCurrentCommandItem());
+
+    QCOMPARE(structuredCalls, 1);
+    QCOMPARE(legacyActionCalls, 0);
+    QCOMPARE(openCalls, 0);
+    QCOMPARE(actionIds, QStringList{QStringLiteral("primary")});
+    QVERIFY(panel.statusText().contains(QStringLiteral("Structured primary failed for Primary File")));
+    QVERIFY(panel.statusText().contains(QStringLiteral("Diagnostics: structured diagnostics")));
+    QVERIFY(panel.statusText().contains(QStringLiteral("Next: keep-actions-open")));
+}
+
 void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
 {
     const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
@@ -3970,6 +4036,45 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     QCOMPARE(defaultActionsForPinloomEntry(file).first().label, QStringLiteral("Open"));
     QCOMPARE(defaultActionsForPinloomEntry(anchor).last().id, QStringLiteral("remove"));
     QVERIFY(defaultActionsForPinloomEntry(anchor).last().enabled);
+
+    Clip deletedClip;
+    deletedClip.id = QStringLiteral("clip-deleted");
+    deletedClip.state = ClipState::Deleted;
+    deletedClip.name = QStringLiteral("Deleted Clip");
+    deletedClip.aliases = {QStringLiteral("snippet")};
+    deletedClip.tags = {QStringLiteral("daily")};
+    deletedClip.pinned = true;
+    deletedClip.preview = QStringLiteral("deleted preview");
+    PinloomEntry rawClip;
+    rawClip.type = PinloomEntryType::SavedClip;
+    rawClip.clipId = deletedClip.id;
+    const PinloomEntry enrichedClip = enrichedPinloomEntryForAction(rawClip, deletedClip);
+    QCOMPARE(enrichedClip.name, QStringLiteral("Deleted Clip"));
+    QCOMPARE(enrichedClip.aliases, QStringList{QStringLiteral("snippet")});
+    QVERIFY(enrichedClip.deleted);
+    QVERIFY(defaultActionsForPinloomEntry(enrichedClip).first().disabledReason.contains(QStringLiteral("Restore")));
+    QCOMPARE(defaultActionsForPinloomEntry(enrichedClip).at(5).id, QStringLiteral("restore"));
+
+    Resource indexedResource;
+    indexedResource.id = QStringLiteral("inbox:file:file-1");
+    indexedResource.kind = ResourceKind::File;
+    indexedResource.title = QStringLiteral("Inbox File");
+    indexedResource.location = QStringLiteral("E:/docs/inbox.txt");
+    indexedResource.aliases = {QStringLiteral("drop")};
+    indexedResource.tags = {QStringLiteral("inbox")};
+    ResourceUsage usage;
+    usage.resourceId = indexedResource.id;
+    usage.pinned = true;
+    PinloomEntry rawResource;
+    rawResource.resourceId = indexedResource.id;
+    const PinloomEntry enrichedResource =
+        enrichedPinloomEntryForAction(rawResource, std::nullopt, indexedResource, usage);
+    QCOMPARE(static_cast<int>(enrichedResource.type),
+             static_cast<int>(PinloomEntryType::Inbox));
+    QCOMPARE(enrichedResource.name, QStringLiteral("Inbox File"));
+    QCOMPARE(enrichedResource.aliases, QStringList{QStringLiteral("drop")});
+    QVERIFY(enrichedResource.pinned);
+    QCOMPARE(defaultActionsForPinloomEntry(enrichedResource).at(4).id, QStringLiteral("unpin"));
 
     QList<PinloomEntry> actionEntries;
     QStringList actionIds;

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/InboxFileCapture.h"
+#include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
@@ -149,6 +150,10 @@ private:
 };
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel);
+PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
+                                           const std::optional<Clip> &clip = std::nullopt,
+                                           const std::optional<Resource> &resource = std::nullopt,
+                                           const std::optional<ResourceUsage> &usage = std::nullopt);
 QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry,
                                                                 bool removeEnabled = true);
 
