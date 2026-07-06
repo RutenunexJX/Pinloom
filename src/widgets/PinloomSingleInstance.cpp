@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomSingleInstance.h"
 
 #include <QCoreApplication>
+#include <QEventLoop>
 #include <QLocalServer>
 #include <QLocalSocket>
 #include <utility>
@@ -116,16 +117,13 @@ PinloomSingleInstanceStartResult PinloomSingleInstanceGuard::listenAsPrimary()
 
 PinloomSingleInstanceStartResult PinloomSingleInstanceGuard::notifyExistingInstance() const
 {
-    QLocalSocket socket;
-    socket.connectToServer(options_.serverName, QIODevice::WriteOnly);
-    if (!socket.waitForConnected(options_.activationTimeoutMs)) {
-        return result(PinloomSingleInstanceRole::Error, socket.errorString());
+    QString error;
+    if (!sendPinloomSingleInstanceMessage(options_.serverName,
+                                          options_.activationMessage,
+                                          options_.activationTimeoutMs,
+                                          &error)) {
+        return result(PinloomSingleInstanceRole::Error, error);
     }
-
-    const QByteArray message("activate\n");
-    socket.write(message);
-    socket.waitForBytesWritten(options_.activationTimeoutMs);
-    socket.disconnectFromServer();
     return result(PinloomSingleInstanceRole::Secondary, {}, true);
 }
 
@@ -135,6 +133,9 @@ void PinloomSingleInstanceGuard::handleIncomingActivation()
         QLocalSocket *socket = server_->nextPendingConnection();
         QString message = QStringLiteral("activate");
         if (socket) {
+            if (socket->bytesAvailable() <= 0) {
+                socket->waitForReadyRead(options_.activationTimeoutMs);
+            }
             if (socket->bytesAvailable() > 0) {
                 const QString payload = QString::fromUtf8(socket->readAll()).trimmed();
                 if (!payload.isEmpty()) {
@@ -160,6 +161,57 @@ QString defaultPinloomSingleInstanceServerName()
     }
     suffix.append(appName.isEmpty() ? QStringLiteral("Pinloom") : appName);
     return QStringLiteral("pinloom.%1.single-instance").arg(suffix.toLower());
+}
+
+bool sendPinloomSingleInstanceMessage(const QString &serverName,
+                                      const QString &message,
+                                      int timeoutMs,
+                                      QString *error)
+{
+    QLocalSocket socket;
+    socket.connectToServer(normalizedServerName(serverName), QIODevice::WriteOnly);
+    if (!socket.waitForConnected(timeoutMs)) {
+        if (error) {
+            const QString socketError = socket.errorString().trimmed();
+            *error = socketError.isEmpty() || socketError == QLatin1String("Unknown error")
+                ? QStringLiteral("Unable to connect to Pinloom single-instance listener")
+                : socketError;
+        }
+        return false;
+    }
+
+    QByteArray payload = message.trimmed().isEmpty()
+        ? QByteArray("activate")
+        : message.trimmed().toUtf8();
+    if (!payload.endsWith('\n')) {
+        payload.append('\n');
+    }
+
+    const qint64 written = socket.write(payload);
+    if (written != payload.size()) {
+        if (error) {
+            *error = socket.errorString().trimmed().isEmpty()
+                || socket.errorString() == QLatin1String("Unknown error")
+                ? QStringLiteral("Unable to write Pinloom single-instance message")
+                : socket.errorString();
+        }
+        socket.disconnectFromServer();
+        return false;
+    }
+
+    socket.flush();
+    if (QCoreApplication::instance()) {
+        QCoreApplication::processEvents(QEventLoop::AllEvents, timeoutMs);
+    }
+    if (socket.bytesToWrite() > 0) {
+        socket.waitForBytesWritten(timeoutMs);
+    }
+
+    socket.disconnectFromServer();
+    if (error) {
+        error->clear();
+    }
+    return true;
 }
 
 } // namespace Pinloom

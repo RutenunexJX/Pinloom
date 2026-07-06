@@ -2371,12 +2371,18 @@ void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
         activationMessage = message;
     });
 
+    const QString customMessage = QStringLiteral("{\"type\":\"pdfxchange.opened\",\"file\":\"E:/docs/spec.pdf\"}");
+    QString sendError;
+    QVERIFY2(sendPinloomSingleInstanceMessage(serverName, customMessage, 100, &sendError), qPrintable(sendError));
+    QTRY_COMPARE(activationCount, 1);
+    QCOMPARE(activationMessage, customMessage);
+
     PinloomSingleInstanceGuard secondary({serverName, 100});
     const PinloomSingleInstanceStartResult secondaryResult = secondary.start();
     QVERIFY2(secondaryResult.isSecondary(), qPrintable(secondaryResult.error));
     QVERIFY(secondaryResult.activationSent);
-    QTRY_COMPARE(activationCount, 1);
-    QVERIFY(activationMessage == QStringLiteral("activate") || activationMessage.isEmpty());
+    QTRY_COMPARE(activationCount, 2);
+    QCOMPARE(activationMessage, QStringLiteral("activate"));
 }
 
 void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
@@ -2421,6 +2427,9 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(policy.excludedSourceApps, saved.clipExcludedSourceApps);
 
     PinloomSettingsDialog dialog(loaded);
+    auto *pdfProxyPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfProxyPathEdit"));
+    auto *pdfProxyStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfProxyStatusLabel"));
+    auto *pdfXChangeStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfXChangeStatusLabel"));
     auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfXChangePathEdit"));
     auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
     auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
@@ -2430,6 +2439,9 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *restoreClipboardCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
     auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
+    QVERIFY(pdfProxyPathEdit);
+    QVERIFY(pdfProxyStatusLabel);
+    QVERIFY(pdfXChangeStatusLabel);
     QVERIFY(pdfPathEdit);
     QVERIFY(dataDirEdit);
     QVERIFY(historySpin);
@@ -2439,8 +2451,13 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(restoreClipboardCheck);
     QVERIFY(blacklistEdit);
     QVERIFY(markersEdit);
+    QVERIFY(pdfProxyPathEdit->isReadOnly());
+    QVERIFY(pdfProxyPathEdit->text().contains(QStringLiteral("pinloom_pdf_proxy"), Qt::CaseInsensitive));
+    QVERIFY(!pdfProxyStatusLabel->text().trimmed().isEmpty());
+    QVERIFY(!pdfXChangeStatusLabel->text().trimmed().isEmpty());
 
     pdfPathEdit->setText(QStringLiteral("D:/Portable/PDFXEdit.exe"));
+    QVERIFY(pdfXChangeStatusLabel->text().contains(QStringLiteral("PDFXEdit.exe")));
     historySpin->setValue(7);
     sizeSpin->setValue(2048);
     ttlSpin->setValue(120);

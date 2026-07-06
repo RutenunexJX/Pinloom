@@ -26,6 +26,7 @@ struct PinloomSingleInstanceStartResult {
 struct PinloomSingleInstanceOptions {
     QString serverName;
     int activationTimeoutMs = 300;
+    QString activationMessage = QStringLiteral("activate");
 };
 
 class PinloomSingleInstanceGuard final : public QObject {
@@ -55,5 +56,9 @@ private:
 };
 
 QString defaultPinloomSingleInstanceServerName();
+bool sendPinloomSingleInstanceMessage(const QString &serverName,
+                                      const QString &message,
+                                      int timeoutMs = 300,
+                                      QString *error = nullptr);
 
 } // namespace Pinloom

@@ -1303,6 +1303,41 @@ void AnchorCaptureTest::parsesPdfXChangeViewStateFromStatusText()
     QCOMPARE(slashState.currentPage, 7);
     QCOMPARE(slashState.totalPages, 91);
     QCOMPARE(slashState.zoom, 175.0);
+
+    const PdfXChangeViewState pageBoxState = parsePdfXChangeViewStateText(
+        QStringLiteral("28/149\n100%"),
+        QStringLiteral("test-page-box"));
+    QCOMPARE(pageBoxState.currentPage, 28);
+    QCOMPARE(pageBoxState.totalPages, 149);
+    QCOMPARE(pageBoxState.zoom, 100.0);
+
+    const PdfXChangeViewState localizedUiaState = parsePdfXChangeViewStateText(
+        QStringLiteral("\u9875:\n28\n\u7f29\u653e\n100%"),
+        QStringLiteral("test-localized-uia"));
+    QCOMPARE(localizedUiaState.currentPage, 28);
+    QCOMPARE(localizedUiaState.totalPages, -1);
+    QCOMPARE(localizedUiaState.zoom, 100.0);
+
+    const PdfXChangeViewState localizedCombinedElementState = parsePdfXChangeViewStateText(
+        QStringLiteral("\u9875: 28\nEdit\n100%"),
+        QStringLiteral("test-localized-uia-combined"));
+    QCOMPARE(localizedCombinedElementState.currentPage, 28);
+    QCOMPARE(localizedCombinedElementState.totalPages, -1);
+    QCOMPARE(localizedCombinedElementState.zoom, 100.0);
+
+    const PdfXChangeViewState localizedLabelledZoomState = parsePdfXChangeViewStateText(
+        QStringLiteral("221.58%\n\u9875: 28\n\u7f29\u653e 100%"),
+        QStringLiteral("test-localized-labelled-zoom"));
+    QCOMPARE(localizedLabelledZoomState.currentPage, 28);
+    QCOMPARE(localizedLabelledZoomState.totalPages, -1);
+    QCOMPARE(localizedLabelledZoomState.zoom, 100.0);
+
+    const PdfXChangeViewState uiaState = parsePdfXChangeViewStateText(
+        QStringLiteral("Page number\n26\nTotal pages\n31\nZoom\n300%"),
+        QStringLiteral("test-uia"));
+    QCOMPARE(uiaState.currentPage, 26);
+    QCOMPARE(uiaState.totalPages, 31);
+    QCOMPARE(uiaState.zoom, 300.0);
 }
 
 void AnchorCaptureTest::reportsUnparseablePdfXChangeViewStateText()

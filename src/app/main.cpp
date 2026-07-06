@@ -5,6 +5,7 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/PdfXChangeForegroundCapture.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PdfXChangeOpenProxy.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -40,9 +41,16 @@ int main(int argc, char *argv[])
     QApplication::setOrganizationName(QStringLiteral("Pinloom"));
     app.setQuitOnLastWindowClosed(false);
 
-    Pinloom::PinloomSingleInstanceGuard instanceGuard(
-        Pinloom::PinloomSingleInstanceOptions{Pinloom::defaultPinloomSingleInstanceServerName(), 300},
-        &app);
+    const QStringList startupArguments = QCoreApplication::arguments();
+    const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
+
+    Pinloom::PinloomSingleInstanceOptions instanceOptions;
+    instanceOptions.serverName = Pinloom::defaultPinloomSingleInstanceServerName();
+    instanceOptions.activationTimeoutMs = 300;
+    instanceOptions.activationMessage = startHidden
+        ? QStringLiteral("resident")
+        : QStringLiteral("activate");
+    Pinloom::PinloomSingleInstanceGuard instanceGuard(instanceOptions, &app);
     const Pinloom::PinloomSingleInstanceStartResult instanceStart = instanceGuard.start();
     if (instanceStart.isSecondary()) {
         return 0;
@@ -168,33 +176,15 @@ int main(int argc, char *argv[])
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
     const auto lookupPdfXChangeTitlePath =
-        [&appSettingsStore](const QString &, const QString &normalizedTitleKey)
+        [&appSettingsStore](const QString &documentTitle, const QString &normalizedTitleKey)
             -> std::optional<QString> {
-        const QString key = normalizedTitleKey.trimmed();
-        if (key.isEmpty()) {
-            return std::nullopt;
-        }
-
-        appSettingsStore.beginGroup(QStringLiteral("PdfXChangeDocumentTitlePaths"));
-        const bool hasMapping = appSettingsStore.contains(key);
-        const QString mappedPath = appSettingsStore.value(key).toString();
-        appSettingsStore.endGroup();
-        if (!hasMapping) {
-            return std::nullopt;
-        }
-        return mappedPath;
+        return Pinloom::lookupRememberedPdfXChangeDocumentPath(appSettingsStore,
+                                                               documentTitle,
+                                                               normalizedTitleKey);
     };
     const auto rememberPdfXChangeTitlePath =
         [&appSettingsStore](const QString &documentTitle, const QString &filePath) {
-        const QString key = Pinloom::normalizedPdfXChangeDocumentTitleKey(documentTitle);
-        if (key.isEmpty() || !Pinloom::isPdfXChangeFullPdfPath(filePath)) {
-            return;
-        }
-
-        appSettingsStore.beginGroup(QStringLiteral("PdfXChangeDocumentTitlePaths"));
-        appSettingsStore.setValue(key, QDir::cleanPath(QDir::fromNativeSeparators(filePath.trimmed())));
-        appSettingsStore.endGroup();
-        appSettingsStore.sync();
+        Pinloom::rememberPdfXChangeDocumentTitlePath(appSettingsStore, documentTitle, filePath);
     };
     Pinloom::PdfXChangeForegroundCaptureProvider foregroundPdfCaptureProvider(
         repository,
@@ -1372,7 +1362,18 @@ int main(int argc, char *argv[])
     QObject::connect(&instanceGuard,
                      &Pinloom::PinloomSingleInstanceGuard::activationRequested,
                      &app,
-                     [&commandWindow, commandPanel](const QString &) {
+                     [&appSettingsStore, &commandWindow, commandPanel](const QString &message) {
+                         const std::optional<QString> openedPdf =
+                             Pinloom::pdfXChangeOpenFileFromPinloomMessage(message);
+                         if (openedPdf.has_value()) {
+                             Pinloom::rememberPdfXChangeOpenedFile(appSettingsStore, openedPdf.value());
+                             return;
+                         }
+
+                         if (message.trimmed().compare(QStringLiteral("resident"), Qt::CaseInsensitive) == 0) {
+                             return;
+                         }
+
                          Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
                      });
 
@@ -1495,7 +1496,9 @@ int main(int argc, char *argv[])
                          });
     }
     refreshResidentStatus();
-    window.show();
+    if (!startHidden) {
+        window.show();
+    }
 
     if (!mainPanelHotkeyService.start()) {
         const QString error = QStringLiteral("Pinloom main hotkey %1 could not be registered:\n%2\n\n"

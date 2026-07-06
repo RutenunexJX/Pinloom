@@ -7,6 +7,7 @@
 #include <QStringList>
 
 class QCheckBox;
+class QLabel;
 class QLineEdit;
 class QSettings;
 class QSpinBox;
@@ -43,6 +44,9 @@ private:
     QStringList commaSeparatedValues(const QString &text) const;
     QString commaSeparatedText(const QStringList &values) const;
 
+    QLineEdit *pdfProxyPathEdit_ = nullptr;
+    QLabel *pdfProxyStatusLabel_ = nullptr;
+    QLabel *pdfXChangeStatusLabel_ = nullptr;
     QLineEdit *pdfXChangePathEdit_ = nullptr;
     QLineEdit *dataDirectoryEdit_ = nullptr;
     QSpinBox *clipMaxTemporaryClipsSpin_ = nullptr;

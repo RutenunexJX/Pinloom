@@ -40,6 +40,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/PdfXChangeForegroundCapture.h
     include/pinloom/core/PdfXChangeCommand.h
     include/pinloom/core/PowerPointCommand.h
+    include/pinloom/core/PdfXChangeOpenProxy.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceRelation.h
     include/pinloom/core/ResourceUsage.h
@@ -68,6 +69,7 @@ add_library(pinloom_core STATIC
     src/core/PdfXChangeForegroundCapture.cpp
     src/core/PdfXChangeCommand.cpp
     src/core/PowerPointCommand.cpp
+    src/core/PdfXChangeOpenProxy.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
     src/core/VisioCommand.cpp
@@ -187,6 +189,39 @@ target_link_libraries(pinloom_app
         pinloom_widgets
         Qt6::Widgets
 )
+
+if(WIN32)
+    add_executable(pinloom_pdf_proxy WIN32
+        src/app/pdf_proxy_main.cpp
+    )
+else()
+    add_executable(pinloom_pdf_proxy
+        src/app/pdf_proxy_main.cpp
+    )
+endif()
+
+target_link_libraries(pinloom_pdf_proxy
+    PRIVATE
+        pinloom_widgets
+        Qt6::Core
+)
+
+add_executable(pinloom_pdfxchange_capture_probe
+    src/app/pdfxchange_capture_probe_main.cpp
+)
+
+target_link_libraries(pinloom_pdfxchange_capture_probe
+    PRIVATE
+        pinloom_core
+        Qt6::Core
+)
+
+if(WIN32)
+    target_link_libraries(pinloom_pdfxchange_capture_probe
+        PRIVATE
+            user32
+    )
+endif()
 
 enable_testing()
 

@@ -1,10 +1,16 @@
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
+#include "pinloom/core/PdfXChangeCommand.h"
+
 #include <QCheckBox>
+#include <QCoreApplication>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QHBoxLayout>
+#include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
 #include <QSettings>
@@ -31,6 +37,52 @@ int settingsInt(QSettings &settings, const QString &key, int fallback)
     bool ok = false;
     const int value = settings.value(key, fallback).toInt(&ok);
     return ok ? value : fallback;
+}
+
+QString siblingExecutablePath(const QString &baseName)
+{
+    QString executableName = baseName;
+#ifdef Q_OS_WIN
+    if (!executableName.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
+        executableName.append(QStringLiteral(".exe"));
+    }
+#endif
+    return QDir(QCoreApplication::applicationDirPath()).filePath(executableName);
+}
+
+QString defaultPinloomPdfProxyExecutablePath()
+{
+    return QDir::toNativeSeparators(siblingExecutablePath(QStringLiteral("pinloom_pdf_proxy")));
+}
+
+QString pdfProxyStatusText(const QString &proxyPath)
+{
+    const QFileInfo proxy(proxyPath.trimmed());
+    if (proxy.exists() && proxy.isFile()) {
+        return QStringLiteral("Ready. Use this executable as the Windows PDF default app.");
+    }
+    return QStringLiteral("Missing. Build pinloom_pdf_proxy before enabling enhanced PDF mode.");
+}
+
+QString resolvedPdfXChangePath(const QString &configuredPath)
+{
+    const QString configured = configuredPath.trimmed();
+    return configured.isEmpty() ? resolvePdfXChangeExecutablePath() : configured;
+}
+
+QString pdfXChangeStatusText(const QString &configuredPath)
+{
+    const QString resolved = resolvedPdfXChangePath(configuredPath);
+    if (resolved.trimmed().isEmpty()) {
+        return QStringLiteral("Missing. Configure PDFXEdit.exe before using the PDF proxy.");
+    }
+
+    const QFileInfo executable(resolved);
+    if (executable.exists() && executable.isFile()) {
+        return QStringLiteral("Ready: %1").arg(QDir::toNativeSeparators(executable.filePath()));
+    }
+
+    return QStringLiteral("Missing configured executable: %1").arg(QDir::toNativeSeparators(resolved));
 }
 
 } // namespace
@@ -110,6 +162,18 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     pdfPathLayout->addWidget(pdfXChangePathEdit_, 1);
     pdfPathLayout->addWidget(browsePdfButton);
 
+    pdfProxyPathEdit_ = new QLineEdit(defaultPinloomPdfProxyExecutablePath(), this);
+    pdfProxyPathEdit_->setObjectName(QStringLiteral("pdfProxyPathEdit"));
+    pdfProxyPathEdit_->setReadOnly(true);
+
+    pdfProxyStatusLabel_ = new QLabel(pdfProxyStatusText(pdfProxyPathEdit_->text()), this);
+    pdfProxyStatusLabel_->setObjectName(QStringLiteral("pdfProxyStatusLabel"));
+    pdfProxyStatusLabel_->setWordWrap(true);
+
+    pdfXChangeStatusLabel_ = new QLabel(pdfXChangeStatusText(settings.pdfXChangeExecutablePath), this);
+    pdfXChangeStatusLabel_->setObjectName(QStringLiteral("pdfXChangeStatusLabel"));
+    pdfXChangeStatusLabel_->setWordWrap(true);
+
     dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, this);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
     dataDirectoryEdit_->setReadOnly(true);
@@ -147,6 +211,9 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     buttons->setObjectName(QStringLiteral("settingsButtons"));
 
     form->addRow(tr("PDF-XChange"), pdfPathRow);
+    form->addRow(tr("PDF-XChange status"), pdfXChangeStatusLabel_);
+    form->addRow(tr("PDF proxy"), pdfProxyPathEdit_);
+    form->addRow(tr("PDF proxy status"), pdfProxyStatusLabel_);
     form->addRow(tr("Data directory"), dataDirectoryEdit_);
     form->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
     form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
@@ -164,6 +231,9 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
         if (!path.trimmed().isEmpty()) {
             pdfXChangePathEdit_->setText(path.trimmed());
         }
+    });
+    connect(pdfXChangePathEdit_, &QLineEdit::textChanged, this, [this](const QString &text) {
+        pdfXChangeStatusLabel_->setText(pdfXChangeStatusText(text));
     });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);

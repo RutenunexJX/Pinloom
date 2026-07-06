@@ -16,6 +16,9 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
+#include <ole2.h>
+#include <oleauto.h>
+#include <uiautomation.h>
 #include <windows.h>
 #include <string>
 #endif
@@ -355,6 +358,61 @@ PdfXChangeForegroundCaptureResult resultForResolvedFilePath(
 }
 
 #ifdef Q_OS_WIN
+QString stringFromBstr(BSTR value)
+{
+    if (!value) {
+        return {};
+    }
+    const QString text = QString::fromWCharArray(value, static_cast<int>(SysStringLen(value)));
+    SysFreeString(value);
+    return text;
+}
+
+void appendUniqueFragment(QStringList &fragments, const QString &value)
+{
+    const QString text = value.simplified();
+    if (!text.isEmpty() && !fragments.contains(text)) {
+        fragments.append(text);
+    }
+}
+
+bool containsViewStateKeyword(const QString &value)
+{
+    return value.contains(QStringLiteral("page"), Qt::CaseInsensitive)
+        || value.contains(QStringLiteral("zoom"), Qt::CaseInsensitive)
+        || value.contains(QStringLiteral("\u9875"))
+        || value.contains(QStringLiteral("\u9801"))
+        || value.contains(QStringLiteral("\u7f29\u653e"));
+}
+
+bool isCompactPageOrZoomValue(const QString &value)
+{
+    const QString text = value.simplified();
+    if (text.isEmpty() || text.size() > 32) {
+        return false;
+    }
+
+    static const QRegularExpression compactValueExpression(
+        QStringLiteral("^(?:\\d{1,6}|\\d{1,6}\\s*/\\s*\\d{1,6}|\\d{1,4}(?:[\\.,]\\d+)?\\s*%)$"));
+    return compactValueExpression.match(text).hasMatch();
+}
+
+bool shouldAppendTargetedAutomationText(const QString &name,
+                                        const QString &value,
+                                        CONTROLTYPEID controlType)
+{
+    const QString combined = QStringLiteral("%1 %2").arg(name, value).simplified();
+    if (containsViewStateKeyword(combined)) {
+        return true;
+    }
+
+    if (controlType == UIA_EditControlTypeId || controlType == UIA_ComboBoxControlTypeId) {
+        return isCompactPageOrZoomValue(value);
+    }
+
+    return false;
+}
+
 QString windowTitleForHandle(HWND window)
 {
     if (!window) {
@@ -371,6 +429,47 @@ QString windowTitleForHandle(HWND window)
         return {};
     }
     return QString::fromWCharArray(buffer.c_str(), copied);
+}
+
+QString crossProcessWindowTextForHandle(HWND window)
+{
+    if (!window) {
+        return {};
+    }
+
+    constexpr UINT TextReadTimeoutMs = 30;
+
+    DWORD_PTR lengthResult = 0;
+    const LRESULT lengthRead = SendMessageTimeoutW(window,
+                                                  WM_GETTEXTLENGTH,
+                                                  0,
+                                                  0,
+                                                  SMTO_ABORTIFHUNG,
+                                                  TextReadTimeoutMs,
+                                                  &lengthResult);
+    const DWORD_PTR requestedLength = lengthRead != 0 && lengthResult > 0
+                                          ? std::min<DWORD_PTR>(lengthResult + 1, 4096)
+                                          : 1024;
+
+    std::wstring buffer(static_cast<size_t>(requestedLength), L'\0');
+    DWORD_PTR copiedResult = 0;
+    const LRESULT textRead = SendMessageTimeoutW(window,
+                                                WM_GETTEXT,
+                                                static_cast<WPARAM>(buffer.size()),
+                                                reinterpret_cast<LPARAM>(buffer.data()),
+                                                SMTO_ABORTIFHUNG,
+                                                TextReadTimeoutMs,
+                                                &copiedResult);
+    if (textRead == 0 || copiedResult == 0) {
+        return {};
+    }
+
+    const DWORD_PTR maxCopied = static_cast<DWORD_PTR>(buffer.size() - 1);
+    const int copied = static_cast<int>(std::min<DWORD_PTR>(copiedResult, maxCopied));
+    if (copied <= 0) {
+        return {};
+    }
+    return QString::fromWCharArray(buffer.data(), copied);
 }
 
 QString processPathForId(DWORD processId)
@@ -402,10 +501,262 @@ BOOL CALLBACK collectChildWindowText(HWND window, LPARAM lParam)
     }
 
     const QString text = windowTitleForHandle(window).trimmed();
-    if (!text.isEmpty() && !fragments->contains(text)) {
-        fragments->append(text);
-    }
+    appendUniqueFragment(*fragments, text);
+    const QString controlText = crossProcessWindowTextForHandle(window).trimmed();
+    appendUniqueFragment(*fragments, controlText);
     return TRUE;
+}
+
+void appendTargetedAutomationElementText(IUIAutomationElement *element, QStringList &fragments)
+{
+    if (!element) {
+        return;
+    }
+
+    CONTROLTYPEID controlType = 0;
+    element->get_CurrentControlType(&controlType);
+
+    QString nameText;
+    BSTR text = nullptr;
+    if (SUCCEEDED(element->get_CurrentName(&text))) {
+        nameText = stringFromBstr(text);
+    }
+
+    QString valueText;
+    IUIAutomationValuePattern *valuePattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_ValuePatternId,
+                                               IID_PPV_ARGS(&valuePattern)))
+        && valuePattern) {
+        BSTR value = nullptr;
+        if (SUCCEEDED(valuePattern->get_CurrentValue(&value))) {
+            valueText = stringFromBstr(value);
+        }
+        valuePattern->Release();
+    }
+
+    if (shouldAppendTargetedAutomationText(nameText, valueText, controlType)) {
+        if (!nameText.trimmed().isEmpty() && !valueText.trimmed().isEmpty()) {
+            appendUniqueFragment(fragments, QStringLiteral("%1 %2").arg(nameText, valueText));
+        }
+        appendUniqueFragment(fragments, nameText);
+        appendUniqueFragment(fragments, valueText);
+    }
+
+    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
+                                               IID_PPV_ARGS(&legacyPattern)))
+        && legacyPattern) {
+        QString legacyName;
+        QString legacyValue;
+        BSTR legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentName(&legacyText))) {
+            legacyName = stringFromBstr(legacyText);
+        }
+        legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentValue(&legacyText))) {
+            legacyValue = stringFromBstr(legacyText);
+        }
+        if (shouldAppendTargetedAutomationText(legacyName, legacyValue, controlType)) {
+            if (!legacyName.trimmed().isEmpty() && !legacyValue.trimmed().isEmpty()) {
+                appendUniqueFragment(fragments, QStringLiteral("%1 %2").arg(legacyName, legacyValue));
+            }
+            appendUniqueFragment(fragments, legacyName);
+            appendUniqueFragment(fragments, legacyValue);
+        }
+        legacyPattern->Release();
+    }
+}
+
+void appendTargetedAutomationText(IUIAutomation *automation,
+                                  IUIAutomationElement *root,
+                                  QStringList &fragments)
+{
+    if (!automation || !root) {
+        return;
+    }
+
+    IUIAutomationCondition *condition = nullptr;
+    if (FAILED(automation->CreateTrueCondition(&condition)) || !condition) {
+        return;
+    }
+
+    IUIAutomationElementArray *elements = nullptr;
+    const HRESULT hr = root->FindAll(TreeScope_Descendants, condition, &elements);
+    condition->Release();
+    if (FAILED(hr) || !elements) {
+        return;
+    }
+
+    int length = 0;
+    elements->get_Length(&length);
+    const int maxElements = std::min(length, 4096);
+    for (int index = 0; index < maxElements; ++index) {
+        IUIAutomationElement *element = nullptr;
+        if (SUCCEEDED(elements->GetElement(index, &element)) && element) {
+            appendTargetedAutomationElementText(element, fragments);
+            element->Release();
+        }
+    }
+    elements->Release();
+}
+
+void appendAutomationElementText(IUIAutomationElement *element, QStringList &fragments)
+{
+    if (!element) {
+        return;
+    }
+
+    QString nameText;
+    QString valueText;
+    QString className;
+
+    BSTR text = nullptr;
+    if (SUCCEEDED(element->get_CurrentName(&text))) {
+        nameText = stringFromBstr(text);
+        appendUniqueFragment(fragments, nameText);
+    }
+
+    text = nullptr;
+    if (SUCCEEDED(element->get_CurrentClassName(&text))) {
+        className = stringFromBstr(text);
+    }
+
+    IUIAutomationValuePattern *valuePattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_ValuePatternId,
+                                               IID_PPV_ARGS(&valuePattern)))
+        && valuePattern) {
+        BSTR value = nullptr;
+        if (SUCCEEDED(valuePattern->get_CurrentValue(&value))) {
+            valueText = stringFromBstr(value);
+            if (!nameText.trimmed().isEmpty() && !valueText.trimmed().isEmpty()) {
+                appendUniqueFragment(fragments, QStringLiteral("%1 %2").arg(nameText, valueText));
+            }
+            appendUniqueFragment(fragments, valueText);
+        }
+        valuePattern->Release();
+    }
+    appendUniqueFragment(fragments, className);
+
+    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
+                                               IID_PPV_ARGS(&legacyPattern)))
+        && legacyPattern) {
+        QString legacyName;
+        QString legacyValue;
+        BSTR legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentName(&legacyText))) {
+            legacyName = stringFromBstr(legacyText);
+            appendUniqueFragment(fragments, legacyName);
+        }
+        legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentValue(&legacyText))) {
+            legacyValue = stringFromBstr(legacyText);
+            if (!legacyName.trimmed().isEmpty() && !legacyValue.trimmed().isEmpty()) {
+                appendUniqueFragment(fragments, QStringLiteral("%1 %2").arg(legacyName, legacyValue));
+            }
+            appendUniqueFragment(fragments, legacyValue);
+        }
+        legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentDescription(&legacyText))) {
+            appendUniqueFragment(fragments, stringFromBstr(legacyText));
+        }
+        legacyPattern->Release();
+    }
+}
+
+void collectUiAutomationTextRecursive(IUIAutomationTreeWalker *walker,
+                                      IUIAutomationElement *element,
+                                      QStringList &fragments,
+                                      int depth)
+{
+    constexpr int MaxAutomationDepth = 12;
+    constexpr int MaxAutomationFragments = 2048;
+
+    if (!walker || !element || depth > MaxAutomationDepth
+        || fragments.size() > MaxAutomationFragments) {
+        return;
+    }
+
+    appendAutomationElementText(element, fragments);
+
+    IUIAutomationElement *child = nullptr;
+    if (FAILED(walker->GetFirstChildElement(element, &child)) || !child) {
+        return;
+    }
+
+    while (child && fragments.size() <= MaxAutomationFragments) {
+        collectUiAutomationTextRecursive(walker, child, fragments, depth + 1);
+
+        IUIAutomationElement *next = nullptr;
+        walker->GetNextSiblingElement(child, &next);
+        child->Release();
+        child = next;
+    }
+}
+
+QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics)
+{
+    QStringList fragments;
+    if (!window) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture has no window handle");
+        }
+        return fragments;
+    }
+
+    const HRESULT initialized = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    const bool uninitialize = SUCCEEDED(initialized);
+    if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not initialize COM");
+        }
+        return fragments;
+    }
+
+    IUIAutomation *automation = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_CUIAutomation,
+                                  nullptr,
+                                  CLSCTX_INPROC_SERVER,
+                                  IID_PPV_ARGS(&automation));
+    if (FAILED(hr) || !automation) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not create client");
+        }
+        if (uninitialize) {
+            CoUninitialize();
+        }
+        return fragments;
+    }
+
+    IUIAutomationElement *root = nullptr;
+    hr = automation->ElementFromHandle(window, &root);
+    if (FAILED(hr) || !root) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not read the foreground window");
+        }
+        automation->Release();
+        if (uninitialize) {
+            CoUninitialize();
+        }
+        return fragments;
+    }
+
+    IUIAutomationTreeWalker *walker = nullptr;
+    hr = automation->get_ControlViewWalker(&walker);
+    appendTargetedAutomationText(automation, root, fragments);
+    if (SUCCEEDED(hr) && walker) {
+        collectUiAutomationTextRecursive(walker, root, fragments, 0);
+        walker->Release();
+    } else if (diagnostics) {
+        *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not create a control walker");
+    }
+
+    root->Release();
+    automation->Release();
+    if (uninitialize) {
+        CoUninitialize();
+    }
+    return fragments;
 }
 #endif
 
@@ -591,6 +942,8 @@ PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QStr
     }
 
     const QList<QRegularExpression> pageExpressions = {
+        QRegularExpression(QStringLiteral("\\bpage(?:\\s+number)?\\s*[:#]?\\s*(\\d{1,6})\\b.*?\\b(?:of|total\\s+pages?|pages?)\\s*[:#]?\\s*(\\d{1,6})\\b"),
+                           QRegularExpression::CaseInsensitiveOption),
         QRegularExpression(QStringLiteral("\\bpage\\s*[:#]?\\s*(\\d{1,6})\\s*(?:/|of)\\s*(\\d{1,6})\\b"),
                            QRegularExpression::CaseInsensitiveOption),
         QRegularExpression(QStringLiteral("\\b(\\d{1,6})\\s*(?:/|of)\\s*(\\d{1,6})\\s*(?:pages?)?\\b"),
@@ -612,14 +965,20 @@ PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QStr
     }
 
     if (!state.hasCurrentPage()) {
-        const QRegularExpression pageOnly(
-            QStringLiteral("\\bpage\\s*[:#]?\\s*(\\d{1,6})\\b"),
-            QRegularExpression::CaseInsensitiveOption);
-        const QRegularExpressionMatch match = pageOnly.match(normalized);
-        if (match.hasMatch()) {
-            const int currentPage = match.captured(1).toInt();
-            if (currentPage > 0) {
-                state.currentPage = currentPage;
+        const QList<QRegularExpression> pageOnlyExpressions = {
+            QRegularExpression(QStringLiteral("\\bpage\\s*[:#]?\\s*(\\d{1,6})\\b"),
+                               QRegularExpression::CaseInsensitiveOption),
+            QRegularExpression(QStringLiteral("(?:^|\\s)(?:\u9875|\u9801)\\s*[:\uff1a]?\\s*(\\d{1,6})(?=\\s|$)")),
+            QRegularExpression(QStringLiteral("(?:^|\\s)\u7b2c\\s*(\\d{1,6})\\s*(?:\u9875|\u9801)(?=\\s|$)")),
+        };
+        for (const QRegularExpression &expression : pageOnlyExpressions) {
+            const QRegularExpressionMatch match = expression.match(normalized);
+            if (match.hasMatch()) {
+                const int currentPage = match.captured(1).toInt();
+                if (currentPage > 0) {
+                    state.currentPage = currentPage;
+                    break;
+                }
             }
         }
     }
@@ -627,6 +986,7 @@ PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QStr
     const QList<QRegularExpression> zoomExpressions = {
         QRegularExpression(QStringLiteral("\\bzoom\\s*[:=]?\\s*(\\d{1,4}(?:[\\.,]\\d+)?)\\s*%"),
                            QRegularExpression::CaseInsensitiveOption),
+        QRegularExpression(QStringLiteral("(?:^|\\s)\u7f29\u653e\\s*[:\uff1a=]?\\s*(\\d{1,4}(?:[\\.,]\\d+)?)\\s*%")),
         QRegularExpression(QStringLiteral("\\b(\\d{1,4}(?:[\\.,]\\d+)?)\\s*%"),
                            QRegularExpression::CaseInsensitiveOption),
     };
@@ -687,10 +1047,18 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
     if (context.windowHandle != 0) {
         HWND window = reinterpret_cast<HWND>(context.windowHandle);
         const QString rootText = windowTitleForHandle(window).trimmed();
-        if (!rootText.isEmpty() && !fragments.contains(rootText)) {
-            fragments.append(rootText);
-        }
+        appendUniqueFragment(fragments, rootText);
         EnumChildWindows(window, collectChildWindowText, reinterpret_cast<LPARAM>(&fragments));
+
+        QString uiAutomationDiagnostics;
+        const QStringList automationFragments =
+            uiAutomationTextFragmentsForWindow(window, &uiAutomationDiagnostics);
+        for (const QString &fragment : automationFragments) {
+            appendUniqueFragment(fragments, fragment);
+        }
+        if (!uiAutomationDiagnostics.trimmed().isEmpty()) {
+            appendUniqueFragment(fragments, uiAutomationDiagnostics);
+        }
     }
 #endif
 
@@ -700,7 +1068,7 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
     }
 
     state = parsePdfXChangeViewStateText(fragments.join(QLatin1Char('\n')),
-                                         QStringLiteral("win32-window-text"));
+                                         QStringLiteral("win32-window-text+wm-gettext+uia"));
     return state;
 }
 

@@ -5,6 +5,8 @@
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/PdfXChangeOpenProxy.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
@@ -13,6 +15,7 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QFile>
+#include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
 #include <optional>
@@ -30,6 +33,7 @@ private slots:
     void buildsPdfXChangePageCommandFromLegacyAnchor();
     void doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor();
     void reportsMissingPdfXChangeTargetPath();
+    void recordsPdfXChangeOpenProxyPathMappings();
     void resolvesPdfXChangeExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
     void appliesExplicitApplicationLaunchSettings();
@@ -255,6 +259,39 @@ void CoreSmokeTest::reportsMissingPdfXChangeTargetPath()
 
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("PDF-XChange target file is missing"));
+}
+
+void CoreSmokeTest::recordsPdfXChangeOpenProxyPathMappings()
+{
+    QTemporaryDir settingsDir;
+    QVERIFY(settingsDir.isValid());
+    QSettings settings(settingsDir.filePath(QStringLiteral("pinloom.ini")), QSettings::IniFormat);
+
+    const QString filePath = QStringLiteral("E:/docs/Clock Spec.pdf");
+    const QString normalizedPath = normalizedPdfXChangeOpenFilePath(filePath);
+    QCOMPARE(normalizedPath, filePath);
+
+    const QString message = pinloomPdfXChangeOpenMessageForFile(filePath);
+    QVERIFY(!message.isEmpty());
+    const std::optional<QString> messagePath = pdfXChangeOpenFileFromPinloomMessage(message);
+    QVERIFY(messagePath.has_value());
+    QCOMPARE(messagePath.value(), normalizedPath);
+
+    QVERIFY(rememberPdfXChangeOpenedFile(settings, filePath));
+    const std::optional<QString> baseNameMatch =
+        lookupRememberedPdfXChangeDocumentPath(settings,
+                                               QStringLiteral("Clock Spec"),
+                                               normalizedPdfXChangeDocumentTitleKey(QStringLiteral("Clock Spec")));
+    QVERIFY(baseNameMatch.has_value());
+    QCOMPARE(baseNameMatch.value(), normalizedPath);
+
+    QVERIFY(rememberPdfXChangeDocumentTitlePath(settings, QStringLiteral("Spec Window Title"), filePath));
+    const std::optional<QString> titleMatch =
+        lookupRememberedPdfXChangeDocumentPath(settings,
+                                               QStringLiteral("Spec Window Title"),
+                                               normalizedPdfXChangeDocumentTitleKey(QStringLiteral("Spec Window Title")));
+    QVERIFY(titleMatch.has_value());
+    QCOMPARE(titleMatch.value(), normalizedPath);
 }
 
 void CoreSmokeTest::resolvesPdfXChangeExecutableFromEnvironment()

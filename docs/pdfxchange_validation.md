@@ -1,19 +1,21 @@
 # PDF-XChange Validation
 
-Pinloom's PDF-XChange executor launches stored PDF anchors. It does not inspect
-PDF-XChange's current view and it does not provide a built-in PDF reader.
+Pinloom's PDF-XChange executor launches stored PDF anchors. It does not provide
+a built-in PDF reader. Foreground capture attempts to read PDF-XChange's current
+page and zoom from Win32 window text plus Windows UI Automation text; when those
+signals are unavailable, it falls back to page 1 and a full-page rectangle.
 
 The Phase 4 UX now routes `Ctrl+K` and the PDF `Add Anchor` button through
 `Capture PDF Anchor`. The normal user flow asks for anchor metadata only:
 name, aliases, tags, and pinned state. The locator is inferred from the current
 Pinloom selection. If the selected item is a PDF resource or PDF-XChange
 anchor, Pinloom uses that PDF file and records a selected-PDF fallback locator.
-When native PDF-XChange page/selection/rectangle capture is unavailable, this
-fallback uses page 1 and an approximate full-page rectangle. Raw file/page/rect
-fields remain in the dialog only under the advanced locator fallback.
+When native PDF-XChange page/zoom capture is unavailable, this fallback uses
+page 1 and an approximate full-page rectangle. Raw file/page/rect fields remain
+in the dialog only under the advanced locator fallback.
 
-Automatic reading of PDF-XChange's current page, view, selection, annotations,
-or live coordinates remains a later research item.
+Automatic reading of PDF-XChange text selection, annotations, or live
+coordinates remains a later research item.
 
 ## Automated Coverage
 
@@ -35,6 +37,8 @@ The current automated tests cover:
 - No-PDF-context guidance for `Ctrl+K`.
 - Selected-PDF fallback capture that creates a searchable `pdfxchange.rect`
   using only name/alias/tag/pinned metadata entry.
+- Foreground PDF-XChange current page/zoom parsing from toolbar/status/UIA-like
+  text.
 - The built-in capture dialog keeps raw coordinate controls hidden until the
   advanced locator fallback is opened.
 - Legacy injectable manual PDF hooks still work for tests/hosts, including
