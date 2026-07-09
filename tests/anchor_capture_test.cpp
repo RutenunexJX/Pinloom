@@ -7,6 +7,7 @@
 #include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
@@ -63,6 +64,9 @@ private slots:
     void prefersSavedSumatraPdfTitleMappingOverRepositoryMatch();
     void rejectsInvalidSavedSumatraPdfTitleMapping();
     void preservesViewStateWhenTitleFallbackBuildsRequest();
+    void parsesSumatraPdfDdeFileStateAndMousePosition();
+    void prefersDdeDocumentPathOverTitleConfirmation();
+    void injectsForegroundSumatraPdfMousePositionIntoRectRequest();
     void parsesSumatraPdfViewStateFromStatusText();
     void reportsUnparseableSumatraPdfViewStateText();
     void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
@@ -1154,7 +1158,7 @@ void AnchorCaptureTest::capturesForegroundSumatraPdfPathFromWindowTitleWithoutIn
     context.processName = QStringLiteral("SumatraPDF.exe");
 
     const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context);
+        captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.recognizedSumatraPdf);
@@ -1192,7 +1196,7 @@ void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToUniqueIndexedPdf()
     context.processName = QStringLiteral("SumatraPDF.exe");
 
     const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context);
+        captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.recognizedSumatraPdf);
@@ -1238,7 +1242,7 @@ void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToFileKindPdfLocation()
     context.processName = QStringLiteral("SumatraPDF.exe");
 
     const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context);
+        captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.matchedResource);
@@ -1355,6 +1359,111 @@ void AnchorCaptureTest::preservesViewStateWhenTitleFallbackBuildsRequest()
     QCOMPARE(result.viewState.currentPage, 26);
     QCOMPARE(result.viewState.totalPages, 31);
     QCOMPARE(result.viewState.zoom, 300.0);
+}
+
+void AnchorCaptureTest::parsesSumatraPdfDdeFileStateAndMousePosition()
+{
+    const SumatraPdfDdeFileState fileState = parseSumatraPdfDdeFileState(
+        QStringLiteral("path: E:\\test_dir\\output.pdf\n"
+                       "page: 28\n"
+                       "pageCount: 149\n"
+                       "zoom: -1\n"
+                       "view: continuous\n"
+                       "sumver: 3.7.20026\n"));
+
+    QVERIFY2(fileState.success(), qPrintable(fileState.error));
+    QCOMPARE(fileState.path, QStringLiteral("E:/test_dir/output.pdf"));
+    QCOMPARE(fileState.page, 28);
+    QCOMPARE(fileState.pageCount, 149);
+    QCOMPARE(fileState.zoom, -1.0);
+    QCOMPARE(fileState.view, QStringLiteral("continuous"));
+    QCOMPARE(fileState.version, QStringLiteral("3.7.20026"));
+
+    const SumatraPdfDdeMousePosition mousePosition = parseSumatraPdfDdeMousePosition(
+        QStringLiteral("page: 28\n"
+                       "x: 305.04\n"
+                       "y: 395.58\n"
+                       "ypdf: 396.42\n"));
+
+    QVERIFY2(mousePosition.success(), qPrintable(mousePosition.error));
+    QCOMPARE(mousePosition.page, 28);
+    QCOMPARE(mousePosition.x, 305.04);
+    QCOMPARE(mousePosition.y, 395.58);
+    QCOMPARE(mousePosition.yPdf, 396.42);
+    QVERIFY(mousePosition.hasYPdf);
+
+    const SumatraPdfDdeMousePosition offPage =
+        parseSumatraPdfDdeMousePosition(QStringLiteral("page: 0\nx: 0.00\ny: 0.00\n"));
+    QVERIFY(!offPage.success());
+    QVERIFY(offPage.error.contains(QStringLiteral("not over a page")));
+}
+
+void AnchorCaptureTest::prefersDdeDocumentPathOverTitleConfirmation()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("missing-spec - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
+
+    SumatraPdfViewState viewState;
+    viewState.documentPath = QStringLiteral("E:/docs/dde-active.pdf");
+    viewState.currentPage = 43;
+    viewState.totalPages = 149;
+    viewState.zoom = 100.0;
+    viewState.sumatraVersion = QStringLiteral("3.7.20026");
+    viewState.source = QStringLiteral("sumatrapdf-dde");
+
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context, viewState);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QVERIFY(!result.needsFileConfirmation);
+    QVERIFY(!result.matchedResource);
+    QCOMPARE(result.request.file, QStringLiteral("E:/docs/dde-active.pdf"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
+    QCOMPARE(result.request.page, 43);
+    QCOMPARE(result.request.zoom, 100.0);
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
+    QCOMPARE(result.viewState.documentPath, QStringLiteral("E:/docs/dde-active.pdf"));
+}
+
+void AnchorCaptureTest::injectsForegroundSumatraPdfMousePositionIntoRectRequest()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("output - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
+
+    SumatraPdfViewState viewState;
+    viewState.documentPath = QStringLiteral("E:/test_dir/output.pdf");
+    viewState.currentPage = 28;
+    viewState.totalPages = 149;
+    viewState.zoom = 100.0;
+    viewState.mousePage = 28;
+    viewState.mouseX = 305.04;
+    viewState.mouseY = 395.58;
+    viewState.mouseYPdf = 396.42;
+    viewState.hasMouseYPdf = true;
+    viewState.selectedText = QStringLiteral("repeated requirement text");
+    viewState.source = QStringLiteral("sumatrapdf-dde");
+
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context, viewState);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QCOMPARE(result.request.file, QStringLiteral("E:/test_dir/output.pdf"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.rect"));
+    QCOMPARE(result.request.page, 28);
+    QVERIFY(result.request.selectedText.isEmpty());
+    QCOMPARE(result.request.rect.left, 299.04);
+    QCOMPARE(result.request.rect.top, 389.58);
+    QCOMPARE(result.request.rect.right, 311.04);
+    QCOMPARE(result.request.rect.bottom, 401.58);
+    QCOMPARE(result.request.zoom, 100.0);
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-mouse"));
+    QVERIFY(result.status.contains(QStringLiteral("cursor page 28")));
 }
 
 void AnchorCaptureTest::parsesSumatraPdfViewStateFromStatusText()
@@ -1509,7 +1618,7 @@ void AnchorCaptureTest::reportsForegroundSumatraPdfTitleWithoutFilePath()
     context.processName = QStringLiteral("SumatraPDF.exe");
 
     const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context);
+        captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY(!result.success());
     QVERIFY(result.recognizedSumatraPdf);
@@ -1544,7 +1653,7 @@ void AnchorCaptureTest::rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMa
     context.processName = QStringLiteral("SumatraPDF.exe");
 
     const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context);
+        captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY(!result.success());
     QVERIFY(result.recognizedSumatraPdf);

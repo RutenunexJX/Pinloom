@@ -1,6 +1,7 @@
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 
 #include "pinloom/core/LegacyCompatibility.h"
+#include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -28,6 +29,7 @@ namespace Pinloom {
 namespace {
 
 constexpr const char *ForegroundSumatraPdfFallbackSource = "foreground-sumatrapdf-fallback";
+constexpr const char *ForegroundSumatraPdfMouseSource = "foreground-sumatrapdf-mouse";
 constexpr const char *ForegroundSumatraPdfSelectionSource = "foreground-sumatrapdf-selection";
 constexpr const char *ForegroundSumatraPdfViewStateSource = "foreground-sumatrapdf-viewstate";
 
@@ -287,6 +289,12 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
     if (viewState.hasSelectedText()) {
         parts.append(QStringLiteral("selected text \"%1\"").arg(viewState.selectedText.simplified().left(80)));
     }
+    if (viewState.hasMousePosition()) {
+        parts.append(QStringLiteral("cursor page %1 at %2,%3 pt")
+                         .arg(viewState.mousePage)
+                         .arg(decimalText(viewState.mouseX),
+                              decimalText(viewState.mouseY)));
+    }
     if (viewState.hasCurrentPage()) {
         QString pageText = QStringLiteral("page %1").arg(viewState.currentPage);
         if (viewState.totalPages > 0) {
@@ -303,10 +311,26 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
     return QStringLiteral("Captured PDF view state: %1").arg(parts.join(QStringLiteral("; ")));
 }
 
+PdfCaptureRect rectAroundMousePosition(const SumatraPdfViewState &viewState)
+{
+    constexpr double AnchorHalfSizePt = 6.0;
+    PdfCaptureRect rect;
+    rect.left = std::max(0.0, viewState.mouseX - AnchorHalfSizePt);
+    rect.top = std::max(0.0, viewState.mouseY - AnchorHalfSizePt);
+    rect.right = viewState.mouseX + AnchorHalfSizePt;
+    rect.bottom = viewState.mouseY + AnchorHalfSizePt;
+    return rect;
+}
+
 void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfViewState &viewState)
 {
     result.viewState = viewState;
-    if (viewState.hasSelectedText()) {
+    if (viewState.hasMousePosition()) {
+        result.request.locatorType = QStringLiteral("sumatrapdf.rect");
+        result.request.page = viewState.mousePage;
+        result.request.rect = rectAroundMousePosition(viewState);
+        result.request.source = QString::fromLatin1(ForegroundSumatraPdfMouseSource);
+    } else if (viewState.hasSelectedText()) {
         result.request.selectedText = viewState.selectedText.trimmed();
         result.request.locatorType = QStringLiteral("sumatrapdf.search");
         result.request.rect = {};
@@ -315,13 +339,15 @@ void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfV
         result.request.locatorType = QStringLiteral("sumatrapdf.page");
         result.request.rect = {};
     }
-    if (viewState.hasCurrentPage()) {
+    if (!viewState.hasMousePosition() && viewState.hasCurrentPage()) {
         result.request.page = viewState.currentPage;
     }
     if (viewState.hasZoom()) {
         result.request.zoom = viewState.zoom;
     }
-    if (viewState.hasAnyViewState() && !viewState.hasSelectedText()) {
+    if (viewState.hasAnyViewState()
+        && !viewState.hasSelectedText()
+        && !viewState.hasMousePosition()) {
         result.request.source = QString::fromLatin1(ForegroundSumatraPdfViewStateSource);
     }
     result.status = viewStateStatus(viewState);
@@ -1063,6 +1089,11 @@ bool SumatraPdfViewState::hasCurrentPage() const
     return currentPage > 0;
 }
 
+bool SumatraPdfViewState::hasDocumentPath() const
+{
+    return !documentPath.trimmed().isEmpty();
+}
+
 bool SumatraPdfViewState::hasZoom() const
 {
     return std::isfinite(zoom) && zoom > 0.0;
@@ -1073,9 +1104,16 @@ bool SumatraPdfViewState::hasSelectedText() const
     return !selectedText.trimmed().isEmpty();
 }
 
+bool SumatraPdfViewState::hasMousePosition() const
+{
+    return mousePage > 0
+        && std::isfinite(mouseX)
+        && std::isfinite(mouseY);
+}
+
 bool SumatraPdfViewState::hasAnyViewState() const
 {
-    return hasSelectedText() || hasCurrentPage() || totalPages > 0 || hasZoom();
+    return hasSelectedText() || hasMousePosition() || hasCurrentPage() || totalPages > 0 || hasZoom();
 }
 
 bool SumatraPdfForegroundCaptureResult::success() const
@@ -1335,6 +1373,29 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
 
     QString capturedSelectedText;
 #ifdef Q_OS_WIN
+    const SumatraPdfDdeFileState ddeFileState = requestSumatraPdfDdeFileState(800);
+    if (ddeFileState.success()) {
+        state.documentPath = ddeFileState.path;
+        state.currentPage = ddeFileState.page;
+        state.totalPages = ddeFileState.pageCount;
+        state.zoom = ddeFileState.zoom;
+        state.sumatraVersion = ddeFileState.version;
+        state.source = QStringLiteral("sumatrapdf-dde");
+
+        const SumatraPdfDdeMousePosition mousePosition = requestSumatraPdfDdeMousePosition(800);
+        if (mousePosition.success()) {
+            state.mousePage = mousePosition.page;
+            state.mouseX = mousePosition.x;
+            state.mouseY = mousePosition.y;
+            state.mouseYPdf = mousePosition.yPdf;
+            state.hasMouseYPdf = mousePosition.hasYPdf;
+        } else {
+            state.diagnostics = mousePosition.error;
+        }
+    } else if (!ddeFileState.error.trimmed().isEmpty()) {
+        state.diagnostics = ddeFileState.error;
+    }
+
     if (context.windowHandle != 0) {
         HWND window = reinterpret_cast<HWND>(context.windowHandle);
         const QString rootText = windowTitleForHandle(window).trimmed();
@@ -1352,6 +1413,14 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
         }
     }
 #endif
+
+    if (state.hasAnyViewState() || state.hasDocumentPath()) {
+        state.selectedText = capturedSelectedText.simplified();
+        if (state.hasSelectedText() && state.source == QLatin1String("sumatrapdf-dde")) {
+            state.source = QStringLiteral("sumatrapdf-dde+uia");
+        }
+        return state;
+    }
 
     if (fragments.isEmpty()) {
         state.diagnostics = QStringLiteral("No PDF viewer window text was readable");
@@ -1445,6 +1514,16 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
 
     result.recognizedSumatraPdf = true;
     result.documentTitle = sumatraPdfDocumentTitleFromWindowTitle(context.windowTitle);
+
+    const QString ddeDocumentPath = cleanFullPdfPath(viewState.documentPath);
+    if (!ddeDocumentPath.trimmed().isEmpty()) {
+        return resultForResolvedFilePath(result.documentTitle.trimmed().isEmpty()
+                                             ? ddeDocumentPath
+                                             : result.documentTitle,
+                                         ddeDocumentPath,
+                                         viewState);
+    }
+
     const QString documentPath = sumatraPdfDocumentPathFromWindowTitle(context.windowTitle);
     if (!documentPath.trimmed().isEmpty()) {
         return resultForResolvedFilePath(result.documentTitle.trimmed().isEmpty()

@@ -4221,7 +4221,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
         const SumatraPdfForegroundCaptureResult capture =
-            captureSumatraPdfForegroundContext(repository, foregroundContext);
+            captureSumatraPdfForegroundContext(repository, foregroundContext, SumatraPdfViewState{});
         if (status) {
             *status = capture.status;
         }
@@ -4488,7 +4488,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePa
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
         const SumatraPdfForegroundCaptureResult capture =
-            captureSumatraPdfForegroundContext(repository, foregroundContext);
+            captureSumatraPdfForegroundContext(repository, foregroundContext, SumatraPdfViewState{});
         if (status) {
             *status = capture.status;
         }

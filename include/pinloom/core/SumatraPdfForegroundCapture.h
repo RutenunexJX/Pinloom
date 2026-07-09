@@ -21,16 +21,25 @@ struct ForegroundAppWindowContext {
 };
 
 struct SumatraPdfViewState {
+    QString documentPath;
     int currentPage = -1;
     int totalPages = -1;
     double zoom = -1.0;
     QString selectedText;
+    int mousePage = -1;
+    double mouseX = 0.0;
+    double mouseY = 0.0;
+    double mouseYPdf = 0.0;
+    bool hasMouseYPdf = false;
+    QString sumatraVersion;
     QString source;
     QString diagnostics;
 
+    bool hasDocumentPath() const;
     bool hasCurrentPage() const;
     bool hasZoom() const;
     bool hasSelectedText() const;
+    bool hasMousePosition() const;
     bool hasAnyViewState() const;
 };
 

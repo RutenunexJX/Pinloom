@@ -38,6 +38,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ManualVisioAnchorCreation.h
     include/pinloom/core/ManualWordAnchorCreation.h
     include/pinloom/core/SumatraPdfForegroundCapture.h
+    include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/SumatraPdfOpenProxy.h
     include/pinloom/core/Resource.h
@@ -67,6 +68,7 @@ add_library(pinloom_core STATIC
     src/core/ManualVisioAnchorCreation.cpp
     src/core/ManualWordAnchorCreation.cpp
     src/core/SumatraPdfForegroundCapture.cpp
+    src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
     src/core/SumatraPdfOpenProxy.cpp
     src/core/Schema.cpp
