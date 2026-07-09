@@ -11,12 +11,14 @@ namespace Pinloom {
 struct ManualPdfAnchorCreationRequest {
     QString name;
     QString file;
+    QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    QString selectedText;
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
-    QString targetApp = QStringLiteral("PDF-XChange");
+    QString targetApp = QStringLiteral("SumatraPDF");
     QStringList aliases;
     QStringList tags;
     bool pinned = false;
@@ -36,7 +38,9 @@ class ManualPdfAnchorCreationService {
 public:
     explicit ManualPdfAnchorCreationService(ILibraryRepository &repository);
 
-    ManualPdfAnchorCreationResult createManualPdfXChangeRectAnchor(
+    ManualPdfAnchorCreationResult createManualPdfAnchor(
+        const ManualPdfAnchorCreationRequest &request);
+    ManualPdfAnchorCreationResult createManualPdfRectAnchor(
         const ManualPdfAnchorCreationRequest &request);
 
 private:

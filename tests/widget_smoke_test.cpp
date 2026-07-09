@@ -4,7 +4,7 @@
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/widgets/ClipPickerPanel.h"
 #include "pinloom/widgets/ClipResidentApp.h"
 #include "pinloom/widgets/ClipResidentAppConfigStore.h"
@@ -173,8 +173,8 @@ private slots:
     void panelReportsInvalidWordLocatorWithoutGenericOpen();
     void panelLaunchesPowerPointAnchorWithInjectedExecutor();
     void panelReportsInvalidPowerPointLocatorWithoutGenericOpen();
-    void panelLaunchesPdfXChangeAnchorWithInjectedExecutor();
-    void panelReportsMissingPdfXChangeExecutable();
+    void panelLaunchesSumatraPdfAnchorWithInjectedExecutor();
+    void panelReportsMissingSumatraPdfExecutable();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
     void textPreviewLoadsTargetFile();
@@ -431,9 +431,9 @@ static QList<PinloomOpenTarget> makeCommandPanelUnifiedTargets()
     anchor.id = QStringLiteral("anchor-spec#jitter");
     anchor.type = AnchorType::PdfRegion;
     anchor.name = QStringLiteral("PLL jitter budget");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = anchorTarget.location;
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12}");
     anchor.aliases = {QStringLiteral("pll budget")};
     anchor.tags = {QStringLiteral("clock")};
@@ -2371,7 +2371,7 @@ void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
         activationMessage = message;
     });
 
-    const QString customMessage = QStringLiteral("{\"type\":\"pdfxchange.opened\",\"file\":\"E:/docs/spec.pdf\"}");
+    const QString customMessage = QStringLiteral("{\"type\":\"sumatrapdf.opened\",\"file\":\"E:/docs/spec.pdf\"}");
     QString sendError;
     QVERIFY2(sendPinloomSingleInstanceMessage(serverName, customMessage, 100, &sendError), qPrintable(sendError));
     QTRY_COMPARE(activationCount, 1);
@@ -2392,7 +2392,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     const QString settingsPath = dir.filePath(QStringLiteral("pinloom.ini"));
 
     PinloomAppSettings saved = pinloomDefaultAppSettings(QStringLiteral("E:/PinloomData"));
-    saved.pdfXChangeExecutablePath = QStringLiteral("C:/Tools/PDFXEdit.exe");
+    saved.sumatraPdfExecutablePath = QStringLiteral("C:/Tools/SumatraPDF.exe");
     saved.clipMaxTemporaryClips = 42;
     saved.clipMaxTextBytes = 4096;
     saved.clipTemporaryTtlSeconds = 3600;
@@ -2409,7 +2409,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
 
     QSettings store(settingsPath, QSettings::IniFormat);
     const PinloomAppSettings loaded = loadPinloomAppSettings(store, saved.dataDirectory);
-    QCOMPARE(loaded.pdfXChangeExecutablePath, saved.pdfXChangeExecutablePath);
+    QCOMPARE(loaded.sumatraPdfExecutablePath, saved.sumatraPdfExecutablePath);
     QCOMPARE(loaded.dataDirectory, saved.dataDirectory);
     QCOMPARE(loaded.clipMaxTemporaryClips, 42);
     QCOMPARE(loaded.clipMaxTextBytes, 4096);
@@ -2429,8 +2429,8 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     PinloomSettingsDialog dialog(loaded);
     auto *pdfProxyPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfProxyPathEdit"));
     auto *pdfProxyStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfProxyStatusLabel"));
-    auto *pdfXChangeStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfXChangeStatusLabel"));
-    auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfXChangePathEdit"));
+    auto *sumatraPdfStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("sumatraPdfStatusLabel"));
+    auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("sumatraPdfPathEdit"));
     auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
     auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
     auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
@@ -2441,7 +2441,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
     QVERIFY(pdfProxyPathEdit);
     QVERIFY(pdfProxyStatusLabel);
-    QVERIFY(pdfXChangeStatusLabel);
+    QVERIFY(sumatraPdfStatusLabel);
     QVERIFY(pdfPathEdit);
     QVERIFY(dataDirEdit);
     QVERIFY(historySpin);
@@ -2454,10 +2454,10 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(pdfProxyPathEdit->isReadOnly());
     QVERIFY(pdfProxyPathEdit->text().contains(QStringLiteral("pinloom_pdf_proxy"), Qt::CaseInsensitive));
     QVERIFY(!pdfProxyStatusLabel->text().trimmed().isEmpty());
-    QVERIFY(!pdfXChangeStatusLabel->text().trimmed().isEmpty());
+    QVERIFY(!sumatraPdfStatusLabel->text().trimmed().isEmpty());
 
-    pdfPathEdit->setText(QStringLiteral("D:/Portable/PDFXEdit.exe"));
-    QVERIFY(pdfXChangeStatusLabel->text().contains(QStringLiteral("PDFXEdit.exe")));
+    pdfPathEdit->setText(QStringLiteral("D:/Portable/SumatraPDF.exe"));
+    QVERIFY(sumatraPdfStatusLabel->text().contains(QStringLiteral("SumatraPDF.exe")));
     historySpin->setValue(7);
     sizeSpin->setValue(2048);
     ttlSpin->setValue(120);
@@ -2467,7 +2467,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     markersEdit->setText(QStringLiteral("TOKEN=, PRIVATE "));
 
     const PinloomAppSettings edited = dialog.settings();
-    QCOMPARE(edited.pdfXChangeExecutablePath, QStringLiteral("D:/Portable/PDFXEdit.exe"));
+    QCOMPARE(edited.sumatraPdfExecutablePath, QStringLiteral("D:/Portable/SumatraPDF.exe"));
     QCOMPARE(edited.dataDirectory, saved.dataDirectory);
     QCOMPARE(edited.clipMaxTemporaryClips, 7);
     QCOMPARE(edited.clipMaxTextBytes, 2048);
@@ -4211,8 +4211,8 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
     InMemoryLibraryRepository repository;
 
     ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("E:/docs/live-foreground.pdf - PDF-XChange Editor");
-    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+    foregroundContext.windowTitle = QStringLiteral("E:/docs/live-foreground.pdf - SumatraPDF");
+    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
 
     int foregroundRequestCount = 0;
     ManualPdfAnchorCreationRequest capturedSuggested;
@@ -4220,8 +4220,8 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
-        const PdfXChangeForegroundCaptureResult capture =
-            capturePdfXChangeForegroundContext(repository, foregroundContext);
+        const SumatraPdfForegroundCaptureResult capture =
+            captureSumatraPdfForegroundContext(repository, foregroundContext);
         if (status) {
             *status = capture.status;
         }
@@ -4259,16 +4259,18 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
 
     QCOMPARE(foregroundRequestCount, 1);
     QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/live-foreground.pdf"));
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(capturedSuggested.locatorType, QStringLiteral("sumatrapdf.page"));
+    QVERIFY(!capturedSuggested.rect.isValid());
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-fallback"));
     QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"Live foreground anchor\" (foreground PDF-XChange fallback)"));
+             QStringLiteral("Captured PDF anchor \"Live foreground anchor\" (foreground SumatraPDF fallback)"));
 
     const QList<SearchResult> byName = repository.search(SearchQuery{QStringLiteral("Live foreground anchor")});
     QCOMPARE(byName.size(), 1);
     QVERIFY(byName.first().matchedAnchor.has_value());
-    QCOMPARE(byName.first().matchedAnchor->targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(byName.first().matchedAnchor->targetApp, QStringLiteral("SumatraPDF"));
     QCOMPARE(byName.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/live-foreground.pdf"));
-    QCOMPARE(byName.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(byName.first().matchedAnchor->locatorType, QStringLiteral("sumatrapdf.page"));
     QVERIFY(byName.first().matchedAnchor->pinned);
 
     const QList<SearchResult> byAlias = repository.search(SearchQuery{QStringLiteral("live foreground alias")});
@@ -4289,10 +4291,10 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - PDF-XChange Editor");
-    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+    foregroundContext.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - SumatraPDF");
+    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
 
-    PdfXChangeViewState viewState;
+    SumatraPdfViewState viewState;
     viewState.currentPage = 26;
     viewState.totalPages = 31;
     viewState.zoom = 300.0;
@@ -4304,8 +4306,8 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
-        const PdfXChangeForegroundCaptureResult capture =
-            capturePdfXChangeForegroundContext(repository, foregroundContext, viewState);
+        const SumatraPdfForegroundCaptureResult capture =
+            captureSumatraPdfForegroundContext(repository, foregroundContext, viewState);
         if (status) {
             *status = capture.status;
         }
@@ -4341,9 +4343,9 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
     QCOMPARE(capturedSuggested.file, resource.location);
     QCOMPARE(capturedSuggested.page, 26);
     QCOMPARE(capturedSuggested.zoom, 300.0);
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
     QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"HB0823 selected text\" (foreground PDF-XChange page/zoom; rect fallback)"));
+             QStringLiteral("Captured PDF anchor \"HB0823 selected text\" (foreground SumatraPDF page/zoom)"));
 
     const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("hb0823 note")});
     QCOMPARE(results.size(), 1);
@@ -4352,7 +4354,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"page\":26")));
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"zoom\":300")));
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(
-        QStringLiteral("\"source\":\"foreground-pdfxchange-viewstate\"")));
+        QStringLiteral("\"source\":\"foreground-sumatrapdf-viewstate\"")));
 }
 
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
@@ -4378,10 +4380,10 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
         ManualPdfAnchorCreationRequest request;
         request.name = QStringLiteral("Foreground command anchor");
         request.file = QStringLiteral("E:/docs/foreground.pdf");
+        request.locatorType = QStringLiteral("sumatrapdf.page");
         request.page = 1;
-        request.rect = {0.0, 0.0, 612.0, 792.0};
-        request.source = QStringLiteral("foreground-pdfxchange-fallback");
-        request.targetApp = QStringLiteral("PDF-XChange");
+        request.source = QStringLiteral("foreground-sumatrapdf-fallback");
+        request.targetApp = QStringLiteral("SumatraPDF");
         return request;
     };
     panelOptions.pdfAnchorCaptureRequestProvider =
@@ -4412,9 +4414,9 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
 
     QCOMPARE(foregroundRequestCount, 1);
     QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/foreground.pdf"));
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-fallback"));
     QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"Accepted foreground command anchor\" (foreground PDF-XChange fallback)"));
+             QStringLiteral("Captured PDF anchor \"Accepted foreground command anchor\" (foreground SumatraPDF fallback)"));
     QCOMPARE(panel.statusText(), commandPanel.statusText());
 
     const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("foreground command alias")});
@@ -4422,7 +4424,7 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
     QVERIFY(results.first().matchedAnchor.has_value());
     QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/foreground.pdf"));
     QVERIFY(results.first().matchedAnchor->locatorJson.contains(
-        QStringLiteral("\"source\":\"foreground-pdfxchange-fallback\"")));
+        QStringLiteral("\"source\":\"foreground-sumatrapdf-fallback\"")));
 }
 
 void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback()
@@ -4442,7 +4444,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSel
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
         if (status) {
-            *status = QStringLiteral("Open or focus a PDF-XChange PDF before k n");
+            *status = QStringLiteral("Open or focus a SumatraPDF PDF before k n");
         }
         return std::nullopt;
     };
@@ -4465,7 +4467,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSel
     QVERIFY(!commandPanel.activateCurrentCommandItem());
 
     QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a PDF-XChange PDF before k n"));
+    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a SumatraPDF PDF before k n"));
     QCOMPARE(panel.statusText(), commandPanel.statusText());
     const std::optional<Resource> selected = repository.findResource(selectedResource.id);
     QVERIFY(selected.has_value());
@@ -4477,16 +4479,16 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePa
     InMemoryLibraryRepository repository;
 
     ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
-    foregroundContext.processName = QStringLiteral("PDFXEdit.exe");
+    foregroundContext.windowTitle = QStringLiteral("clock - SumatraPDF");
+    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
 
     int foregroundRequestCount = 0;
     PinloomPanelOptions panelOptions;
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
-        const PdfXChangeForegroundCaptureResult capture =
-            capturePdfXChangeForegroundContext(repository, foregroundContext);
+        const SumatraPdfForegroundCaptureResult capture =
+            captureSumatraPdfForegroundContext(repository, foregroundContext);
         if (status) {
             *status = capture.status;
         }
@@ -4623,7 +4625,7 @@ void WidgetSmokeTest::panelSearchEntriesCanIncludeDeletedEntriesForRestore()
     deletedAnchor.type = AnchorType::PdfRegion;
     deletedAnchor.name = QStringLiteral("Deleted Anchor");
     deletedAnchor.targetFile = anchorResource.location;
-    deletedAnchor.locatorType = QStringLiteral("pdfxchange.rect");
+    deletedAnchor.locatorType = QStringLiteral("sumatrapdf.rect");
     deletedAnchor.locatorJson = QStringLiteral("{\"page\":3}");
     deletedAnchor.deleted = true;
     anchorResource.anchors = {deletedAnchor};
@@ -4687,9 +4689,9 @@ void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()
     anchor.type = AnchorType::PdfRegion;
     anchor.name = QStringLiteral("PLL jitter budget");
     anchor.target = QStringLiteral("legacy pll target");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = resource.location;
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
     anchor.aliases = {QStringLiteral("pll budget")};
     anchor.tags = {QStringLiteral("clock"), QStringLiteral("review")};
@@ -4705,11 +4707,11 @@ void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()
     searchEdit->setText(QStringLiteral("PLL jitter"));
     QCOMPARE(results->count(), 1);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("PLL jitter budget")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("PDF-XChange")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdfxchange.rect")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("SumatraPDF")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("sumatrapdf.rect")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("#clock")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("aliases: pll budget")));
-    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Locator: pdfxchange.rect")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Locator: sumatrapdf.rect")));
 
     const PinloomOpenTarget target = panel.currentOpenTarget();
     QVERIFY(target.anchor.has_value());
@@ -4851,11 +4853,11 @@ void WidgetSmokeTest::panelFiltersLegacyPdfManualLineAnchors()
     legacy.locatorJson = QStringLiteral("{\"line\":12}");
     Anchor page;
     page.type = AnchorType::Manual;
-    page.name = QStringLiteral("stable PDF-XChange page");
+    page.name = QStringLiteral("stable SumatraPDF page");
     page.target = page.name;
-    page.targetApp = QStringLiteral("PDF-XChange");
+    page.targetApp = QStringLiteral("SumatraPDF");
     page.targetFile = resource.location;
-    page.locatorType = QStringLiteral("pdfxchange.page");
+    page.locatorType = QStringLiteral("sumatrapdf.page");
     page.locatorJson = QStringLiteral("{\"page\":12}");
     resource.anchors = {legacy, page};
     QVERIFY(repository.upsertResource(resource));
@@ -4867,11 +4869,11 @@ void WidgetSmokeTest::panelFiltersLegacyPdfManualLineAnchors()
     panel.setSearchText(QStringLiteral("legacy manual line 12"));
     QCOMPARE(results->count(), 0);
 
-    panel.setSearchText(QStringLiteral("stable PDF-XChange page"));
+    panel.setSearchText(QStringLiteral("stable SumatraPDF page"));
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("stable PDF-XChange page")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("pdfxchange.page")));
-    QCOMPARE(results->item(0)->data(Qt::UserRole + 26).toString(), QStringLiteral("pdfxchange.page"));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("stable SumatraPDF page")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("sumatrapdf.page")));
+    QCOMPARE(results->item(0)->data(Qt::UserRole + 26).toString(), QStringLiteral("sumatrapdf.page"));
 }
 
 void WidgetSmokeTest::panelPreservesPdfRegionOpenTarget()
@@ -5165,7 +5167,7 @@ void WidgetSmokeTest::panelRejectsGenericManualPdfLineAnchors()
     PinloomPanel panel(repository, options);
 
     QVERIFY(!panel.addManualAnchorToResource(resource.id, QStringLiteral("Page twelve"), 12));
-    QCOMPARE(panel.statusText(), QStringLiteral("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+    QCOMPARE(panel.statusText(), QStringLiteral("PDF line anchors are deprecated; use SumatraPDF anchor capture"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
     const std::optional<Resource> stored = repository.findResource(resource.id);
@@ -6206,7 +6208,7 @@ void WidgetSmokeTest::panelCapturesSelectedPdfFallbackAnchorWithMetadataOnly()
     const Anchor anchor = results.first().matchedAnchor.value();
     QCOMPARE(anchor.name, QStringLiteral("Fallback anchor"));
     QCOMPARE(anchor.targetFile, resource.location);
-    QCOMPARE(anchor.locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(anchor.locatorType, QStringLiteral("sumatrapdf.rect"));
     QCOMPARE(anchor.page, 1);
     QCOMPARE(anchor.region.x(), 0.0);
     QCOMPARE(anchor.region.y(), 0.0);
@@ -6254,7 +6256,7 @@ void WidgetSmokeTest::manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault
 
     QCOMPARE(dialog.request().source, QStringLiteral("selected-pdf-fallback"));
 
-    suggested.source = QStringLiteral("foreground-pdfxchange-fallback");
+    suggested.source = QStringLiteral("foreground-sumatrapdf-fallback");
     suggested.name = QStringLiteral("Foreground fallback");
     ManualPdfAnchorDialog foregroundDialog(suggested);
     foregroundDialog.show();
@@ -6262,19 +6264,19 @@ void WidgetSmokeTest::manualPdfCaptureDialogKeepsRawCoordinatesAdvancedByDefault
 
     auto *foregroundSummary = foregroundDialog.findChild<QLabel *>(QStringLiteral("manualPdfAnchorSummaryLabel"));
     QVERIFY(foregroundSummary);
-    QVERIFY(foregroundSummary->text().contains(QStringLiteral("foreground PDF-XChange fallback")));
+    QVERIFY(foregroundSummary->text().contains(QStringLiteral("foreground SumatraPDF fallback")));
     QVERIFY(foregroundSummary->text().contains(QStringLiteral("page defaults to 1")));
-    QCOMPARE(foregroundDialog.request().source, QStringLiteral("foreground-pdfxchange-fallback"));
+    QCOMPARE(foregroundDialog.request().source, QStringLiteral("foreground-sumatrapdf-fallback"));
 }
 
 void WidgetSmokeTest::manualPdfCaptureDialogExplainsForegroundViewStateFallback()
 {
     ManualPdfAnchorCreationRequest suggested;
     suggested.file = QStringLiteral("E:/docs/spec.pdf");
+    suggested.locatorType = QStringLiteral("sumatrapdf.page");
     suggested.page = 37;
-    suggested.rect = {0.0, 0.0, 612.0, 792.0};
     suggested.zoom = 175.0;
-    suggested.source = QStringLiteral("foreground-pdfxchange-viewstate");
+    suggested.source = QStringLiteral("foreground-sumatrapdf-viewstate");
 
     ManualPdfAnchorDialog dialog(suggested);
     dialog.show();
@@ -6282,11 +6284,11 @@ void WidgetSmokeTest::manualPdfCaptureDialogExplainsForegroundViewStateFallback(
 
     auto *summary = dialog.findChild<QLabel *>(QStringLiteral("manualPdfAnchorSummaryLabel"));
     QVERIFY(summary);
-    QVERIFY(summary->text().contains(QStringLiteral("foreground PDF-XChange page/zoom")));
-    QVERIFY(summary->text().contains(QStringLiteral("rectangle is full-page fallback")));
+    QVERIFY(summary->text().contains(QStringLiteral("foreground SumatraPDF page/zoom")));
+    QVERIFY(!summary->text().contains(QStringLiteral("rectangle")));
     QVERIFY(summary->text().contains(QStringLiteral("page 37")));
     QVERIFY(summary->text().contains(QStringLiteral("zoom 175")));
-    QCOMPARE(dialog.request().source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(dialog.request().source, QStringLiteral("foreground-sumatrapdf-viewstate"));
     QCOMPARE(dialog.request().page, 37);
     QCOMPARE(dialog.request().zoom, 175.0);
 }
@@ -6329,7 +6331,7 @@ void WidgetSmokeTest::panelRoutesCtrlKThroughManualPdfAnchorRequestProvider()
     QVERIFY(results.first().matchedAnchor.has_value());
     QCOMPARE(results.first().matchedAnchor->name, QStringLiteral("Manual flow window"));
     QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/manual-flow.pdf"));
-    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(results.first().matchedAnchor->locatorType, QStringLiteral("sumatrapdf.rect"));
     QCOMPARE(results.first().matchedAnchor->tags, QStringList{QStringLiteral("phase4")});
     QVERIFY(results.first().matchedAnchor->pinned);
 }
@@ -6378,9 +6380,9 @@ void WidgetSmokeTest::panelCreatesManualPdfAnchorThroughDialogHook()
     QCOMPARE(panel.currentOpenTarget().resourceKind, ResourceKind::Pdf);
     QVERIFY(panel.currentOpenTarget().anchor.has_value());
     QCOMPARE(panel.currentOpenTarget().anchor->name, QStringLiteral("Dialog pick window"));
-    QCOMPARE(panel.currentOpenTarget().anchor->targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(panel.currentOpenTarget().anchor->targetApp, QStringLiteral("SumatraPDF"));
     QCOMPARE(panel.currentOpenTarget().anchor->targetFile, QStringLiteral("E:/docs/dialog-pick.pdf"));
-    QCOMPARE(panel.currentOpenTarget().anchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(panel.currentOpenTarget().anchor->locatorType, QStringLiteral("sumatrapdf.rect"));
     QVERIFY(panel.currentOpenTarget().anchor->pinned);
 
     const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("dialog alias")});
@@ -6447,7 +6449,7 @@ void WidgetSmokeTest::panelReportsInvalidManualPdfAnchorDialogHookRequest()
     QTest::keyClick(searchEdit, Qt::Key_K, Qt::ControlModifier);
 
     QCOMPARE(dialogCount, 1);
-    QCOMPARE(panel.statusText(), QStringLiteral("PDF-XChange capture page is missing"));
+    QCOMPARE(panel.statusText(), QStringLiteral("SumatraPDF capture page is missing"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
     QCOMPARE(panel.resultCount(), 0);
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
@@ -7141,7 +7143,7 @@ void WidgetSmokeTest::panelReportsInvalidPowerPointLocatorWithoutGenericOpen()
     QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
 }
 
-void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
+void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
 {
     InMemoryLibraryRepository repository;
 
@@ -7153,20 +7155,20 @@ void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
     Anchor anchor;
     anchor.type = AnchorType::PdfRegion;
     anchor.name = QStringLiteral("PLL jitter budget");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = resource.location;
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
     resource.anchors = {anchor};
     QVERIFY(repository.upsertResource(resource));
 
     bool launched = false;
-    PdfXChangeCommand capturedCommand;
+    SumatraPdfCommand capturedCommand;
     QStringList statusNotifications;
     PinloomPanelOptions options;
-    options.applicationLaunchSettings.pdfXChangeExecutablePath =
-        QStringLiteral("C:/Tools/PDFXEdit.exe");
-    options.pdfXChangeLaunchHandler = [&](const PdfXChangeCommand &command, QString *error) {
+    options.applicationLaunchSettings.sumatraPdfExecutablePath =
+        QStringLiteral("C:/Tools/SumatraPDF.exe");
+    options.sumatraPdfLaunchHandler = [&](const SumatraPdfCommand &command, QString *error) {
         Q_UNUSED(error);
         launched = true;
         capturedCommand = command;
@@ -7182,13 +7184,17 @@ void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
 
     QVERIFY(panel.activateCurrentOpenTarget());
     QVERIFY(launched);
-    QCOMPARE(capturedCommand.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
-    QCOMPARE(capturedCommand.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
+    QCOMPARE(capturedCommand.executablePath, QStringLiteral("C:/Tools/SumatraPDF.exe"));
     QCOMPARE(capturedCommand.arguments,
-             QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"),
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-scroll"),
+                          QStringLiteral("420,860"),
                           resource.location}));
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened PDF-XChange target"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened SumatraPDF target"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
     const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
@@ -7202,7 +7208,7 @@ void WidgetSmokeTest::panelLaunchesPdfXChangeAnchorWithInjectedExecutor()
     QCOMPARE(anchorUsage->openCount, 1);
 }
 
-void WidgetSmokeTest::panelReportsMissingPdfXChangeExecutable()
+void WidgetSmokeTest::panelReportsMissingSumatraPdfExecutable()
 {
     InMemoryLibraryRepository repository;
 
@@ -7220,7 +7226,7 @@ void WidgetSmokeTest::panelReportsMissingPdfXChangeExecutable()
 
     QStringList statusNotifications;
     PinloomPanelOptions options;
-    options.pdfXChangeExecutablePathProvider = []() {
+    options.sumatraPdfExecutablePathProvider = []() {
         return QString();
     };
     options.statusChangedHandler = [&](const QString &statusText) {
@@ -7232,7 +7238,7 @@ void WidgetSmokeTest::panelReportsMissingPdfXChangeExecutable()
     QVERIFY(panel.selectFirstResult());
 
     QVERIFY(!panel.activateCurrentOpenTarget());
-    QCOMPARE(panel.statusText(), QStringLiteral("PDF-XChange executable is not configured/found"));
+    QCOMPARE(panel.statusText(), QStringLiteral("SumatraPDF executable is not configured/found"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
     QVERIFY(!repository.resourceUsage(resource.id).has_value());
 }

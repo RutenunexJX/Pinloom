@@ -37,16 +37,16 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ManualPowerPointAnchorCreation.h
     include/pinloom/core/ManualVisioAnchorCreation.h
     include/pinloom/core/ManualWordAnchorCreation.h
-    include/pinloom/core/PdfXChangeForegroundCapture.h
-    include/pinloom/core/PdfXChangeCommand.h
+    include/pinloom/core/SumatraPdfForegroundCapture.h
     include/pinloom/core/PowerPointCommand.h
-    include/pinloom/core/PdfXChangeOpenProxy.h
+    include/pinloom/core/SumatraPdfOpenProxy.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceRelation.h
     include/pinloom/core/ResourceUsage.h
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
     include/pinloom/core/SqliteLibraryRepository.h
+    include/pinloom/core/SumatraPdfCommand.h
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
@@ -66,12 +66,12 @@ add_library(pinloom_core STATIC
     src/core/ManualPowerPointAnchorCreation.cpp
     src/core/ManualVisioAnchorCreation.cpp
     src/core/ManualWordAnchorCreation.cpp
-    src/core/PdfXChangeForegroundCapture.cpp
-    src/core/PdfXChangeCommand.cpp
+    src/core/SumatraPdfForegroundCapture.cpp
     src/core/PowerPointCommand.cpp
-    src/core/PdfXChangeOpenProxy.cpp
+    src/core/SumatraPdfOpenProxy.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
+    src/core/SumatraPdfCommand.cpp
     src/core/VisioCommand.cpp
     src/core/WordCommand.cpp
 )
@@ -205,23 +205,6 @@ target_link_libraries(pinloom_pdf_proxy
         pinloom_widgets
         Qt6::Core
 )
-
-add_executable(pinloom_pdfxchange_capture_probe
-    src/app/pdfxchange_capture_probe_main.cpp
-)
-
-target_link_libraries(pinloom_pdfxchange_capture_probe
-    PRIVATE
-        pinloom_core
-        Qt6::Core
-)
-
-if(WIN32)
-    target_link_libraries(pinloom_pdfxchange_capture_probe
-        PRIVATE
-            user32
-    )
-endif()
 
 enable_testing()
 

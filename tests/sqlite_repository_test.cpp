@@ -389,9 +389,9 @@ void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()
     anchor.type = AnchorType::Manual;
     anchor.id = QStringLiteral("anchor:clock-domain");
     anchor.name = QStringLiteral("Clock domain window");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/specs/clocking.pdf");
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250}");
     anchor.aliases = {QStringLiteral("cdc zoom")};
     anchor.tags = {QStringLiteral("review-point")};
@@ -439,7 +439,7 @@ void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()
     QCOMPARE(tagResults.size(), 1);
     QCOMPARE(tagResults.first().matchedField, QStringLiteral("anchor_tag"));
 
-    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("pdfxchange.rect")});
+    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("sumatrapdf.rect")});
     QCOMPARE(metadataResults.size(), 1);
     QCOMPARE(metadataResults.first().matchedField, QStringLiteral("anchor_metadata"));
 
@@ -545,11 +545,11 @@ void SqliteRepositoryTest::filtersLegacyPdfManualLineAnchorsFromSearch()
 
     Anchor rect;
     rect.type = AnchorType::Manual;
-    rect.name = QStringLiteral("stable PDF-XChange rect");
+    rect.name = QStringLiteral("stable SumatraPDF rect");
     rect.target = rect.name;
-    rect.targetApp = QStringLiteral("PDF-XChange");
+    rect.targetApp = QStringLiteral("SumatraPDF");
     rect.targetFile = resource.location;
-    rect.locatorType = QStringLiteral("pdfxchange.rect");
+    rect.locatorType = QStringLiteral("sumatrapdf.rect");
     rect.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920]}");
 
     resource.anchors = {legacy, rect};
@@ -564,10 +564,10 @@ void SqliteRepositoryTest::filtersLegacyPdfManualLineAnchorsFromSearch()
     QCOMPARE(legacyResults.size(), 0);
 
     const QList<SearchResult> rectResults =
-        repository.search(SearchQuery{QStringLiteral("stable PDF-XChange rect")});
+        repository.search(SearchQuery{QStringLiteral("stable SumatraPDF rect")});
     QCOMPARE(rectResults.size(), 1);
     QVERIFY(rectResults.first().matchedAnchor.has_value());
-    QCOMPARE(rectResults.first().matchedAnchor->locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(rectResults.first().matchedAnchor->locatorType, QStringLiteral("sumatrapdf.rect"));
 }
 
 void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()

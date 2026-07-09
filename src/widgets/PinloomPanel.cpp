@@ -1779,7 +1779,7 @@ std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCap
     double zoom = -1.0;
     QString initialName = searchEdit_ ? searchEdit_->text().trimmed() : QString();
 
-    if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
+    if (target.anchor.has_value() && isSumatraPdfAnchor(target.anchor.value())) {
         const Anchor &anchor = target.anchor.value();
         file = anchor.targetFile.trimmed();
         if (file.isEmpty()) {
@@ -1814,7 +1814,7 @@ std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCap
     request.rect = rect;
     request.zoom = zoom;
     request.source = QStringLiteral("selected-pdf-fallback");
-    request.targetApp = QStringLiteral("PDF-XChange");
+    request.targetApp = QStringLiteral("SumatraPDF");
     return request;
 }
 
@@ -1830,10 +1830,13 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
             suggestedPdfRequest.value_or(ManualPdfAnchorCreationRequest{}));
     } else if (suggestedPdfRequest.has_value()) {
         const bool foregroundPdfFallback =
-            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"),
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-fallback"),
+                                                          Qt::CaseInsensitive) == 0;
+        const bool foregroundPdfSelection =
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"),
                                                           Qt::CaseInsensitive) == 0;
         const bool foregroundPdfViewState =
-            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-viewstate"),
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-viewstate"),
                                                           Qt::CaseInsensitive) == 0;
         if (options_.pdfAnchorCaptureDialogHandler) {
             request = options_.pdfAnchorCaptureDialogHandler(this, suggestedPdfRequest.value());
@@ -1841,11 +1844,13 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
             request = options_.manualPdfAnchorDialogHandler(this);
         } else {
             ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
-            updateStatus(foregroundPdfViewState
-                             ? tr("Capturing PDF anchor from foreground PDF-XChange page/zoom; rectangle is full-page fallback")
-                             : foregroundPdfFallback
-                                   ? tr("Capturing PDF anchor from foreground PDF-XChange fallback; page defaults to 1, edit if needed")
-                                   : tr("Capturing PDF anchor from selected PDF fallback"));
+            updateStatus(foregroundPdfSelection
+                             ? tr("Capturing PDF anchor from foreground PDF selected text")
+                             : foregroundPdfViewState
+                                   ? tr("Capturing PDF anchor from foreground PDF page/zoom")
+                                   : foregroundPdfFallback
+                                         ? tr("Capturing PDF anchor from foreground PDF fallback; page defaults to 1, edit if needed")
+                                         : tr("Capturing PDF anchor from selected PDF fallback"));
             if (dialog.exec() == QDialog::Accepted) {
                 request = dialog.request();
             }
@@ -1857,7 +1862,7 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
     } else {
         const QString status = missingContextStatus.trimmed();
         updateStatus(status.isEmpty()
-                         ? tr("Open or focus a PDF-XChange PDF before k n")
+                         ? tr("Open or focus a SumatraPDF PDF before k n")
                          : status);
         return false;
     }
@@ -1869,7 +1874,7 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
 
     ManualPdfAnchorCreationService creationService(repository_);
     const ManualPdfAnchorCreationResult result =
-        creationService.createManualPdfXChangeRectAnchor(request.value());
+        creationService.createManualPdfAnchor(request.value());
     if (!result.success()) {
         updateStatus(result.error);
         return false;
@@ -1883,13 +1888,17 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
     const bool selectedPdfFallback =
         request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfFallback =
-        request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0;
+        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-fallback"), Qt::CaseInsensitive) == 0;
+    const bool foregroundPdfSelection =
+        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfViewState =
-        request->source.trimmed().compare(QStringLiteral("foreground-pdfxchange-viewstate"), Qt::CaseInsensitive) == 0;
-    updateStatus(foregroundPdfViewState
-                     ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange page/zoom; rect fallback)").arg(result.anchor.name)
+        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0;
+    updateStatus(foregroundPdfSelection
+                     ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF selected text)").arg(result.anchor.name)
+                     : foregroundPdfViewState
+                     ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF page/zoom)").arg(result.anchor.name)
                      : foregroundPdfFallback
-                           ? tr("Captured PDF anchor \"%1\" (foreground PDF-XChange fallback)").arg(result.anchor.name)
+                           ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF fallback)").arg(result.anchor.name)
                            : selectedPdfFallback
                                  ? tr("Captured PDF anchor \"%1\" (selected-PDF fallback)").arg(result.anchor.name)
                                  : tr("Captured PDF anchor \"%1\"").arg(result.anchor.name));
@@ -1907,7 +1916,7 @@ bool PinloomPanel::captureForegroundPdfAnchor()
     return capturePdfAnchorFromSuggestedRequest(
         foregroundPdfRequest,
         foregroundPdfStatus.trimmed().isEmpty()
-            ? tr("Open or focus a PDF-XChange PDF before k n")
+            ? tr("Open or focus a SumatraPDF PDF before k n")
             : foregroundPdfStatus.trimmed(),
         false);
 }
@@ -2295,7 +2304,7 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
     }
 
     if (normalizedResourceKind(resource->kind) == ResourceKind::Pdf) {
-        updateStatus(tr("PDF line anchors are deprecated; use PDF-XChange anchor capture"));
+        updateStatus(tr("PDF line anchors are deprecated; use SumatraPDF anchor capture"));
         return false;
     }
 
@@ -2825,7 +2834,7 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
     };
 
     if (isDeprecatedPdfManualLineOpenTarget(target)) {
-        updateStatus(tr("Legacy PDF line anchor is deprecated; delete it and recreate a PDF-XChange anchor"));
+        updateStatus(tr("Legacy PDF line anchor is deprecated; delete it and recreate a SumatraPDF anchor"));
         return false;
     }
 
@@ -2866,8 +2875,8 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
-    if (target.anchor.has_value() && isPdfXChangeAnchor(target.anchor.value())) {
-        if (activatePdfXChangeTarget(target)) {
+    if (target.anchor.has_value() && isSumatraPdfAnchor(target.anchor.value())) {
+        if (activateSumatraPdfTarget(target)) {
             recordOpen();
             return true;
         }
@@ -3090,18 +3099,18 @@ bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
 #endif
 }
 
-bool PinloomPanel::activatePdfXChangeTarget(const PinloomOpenTarget &target)
+bool PinloomPanel::activateSumatraPdfTarget(const PinloomOpenTarget &target)
 {
     if (!target.anchor.has_value()) {
-        updateStatus(tr("No PDF-XChange anchor selected"));
+        updateStatus(tr("No SumatraPDF anchor selected"));
         return false;
     }
 
-    const PdfXChangeCommandResult buildResult = options_.pdfXChangeExecutablePathProvider
-        ? buildPdfXChangeCommand(target.anchor.value(),
+    const SumatraPdfCommandResult buildResult = options_.sumatraPdfExecutablePathProvider
+        ? buildSumatraPdfCommand(target.anchor.value(),
                                  target.location,
-                                 options_.pdfXChangeExecutablePathProvider().trimmed())
-        : buildPdfXChangeCommand(target.anchor.value(),
+                                 options_.sumatraPdfExecutablePathProvider().trimmed())
+        : buildSumatraPdfCommand(target.anchor.value(),
                                  target.location,
                                  options_.applicationLaunchSettings);
     if (!buildResult.success()) {
@@ -3109,30 +3118,30 @@ bool PinloomPanel::activatePdfXChangeTarget(const PinloomOpenTarget &target)
         return false;
     }
 
-    if (options_.pdfXChangeLaunchHandler) {
+    if (options_.sumatraPdfLaunchHandler) {
         QString error;
-        if (!options_.pdfXChangeLaunchHandler(buildResult.command, &error)) {
+        if (!options_.sumatraPdfLaunchHandler(buildResult.command, &error)) {
             updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch PDF-XChange")
+                             ? tr("Unable to launch SumatraPDF")
                              : error.trimmed());
             return false;
         }
-        updateStatus(tr("Opened PDF-XChange target"));
+        updateStatus(tr("Opened SumatraPDF target"));
         return true;
     }
 
     const QFileInfo executable(buildResult.command.executablePath);
     if (!executable.exists() || !executable.isFile()) {
-        updateStatus(tr("PDF-XChange executable is not configured/found"));
+        updateStatus(tr("SumatraPDF executable is not configured/found"));
         return false;
     }
 
     if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch PDF-XChange"));
+        updateStatus(tr("Unable to launch SumatraPDF"));
         return false;
     }
 
-    updateStatus(tr("Opened PDF-XChange target"));
+    updateStatus(tr("Opened SumatraPDF target"));
     return true;
 }
 
@@ -3279,7 +3288,7 @@ void PinloomPanel::refreshAnchorButtonState()
 
     if (selectedPdfAnchorCaptureRequest().has_value()) {
         addAnchorButton_->setText(tr("Capture PDF Anchor"));
-        addAnchorButton_->setToolTip(tr("Capture a PDF-XChange anchor from the selected PDF context"));
+        addAnchorButton_->setToolTip(tr("Capture a SumatraPDF anchor from the selected PDF context"));
         return;
     }
 

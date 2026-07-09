@@ -16,8 +16,8 @@ QString effectivePowerShellExecutablePath(const ApplicationLaunchSettings &setti
 QString externalApplicationLabel(ExternalApplicationTarget target)
 {
     switch (target) {
-    case ExternalApplicationTarget::PdfXChange:
-        return QStringLiteral("PDF-XChange Editor");
+    case ExternalApplicationTarget::SumatraPDF:
+        return QStringLiteral("SumatraPDF");
     case ExternalApplicationTarget::Excel:
         return QStringLiteral("Microsoft Excel");
     case ExternalApplicationTarget::Word:

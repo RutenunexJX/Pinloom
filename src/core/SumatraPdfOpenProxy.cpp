@@ -1,6 +1,6 @@
-#include "pinloom/core/PdfXChangeOpenProxy.h"
+#include "pinloom/core/SumatraPdfOpenProxy.h"
 
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -13,8 +13,8 @@ namespace Pinloom {
 
 namespace {
 
-constexpr auto PdfXChangeDocumentTitlePathsGroup = "PdfXChangeDocumentTitlePaths";
-constexpr auto PdfXChangeOpenMessageType = "pdfxchange.opened";
+constexpr auto SumatraPdfDocumentTitlePathsGroup = "SumatraPdfDocumentTitlePaths";
+constexpr auto SumatraPdfOpenMessageType = "sumatrapdf.opened";
 
 QString cleanLocalFilePath(QString value)
 {
@@ -46,7 +46,7 @@ void appendUniqueKey(QStringList &keys, const QString &key)
 
 void appendTitleKey(QStringList &keys, const QString &value)
 {
-    appendUniqueKey(keys, normalizedPdfXChangeDocumentTitleKey(value));
+    appendUniqueKey(keys, normalizedSumatraPdfDocumentTitleKey(value));
 }
 
 std::optional<QString> lookupKey(QSettings &settings, const QString &key)
@@ -56,7 +56,7 @@ std::optional<QString> lookupKey(QSettings &settings, const QString &key)
         return std::nullopt;
     }
 
-    settings.beginGroup(QString::fromLatin1(PdfXChangeDocumentTitlePathsGroup));
+    settings.beginGroup(QString::fromLatin1(SumatraPdfDocumentTitlePathsGroup));
     const bool hasMapping = settings.contains(trimmed);
     const QString mappedPath = settings.value(trimmed).toString();
     settings.endGroup();
@@ -65,7 +65,7 @@ std::optional<QString> lookupKey(QSettings &settings, const QString &key)
         return std::nullopt;
     }
 
-    const QString normalizedPath = normalizedPdfXChangeOpenFilePath(mappedPath);
+    const QString normalizedPath = normalizedSumatraPdfOpenFilePath(mappedPath);
     if (normalizedPath.isEmpty()) {
         return std::nullopt;
     }
@@ -74,12 +74,12 @@ std::optional<QString> lookupKey(QSettings &settings, const QString &key)
 
 } // namespace
 
-QString pinloomPdfXChangeOpenMessageType()
+QString pinloomSumatraPdfOpenMessageType()
 {
-    return QString::fromLatin1(PdfXChangeOpenMessageType);
+    return QString::fromLatin1(SumatraPdfOpenMessageType);
 }
 
-QString normalizedPdfXChangeOpenFilePath(const QString &filePath)
+QString normalizedSumatraPdfOpenFilePath(const QString &filePath)
 {
     const QString path = cleanLocalFilePath(filePath);
     if (path.isEmpty() || !path.endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)) {
@@ -88,9 +88,9 @@ QString normalizedPdfXChangeOpenFilePath(const QString &filePath)
     return path;
 }
 
-QStringList pdfXChangeDocumentTitleMappingKeysForFile(const QString &filePath)
+QStringList sumatraPdfDocumentTitleMappingKeysForFile(const QString &filePath)
 {
-    const QString path = normalizedPdfXChangeOpenFilePath(filePath);
+    const QString path = normalizedSumatraPdfOpenFilePath(filePath);
     if (path.isEmpty()) {
         return {};
     }
@@ -104,20 +104,20 @@ QStringList pdfXChangeDocumentTitleMappingKeysForFile(const QString &filePath)
     return keys;
 }
 
-QString pinloomPdfXChangeOpenMessageForFile(const QString &filePath)
+QString pinloomSumatraPdfOpenMessageForFile(const QString &filePath)
 {
-    const QString path = normalizedPdfXChangeOpenFilePath(filePath);
+    const QString path = normalizedSumatraPdfOpenFilePath(filePath);
     if (path.isEmpty()) {
         return {};
     }
 
     QJsonObject object;
-    object.insert(QStringLiteral("type"), pinloomPdfXChangeOpenMessageType());
+    object.insert(QStringLiteral("type"), pinloomSumatraPdfOpenMessageType());
     object.insert(QStringLiteral("file"), path);
     return QString::fromUtf8(QJsonDocument(object).toJson(QJsonDocument::Compact));
 }
 
-std::optional<QString> pdfXChangeOpenFileFromPinloomMessage(const QString &message)
+std::optional<QString> sumatraPdfOpenFileFromPinloomMessage(const QString &message)
 {
     QJsonParseError parseError;
     const QJsonDocument document = QJsonDocument::fromJson(message.trimmed().toUtf8(), &parseError);
@@ -126,20 +126,20 @@ std::optional<QString> pdfXChangeOpenFileFromPinloomMessage(const QString &messa
     }
 
     const QJsonObject object = document.object();
-    if (object.value(QStringLiteral("type")).toString() != pinloomPdfXChangeOpenMessageType()) {
+    if (object.value(QStringLiteral("type")).toString() != pinloomSumatraPdfOpenMessageType()) {
         return std::nullopt;
     }
 
-    const QString path = normalizedPdfXChangeOpenFilePath(object.value(QStringLiteral("file")).toString());
+    const QString path = normalizedSumatraPdfOpenFilePath(object.value(QStringLiteral("file")).toString());
     if (path.isEmpty()) {
         return std::nullopt;
     }
     return path;
 }
 
-bool rememberPdfXChangeOpenedFile(QSettings &settings, const QString &filePath, QString *error)
+bool rememberSumatraPdfOpenedFile(QSettings &settings, const QString &filePath, QString *error)
 {
-    const QString path = normalizedPdfXChangeOpenFilePath(filePath);
+    const QString path = normalizedSumatraPdfOpenFilePath(filePath);
     if (path.isEmpty()) {
         if (error) {
             *error = QStringLiteral("PDF path is missing or not a .pdf file");
@@ -147,7 +147,7 @@ bool rememberPdfXChangeOpenedFile(QSettings &settings, const QString &filePath, 
         return false;
     }
 
-    const QStringList keys = pdfXChangeDocumentTitleMappingKeysForFile(path);
+    const QStringList keys = sumatraPdfDocumentTitleMappingKeysForFile(path);
     if (keys.isEmpty()) {
         if (error) {
             *error = QStringLiteral("PDF title mapping key is empty");
@@ -155,7 +155,7 @@ bool rememberPdfXChangeOpenedFile(QSettings &settings, const QString &filePath, 
         return false;
     }
 
-    settings.beginGroup(QString::fromLatin1(PdfXChangeDocumentTitlePathsGroup));
+    settings.beginGroup(QString::fromLatin1(SumatraPdfDocumentTitlePathsGroup));
     for (const QString &key : keys) {
         settings.setValue(key, path);
     }
@@ -168,12 +168,12 @@ bool rememberPdfXChangeOpenedFile(QSettings &settings, const QString &filePath, 
     return true;
 }
 
-bool rememberPdfXChangeDocumentTitlePath(QSettings &settings,
+bool rememberSumatraPdfDocumentTitlePath(QSettings &settings,
                                          const QString &documentTitle,
                                          const QString &filePath,
                                          QString *error)
 {
-    const QString path = normalizedPdfXChangeOpenFilePath(filePath);
+    const QString path = normalizedSumatraPdfOpenFilePath(filePath);
     if (path.isEmpty()) {
         if (error) {
             *error = QStringLiteral("PDF path is missing or not a .pdf file");
@@ -181,7 +181,7 @@ bool rememberPdfXChangeDocumentTitlePath(QSettings &settings,
         return false;
     }
 
-    QStringList keys = pdfXChangeDocumentTitleMappingKeysForFile(path);
+    QStringList keys = sumatraPdfDocumentTitleMappingKeysForFile(path);
     appendTitleKey(keys, documentTitle);
 
     if (keys.isEmpty()) {
@@ -191,7 +191,7 @@ bool rememberPdfXChangeDocumentTitlePath(QSettings &settings,
         return false;
     }
 
-    settings.beginGroup(QString::fromLatin1(PdfXChangeDocumentTitlePathsGroup));
+    settings.beginGroup(QString::fromLatin1(SumatraPdfDocumentTitlePathsGroup));
     for (const QString &key : keys) {
         settings.setValue(key, path);
     }
@@ -204,7 +204,7 @@ bool rememberPdfXChangeDocumentTitlePath(QSettings &settings,
     return true;
 }
 
-std::optional<QString> lookupRememberedPdfXChangeDocumentPath(QSettings &settings,
+std::optional<QString> lookupRememberedSumatraPdfDocumentPath(QSettings &settings,
                                                               const QString &documentTitle,
                                                               const QString &normalizedTitleKey)
 {

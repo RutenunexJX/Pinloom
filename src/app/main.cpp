@@ -3,9 +3,9 @@
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
-#include "pinloom/core/PdfXChangeCommand.h"
-#include "pinloom/core/PdfXChangeOpenProxy.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfOpenProxy.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -113,9 +113,11 @@ int main(int argc, char *argv[])
     window.resize(760, 72);
 
     Pinloom::PinloomPanelOptions panelOptions;
-    panelOptions.pdfXChangeExecutablePathProvider = [&runtimeSettings]() {
-        const QString configured = runtimeSettings.pdfXChangeExecutablePath.trimmed();
-        return configured.isEmpty() ? Pinloom::resolvePdfXChangeExecutablePath() : configured;
+    panelOptions.applicationLaunchSettings.sumatraPdfExecutablePath =
+        runtimeSettings.sumatraPdfExecutablePath.trimmed();
+    panelOptions.sumatraPdfExecutablePathProvider = [&runtimeSettings]() {
+        const QString configured = runtimeSettings.sumatraPdfExecutablePath.trimmed();
+        return configured.isEmpty() ? Pinloom::resolveSumatraPdfExecutablePath() : configured;
     };
     panelOptions.statusChangedHandler = [&window](const QString &status) {
         const QString lower = status.toLower();
@@ -175,27 +177,27 @@ int main(int argc, char *argv[])
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
-    const auto lookupPdfXChangeTitlePath =
+    const auto lookupSumatraPdfTitlePath =
         [&appSettingsStore](const QString &documentTitle, const QString &normalizedTitleKey)
             -> std::optional<QString> {
-        return Pinloom::lookupRememberedPdfXChangeDocumentPath(appSettingsStore,
+        return Pinloom::lookupRememberedSumatraPdfDocumentPath(appSettingsStore,
                                                                documentTitle,
                                                                normalizedTitleKey);
     };
-    const auto rememberPdfXChangeTitlePath =
+    const auto rememberSumatraPdfTitlePath =
         [&appSettingsStore](const QString &documentTitle, const QString &filePath) {
-        Pinloom::rememberPdfXChangeDocumentTitlePath(appSettingsStore, documentTitle, filePath);
+        Pinloom::rememberSumatraPdfDocumentTitlePath(appSettingsStore, documentTitle, filePath);
     };
-    Pinloom::PdfXChangeForegroundCaptureProvider foregroundPdfCaptureProvider(
+    Pinloom::SumatraPdfForegroundCaptureProvider foregroundPdfCaptureProvider(
         repository,
-        Pinloom::capturePdfXChangeViewState,
-        lookupPdfXChangeTitlePath);
+        Pinloom::captureSumatraPdfViewState,
+        lookupSumatraPdfTitlePath);
 
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
         [&foregroundPdfCaptureProvider,
          &lastForegroundContext,
          &commandWindowForForegroundCapture,
-         rememberPdfXChangeTitlePath](QString *status)
+         rememberSumatraPdfTitlePath](QString *status)
         -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
         const bool useLastForegroundContext =
             commandWindowForForegroundCapture
@@ -205,7 +207,7 @@ int main(int argc, char *argv[])
             useLastForegroundContext
                 ? lastForegroundContext
                 : Pinloom::currentForegroundAppWindowContext();
-        const Pinloom::PdfXChangeForegroundCaptureResult result =
+        const Pinloom::SumatraPdfForegroundCaptureResult result =
             foregroundPdfCaptureProvider.capture(context);
         if (status) {
             *status = result.status;
@@ -219,14 +221,14 @@ int main(int argc, char *argv[])
                 QStringLiteral("PDF files (*.pdf);;All files (*)"));
             if (selectedFile.trimmed().isEmpty()) {
                 if (status) {
-                    *status = QStringLiteral("PDF selection canceled for PDF-XChange document \"%1\"")
+                    *status = QStringLiteral("PDF selection canceled for PDF document \"%1\"")
                                   .arg(result.documentTitle);
                 }
                 return std::nullopt;
             }
 
-            const Pinloom::PdfXChangeForegroundCaptureResult confirmed =
-                Pinloom::pdfXChangeForegroundCaptureResultForConfirmedPdfFile(
+            const Pinloom::SumatraPdfForegroundCaptureResult confirmed =
+                Pinloom::sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
                     result.documentTitle,
                     selectedFile,
                     result.viewState);
@@ -237,7 +239,7 @@ int main(int argc, char *argv[])
                 return std::nullopt;
             }
 
-            rememberPdfXChangeTitlePath(result.documentTitle, confirmed.request.file);
+            rememberSumatraPdfTitlePath(result.documentTitle, confirmed.request.file);
             if (status) {
                 *status = confirmed.status;
             }
@@ -1364,9 +1366,9 @@ int main(int argc, char *argv[])
                      &app,
                      [&appSettingsStore, &commandWindow, commandPanel](const QString &message) {
                          const std::optional<QString> openedPdf =
-                             Pinloom::pdfXChangeOpenFileFromPinloomMessage(message);
+                             Pinloom::sumatraPdfOpenFileFromPinloomMessage(message);
                          if (openedPdf.has_value()) {
-                             Pinloom::rememberPdfXChangeOpenedFile(appSettingsStore, openedPdf.value());
+                             Pinloom::rememberSumatraPdfOpenedFile(appSettingsStore, openedPdf.value());
                              return;
                          }
 

@@ -139,11 +139,15 @@ ManualPdfAnchorCreationRequest ManualPdfAnchorDialog::request() const
     ManualPdfAnchorCreationRequest request;
     request.name = nameEdit_->text();
     request.file = fileEdit_->text();
+    request.locatorType = locatorType_;
     request.page = pageSpin_->value();
-    request.rect.left = leftSpin_->value();
-    request.rect.top = topSpin_->value();
-    request.rect.right = rightSpin_->value();
-    request.rect.bottom = bottomSpin_->value();
+    if (locatorType_.compare(QStringLiteral("sumatrapdf.rect"), Qt::CaseInsensitive) == 0) {
+        request.rect.left = leftSpin_->value();
+        request.rect.top = topSpin_->value();
+        request.rect.right = rightSpin_->value();
+        request.rect.bottom = bottomSpin_->value();
+    }
+    request.selectedText = selectedText_;
     request.zoom = zoomSpin_->value();
     request.unit = unit_;
     request.source = source_;
@@ -169,8 +173,15 @@ void ManualPdfAnchorDialog::browsePdfFile()
 void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &request)
 {
     source_ = request.source.trimmed().isEmpty() ? QStringLiteral("manual") : request.source.trimmed();
-    targetApp_ = request.targetApp.trimmed().isEmpty() ? QStringLiteral("PDF-XChange") : request.targetApp.trimmed();
+    targetApp_ = request.targetApp.trimmed().isEmpty() ? QStringLiteral("SumatraPDF") : request.targetApp.trimmed();
     unit_ = request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed();
+    selectedText_ = request.selectedText.trimmed();
+    locatorType_ = request.locatorType.trimmed().toLower();
+    if (locatorType_.isEmpty()) {
+        locatorType_ = !selectedText_.isEmpty()
+            ? QStringLiteral("sumatrapdf.search")
+            : request.rect.isValid() ? QStringLiteral("sumatrapdf.rect") : QStringLiteral("sumatrapdf.page");
+    }
 
     nameEdit_->setText(request.name);
     fileEdit_->setText(request.file);
@@ -195,10 +206,12 @@ void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &req
 void ManualPdfAnchorDialog::updateSummary()
 {
     QString sourceSummary;
-    if (source_.compare(QStringLiteral("foreground-pdfxchange-fallback"), Qt::CaseInsensitive) == 0) {
-        sourceSummary = tr("foreground PDF-XChange fallback; page defaults to 1, edit if needed");
-    } else if (source_.compare(QStringLiteral("foreground-pdfxchange-viewstate"), Qt::CaseInsensitive) == 0) {
-        sourceSummary = tr("foreground PDF-XChange page/zoom; rectangle is full-page fallback, edit if needed");
+    if (source_.compare(QStringLiteral("foreground-sumatrapdf-fallback"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground SumatraPDF fallback; page defaults to 1, edit if needed");
+    } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground SumatraPDF selected text");
+    } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground SumatraPDF page/zoom");
     } else if (source_.compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("selected-PDF fallback, not native current-view capture");
     } else {

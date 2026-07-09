@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 
 #include <QString>
 #include <QStringList>

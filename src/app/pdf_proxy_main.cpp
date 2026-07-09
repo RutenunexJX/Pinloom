@@ -1,5 +1,5 @@
-#include "pinloom/core/PdfXChangeCommand.h"
-#include "pinloom/core/PdfXChangeOpenProxy.h"
+#include "pinloom/core/SumatraPdfOpenProxy.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
 
 #include <QApplication>
@@ -13,18 +13,18 @@
 
 namespace {
 
-QString configuredPdfXChangeExecutablePath(QSettings &settings)
+QString configuredSumatraPdfExecutablePath(QSettings &settings)
 {
     const QString configured =
-        settings.value(QStringLiteral("applications/pdfXChangeExecutablePath")).toString().trimmed();
-    return configured.isEmpty() ? Pinloom::resolvePdfXChangeExecutablePath() : configured;
+        settings.value(QStringLiteral("applications/sumatraPdfExecutablePath")).toString().trimmed();
+    return configured.isEmpty() ? Pinloom::resolveSumatraPdfExecutablePath() : configured;
 }
 
 QStringList pdfFileArguments(const QStringList &arguments)
 {
     QStringList files;
     for (int index = 1; index < arguments.size(); ++index) {
-        const QString path = Pinloom::normalizedPdfXChangeOpenFilePath(arguments.at(index));
+        const QString path = Pinloom::normalizedSumatraPdfOpenFilePath(arguments.at(index));
         if (!path.isEmpty()) {
             files.append(path);
         }
@@ -63,7 +63,7 @@ void startPinloomResidentIfNeeded()
 
 bool notifyOpenedPdf(const QString &filePath)
 {
-    const QString message = Pinloom::pinloomPdfXChangeOpenMessageForFile(filePath);
+    const QString message = Pinloom::pinloomSumatraPdfOpenMessageForFile(filePath);
     if (message.isEmpty()) {
         return false;
     }
@@ -95,23 +95,25 @@ int main(int argc, char *argv[])
     }
 
     QSettings settings;
-    const QString pdfXChangePath = configuredPdfXChangeExecutablePath(settings);
-    if (pdfXChangePath.trimmed().isEmpty()) {
+    const QString sumatraPdfPath = configuredSumatraPdfExecutablePath(settings);
+    if (sumatraPdfPath.trimmed().isEmpty()) {
         return showProxyError(
             3,
-            QStringLiteral("PDF-XChange Editor was not found. Configure PDFXEdit.exe in Pinloom settings."));
+            QStringLiteral("SumatraPDF was not found. Configure SumatraPDF.exe in Pinloom settings."));
     }
 
     bool allLaunched = true;
     for (const QString &filePath : pdfFiles) {
         const bool launched =
-            QProcess::startDetached(pdfXChangePath, {QDir::toNativeSeparators(filePath)});
+            QProcess::startDetached(sumatraPdfPath,
+                                    {QStringLiteral("-reuse-instance"),
+                                     QDir::toNativeSeparators(filePath)});
         if (!launched) {
             allLaunched = false;
             continue;
         }
 
-        Pinloom::rememberPdfXChangeOpenedFile(settings, filePath);
+        Pinloom::rememberSumatraPdfOpenedFile(settings, filePath);
         notifyOpenedPdf(filePath);
     }
 
@@ -119,8 +121,8 @@ int main(int argc, char *argv[])
     if (!allLaunched) {
         return showProxyError(
             4,
-            QStringLiteral("Pinloom could not launch PDF-XChange Editor: %1")
-                .arg(QDir::toNativeSeparators(pdfXChangePath)));
+            QStringLiteral("Pinloom could not launch SumatraPDF: %1")
+                .arg(QDir::toNativeSeparators(sumatraPdfPath)));
     }
     return 0;
 }

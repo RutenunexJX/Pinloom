@@ -15,7 +15,7 @@ class QSpinBox;
 namespace Pinloom {
 
 struct PinloomAppSettings {
-    QString pdfXChangeExecutablePath;
+    QString sumatraPdfExecutablePath;
     QString dataDirectory;
     int clipMaxTemporaryClips = 100;
     int clipMaxTextBytes = 256 * 1024;
@@ -46,8 +46,8 @@ private:
 
     QLineEdit *pdfProxyPathEdit_ = nullptr;
     QLabel *pdfProxyStatusLabel_ = nullptr;
-    QLabel *pdfXChangeStatusLabel_ = nullptr;
-    QLineEdit *pdfXChangePathEdit_ = nullptr;
+    QLabel *sumatraPdfStatusLabel_ = nullptr;
+    QLineEdit *sumatraPdfPathEdit_ = nullptr;
     QLineEdit *dataDirectoryEdit_ = nullptr;
     QSpinBox *clipMaxTemporaryClipsSpin_ = nullptr;
     QSpinBox *clipMaxTextBytesSpin_ = nullptr;

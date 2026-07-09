@@ -15,12 +15,13 @@ struct PdfCaptureRect {
     bool isValid() const;
 };
 
-struct PdfXChangeCaptureRequest {
-    QString targetApp = QStringLiteral("PDF-XChange");
+struct PdfCaptureRequest {
+    QString targetApp = QStringLiteral("SumatraPDF");
     QString targetFile;
-    QString locatorType = QStringLiteral("pdfxchange.rect");
+    QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    QString selectedText;
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
@@ -75,6 +76,7 @@ struct AnchorCaptureResult {
     QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    QString selectedText;
     double zoom = -1.0;
     QString unit;
     QString source;
@@ -141,13 +143,13 @@ public:
     virtual ~CaptureProvider() = default;
 
     virtual QString source() const = 0;
-    virtual AnchorCaptureResult capture(const PdfXChangeCaptureRequest &request) const = 0;
+    virtual AnchorCaptureResult capture(const PdfCaptureRequest &request) const = 0;
 };
 
-class ManualPdfXChangeRectCaptureProvider final : public CaptureProvider {
+class ManualPdfRectCaptureProvider final : public CaptureProvider {
 public:
     QString source() const override;
-    AnchorCaptureResult capture(const PdfXChangeCaptureRequest &request) const override;
+    AnchorCaptureResult capture(const PdfCaptureRequest &request) const override;
 };
 
 class ExcelCaptureProvider {
@@ -206,8 +208,10 @@ public:
     PowerPointCaptureResult capture(const PowerPointCaptureRequest &request) const override;
 };
 
-QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request);
-AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request);
+QString pdfRectLocatorJson(const PdfCaptureRequest &request);
+QString pdfLocatorJson(const PdfCaptureRequest &request);
+AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request);
+AnchorCaptureResult captureManualPdfRectAnchor(const PdfCaptureRequest &request);
 QString excelLocatorJson(const ExcelCaptureRequest &request);
 ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request);
 QString visioLocatorJson(const VisioCaptureRequest &request);

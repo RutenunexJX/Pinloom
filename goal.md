@@ -81,14 +81,15 @@ exact name > alias > tag > recent/pinned > target metadata
 
 ## V1 Application Targets
 
-### PDF-XChange Editor
+### SumatraPDF
 
-PDF-XChange Editor is the v1 PDF host. Pinloom should not build a PDF reader
+SumatraPDF is the v1 PDF host. Pinloom should not build a PDF reader
 and should not depend on OCR to find anchors in scanned PDFs.
 
 The user creates a PDF anchor manually. Pinloom stores page and rectangle, then
-jumps with PDF-XChange command-line actions such as page, zoom, viewrect,
-highlight, and `usept=yes`.
+jumps with SumatraPDF command-line arguments such as `-page`, `-zoom`,
+`-search`, and `-scroll`. Rectangle anchors are used as scroll targets; they do
+not imply guaranteed external highlighting in SumatraPDF.
 
 ### Excel
 
@@ -124,7 +125,7 @@ engineering drawing workflows and ranks just behind PDF and Excel.
 ## Technical Risk
 
 Jumping is usually easier than capture. The highest risk is reliably capturing
-the current position from PDF-XChange, Office, and Visio.
+the current position from SumatraPDF, Office, and Visio.
 
 The implementation should therefore build small verified loops:
 

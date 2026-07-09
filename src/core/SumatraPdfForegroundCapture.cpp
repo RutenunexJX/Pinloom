@@ -1,4 +1,4 @@
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 
 #include "pinloom/core/LegacyCompatibility.h"
 
@@ -27,8 +27,9 @@ namespace Pinloom {
 
 namespace {
 
-constexpr const char *ForegroundPdfXChangeFallbackSource = "foreground-pdfxchange-fallback";
-constexpr const char *ForegroundPdfXChangeViewStateSource = "foreground-pdfxchange-viewstate";
+constexpr const char *ForegroundSumatraPdfFallbackSource = "foreground-sumatrapdf-fallback";
+constexpr const char *ForegroundSumatraPdfSelectionSource = "foreground-sumatrapdf-selection";
+constexpr const char *ForegroundSumatraPdfViewStateSource = "foreground-sumatrapdf-viewstate";
 
 QString stripOuterDocumentDecorations(QString value)
 {
@@ -56,7 +57,7 @@ QString withoutPdfExtension(QString value)
 
 QString normalizedNameKey(const QString &value)
 {
-    return normalizedPdfXChangeDocumentTitleKey(value);
+    return normalizedSumatraPdfDocumentTitleKey(value);
 }
 
 QString normalizedPathKey(const QString &value)
@@ -225,10 +226,10 @@ QStringList resourceIds(const QList<Resource> &resources)
     return ids;
 }
 
-PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &documentTitle, const Resource &resource)
+SumatraPdfForegroundCaptureResult resultForMatchedResource(const QString &documentTitle, const Resource &resource)
 {
-    PdfXChangeForegroundCaptureResult result;
-    result.recognizedPdfXChange = true;
+    SumatraPdfForegroundCaptureResult result;
+    result.recognizedSumatraPdf = true;
     result.matchedResource = true;
     result.documentTitle = stripOuterDocumentDecorations(documentTitle);
     result.matchedResourceId = resource.id;
@@ -236,23 +237,23 @@ PdfXChangeForegroundCaptureResult resultForMatchedResource(const QString &docume
 
     result.request.name = defaultAnchorNameForDocument(documentTitle, resource);
     result.request.file = resource.location.trimmed();
+    result.request.locatorType = QStringLiteral("sumatrapdf.page");
     result.request.page = 1;
-    result.request.rect = {0.0, 0.0, 612.0, 792.0};
     result.request.zoom = -1.0;
     result.request.unit = QStringLiteral("pt");
-    result.request.source = QString::fromLatin1(ForegroundPdfXChangeFallbackSource);
-    result.request.targetApp = QStringLiteral("PDF-XChange");
+    result.request.source = QString::fromLatin1(ForegroundSumatraPdfFallbackSource);
+    result.request.targetApp = QStringLiteral("SumatraPDF");
     return result;
 }
 
-PdfXChangeForegroundCaptureResult resultNeedsFileConfirmation(
+SumatraPdfForegroundCaptureResult resultNeedsFileConfirmation(
     const QString &documentTitle,
-    const PdfXChangeViewState &viewState,
+    const SumatraPdfViewState &viewState,
     const QString &status,
     const QList<Resource> &matches = {})
 {
-    PdfXChangeForegroundCaptureResult result;
-    result.recognizedPdfXChange = true;
+    SumatraPdfForegroundCaptureResult result;
+    result.recognizedSumatraPdf = true;
     result.documentTitle = stripOuterDocumentDecorations(documentTitle);
     result.viewState = viewState;
     result.status = status;
@@ -273,16 +274,19 @@ QString decimalText(double value)
     return text;
 }
 
-QString viewStateStatus(const PdfXChangeViewState &viewState)
+QString viewStateStatus(const SumatraPdfViewState &viewState)
 {
     if (!viewState.hasAnyViewState()) {
         const QString diagnostics = viewState.diagnostics.trimmed();
         return diagnostics.isEmpty()
-            ? QStringLiteral("PDF-XChange view state unavailable; page defaults to 1 and rectangle is full-page fallback")
-            : QStringLiteral("%1; page defaults to 1 and rectangle is full-page fallback").arg(diagnostics);
+            ? QStringLiteral("PDF view state unavailable; page defaults to 1")
+            : QStringLiteral("%1; page defaults to 1").arg(diagnostics);
     }
 
     QStringList parts;
+    if (viewState.hasSelectedText()) {
+        parts.append(QStringLiteral("selected text \"%1\"").arg(viewState.selectedText.simplified().left(80)));
+    }
     if (viewState.hasCurrentPage()) {
         QString pageText = QStringLiteral("page %1").arg(viewState.currentPage);
         if (viewState.totalPages > 0) {
@@ -296,39 +300,47 @@ QString viewStateStatus(const PdfXChangeViewState &viewState)
     parts.append(viewState.hasZoom()
                      ? QStringLiteral("zoom %1%").arg(decimalText(viewState.zoom))
                      : QStringLiteral("zoom unavailable"));
-    parts.append(QStringLiteral("rectangle is full-page fallback"));
-    return QStringLiteral("Captured PDF-XChange view state: %1").arg(parts.join(QStringLiteral("; ")));
+    return QStringLiteral("Captured PDF view state: %1").arg(parts.join(QStringLiteral("; ")));
 }
 
-void applyViewState(PdfXChangeForegroundCaptureResult &result, const PdfXChangeViewState &viewState)
+void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfViewState &viewState)
 {
     result.viewState = viewState;
+    if (viewState.hasSelectedText()) {
+        result.request.selectedText = viewState.selectedText.trimmed();
+        result.request.locatorType = QStringLiteral("sumatrapdf.search");
+        result.request.rect = {};
+        result.request.source = QString::fromLatin1(ForegroundSumatraPdfSelectionSource);
+    } else if (viewState.hasCurrentPage()) {
+        result.request.locatorType = QStringLiteral("sumatrapdf.page");
+        result.request.rect = {};
+    }
     if (viewState.hasCurrentPage()) {
         result.request.page = viewState.currentPage;
     }
     if (viewState.hasZoom()) {
         result.request.zoom = viewState.zoom;
     }
-    if (viewState.hasAnyViewState()) {
-        result.request.source = QString::fromLatin1(ForegroundPdfXChangeViewStateSource);
+    if (viewState.hasAnyViewState() && !viewState.hasSelectedText()) {
+        result.request.source = QString::fromLatin1(ForegroundSumatraPdfViewStateSource);
     }
     result.status = viewStateStatus(viewState);
 }
 
-PdfXChangeForegroundCaptureResult resultForMatchedResource(
+SumatraPdfForegroundCaptureResult resultForMatchedResource(
     const QString &documentTitle,
     const Resource &resource,
-    const PdfXChangeViewState &viewState)
+    const SumatraPdfViewState &viewState)
 {
-    PdfXChangeForegroundCaptureResult result = resultForMatchedResource(documentTitle, resource);
+    SumatraPdfForegroundCaptureResult result = resultForMatchedResource(documentTitle, resource);
     applyViewState(result, viewState);
     return result;
 }
 
-PdfXChangeForegroundCaptureResult resultForResolvedFilePath(const QString &documentTitle, const QString &filePath)
+SumatraPdfForegroundCaptureResult resultForResolvedFilePath(const QString &documentTitle, const QString &filePath)
 {
-    PdfXChangeForegroundCaptureResult result;
-    result.recognizedPdfXChange = true;
+    SumatraPdfForegroundCaptureResult result;
+    result.recognizedSumatraPdf = true;
     result.documentTitle = stripOuterDocumentDecorations(documentTitle);
 
     const QFileInfo fileInfo(filePath);
@@ -338,21 +350,21 @@ PdfXChangeForegroundCaptureResult resultForResolvedFilePath(const QString &docum
 
     result.request.name = defaultName;
     result.request.file = QDir::cleanPath(QDir::fromNativeSeparators(filePath.trimmed()));
+    result.request.locatorType = QStringLiteral("sumatrapdf.page");
     result.request.page = 1;
-    result.request.rect = {0.0, 0.0, 612.0, 792.0};
     result.request.zoom = -1.0;
     result.request.unit = QStringLiteral("pt");
-    result.request.source = QString::fromLatin1(ForegroundPdfXChangeFallbackSource);
-    result.request.targetApp = QStringLiteral("PDF-XChange");
+    result.request.source = QString::fromLatin1(ForegroundSumatraPdfFallbackSource);
+    result.request.targetApp = QStringLiteral("SumatraPDF");
     return result;
 }
 
-PdfXChangeForegroundCaptureResult resultForResolvedFilePath(
+SumatraPdfForegroundCaptureResult resultForResolvedFilePath(
     const QString &documentTitle,
     const QString &filePath,
-    const PdfXChangeViewState &viewState)
+    const SumatraPdfViewState &viewState)
 {
-    PdfXChangeForegroundCaptureResult result = resultForResolvedFilePath(documentTitle, filePath);
+    SumatraPdfForegroundCaptureResult result = resultForResolvedFilePath(documentTitle, filePath);
     applyViewState(result, viewState);
     return result;
 }
@@ -600,6 +612,276 @@ void appendTargetedAutomationText(IUIAutomation *automation,
     elements->Release();
 }
 
+QString selectedTextFromRange(IUIAutomationTextRange *range)
+{
+    if (!range) {
+        return {};
+    }
+
+    BSTR text = nullptr;
+    if (FAILED(range->GetText(4096, &text))) {
+        return {};
+    }
+    return stringFromBstr(text).simplified();
+}
+
+bool isUsefulSelectedPdfText(const QString &value)
+{
+    const QString text = value.simplified();
+    if (text.size() < 3) {
+        return false;
+    }
+    if (isCompactPageOrZoomValue(text)) {
+        return false;
+    }
+    return true;
+}
+
+void appendUniqueSelectedText(QStringList &texts, const QString &value)
+{
+    const QString text = value.simplified();
+    if (isUsefulSelectedPdfText(text) && !texts.contains(text, Qt::CaseInsensitive)) {
+        texts.append(text);
+    }
+}
+
+bool isLikelySelectedPdfTextElement(IUIAutomationElement *element)
+{
+    if (!element) {
+        return false;
+    }
+
+    CONTROLTYPEID controlType = 0;
+    if (FAILED(element->get_CurrentControlType(&controlType))) {
+        return false;
+    }
+
+    return controlType == UIA_TextControlTypeId
+        || controlType == UIA_DocumentControlTypeId
+        || controlType == UIA_EditControlTypeId
+        || controlType == UIA_CustomControlTypeId;
+}
+
+void appendReadableTextFromElement(IUIAutomationElement *element, QStringList &texts)
+{
+    if (!isLikelySelectedPdfTextElement(element)) {
+        return;
+    }
+
+    BSTR text = nullptr;
+    if (SUCCEEDED(element->get_CurrentName(&text))) {
+        appendUniqueSelectedText(texts, stringFromBstr(text));
+    }
+
+    IUIAutomationValuePattern *valuePattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_ValuePatternId,
+                                               IID_PPV_ARGS(&valuePattern)))
+        && valuePattern) {
+        BSTR value = nullptr;
+        if (SUCCEEDED(valuePattern->get_CurrentValue(&value))) {
+            appendUniqueSelectedText(texts, stringFromBstr(value));
+        }
+        valuePattern->Release();
+    }
+
+    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
+                                               IID_PPV_ARGS(&legacyPattern)))
+        && legacyPattern) {
+        BSTR legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentName(&legacyText))) {
+            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
+        }
+        legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentValue(&legacyText))) {
+            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
+        }
+        legacyText = nullptr;
+        if (SUCCEEDED(legacyPattern->get_CurrentDescription(&legacyText))) {
+            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
+        }
+        legacyPattern->Release();
+    }
+
+    IUIAutomationTextPattern *textPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern)))
+        && textPattern) {
+        IUIAutomationTextRange *documentRange = nullptr;
+        if (SUCCEEDED(textPattern->get_DocumentRange(&documentRange)) && documentRange) {
+            appendUniqueSelectedText(texts, selectedTextFromRange(documentRange));
+            documentRange->Release();
+        }
+        textPattern->Release();
+    }
+}
+
+void appendTextPatternSelectionFromElement(IUIAutomationElement *element, QStringList &texts)
+{
+    if (!element) {
+        return;
+    }
+
+    IUIAutomationTextPattern *textPattern = nullptr;
+    if (FAILED(element->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern)))
+        || !textPattern) {
+        return;
+    }
+
+    IUIAutomationTextRangeArray *selection = nullptr;
+    if (SUCCEEDED(textPattern->GetSelection(&selection)) && selection) {
+        int length = 0;
+        selection->get_Length(&length);
+        const int maxRanges = std::min(length, 64);
+        for (int index = 0; index < maxRanges; ++index) {
+            IUIAutomationTextRange *range = nullptr;
+            if (SUCCEEDED(selection->GetElement(index, &range)) && range) {
+                appendUniqueSelectedText(texts, selectedTextFromRange(range));
+                range->Release();
+            }
+        }
+        selection->Release();
+    }
+
+    textPattern->Release();
+}
+
+void appendReadableTextFromElementArray(IUIAutomationElementArray *elements, QStringList &texts)
+{
+    if (!elements) {
+        return;
+    }
+
+    int length = 0;
+    elements->get_Length(&length);
+    const int maxElements = std::min(length, 128);
+    for (int index = 0; index < maxElements; ++index) {
+        IUIAutomationElement *element = nullptr;
+        if (SUCCEEDED(elements->GetElement(index, &element)) && element) {
+            appendReadableTextFromElement(element, texts);
+            appendTextPatternSelectionFromElement(element, texts);
+            element->Release();
+        }
+    }
+}
+
+void appendSelectionPatternTextFromElement(IUIAutomationElement *element, QStringList &texts)
+{
+    if (!element) {
+        return;
+    }
+
+    IUIAutomationSelectionPattern *selectionPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_SelectionPatternId,
+                                               IID_PPV_ARGS(&selectionPattern)))
+        && selectionPattern) {
+        IUIAutomationElementArray *selectedElements = nullptr;
+        if (SUCCEEDED(selectionPattern->GetCurrentSelection(&selectedElements)) && selectedElements) {
+            appendReadableTextFromElementArray(selectedElements, texts);
+            selectedElements->Release();
+        }
+        selectionPattern->Release();
+    }
+}
+
+void appendLegacySelectionTextFromElement(IUIAutomationElement *element, QStringList &texts)
+{
+    if (!element) {
+        return;
+    }
+
+    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
+    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
+                                               IID_PPV_ARGS(&legacyPattern)))
+        && legacyPattern) {
+        IUIAutomationElementArray *selectedElements = nullptr;
+        if (SUCCEEDED(legacyPattern->GetCurrentSelection(&selectedElements)) && selectedElements) {
+            appendReadableTextFromElementArray(selectedElements, texts);
+            selectedElements->Release();
+        }
+        legacyPattern->Release();
+    }
+}
+
+void appendSelectedTextFromElement(IUIAutomationElement *element, QStringList &texts)
+{
+    appendTextPatternSelectionFromElement(element, texts);
+    appendSelectionPatternTextFromElement(element, texts);
+    appendLegacySelectionTextFromElement(element, texts);
+}
+
+void collectSelectedTextRecursive(IUIAutomationTreeWalker *walker,
+                                  IUIAutomationElement *element,
+                                  QStringList &texts,
+                                  int depth,
+                                  int &visited)
+{
+    constexpr int MaxSelectionDepth = 18;
+    constexpr int MaxSelectionElements = 8192;
+    if (!walker || !element || depth > MaxSelectionDepth || visited > MaxSelectionElements) {
+        return;
+    }
+
+    ++visited;
+    appendSelectedTextFromElement(element, texts);
+
+    IUIAutomationElement *child = nullptr;
+    if (FAILED(walker->GetFirstChildElement(element, &child)) || !child) {
+        return;
+    }
+
+    while (child && visited <= MaxSelectionElements) {
+        collectSelectedTextRecursive(walker, child, texts, depth + 1, visited);
+
+        IUIAutomationElement *next = nullptr;
+        walker->GetNextSiblingElement(child, &next);
+        child->Release();
+        child = next;
+    }
+}
+
+QString selectedTextFromAutomation(IUIAutomation *automation, IUIAutomationElement *root)
+{
+    QStringList selectedTexts;
+    appendSelectedTextFromElement(root, selectedTexts);
+
+    if (!automation || !root) {
+        return selectedTexts.join(QLatin1Char(' ')).simplified();
+    }
+
+    IUIAutomationCondition *condition = nullptr;
+    if (FAILED(automation->CreateTrueCondition(&condition)) || !condition) {
+        return selectedTexts.join(QLatin1Char(' ')).simplified();
+    }
+
+    IUIAutomationElementArray *elements = nullptr;
+    const HRESULT hr = root->FindAll(TreeScope_Descendants, condition, &elements);
+    condition->Release();
+    if (FAILED(hr) || !elements) {
+        return selectedTexts.join(QLatin1Char(' ')).simplified();
+    }
+
+    int length = 0;
+    elements->get_Length(&length);
+    const int maxElements = std::min(length, 4096);
+    for (int index = 0; index < maxElements; ++index) {
+        IUIAutomationElement *element = nullptr;
+        if (SUCCEEDED(elements->GetElement(index, &element)) && element) {
+            appendSelectedTextFromElement(element, selectedTexts);
+            element->Release();
+        }
+    }
+    elements->Release();
+
+    IUIAutomationTreeWalker *rawWalker = nullptr;
+    if (SUCCEEDED(automation->get_RawViewWalker(&rawWalker)) && rawWalker) {
+        int visited = 0;
+        collectSelectedTextRecursive(rawWalker, root, selectedTexts, 0, visited);
+        rawWalker->Release();
+    }
+
+    return selectedTexts.join(QLatin1Char(' ')).simplified();
+}
+
 void appendAutomationElementText(IUIAutomationElement *element, QStringList &fragments)
 {
     if (!element) {
@@ -694,12 +976,14 @@ void collectUiAutomationTextRecursive(IUIAutomationTreeWalker *walker,
     }
 }
 
-QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics)
+QStringList uiAutomationTextFragmentsForWindow(HWND window,
+                                               QString *diagnostics,
+                                               QString *selectedText)
 {
     QStringList fragments;
     if (!window) {
         if (diagnostics) {
-            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture has no window handle");
+            *diagnostics = QStringLiteral("SumatraPDF UI Automation capture has no window handle");
         }
         return fragments;
     }
@@ -708,7 +992,7 @@ QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics
     const bool uninitialize = SUCCEEDED(initialized);
     if (FAILED(initialized) && initialized != RPC_E_CHANGED_MODE) {
         if (diagnostics) {
-            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not initialize COM");
+            *diagnostics = QStringLiteral("SumatraPDF UI Automation capture could not initialize COM");
         }
         return fragments;
     }
@@ -720,7 +1004,7 @@ QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics
                                   IID_PPV_ARGS(&automation));
     if (FAILED(hr) || !automation) {
         if (diagnostics) {
-            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not create client");
+            *diagnostics = QStringLiteral("SumatraPDF UI Automation capture could not create client");
         }
         if (uninitialize) {
             CoUninitialize();
@@ -732,7 +1016,7 @@ QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics
     hr = automation->ElementFromHandle(window, &root);
     if (FAILED(hr) || !root) {
         if (diagnostics) {
-            *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not read the foreground window");
+            *diagnostics = QStringLiteral("SumatraPDF UI Automation capture could not read the foreground window");
         }
         automation->Release();
         if (uninitialize) {
@@ -743,12 +1027,15 @@ QStringList uiAutomationTextFragmentsForWindow(HWND window, QString *diagnostics
 
     IUIAutomationTreeWalker *walker = nullptr;
     hr = automation->get_ControlViewWalker(&walker);
+    if (selectedText) {
+        *selectedText = selectedTextFromAutomation(automation, root);
+    }
     appendTargetedAutomationText(automation, root, fragments);
     if (SUCCEEDED(hr) && walker) {
         collectUiAutomationTextRecursive(walker, root, fragments, 0);
         walker->Release();
     } else if (diagnostics) {
-        *diagnostics = QStringLiteral("PDF-XChange UI Automation capture could not create a control walker");
+        *diagnostics = QStringLiteral("SumatraPDF UI Automation capture could not create a control walker");
     }
 
     root->Release();
@@ -771,35 +1058,40 @@ bool ForegroundAppWindowContext::isValid() const
         || processId != 0;
 }
 
-bool PdfXChangeViewState::hasCurrentPage() const
+bool SumatraPdfViewState::hasCurrentPage() const
 {
     return currentPage > 0;
 }
 
-bool PdfXChangeViewState::hasZoom() const
+bool SumatraPdfViewState::hasZoom() const
 {
     return std::isfinite(zoom) && zoom > 0.0;
 }
 
-bool PdfXChangeViewState::hasAnyViewState() const
+bool SumatraPdfViewState::hasSelectedText() const
 {
-    return hasCurrentPage() || totalPages > 0 || hasZoom();
+    return !selectedText.trimmed().isEmpty();
 }
 
-bool PdfXChangeForegroundCaptureResult::success() const
+bool SumatraPdfViewState::hasAnyViewState() const
 {
-    return recognizedPdfXChange
+    return hasSelectedText() || hasCurrentPage() || totalPages > 0 || hasZoom();
+}
+
+bool SumatraPdfForegroundCaptureResult::success() const
+{
+    return recognizedSumatraPdf
         && !request.file.trimmed().isEmpty();
 }
 
-PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
+SumatraPdfForegroundCaptureProvider::SumatraPdfForegroundCaptureProvider(
     const ILibraryRepository &repository)
     : repository_(repository)
-    , viewStateProvider_(capturePdfXChangeViewState)
+    , viewStateProvider_(captureSumatraPdfViewState)
 {
 }
 
-PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
+SumatraPdfForegroundCaptureProvider::SumatraPdfForegroundCaptureProvider(
     const ILibraryRepository &repository,
     ViewStateProvider viewStateProvider)
     : repository_(repository)
@@ -807,7 +1099,7 @@ PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
 {
 }
 
-PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
+SumatraPdfForegroundCaptureProvider::SumatraPdfForegroundCaptureProvider(
     const ILibraryRepository &repository,
     ViewStateProvider viewStateProvider,
     TitlePathProvider titlePathProvider)
@@ -817,24 +1109,24 @@ PdfXChangeForegroundCaptureProvider::PdfXChangeForegroundCaptureProvider(
 {
 }
 
-PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::capture(
+SumatraPdfForegroundCaptureResult SumatraPdfForegroundCaptureProvider::capture(
     const ForegroundAppWindowContext &context) const
 {
-    const PdfXChangeViewState viewState = viewStateProvider_
+    const SumatraPdfViewState viewState = viewStateProvider_
         ? viewStateProvider_(context)
-        : PdfXChangeViewState{};
+        : SumatraPdfViewState{};
     std::optional<QString> savedDocumentPath;
     if (titlePathProvider_) {
-        const QString documentTitle = pdfXChangeDocumentTitleFromWindowTitle(context.windowTitle);
-        const QString key = normalizedPdfXChangeDocumentTitleKey(documentTitle);
+        const QString documentTitle = sumatraPdfDocumentTitleFromWindowTitle(context.windowTitle);
+        const QString key = normalizedSumatraPdfDocumentTitleKey(documentTitle);
         if (!documentTitle.trimmed().isEmpty() && !key.isEmpty()) {
             savedDocumentPath = titlePathProvider_(documentTitle, key);
         }
     }
-    return capturePdfXChangeForegroundContext(repository_, context, viewState, savedDocumentPath);
+    return captureSumatraPdfForegroundContext(repository_, context, viewState, savedDocumentPath);
 }
 
-PdfXChangeForegroundCaptureResult PdfXChangeForegroundCaptureProvider::captureCurrentForeground() const
+SumatraPdfForegroundCaptureResult SumatraPdfForegroundCaptureProvider::captureCurrentForeground() const
 {
     return capture(currentForegroundAppWindowContext());
 }
@@ -860,45 +1152,43 @@ ForegroundAppWindowContext currentForegroundAppWindowContext()
     return context;
 }
 
-bool isPdfXChangeForegroundWindow(const ForegroundAppWindowContext &context)
+bool isSumatraPdfForegroundWindow(const ForegroundAppWindowContext &context)
 {
     const QString title = context.windowTitle.trimmed();
     const QString processName = QFileInfo(context.processName.trimmed()).fileName();
     const QString processPath = context.processPath.trimmed();
 
-    return title.contains(QStringLiteral("PDF-XChange Editor"), Qt::CaseInsensitive)
-        || processName.compare(QStringLiteral("PDFXEdit.exe"), Qt::CaseInsensitive) == 0
-        || processName.compare(QStringLiteral("PXCEditor.exe"), Qt::CaseInsensitive) == 0
-        || processName.contains(QStringLiteral("PDFXEdit"), Qt::CaseInsensitive)
-        || processName.contains(QStringLiteral("PXCEditor"), Qt::CaseInsensitive)
-        || processPath.contains(QStringLiteral("PDF-XChange Editor"), Qt::CaseInsensitive);
+    return title.contains(QStringLiteral("SumatraPDF"), Qt::CaseInsensitive)
+        || processName.compare(QStringLiteral("SumatraPDF.exe"), Qt::CaseInsensitive) == 0
+        || processName.contains(QStringLiteral("SumatraPDF"), Qt::CaseInsensitive)
+        || processPath.contains(QStringLiteral("SumatraPDF"), Qt::CaseInsensitive);
 }
 
-QString normalizedPdfXChangeDocumentTitleKey(const QString &documentTitle)
+QString normalizedSumatraPdfDocumentTitleKey(const QString &documentTitle)
 {
     return withoutPdfExtension(documentTitle).simplified().toCaseFolded();
 }
 
-bool isPdfXChangeFullPdfPath(const QString &filePath)
+bool isSumatraPdfFullPdfPath(const QString &filePath)
 {
     return !cleanFullPdfPath(filePath).isEmpty();
 }
 
-QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle)
+QString sumatraPdfDocumentTitleFromWindowTitle(const QString &windowTitle)
 {
     QString title = stripOuterDocumentDecorations(windowTitle);
-    const QString marker = QStringLiteral(" - PDF-XChange Editor");
-    const int markerIndex = title.indexOf(marker, 0, Qt::CaseInsensitive);
-    if (markerIndex >= 0) {
-        return stripOuterDocumentDecorations(title.left(markerIndex));
+    const QString sumatraMarker = QStringLiteral(" - SumatraPDF");
+    const int sumatraMarkerIndex = title.indexOf(sumatraMarker, 0, Qt::CaseInsensitive);
+    if (sumatraMarkerIndex >= 0) {
+        return stripOuterDocumentDecorations(title.left(sumatraMarkerIndex));
     }
 
-    if (title.compare(QStringLiteral("PDF-XChange Editor"), Qt::CaseInsensitive) == 0) {
+    if (title.compare(QStringLiteral("SumatraPDF"), Qt::CaseInsensitive) == 0) {
         return {};
     }
 
-    if (title.endsWith(QStringLiteral("PDF-XChange Editor"), Qt::CaseInsensitive)) {
-        title.chop(QStringLiteral("PDF-XChange Editor").size());
+    if (title.endsWith(QStringLiteral("SumatraPDF"), Qt::CaseInsensitive)) {
+        title.chop(QStringLiteral("SumatraPDF").size());
         while (title.endsWith(QLatin1Char('-')) || title.endsWith(QLatin1Char(':'))) {
             title.chop(1);
             title = title.trimmed();
@@ -909,18 +1199,18 @@ QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle)
     return {};
 }
 
-QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle)
+QString sumatraPdfDocumentPathFromWindowTitle(const QString &windowTitle)
 {
-    const QString documentTitle = pdfXChangeDocumentTitleFromWindowTitle(windowTitle);
+    const QString documentTitle = sumatraPdfDocumentTitleFromWindowTitle(windowTitle);
     QString path = cleanPdfPathCandidate(documentTitle);
     if (!path.isEmpty()) {
         return path;
     }
 
     QString title = stripOuterDocumentDecorations(windowTitle);
-    const QString prefix = QStringLiteral("PDF-XChange Editor - ");
-    if (title.startsWith(prefix, Qt::CaseInsensitive)) {
-        path = cleanPdfPathCandidate(title.mid(prefix.size()));
+    const QString sumatraPrefix = QStringLiteral("SumatraPDF - ");
+    if (title.startsWith(sumatraPrefix, Qt::CaseInsensitive)) {
+        path = cleanPdfPathCandidate(title.mid(sumatraPrefix.size()));
         if (!path.isEmpty()) {
             return path;
         }
@@ -930,14 +1220,14 @@ QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle)
     return path;
 }
 
-PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QString &source)
+SumatraPdfViewState parseSumatraPdfViewStateText(const QString &text, const QString &source)
 {
-    PdfXChangeViewState state;
+    SumatraPdfViewState state;
     state.source = source.trimmed().isEmpty() ? QStringLiteral("text") : source.trimmed();
 
     const QString normalized = text.simplified();
     if (normalized.isEmpty()) {
-        state.diagnostics = QStringLiteral("PDF-XChange view state text is empty");
+        state.diagnostics = QStringLiteral("PDF view state text is empty");
         return state;
     }
 
@@ -1007,7 +1297,7 @@ PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QStr
     }
 
     if (!state.hasAnyViewState()) {
-        state.diagnostics = QStringLiteral("PDF-XChange view state text did not contain a current page or zoom");
+        state.diagnostics = QStringLiteral("PDF view state text did not contain a current page or zoom");
         return state;
     }
 
@@ -1022,19 +1312,19 @@ PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text, const QStr
         missing.append(QStringLiteral("zoom"));
     }
     if (!missing.isEmpty()) {
-        state.diagnostics = QStringLiteral("PDF-XChange view state parsed partially; missing %1")
+        state.diagnostics = QStringLiteral("PDF view state parsed partially; missing %1")
                                 .arg(missing.join(QStringLiteral(", ")));
     }
     return state;
 }
 
-PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext &context)
+SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext &context)
 {
-    PdfXChangeViewState state;
+    SumatraPdfViewState state;
     state.source = QStringLiteral("win32-window-text");
 
-    if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
-        state.diagnostics = QStringLiteral("Foreground window is not PDF-XChange");
+    if (!context.isValid() || !isSumatraPdfForegroundWindow(context)) {
+        state.diagnostics = QStringLiteral("Foreground window is not a supported PDF viewer");
         return state;
     }
 
@@ -1043,6 +1333,7 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
         fragments.append(context.windowTitle.trimmed());
     }
 
+    QString capturedSelectedText;
 #ifdef Q_OS_WIN
     if (context.windowHandle != 0) {
         HWND window = reinterpret_cast<HWND>(context.windowHandle);
@@ -1052,7 +1343,7 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
 
         QString uiAutomationDiagnostics;
         const QStringList automationFragments =
-            uiAutomationTextFragmentsForWindow(window, &uiAutomationDiagnostics);
+            uiAutomationTextFragmentsForWindow(window, &uiAutomationDiagnostics, &capturedSelectedText);
         for (const QString &fragment : automationFragments) {
             appendUniqueFragment(fragments, fragment);
         }
@@ -1063,16 +1354,17 @@ PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext 
 #endif
 
     if (fragments.isEmpty()) {
-        state.diagnostics = QStringLiteral("No PDF-XChange window text was readable");
+        state.diagnostics = QStringLiteral("No PDF viewer window text was readable");
         return state;
     }
 
-    state = parsePdfXChangeViewStateText(fragments.join(QLatin1Char('\n')),
+    state = parseSumatraPdfViewStateText(fragments.join(QLatin1Char('\n')),
                                          QStringLiteral("win32-window-text+wm-gettext+uia"));
+    state.selectedText = capturedSelectedText.simplified();
     return state;
 }
 
-QList<Resource> pdfXChangeTitleMatchedPdfResources(
+QList<Resource> sumatraPdfTitleMatchedPdfResources(
     const ILibraryRepository &repository,
     const QString &documentTitle)
 {
@@ -1090,70 +1382,70 @@ QList<Resource> pdfXChangeTitleMatchedPdfResources(
     return matches;
 }
 
-std::optional<Resource> uniquePdfXChangeTitleMatchedPdfResource(
+std::optional<Resource> uniqueSumatraPdfTitleMatchedPdfResource(
     const ILibraryRepository &repository,
     const QString &documentTitle)
 {
-    const QList<Resource> matches = pdfXChangeTitleMatchedPdfResources(repository, documentTitle);
+    const QList<Resource> matches = sumatraPdfTitleMatchedPdfResources(repository, documentTitle);
     if (matches.size() != 1) {
         return std::nullopt;
     }
     return matches.first();
 }
 
-PdfXChangeForegroundCaptureResult pdfXChangeForegroundCaptureResultForConfirmedPdfFile(
+SumatraPdfForegroundCaptureResult sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
     const QString &documentTitle,
     const QString &filePath,
-    const PdfXChangeViewState &viewState)
+    const SumatraPdfViewState &viewState)
 {
     const QString cleanedPath = cleanFullPdfPath(filePath);
     if (cleanedPath.isEmpty()) {
-        PdfXChangeForegroundCaptureResult result;
-        result.recognizedPdfXChange = true;
+        SumatraPdfForegroundCaptureResult result;
+        result.recognizedSumatraPdf = true;
         result.documentTitle = stripOuterDocumentDecorations(documentTitle);
         result.viewState = viewState;
         result.needsFileConfirmation = true;
-        result.status = QStringLiteral("Selected file for PDF-XChange document \"%1\" is not a valid full PDF path")
+        result.status = QStringLiteral("Selected file for PDF document \"%1\" is not a valid full PDF path")
                             .arg(result.documentTitle);
         return result;
     }
 
-    PdfXChangeForegroundCaptureResult result =
+    SumatraPdfForegroundCaptureResult result =
         resultForResolvedFilePath(documentTitle, cleanedPath, viewState);
     result.confirmedFile = true;
     return result;
 }
 
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context)
 {
-    return capturePdfXChangeForegroundContext(repository, context, capturePdfXChangeViewState(context));
+    return captureSumatraPdfForegroundContext(repository, context, captureSumatraPdfViewState(context));
 }
 
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
-    const PdfXChangeViewState &viewState)
+    const SumatraPdfViewState &viewState)
 {
-    return capturePdfXChangeForegroundContext(repository, context, viewState, std::nullopt);
+    return captureSumatraPdfForegroundContext(repository, context, viewState, std::nullopt);
 }
 
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
-    const PdfXChangeViewState &viewState,
+    const SumatraPdfViewState &viewState,
     const std::optional<QString> &savedDocumentPath)
 {
-    PdfXChangeForegroundCaptureResult result;
-    if (!context.isValid() || !isPdfXChangeForegroundWindow(context)) {
-        result.status = QStringLiteral("PDF-XChange was not detected in the foreground; open or focus a PDF-XChange PDF before k n");
+    SumatraPdfForegroundCaptureResult result;
+    if (!context.isValid() || !isSumatraPdfForegroundWindow(context)) {
+        result.status = QStringLiteral("SumatraPDF was not detected in the foreground; open or focus a SumatraPDF PDF before k n");
         return result;
     }
 
-    result.recognizedPdfXChange = true;
-    result.documentTitle = pdfXChangeDocumentTitleFromWindowTitle(context.windowTitle);
-    const QString documentPath = pdfXChangeDocumentPathFromWindowTitle(context.windowTitle);
+    result.recognizedSumatraPdf = true;
+    result.documentTitle = sumatraPdfDocumentTitleFromWindowTitle(context.windowTitle);
+    const QString documentPath = sumatraPdfDocumentPathFromWindowTitle(context.windowTitle);
     if (!documentPath.trimmed().isEmpty()) {
         return resultForResolvedFilePath(result.documentTitle.trimmed().isEmpty()
                                              ? documentPath
@@ -1163,42 +1455,42 @@ PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
     }
 
     if (result.documentTitle.trimmed().isEmpty()) {
-        result.status = QStringLiteral("Foreground PDF-XChange window did not expose a PDF document title or file path");
+        result.status = QStringLiteral("Foreground PDF viewer window did not expose a PDF document title or file path");
         return result;
     }
 
     if (savedDocumentPath.has_value()) {
         const QString mappedPath = cleanFullPdfPath(savedDocumentPath.value());
         if (mappedPath.isEmpty()) {
-            PdfXChangeForegroundCaptureResult mappedResult =
+            SumatraPdfForegroundCaptureResult mappedResult =
                 resultNeedsFileConfirmation(
                     result.documentTitle,
                     viewState,
-                    QStringLiteral("Saved PDF-XChange mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
+                    QStringLiteral("Saved PDF mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
                         .arg(result.documentTitle));
             mappedResult.rejectedTitleMapping = true;
             return mappedResult;
         }
 
-        PdfXChangeForegroundCaptureResult mappedResult =
+        SumatraPdfForegroundCaptureResult mappedResult =
             resultForResolvedFilePath(result.documentTitle, mappedPath, viewState);
         mappedResult.resolvedFromTitleMapping = true;
         return mappedResult;
     }
 
-    const QList<Resource> matches = pdfXChangeTitleMatchedPdfResources(repository, result.documentTitle);
+    const QList<Resource> matches = sumatraPdfTitleMatchedPdfResources(repository, result.documentTitle);
     if (matches.isEmpty()) {
         return resultNeedsFileConfirmation(
             result.documentTitle,
             viewState,
-            QStringLiteral("Confirm the PDF file for PDF-XChange document \"%1\": PDF-XChange did not expose a full path and no indexed PDF matched the title")
+            QStringLiteral("Confirm the PDF file for PDF document \"%1\": the viewer did not expose a full path and no indexed PDF matched the title")
                 .arg(result.documentTitle));
     }
     if (matches.size() > 1) {
         return resultNeedsFileConfirmation(
             result.documentTitle,
             viewState,
-            QStringLiteral("Confirm the PDF file for PDF-XChange document \"%1\": PDF-XChange did not expose a full path and %2 indexed PDFs matched the title")
+            QStringLiteral("Confirm the PDF file for PDF document \"%1\": the viewer did not expose a full path and %2 indexed PDFs matched the title")
                 .arg(result.documentTitle)
                 .arg(matches.size()),
             matches);

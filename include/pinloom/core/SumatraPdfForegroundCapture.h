@@ -20,26 +20,28 @@ struct ForegroundAppWindowContext {
     bool isValid() const;
 };
 
-struct PdfXChangeViewState {
+struct SumatraPdfViewState {
     int currentPage = -1;
     int totalPages = -1;
     double zoom = -1.0;
+    QString selectedText;
     QString source;
     QString diagnostics;
 
     bool hasCurrentPage() const;
     bool hasZoom() const;
+    bool hasSelectedText() const;
     bool hasAnyViewState() const;
 };
 
-struct PdfXChangeForegroundCaptureResult {
+struct SumatraPdfForegroundCaptureResult {
     ManualPdfAnchorCreationRequest request;
-    PdfXChangeViewState viewState;
+    SumatraPdfViewState viewState;
     QString status;
     QString documentTitle;
     QString matchedResourceId;
     QStringList matchedResourceIds;
-    bool recognizedPdfXChange = false;
+    bool recognizedSumatraPdf = false;
     bool matchedResource = false;
     bool needsFileConfirmation = false;
     bool resolvedFromTitleMapping = false;
@@ -49,22 +51,22 @@ struct PdfXChangeForegroundCaptureResult {
     bool success() const;
 };
 
-class PdfXChangeForegroundCaptureProvider {
+class SumatraPdfForegroundCaptureProvider {
 public:
-    using ViewStateProvider = std::function<PdfXChangeViewState(const ForegroundAppWindowContext &context)>;
+    using ViewStateProvider = std::function<SumatraPdfViewState(const ForegroundAppWindowContext &context)>;
     using TitlePathProvider = std::function<std::optional<QString>(
         const QString &documentTitle,
         const QString &normalizedTitleKey)>;
 
-    explicit PdfXChangeForegroundCaptureProvider(const ILibraryRepository &repository);
-    PdfXChangeForegroundCaptureProvider(const ILibraryRepository &repository,
+    explicit SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository);
+    SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository,
                                         ViewStateProvider viewStateProvider);
-    PdfXChangeForegroundCaptureProvider(const ILibraryRepository &repository,
+    SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository,
                                         ViewStateProvider viewStateProvider,
                                         TitlePathProvider titlePathProvider);
 
-    PdfXChangeForegroundCaptureResult capture(const ForegroundAppWindowContext &context) const;
-    PdfXChangeForegroundCaptureResult captureCurrentForeground() const;
+    SumatraPdfForegroundCaptureResult capture(const ForegroundAppWindowContext &context) const;
+    SumatraPdfForegroundCaptureResult captureCurrentForeground() const;
 
 private:
     const ILibraryRepository &repository_;
@@ -73,35 +75,35 @@ private:
 };
 
 ForegroundAppWindowContext currentForegroundAppWindowContext();
-bool isPdfXChangeForegroundWindow(const ForegroundAppWindowContext &context);
-QString normalizedPdfXChangeDocumentTitleKey(const QString &documentTitle);
-bool isPdfXChangeFullPdfPath(const QString &filePath);
-QString pdfXChangeDocumentTitleFromWindowTitle(const QString &windowTitle);
-QString pdfXChangeDocumentPathFromWindowTitle(const QString &windowTitle);
-PdfXChangeViewState parsePdfXChangeViewStateText(const QString &text,
+bool isSumatraPdfForegroundWindow(const ForegroundAppWindowContext &context);
+QString normalizedSumatraPdfDocumentTitleKey(const QString &documentTitle);
+bool isSumatraPdfFullPdfPath(const QString &filePath);
+QString sumatraPdfDocumentTitleFromWindowTitle(const QString &windowTitle);
+QString sumatraPdfDocumentPathFromWindowTitle(const QString &windowTitle);
+SumatraPdfViewState parseSumatraPdfViewStateText(const QString &text,
                                                  const QString &source = QStringLiteral("text"));
-PdfXChangeViewState capturePdfXChangeViewState(const ForegroundAppWindowContext &context);
-QList<Resource> pdfXChangeTitleMatchedPdfResources(
+SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext &context);
+QList<Resource> sumatraPdfTitleMatchedPdfResources(
     const ILibraryRepository &repository,
     const QString &documentTitle);
-std::optional<Resource> uniquePdfXChangeTitleMatchedPdfResource(
+std::optional<Resource> uniqueSumatraPdfTitleMatchedPdfResource(
     const ILibraryRepository &repository,
     const QString &documentTitle);
-PdfXChangeForegroundCaptureResult pdfXChangeForegroundCaptureResultForConfirmedPdfFile(
+SumatraPdfForegroundCaptureResult sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
     const QString &documentTitle,
     const QString &filePath,
-    const PdfXChangeViewState &viewState = {});
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+    const SumatraPdfViewState &viewState = {});
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context);
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
-    const PdfXChangeViewState &viewState);
-PdfXChangeForegroundCaptureResult capturePdfXChangeForegroundContext(
+    const SumatraPdfViewState &viewState);
+SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
-    const PdfXChangeViewState &viewState,
+    const SumatraPdfViewState &viewState,
     const std::optional<QString> &savedDocumentPath);
 
 } // namespace Pinloom

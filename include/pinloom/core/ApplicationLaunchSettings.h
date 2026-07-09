@@ -5,12 +5,12 @@
 namespace Pinloom {
 
 struct ApplicationLaunchSettings {
-    QString pdfXChangeExecutablePath;
+    QString sumatraPdfExecutablePath;
     QString powerShellExecutablePath;
 };
 
 enum class ExternalApplicationTarget {
-    PdfXChange,
+    SumatraPDF,
     Excel,
     Word,
     PowerPoint,

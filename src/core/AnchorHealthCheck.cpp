@@ -1,8 +1,8 @@
 #include "pinloom/core/AnchorHealthCheck.h"
 
 #include "pinloom/core/ExcelCommand.h"
-#include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 
@@ -19,7 +19,7 @@ namespace {
 
 enum class AnchorLauncherFamily {
     Generic,
-    PdfXChange,
+    SumatraPdf,
     Excel,
     Word,
     PowerPoint,
@@ -140,7 +140,7 @@ TargetPath targetPathForAnchor(const Anchor &anchor,
         locatorPathKeys = {QStringLiteral("presentation"), QStringLiteral("target_file")};
         break;
     case AnchorLauncherFamily::Generic:
-    case AnchorLauncherFamily::PdfXChange:
+    case AnchorLauncherFamily::SumatraPdf:
         break;
     }
 
@@ -155,8 +155,8 @@ TargetPath targetPathForAnchor(const Anchor &anchor,
 QString familyLabel(AnchorLauncherFamily family, const Anchor &anchor)
 {
     switch (family) {
-    case AnchorLauncherFamily::PdfXChange:
-        return externalApplicationLabel(ExternalApplicationTarget::PdfXChange);
+    case AnchorLauncherFamily::SumatraPdf:
+        return externalApplicationLabel(ExternalApplicationTarget::SumatraPDF);
     case AnchorLauncherFamily::Excel:
         return externalApplicationLabel(ExternalApplicationTarget::Excel);
     case AnchorLauncherFamily::Word:
@@ -173,8 +173,8 @@ QString familyLabel(AnchorLauncherFamily family, const Anchor &anchor)
 
 AnchorLauncherFamily launcherFamilyForAnchor(const Anchor &anchor, const QString &locatorType)
 {
-    if (isPdfXChangeLocatorType(locatorType)) {
-        return AnchorLauncherFamily::PdfXChange;
+    if (isSumatraPdfLocatorType(locatorType) || isSumatraPdfLocatorType(locatorType)) {
+        return AnchorLauncherFamily::SumatraPdf;
     }
     if (isExcelLocatorType(locatorType)) {
         return AnchorLauncherFamily::Excel;
@@ -191,9 +191,10 @@ AnchorLauncherFamily launcherFamilyForAnchor(const Anchor &anchor, const QString
 
     const QString app = normalizedToken(anchor.targetApp);
     if (app == QLatin1String("pdf")
-        || app == QLatin1String("pdfxchange")
-        || app == QLatin1String("pdfxchangeeditor")) {
-        return AnchorLauncherFamily::PdfXChange;
+        || app == QLatin1String("sumatrapdf")
+        || app == QLatin1String("sumatrapdf")
+        || app == QLatin1String("sumatrapdfeditor")) {
+        return AnchorLauncherFamily::SumatraPdf;
     }
     if (app == QLatin1String("excel")
         || app == QLatin1String("msexcel")
@@ -223,8 +224,8 @@ AnchorLauncherFamily launcherFamilyForAnchor(const Anchor &anchor, const QString
 bool supportedLocator(AnchorLauncherFamily family, const QString &locatorType)
 {
     switch (family) {
-    case AnchorLauncherFamily::PdfXChange:
-        return isPdfXChangeLocatorType(locatorType);
+    case AnchorLauncherFamily::SumatraPdf:
+        return isSumatraPdfLocatorType(locatorType);
     case AnchorLauncherFamily::Excel:
         return isExcelLocatorType(locatorType);
     case AnchorLauncherFamily::Word:
@@ -265,12 +266,12 @@ std::optional<AnchorHealthCheckResult> launcherProblemForAnchor(
     const QString &locatorType,
     const QString &targetPath)
 {
-    if (family == AnchorLauncherFamily::PdfXChange) {
-        const QString launcherPath = resolvePdfXChangeExecutablePath(settings).trimmed();
+    if (family == AnchorLauncherFamily::SumatraPdf) {
+        const QString launcherPath = resolveSumatraPdfExecutablePath(settings).trimmed();
         if (launcherPath.isEmpty() || !QFileInfo::exists(launcherPath)) {
             return resultFor(AnchorHealthStatus::MissingLauncher,
                              QStringLiteral("Anchor launcher is missing"),
-                             QStringLiteral("PDF-XChange executable is not configured/found"),
+                             QStringLiteral("SumatraPDF executable is not configured/found"),
                              targetPath,
                              launcherPath,
                              app,

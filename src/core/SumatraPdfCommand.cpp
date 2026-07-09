@@ -1,4 +1,4 @@
-#include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
 
@@ -9,6 +9,7 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
+#include <QStandardPaths>
 #include <QUrl>
 #include <algorithm>
 #include <cmath>
@@ -24,16 +25,6 @@ struct RectValues {
     double right = 0.0;
     double bottom = 0.0;
     bool valid = false;
-};
-
-enum class RectAction {
-    Highlight,
-    ViewRect,
-};
-
-struct LocatedRect {
-    RectValues rect;
-    RectAction action = RectAction::Highlight;
 };
 
 QString normalizedToken(QString value)
@@ -53,9 +44,9 @@ QString effectiveLocatorType(const Anchor &anchor, const QJsonObject &locator)
     }
     if (locatorType.isEmpty()) {
         if (anchor.type == AnchorType::PdfRegion) {
-            locatorType = QStringLiteral("pdf.region");
+            locatorType = QStringLiteral("sumatrapdf.rect");
         } else if (anchor.type == AnchorType::PdfPage) {
-            locatorType = QStringLiteral("pdf.page");
+            locatorType = QStringLiteral("sumatrapdf.page");
         }
     }
     return locatorType.toLower();
@@ -72,7 +63,7 @@ QJsonObject parseLocatorJson(const QString &locatorJson, QString *error)
     const QJsonDocument document = QJsonDocument::fromJson(trimmed.toUtf8(), &parseError);
     if (parseError.error != QJsonParseError::NoError || !document.isObject()) {
         if (error) {
-            *error = QStringLiteral("PDF-XChange locator JSON is invalid");
+            *error = QStringLiteral("SumatraPDF locator JSON is invalid");
         }
         return {};
     }
@@ -109,6 +100,21 @@ int locatorPage(const Anchor &anchor, const QJsonObject &locator)
 std::optional<double> locatorZoom(const QJsonObject &locator)
 {
     return numberValue(locator.value(QStringLiteral("zoom")));
+}
+
+QString locatorText(const QJsonObject &locator)
+{
+    QString text = locator.value(QStringLiteral("text")).toString().trimmed();
+    if (text.isEmpty()) {
+        text = locator.value(QStringLiteral("selected_text")).toString().trimmed();
+    }
+    if (text.isEmpty()) {
+        text = locator.value(QStringLiteral("selectedText")).toString().trimmed();
+    }
+    if (text.isEmpty()) {
+        text = locator.value(QStringLiteral("search")).toString().trimmed();
+    }
+    return text.simplified();
 }
 
 std::optional<QList<double>> fourNumbersFromArray(const QJsonArray &array)
@@ -171,9 +177,8 @@ RectValues boundsFromViewRectArray(const QJsonArray &array)
 
 RectValues rectFromAnchorRegion(const Anchor &anchor)
 {
-    RectValues rect;
     if (!anchor.region.isValid()) {
-        return rect;
+        return {};
     }
 
     return boundedRect(anchor.region.x(),
@@ -182,21 +187,13 @@ RectValues rectFromAnchorRegion(const Anchor &anchor)
                        anchor.region.y() + anchor.region.height());
 }
 
-bool wantsViewRect(const QJsonObject &locator)
-{
-    const QString mode = locator.value(QStringLiteral("mode")).toString().trimmed().toLower();
-    const QString action = locator.value(QStringLiteral("action")).toString().trimmed().toLower();
-    return mode == QLatin1String("viewrect")
-        || action == QLatin1String("viewrect");
-}
-
-LocatedRect locatorRect(const Anchor &anchor, const QJsonObject &locator)
+RectValues locatorRect(const Anchor &anchor, const QJsonObject &locator)
 {
     const QJsonValue rectValue = locator.value(QStringLiteral("rect"));
     if (rectValue.isArray()) {
         const RectValues rect = boundsFromRectArray(rectValue.toArray());
         if (rect.valid) {
-            return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
+            return rect;
         }
     }
 
@@ -204,7 +201,7 @@ LocatedRect locatorRect(const Anchor &anchor, const QJsonObject &locator)
     if (highlightValue.isArray()) {
         const RectValues rect = boundsFromHighlightArray(highlightValue.toArray());
         if (rect.valid) {
-            return {rect, RectAction::Highlight};
+            return rect;
         }
     }
 
@@ -212,7 +209,7 @@ LocatedRect locatorRect(const Anchor &anchor, const QJsonObject &locator)
     if (viewRectValue.isArray()) {
         const RectValues rect = boundsFromViewRectArray(viewRectValue.toArray());
         if (rect.valid) {
-            return {rect, RectAction::ViewRect};
+            return rect;
         }
     }
 
@@ -220,12 +217,11 @@ LocatedRect locatorRect(const Anchor &anchor, const QJsonObject &locator)
     if (legacyRegion.isArray()) {
         const RectValues rect = boundsFromViewRectArray(legacyRegion.toArray());
         if (rect.valid) {
-            return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
+            return rect;
         }
     }
 
-    const RectValues rect = rectFromAnchorRegion(anchor);
-    return {rect, wantsViewRect(locator) ? RectAction::ViewRect : RectAction::Highlight};
+    return rectFromAnchorRegion(anchor);
 }
 
 QString decimalText(double value)
@@ -240,32 +236,18 @@ QString decimalText(double value)
     return text;
 }
 
-QString highlightText(const RectValues &rect)
+QString openParameterText(QString value)
 {
-    return QStringLiteral("%1,%2,%3,%4")
-        .arg(decimalText(rect.left),
-             decimalText(rect.right),
-             decimalText(rect.top),
-             decimalText(rect.bottom));
-}
-
-QString viewRectText(const RectValues &rect)
-{
-    return QStringLiteral("%1,%2,%3,%4")
-        .arg(decimalText(rect.left),
-             decimalText(rect.top),
-             decimalText(rect.right - rect.left),
-             decimalText(rect.bottom - rect.top));
-}
-
-bool locatorUsesPoints(const QJsonObject &locator)
-{
-    const QString unit = locator.value(QStringLiteral("unit")).toString().trimmed().toLower();
-    return unit.isEmpty()
-        || unit == QLatin1String("pt")
-        || unit == QLatin1String("pts")
-        || unit == QLatin1String("point")
-        || unit == QLatin1String("points");
+    value = value.simplified();
+    value.replace(QLatin1Char('"'), QLatin1Char(' '));
+    value.replace(QLatin1Char('\''), QLatin1Char(' '));
+    value = value.simplified();
+    constexpr qsizetype MaxSearchTextLength = 240;
+    if (value.size() > MaxSearchTextLength) {
+        value.truncate(MaxSearchTextLength);
+        value = value.trimmed();
+    }
+    return value;
 }
 
 QString filePathFromUri(const QString &targetUri)
@@ -294,36 +276,44 @@ QString targetFilePath(const Anchor &anchor, const QString &fallbackFilePath)
 
 QStringList defaultExecutablePaths()
 {
-    return {
-        QStringLiteral("C:/Program Files/Tracker Software/PDF Editor/PDFXEdit.exe"),
-        QStringLiteral("C:/Program Files (x86)/Tracker Software/PDF Editor/PDFXEdit.exe"),
-        QStringLiteral("C:/Program Files/PDF-XChange Editor/PDFXEdit.exe"),
-        QStringLiteral("C:/Program Files (x86)/PDF-XChange Editor/PDFXEdit.exe"),
+    QStringList paths = {
+        QStringLiteral("D:/__software_install_dir/__SumatraPDF/SumatraPDF.exe"),
+        QStringLiteral("C:/Program Files/SumatraPDF/SumatraPDF.exe"),
+        QStringLiteral("C:/Program Files (x86)/SumatraPDF/SumatraPDF.exe"),
     };
+
+    const QString localData = QStandardPaths::writableLocation(QStandardPaths::AppLocalDataLocation);
+    if (!localData.trimmed().isEmpty()) {
+        QDir dir(localData);
+        dir.cdUp();
+        paths.append(dir.filePath(QStringLiteral("SumatraPDF/SumatraPDF.exe")));
+    }
+    return paths;
 }
 
 } // namespace
 
-bool PdfXChangeCommandResult::success() const
+bool SumatraPdfCommandResult::success() const
 {
     return error.isEmpty();
 }
 
-bool isPdfXChangeLocatorType(const QString &locatorType)
+bool isSumatraPdfLocatorType(const QString &locatorType)
 {
     const QString type = locatorType.trimmed().toLower();
-    return type == QLatin1String("pdfxchange.rect")
-        || type == QLatin1String("pdfxchange.page")
+    return type == QLatin1String("sumatrapdf.rect")
+        || type == QLatin1String("sumatrapdf.page")
+        || type == QLatin1String("sumatrapdf.search")
         || type == QLatin1String("pdf.region")
         || type == QLatin1String("pdf.page");
 }
 
-bool isPdfXChangeAnchor(const Anchor &anchor)
+bool isSumatraPdfAnchor(const Anchor &anchor)
 {
     QString parseError;
     const QJsonObject locator = parseLocatorJson(anchor.locatorJson, &parseError);
     const QString type = effectiveLocatorType(anchor, locator);
-    if (isPdfXChangeLocatorType(type)) {
+    if (isSumatraPdfLocatorType(type)) {
         return true;
     }
 
@@ -334,13 +324,12 @@ bool isPdfXChangeAnchor(const Anchor &anchor)
 
     const QString app = normalizedToken(anchor.targetApp);
     return app == QLatin1String("pdf")
-        || app == QLatin1String("pdfxchange")
-        || app == QLatin1String("pdfxchangeeditor");
+        || app == QLatin1String("sumatrapdf");
 }
 
-QString resolvePdfXChangeExecutablePath()
+QString resolveSumatraPdfExecutablePath()
 {
-    const QString configured = qEnvironmentVariable("PINLOOM_PDFXCHANGE_PATH").trimmed();
+    const QString configured = qEnvironmentVariable("PINLOOM_SUMATRAPDF_PATH").trimmed();
     if (!configured.isEmpty()) {
         return configured;
     }
@@ -353,35 +342,35 @@ QString resolvePdfXChangeExecutablePath()
     return {};
 }
 
-QString resolvePdfXChangeExecutablePath(const ApplicationLaunchSettings &settings)
+QString resolveSumatraPdfExecutablePath(const ApplicationLaunchSettings &settings)
 {
-    const QString configured = settings.pdfXChangeExecutablePath.trimmed();
-    return configured.isEmpty() ? resolvePdfXChangeExecutablePath() : configured;
+    const QString configured = settings.sumatraPdfExecutablePath.trimmed();
+    return configured.isEmpty() ? resolveSumatraPdfExecutablePath() : configured;
 }
 
-PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
                                                const QString &fallbackFilePath,
                                                const ApplicationLaunchSettings &settings)
 {
-    return buildPdfXChangeCommand(anchor,
+    return buildSumatraPdfCommand(anchor,
                                   fallbackFilePath,
-                                  resolvePdfXChangeExecutablePath(settings));
+                                  resolveSumatraPdfExecutablePath(settings));
 }
 
-PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
                                                const QString &fallbackFilePath,
                                                const QString &executablePath)
 {
-    PdfXChangeCommandResult result;
+    SumatraPdfCommandResult result;
     result.command.executablePath = executablePath.trimmed();
     if (result.command.executablePath.isEmpty()) {
-        result.error = QStringLiteral("PDF-XChange executable is not configured/found");
+        result.error = QStringLiteral("SumatraPDF executable is not configured/found");
         return result;
     }
 
     result.command.filePath = targetFilePath(anchor, fallbackFilePath);
     if (result.command.filePath.isEmpty()) {
-        result.error = QStringLiteral("PDF-XChange target file is missing");
+        result.error = QStringLiteral("SumatraPDF target file is missing");
         return result;
     }
 
@@ -393,47 +382,58 @@ PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
     }
 
     const QString locatorType = effectiveLocatorType(anchor, locator);
-    if (!isPdfXChangeLocatorType(locatorType)) {
-        result.error = QStringLiteral("PDF-XChange locator type is unsupported");
+    if (!isSumatraPdfLocatorType(locatorType)) {
+        result.error = QStringLiteral("SumatraPDF locator type is unsupported");
         return result;
     }
 
     const int page = locatorPage(anchor, locator);
     if (page <= 0) {
-        result.error = QStringLiteral("PDF-XChange locator page is missing");
+        result.error = QStringLiteral("SumatraPDF locator page is missing");
         return result;
     }
 
-    QStringList actions;
-    actions.append(QStringLiteral("page=%1").arg(page));
+    QStringList arguments;
+    arguments.append(QStringLiteral("-reuse-instance"));
+    arguments.append(QStringLiteral("-page"));
+    arguments.append(QString::number(page));
 
     const std::optional<double> zoom = locatorZoom(locator);
     if (zoom.has_value() && zoom.value() > 0.0) {
-        actions.append(QStringLiteral("zoom=%1").arg(decimalText(zoom.value())));
+        arguments.append(QStringLiteral("-zoom"));
+        arguments.append(decimalText(zoom.value()));
     }
 
-    const bool isRectLocator = locatorType == QLatin1String("pdfxchange.rect")
-        || locatorType == QLatin1String("pdf.region")
-        || anchor.type == AnchorType::PdfRegion;
-    if (isRectLocator) {
-        const LocatedRect locatedRect = locatorRect(anchor, locator);
-        if (!locatedRect.rect.valid) {
-            result.error = QStringLiteral("PDF-XChange locator rectangle is missing");
+    const bool isSearchLocator = locatorType == QLatin1String("sumatrapdf.search");
+    const bool isPageLocator = locatorType == QLatin1String("sumatrapdf.page")
+        || locatorType == QLatin1String("pdf.page");
+    const bool isRectLocator = !isSearchLocator
+        && (locatorType == QLatin1String("sumatrapdf.rect")
+            || locatorType == QLatin1String("pdf.region")
+            || (!isPageLocator && anchor.type == AnchorType::PdfRegion));
+
+    if (isSearchLocator) {
+        const QString text = openParameterText(locatorText(locator));
+        if (text.isEmpty()) {
+            result.error = QStringLiteral("SumatraPDF locator search text is missing");
             return result;
         }
-
-        if (locatedRect.action == RectAction::ViewRect) {
-            actions.append(QStringLiteral("viewrect=%1").arg(viewRectText(locatedRect.rect)));
-        } else {
-            actions.append(QStringLiteral("highlight=%1").arg(highlightText(locatedRect.rect)));
-        }
-        if (locatorUsesPoints(locator)) {
-            actions.append(QStringLiteral("usept=yes"));
-        }
+        arguments.append(QStringLiteral("-search"));
+        arguments.append(text);
     }
 
-    result.command.action = actions.join(QLatin1Char(';'));
-    result.command.arguments = {QStringLiteral("/A"), result.command.action, result.command.filePath};
+    if (isRectLocator) {
+        const RectValues rect = locatorRect(anchor, locator);
+        if (!rect.valid) {
+            result.error = QStringLiteral("SumatraPDF locator rectangle is missing");
+            return result;
+        }
+        arguments.append(QStringLiteral("-scroll"));
+        arguments.append(QStringLiteral("%1,%2").arg(decimalText(rect.left), decimalText(rect.top)));
+    }
+
+    arguments.append(result.command.filePath);
+    result.command.arguments = arguments;
     return result;
 }
 

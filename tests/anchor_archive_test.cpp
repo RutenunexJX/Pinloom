@@ -31,10 +31,10 @@ Anchor makeArchiveAnchor()
     anchor.id = QStringLiteral("anchor:clock-window");
     anchor.name = QStringLiteral("Clock domain window");
     anchor.target = QStringLiteral("Legacy Clock Target");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/specs/clocking.pdf");
     anchor.targetUri = QStringLiteral("pinloom://clock-window");
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250}");
     anchor.aliases = {QStringLiteral("cdc zoom")};
     anchor.tags = {QStringLiteral("handoff")};

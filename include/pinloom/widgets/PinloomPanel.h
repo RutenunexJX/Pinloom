@@ -9,8 +9,8 @@
 #include "pinloom/core/ManualPowerPointAnchorCreation.h"
 #include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/ManualWordAnchorCreation.h"
-#include "pinloom/core/PdfXChangeCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 #include "pinloom/clip/ClipSearch.h"
@@ -148,8 +148,8 @@ struct PinloomPanelOptions {
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
     ApplicationLaunchSettings applicationLaunchSettings;
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
-    std::function<QString()> pdfXChangeExecutablePathProvider;
-    std::function<bool(const PdfXChangeCommand &command, QString *error)> pdfXChangeLaunchHandler;
+    std::function<QString()> sumatraPdfExecutablePathProvider;
+    std::function<bool(const SumatraPdfCommand &command, QString *error)> sumatraPdfLaunchHandler;
     std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
@@ -302,7 +302,7 @@ private:
     bool activateCurrentLauncherItem();
     bool activateLauncherItem(QListWidgetItem *item);
     bool activateExcelTarget(const PinloomOpenTarget &target);
-    bool activatePdfXChangeTarget(const PinloomOpenTarget &target);
+    bool activateSumatraPdfTarget(const PinloomOpenTarget &target);
     bool activatePowerPointTarget(const PinloomOpenTarget &target);
     bool activateVisioTarget(const PinloomOpenTarget &target);
     bool activateWordTarget(const PinloomOpenTarget &target);

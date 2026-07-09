@@ -4,9 +4,9 @@
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
-#include "pinloom/core/PdfXChangeCommand.h"
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
-#include "pinloom/core/PdfXChangeOpenProxy.h"
+#include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/core/SumatraPdfOpenProxy.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
@@ -28,18 +28,19 @@ class CoreSmokeTest : public QObject {
 private slots:
     void searchesAliasesAndTags();
     void persistsAndSearchesAnchorLocatorFields();
-    void buildsPdfXChangeRectCommand();
-    void buildsPdfXChangeViewRectCommand();
-    void buildsPdfXChangePageCommandFromLegacyAnchor();
-    void doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor();
-    void reportsMissingPdfXChangeTargetPath();
-    void recordsPdfXChangeOpenProxyPathMappings();
-    void resolvesPdfXChangeExecutableFromEnvironment();
+    void buildsSumatraPdfRectCommand();
+    void buildsSumatraPdfViewRectCommand();
+    void buildsSumatraPdfPageCommandFromLegacyAnchor();
+    void buildsSumatraPdfTextCommand();
+    void doesNotTreatLegacyPdfManualLineAsSumatraPdfAnchor();
+    void reportsMissingSumatraPdfTargetPath();
+    void recordsSumatraPdfOpenProxyPathMappings();
+    void resolvesSumatraPdfExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
     void appliesExplicitApplicationLaunchSettings();
     void checksExistingAnchorTargetHealth();
     void reportsMissingAnchorTargetHealth();
-    void reportsMissingPdfXChangeLauncherHealth();
+    void reportsMissingSumatraPdfLauncherHealth();
     void reportsMissingExplicitPowerShellLauncherHealth();
     void reportsUnsupportedAnchorHealthInputs();
     void buildsExcelRangeCommand();
@@ -112,9 +113,9 @@ void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
     anchor.type = AnchorType::Manual;
     anchor.id = QStringLiteral("anchor:clock-domain");
     anchor.name = QStringLiteral("Clock domain window");
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/specs/clocking.pdf");
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250}");
     anchor.aliases = {QStringLiteral("cdc zoom")};
     anchor.tags = {QStringLiteral("review-point")};
@@ -158,54 +159,62 @@ void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
     QCOMPARE(tagResults.size(), 1);
     QCOMPARE(tagResults.first().matchedField, QStringLiteral("anchor_tag"));
 
-    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("pdfxchange.rect")});
+    const QList<SearchResult> metadataResults = repository.search(SearchQuery{QStringLiteral("sumatrapdf.rect")});
     QCOMPARE(metadataResults.size(), 1);
     QCOMPARE(metadataResults.first().matchedField, QStringLiteral("anchor_metadata"));
 }
 
-void CoreSmokeTest::buildsPdfXChangeRectCommand()
+void CoreSmokeTest::buildsSumatraPdfRectCommand()
 {
     Anchor anchor;
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
-    anchor.locatorJson = QStringLiteral("{\"type\":\"pdfxchange.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"sumatrapdf.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
 
-    QVERIFY(isPdfXChangeAnchor(anchor));
-    const PdfXChangeCommandResult result =
-        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    QVERIFY(isSumatraPdfAnchor(anchor));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.command.executablePath, QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    QCOMPARE(result.command.executablePath, QStringLiteral("C:/Tools/SumatraPDF.exe"));
     QCOMPARE(result.command.filePath, anchor.targetFile);
-    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
     QCOMPARE(result.command.arguments,
-             QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"),
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-scroll"),
+                          QStringLiteral("420,860"),
                           anchor.targetFile}));
 }
 
-void CoreSmokeTest::buildsPdfXChangeViewRectCommand()
+void CoreSmokeTest::buildsSumatraPdfViewRectCommand()
 {
     Anchor anchor;
-    anchor.targetApp = QStringLiteral("PDF-XChange");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
-    anchor.locatorType = QStringLiteral("pdfxchange.rect");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral(
-        "{\"type\":\"pdfxchange.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\",\"mode\":\"viewrect\"}");
+        "{\"type\":\"sumatrapdf.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\",\"mode\":\"viewrect\"}");
 
-    const PdfXChangeCommandResult result =
-        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.command.action, QStringLiteral("page=12;zoom=250;viewrect=420,860,360,60;usept=yes"));
     QCOMPARE(result.command.arguments,
-             QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=12;zoom=250;viewrect=420,860,360,60;usept=yes"),
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-scroll"),
+                          QStringLiteral("420,860"),
                           anchor.targetFile}));
 }
 
-void CoreSmokeTest::buildsPdfXChangePageCommandFromLegacyAnchor()
+void CoreSmokeTest::buildsSumatraPdfPageCommandFromLegacyAnchor()
 {
     Anchor anchor;
     anchor.type = AnchorType::PdfPage;
@@ -213,22 +222,49 @@ void CoreSmokeTest::buildsPdfXChangePageCommandFromLegacyAnchor()
     anchor.page = 3;
     anchor.locatorJson = QStringLiteral("{\"zoom\":175}");
 
-    QVERIFY(isPdfXChangeAnchor(anchor));
-    const PdfXChangeCommandResult result =
-        buildPdfXChangeCommand(anchor,
+    QVERIFY(isSumatraPdfAnchor(anchor));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor,
                                QStringLiteral("E:/docs/spec.pdf"),
-                               QStringLiteral("C:/Tools/PDFXEdit.exe"));
+                               QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.command.filePath, QStringLiteral("E:/docs/spec.pdf"));
-    QCOMPARE(result.command.action, QStringLiteral("page=3;zoom=175"));
     QCOMPARE(result.command.arguments,
-             QStringList({QStringLiteral("/A"),
-                          QStringLiteral("page=3;zoom=175"),
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("3"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("175"),
                           QStringLiteral("E:/docs/spec.pdf")}));
 }
 
-void CoreSmokeTest::doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor()
+void CoreSmokeTest::buildsSumatraPdfTextCommand()
+{
+    Anchor anchor;
+    anchor.type = AnchorType::PdfPage;
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
+    anchor.locatorType = QStringLiteral("sumatrapdf.search");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"sumatrapdf.search\",\"page\":12,\"text\":\"clock; domain \\\"crossing\\\"\",\"zoom\":250}");
+
+    QVERIFY(isSumatraPdfAnchor(anchor));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.command.arguments,
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-search"),
+                          QStringLiteral("clock; domain crossing"),
+                          anchor.targetFile}));
+}
+
+void CoreSmokeTest::doesNotTreatLegacyPdfManualLineAsSumatraPdfAnchor()
 {
     Anchor anchor;
     anchor.type = AnchorType::Manual;
@@ -238,77 +274,77 @@ void CoreSmokeTest::doesNotTreatLegacyPdfManualLineAsPdfXChangeAnchor()
     anchor.locatorJson = QStringLiteral("{\"line\":12}");
     anchor.line = 12;
 
-    QVERIFY(!isPdfXChangeAnchor(anchor));
+    QVERIFY(!isSumatraPdfAnchor(anchor));
 
-    const PdfXChangeCommandResult result =
-        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange locator type is unsupported"));
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF locator type is unsupported"));
 }
 
-void CoreSmokeTest::reportsMissingPdfXChangeTargetPath()
+void CoreSmokeTest::reportsMissingSumatraPdfTargetPath()
 {
     Anchor anchor;
-    anchor.targetApp = QStringLiteral("pdfxchange");
-    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.targetApp = QStringLiteral("sumatrapdf");
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
     anchor.locatorJson = QStringLiteral("{\"page\":4}");
 
-    const PdfXChangeCommandResult result =
-        buildPdfXChangeCommand(anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    const SumatraPdfCommandResult result =
+        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange target file is missing"));
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF target file is missing"));
 }
 
-void CoreSmokeTest::recordsPdfXChangeOpenProxyPathMappings()
+void CoreSmokeTest::recordsSumatraPdfOpenProxyPathMappings()
 {
     QTemporaryDir settingsDir;
     QVERIFY(settingsDir.isValid());
     QSettings settings(settingsDir.filePath(QStringLiteral("pinloom.ini")), QSettings::IniFormat);
 
     const QString filePath = QStringLiteral("E:/docs/Clock Spec.pdf");
-    const QString normalizedPath = normalizedPdfXChangeOpenFilePath(filePath);
+    const QString normalizedPath = normalizedSumatraPdfOpenFilePath(filePath);
     QCOMPARE(normalizedPath, filePath);
 
-    const QString message = pinloomPdfXChangeOpenMessageForFile(filePath);
+    const QString message = pinloomSumatraPdfOpenMessageForFile(filePath);
     QVERIFY(!message.isEmpty());
-    const std::optional<QString> messagePath = pdfXChangeOpenFileFromPinloomMessage(message);
+    const std::optional<QString> messagePath = sumatraPdfOpenFileFromPinloomMessage(message);
     QVERIFY(messagePath.has_value());
     QCOMPARE(messagePath.value(), normalizedPath);
 
-    QVERIFY(rememberPdfXChangeOpenedFile(settings, filePath));
+    QVERIFY(rememberSumatraPdfOpenedFile(settings, filePath));
     const std::optional<QString> baseNameMatch =
-        lookupRememberedPdfXChangeDocumentPath(settings,
+        lookupRememberedSumatraPdfDocumentPath(settings,
                                                QStringLiteral("Clock Spec"),
-                                               normalizedPdfXChangeDocumentTitleKey(QStringLiteral("Clock Spec")));
+                                               normalizedSumatraPdfDocumentTitleKey(QStringLiteral("Clock Spec")));
     QVERIFY(baseNameMatch.has_value());
     QCOMPARE(baseNameMatch.value(), normalizedPath);
 
-    QVERIFY(rememberPdfXChangeDocumentTitlePath(settings, QStringLiteral("Spec Window Title"), filePath));
+    QVERIFY(rememberSumatraPdfDocumentTitlePath(settings, QStringLiteral("Spec Window Title"), filePath));
     const std::optional<QString> titleMatch =
-        lookupRememberedPdfXChangeDocumentPath(settings,
+        lookupRememberedSumatraPdfDocumentPath(settings,
                                                QStringLiteral("Spec Window Title"),
-                                               normalizedPdfXChangeDocumentTitleKey(QStringLiteral("Spec Window Title")));
+                                               normalizedSumatraPdfDocumentTitleKey(QStringLiteral("Spec Window Title")));
     QVERIFY(titleMatch.has_value());
     QCOMPARE(titleMatch.value(), normalizedPath);
 }
 
-void CoreSmokeTest::resolvesPdfXChangeExecutableFromEnvironment()
+void CoreSmokeTest::resolvesSumatraPdfExecutableFromEnvironment()
 {
-    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_PDFXCHANGE_PATH");
-    const QByteArray previous = qgetenv("PINLOOM_PDFXCHANGE_PATH");
+    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_SUMATRAPDF_PATH");
+    const QByteArray previous = qgetenv("PINLOOM_SUMATRAPDF_PATH");
 
-    QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", "C:/Portable PDF/PDFXEdit.exe"));
-    const QString resolved = resolvePdfXChangeExecutablePath();
+    QVERIFY(qputenv("PINLOOM_SUMATRAPDF_PATH", "C:/Portable PDF/SumatraPDF.exe"));
+    const QString resolved = resolveSumatraPdfExecutablePath();
 
     if (hadValue) {
-        QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", previous));
+        QVERIFY(qputenv("PINLOOM_SUMATRAPDF_PATH", previous));
     } else {
-        qunsetenv("PINLOOM_PDFXCHANGE_PATH");
+        qunsetenv("PINLOOM_SUMATRAPDF_PATH");
     }
 
-    QCOMPARE(resolved, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+    QCOMPARE(resolved, QStringLiteral("C:/Portable PDF/SumatraPDF.exe"));
 }
 
 void CoreSmokeTest::defaultsApplicationLaunchSettings()
@@ -324,51 +360,51 @@ void CoreSmokeTest::defaultsApplicationLaunchSettings()
     QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::Word));
     QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::PowerPoint));
     QVERIFY(usesPowerShellLauncher(ExternalApplicationTarget::Visio));
-    QVERIFY(!usesPowerShellLauncher(ExternalApplicationTarget::PdfXChange));
-    QCOMPARE(externalApplicationLabel(ExternalApplicationTarget::PdfXChange),
-             QStringLiteral("PDF-XChange Editor"));
+    QVERIFY(!usesPowerShellLauncher(ExternalApplicationTarget::SumatraPDF));
+    QCOMPARE(externalApplicationLabel(ExternalApplicationTarget::SumatraPDF),
+             QStringLiteral("SumatraPDF"));
 
-    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_PDFXCHANGE_PATH");
-    const QByteArray previous = qgetenv("PINLOOM_PDFXCHANGE_PATH");
+    const bool hadValue = qEnvironmentVariableIsSet("PINLOOM_SUMATRAPDF_PATH");
+    const QByteArray previous = qgetenv("PINLOOM_SUMATRAPDF_PATH");
 
-    QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", "C:/Portable PDF/PDFXEdit.exe"));
-    QCOMPARE(resolvePdfXChangeExecutablePath(settings),
-             QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+    QVERIFY(qputenv("PINLOOM_SUMATRAPDF_PATH", "C:/Portable PDF/SumatraPDF.exe"));
+    QCOMPARE(resolveSumatraPdfExecutablePath(settings),
+             QStringLiteral("C:/Portable PDF/SumatraPDF.exe"));
 
     Anchor anchor;
     anchor.targetFile = QStringLiteral("E:/docs/spec.pdf");
-    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
     anchor.locatorJson = QStringLiteral("{\"page\":4}");
-    const PdfXChangeCommandResult command = buildPdfXChangeCommand(anchor, QString(), settings);
+    const SumatraPdfCommandResult command = buildSumatraPdfCommand(anchor, QString(), settings);
 
     if (hadValue) {
-        QVERIFY(qputenv("PINLOOM_PDFXCHANGE_PATH", previous));
+        QVERIFY(qputenv("PINLOOM_SUMATRAPDF_PATH", previous));
     } else {
-        qunsetenv("PINLOOM_PDFXCHANGE_PATH");
+        qunsetenv("PINLOOM_SUMATRAPDF_PATH");
     }
 
     QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.executablePath, QStringLiteral("C:/Portable PDF/PDFXEdit.exe"));
+    QCOMPARE(command.command.executablePath, QStringLiteral("C:/Portable PDF/SumatraPDF.exe"));
 }
 
 void CoreSmokeTest::appliesExplicitApplicationLaunchSettings()
 {
     ApplicationLaunchSettings settings;
-    settings.pdfXChangeExecutablePath = QStringLiteral(" C:/Pinned/PDFXEdit.exe ");
+    settings.sumatraPdfExecutablePath = QStringLiteral(" C:/Pinned/SumatraPDF.exe ");
     settings.powerShellExecutablePath = QStringLiteral(" C:/Tools/PowerShell/powershell.exe ");
 
-    QCOMPARE(resolvePdfXChangeExecutablePath(settings), QStringLiteral("C:/Pinned/PDFXEdit.exe"));
+    QCOMPARE(resolveSumatraPdfExecutablePath(settings), QStringLiteral("C:/Pinned/SumatraPDF.exe"));
     QCOMPARE(effectivePowerShellExecutablePath(settings),
              QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
 
     Anchor pdfAnchor;
     pdfAnchor.targetFile = QStringLiteral("E:/docs/spec.pdf");
-    pdfAnchor.locatorType = QStringLiteral("pdfxchange.page");
+    pdfAnchor.locatorType = QStringLiteral("sumatrapdf.page");
     pdfAnchor.locatorJson = QStringLiteral("{\"page\":4}");
-    const PdfXChangeCommandResult pdfCommand =
-        buildPdfXChangeCommand(pdfAnchor, QString(), settings);
+    const SumatraPdfCommandResult pdfCommand =
+        buildSumatraPdfCommand(pdfAnchor, QString(), settings);
     QVERIFY2(pdfCommand.success(), qPrintable(pdfCommand.error));
-    QCOMPARE(pdfCommand.command.executablePath, QStringLiteral("C:/Pinned/PDFXEdit.exe"));
+    QCOMPARE(pdfCommand.command.executablePath, QStringLiteral("C:/Pinned/SumatraPDF.exe"));
 
     Anchor excelAnchor;
     excelAnchor.targetFile = QStringLiteral("E:/books/budget.xlsx");
@@ -459,7 +495,7 @@ void CoreSmokeTest::reportsMissingAnchorTargetHealth()
     QCOMPARE(result.path, missingFallback);
 }
 
-void CoreSmokeTest::reportsMissingPdfXChangeLauncherHealth()
+void CoreSmokeTest::reportsMissingSumatraPdfLauncherHealth()
 {
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -471,19 +507,19 @@ void CoreSmokeTest::reportsMissingPdfXChangeLauncherHealth()
     targetFile.close();
 
     ApplicationLaunchSettings settings;
-    settings.pdfXChangeExecutablePath = tempDir.filePath(QStringLiteral("missing-PDFXEdit.exe"));
+    settings.sumatraPdfExecutablePath = tempDir.filePath(QStringLiteral("missing-SumatraPDF.exe"));
 
     Anchor anchor;
     anchor.targetFile = targetPath;
-    anchor.locatorType = QStringLiteral("pdfxchange.page");
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
     anchor.locatorJson = QStringLiteral("{\"page\":1}");
 
     const AnchorHealthCheckResult result = checkAnchorHealth(anchor, QString(), settings);
     QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingLauncher));
     QCOMPARE(result.path, targetPath);
-    QCOMPARE(result.launcherPath, settings.pdfXChangeExecutablePath);
-    QCOMPARE(result.app, QStringLiteral("PDF-XChange Editor"));
-    QCOMPARE(result.locatorType, QStringLiteral("pdfxchange.page"));
+    QCOMPARE(result.launcherPath, settings.sumatraPdfExecutablePath);
+    QCOMPARE(result.app, QStringLiteral("SumatraPDF"));
+    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.page"));
 }
 
 void CoreSmokeTest::reportsMissingExplicitPowerShellLauncherHealth()
@@ -1348,11 +1384,11 @@ void CoreSmokeTest::recognizesExplorerForegroundWindows()
     explorerPath.processPath = QStringLiteral("C:/Windows/explorer.exe");
     QVERIFY(isExplorerForegroundWindow(explorerPath));
 
-    ForegroundAppWindowContext pdfXChange;
-    pdfXChange.processName = QStringLiteral("PDFXEdit.exe");
-    QVERIFY(!isExplorerForegroundWindow(pdfXChange));
+    ForegroundAppWindowContext sumatraPdf;
+    sumatraPdf.processName = QStringLiteral("SumatraPDF.exe");
+    QVERIFY(!isExplorerForegroundWindow(sumatraPdf));
 
-    const ExplorerFileSelectionResult result = captureExplorerFileSelection(pdfXChange);
+    const ExplorerFileSelectionResult result = captureExplorerFileSelection(sumatraPdf);
     QVERIFY(!result.success());
     QVERIFY(!result.recognizedExplorer);
 }

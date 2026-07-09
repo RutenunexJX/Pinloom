@@ -9,28 +9,27 @@ namespace Pinloom {
 
 struct ApplicationLaunchSettings;
 
-struct PdfXChangeCommand {
+struct SumatraPdfCommand {
     QString executablePath;
-    QString action;
     QString filePath;
     QStringList arguments;
 };
 
-struct PdfXChangeCommandResult {
-    PdfXChangeCommand command;
+struct SumatraPdfCommandResult {
+    SumatraPdfCommand command;
     QString error;
 
     bool success() const;
 };
 
-bool isPdfXChangeLocatorType(const QString &locatorType);
-bool isPdfXChangeAnchor(const Anchor &anchor);
-QString resolvePdfXChangeExecutablePath();
-QString resolvePdfXChangeExecutablePath(const ApplicationLaunchSettings &settings);
-PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+bool isSumatraPdfLocatorType(const QString &locatorType);
+bool isSumatraPdfAnchor(const Anchor &anchor);
+QString resolveSumatraPdfExecutablePath();
+QString resolveSumatraPdfExecutablePath(const ApplicationLaunchSettings &settings);
+SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
                                                const QString &fallbackFilePath,
                                                const ApplicationLaunchSettings &settings);
-PdfXChangeCommandResult buildPdfXChangeCommand(const Anchor &anchor,
+SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
                                                const QString &fallbackFilePath,
                                                const QString &executablePath);
 

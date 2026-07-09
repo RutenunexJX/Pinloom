@@ -15,25 +15,40 @@ namespace Pinloom {
 
 namespace {
 
-QString effectiveTargetApp(const PdfXChangeCaptureRequest &request)
+QString effectiveTargetApp(const PdfCaptureRequest &request)
 {
     const QString targetApp = request.targetApp.trimmed();
-    return targetApp.isEmpty() ? QStringLiteral("PDF-XChange") : targetApp;
+    return targetApp.isEmpty() ? QStringLiteral("SumatraPDF") : targetApp;
 }
 
-QString effectiveLocatorType(const PdfXChangeCaptureRequest &request)
+QString effectiveLocatorType(const PdfCaptureRequest &request)
 {
     const QString locatorType = request.locatorType.trimmed().toLower();
-    return locatorType.isEmpty() ? QStringLiteral("pdfxchange.rect") : locatorType;
+    if (!locatorType.isEmpty()) {
+        if (locatorType == QLatin1String("sumatrapdf.rect")) {
+            return QStringLiteral("sumatrapdf.rect");
+        }
+        if (locatorType == QLatin1String("sumatrapdf.page")) {
+            return QStringLiteral("sumatrapdf.page");
+        }
+        return locatorType;
+    }
+    if (!request.selectedText.trimmed().isEmpty()) {
+        return QStringLiteral("sumatrapdf.search");
+    }
+    if (request.rect.isValid()) {
+        return QStringLiteral("sumatrapdf.rect");
+    }
+    return QStringLiteral("sumatrapdf.page");
 }
 
-QString effectiveUnit(const PdfXChangeCaptureRequest &request)
+QString effectiveUnit(const PdfCaptureRequest &request)
 {
     const QString unit = request.unit.trimmed().toLower();
     return unit.isEmpty() ? QStringLiteral("pt") : unit;
 }
 
-QString effectiveSource(const PdfXChangeCaptureRequest &request, const QString &fallback)
+QString effectiveSource(const PdfCaptureRequest &request, const QString &fallback)
 {
     const QString source = request.source.trimmed().toLower();
     return source.isEmpty() ? fallback : source;
@@ -118,17 +133,24 @@ QString effectivePowerPointLocatorType(const PowerPointCaptureRequest &request)
     return locatorType.isEmpty() ? QStringLiteral("powerpoint.shape") : locatorType;
 }
 
-QString defaultAnchorName(const PdfXChangeCaptureRequest &request)
+QString defaultAnchorName(const PdfCaptureRequest &request)
 {
     const QString fileName = QFileInfo(request.targetFile.trimmed()).fileName();
     const QString target = fileName.isEmpty() ? request.targetFile.trimmed() : fileName;
-    if (target.isEmpty()) {
-        return QStringLiteral("PDF page %1 rect").arg(request.page);
+    const QString selectedText = request.selectedText.simplified();
+    if (!selectedText.isEmpty()) {
+        const QString preview = selectedText.left(64);
+        return target.isEmpty()
+            ? preview
+            : QStringLiteral("%1 - %2").arg(target, preview);
     }
-    return QStringLiteral("%1 page %2 rect").arg(target, QString::number(request.page));
+    if (target.isEmpty()) {
+        return QStringLiteral("PDF page %1").arg(request.page);
+    }
+    return QStringLiteral("%1 page %2").arg(target, QString::number(request.page));
 }
 
-AnchorCaptureResult resultForRequest(const PdfXChangeCaptureRequest &request,
+AnchorCaptureResult resultForRequest(const PdfCaptureRequest &request,
                                      const QString &source)
 {
     AnchorCaptureResult result;
@@ -137,6 +159,7 @@ AnchorCaptureResult resultForRequest(const PdfXChangeCaptureRequest &request,
     result.locatorType = effectiveLocatorType(request);
     result.page = request.page;
     result.rect = request.rect;
+    result.selectedText = request.selectedText.trimmed();
     result.zoom = request.zoom;
     result.unit = effectiveUnit(request);
     result.source = effectiveSource(request, source);
@@ -243,44 +266,46 @@ bool PowerPointCaptureResult::success() const
     return error.isEmpty();
 }
 
-QString ManualPdfXChangeRectCaptureProvider::source() const
+QString ManualPdfRectCaptureProvider::source() const
 {
     return QStringLiteral("manual");
 }
 
-AnchorCaptureResult ManualPdfXChangeRectCaptureProvider::capture(const PdfXChangeCaptureRequest &request) const
+AnchorCaptureResult ManualPdfRectCaptureProvider::capture(const PdfCaptureRequest &request) const
 {
-    AnchorCaptureResult result = resultForRequest(request, source());
+    PdfCaptureRequest rectRequest = request;
+    rectRequest.locatorType = QStringLiteral("sumatrapdf.rect");
+    AnchorCaptureResult result = resultForRequest(rectRequest, source());
 
     if (result.targetFile.isEmpty()) {
-        result.error = QStringLiteral("PDF-XChange capture target file is missing");
+        result.error = QStringLiteral("SumatraPDF capture target file is missing");
         return result;
     }
-    if (result.locatorType != QLatin1String("pdfxchange.rect")) {
-        result.error = QStringLiteral("PDF-XChange capture locator type must be pdfxchange.rect");
+    if (result.locatorType != QLatin1String("sumatrapdf.rect")) {
+        result.error = QStringLiteral("SumatraPDF capture locator type must be sumatrapdf.rect");
         return result;
     }
     if (result.page <= 0) {
-        result.error = QStringLiteral("PDF-XChange capture page is missing");
+        result.error = QStringLiteral("SumatraPDF capture page is missing");
         return result;
     }
     if (!result.rect.isValid()) {
-        result.error = QStringLiteral("PDF-XChange capture rectangle is missing");
+        result.error = QStringLiteral("SumatraPDF capture rectangle is missing");
         return result;
     }
     if (result.zoom > 0.0 && !std::isfinite(result.zoom)) {
-        result.error = QStringLiteral("PDF-XChange capture zoom is invalid");
+        result.error = QStringLiteral("SumatraPDF capture zoom is invalid");
         return result;
     }
 
     Anchor anchor;
     anchor.type = AnchorType::PdfRegion;
-    anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name.isEmpty() ? defaultAnchorName(request) : anchor.name;
+    anchor.name = rectRequest.anchorName.trimmed();
+    anchor.target = anchor.name.isEmpty() ? defaultAnchorName(rectRequest) : anchor.name;
     anchor.targetApp = result.targetApp;
     anchor.targetFile = result.targetFile;
     anchor.locatorType = result.locatorType;
-    anchor.locatorJson = pdfXChangeRectLocatorJson(request);
+    anchor.locatorJson = pdfRectLocatorJson(rectRequest);
     anchor.page = result.page;
     anchor.region = QRectF(result.rect.left,
                            result.rect.top,
@@ -465,13 +490,25 @@ PowerPointCaptureResult ManualPowerPointShapeAnchorCaptureProvider::capture(
     return result;
 }
 
-QString pdfXChangeRectLocatorJson(const PdfXChangeCaptureRequest &request)
+QString pdfRectLocatorJson(const PdfCaptureRequest &request)
+{
+    PdfCaptureRequest rectRequest = request;
+    rectRequest.locatorType = QStringLiteral("sumatrapdf.rect");
+    return pdfLocatorJson(rectRequest);
+}
+
+QString pdfLocatorJson(const PdfCaptureRequest &request)
 {
     QJsonObject locator;
     locator.insert(QStringLiteral("type"), effectiveLocatorType(request));
     locator.insert(QStringLiteral("page"), request.page);
-    locator.insert(QStringLiteral("rect"), rectArray(request.rect));
-    locator.insert(QStringLiteral("unit"), effectiveUnit(request));
+    const QString locatorType = effectiveLocatorType(request);
+    if (locatorType == QLatin1String("sumatrapdf.rect")) {
+        locator.insert(QStringLiteral("rect"), rectArray(request.rect));
+        locator.insert(QStringLiteral("unit"), effectiveUnit(request));
+    } else if (locatorType == QLatin1String("sumatrapdf.search")) {
+        locator.insert(QStringLiteral("text"), request.selectedText.trimmed());
+    }
     locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
     if (request.zoom > 0.0) {
         locator.insert(QStringLiteral("zoom"), request.zoom);
@@ -552,9 +589,61 @@ QString powerPointLocatorJson(const PowerPointCaptureRequest &request)
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
 
-AnchorCaptureResult captureManualPdfXChangeRectAnchor(const PdfXChangeCaptureRequest &request)
+AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
 {
-    return ManualPdfXChangeRectCaptureProvider{}.capture(request);
+    AnchorCaptureResult result = resultForRequest(request, QStringLiteral("manual"));
+
+    if (result.targetFile.isEmpty()) {
+        result.error = QStringLiteral("SumatraPDF capture target file is missing");
+        return result;
+    }
+    if (result.locatorType != QLatin1String("sumatrapdf.rect")
+        && result.locatorType != QLatin1String("sumatrapdf.page")
+        && result.locatorType != QLatin1String("sumatrapdf.search")) {
+        result.error = QStringLiteral("SumatraPDF capture locator type is unsupported");
+        return result;
+    }
+    if (result.page <= 0) {
+        result.error = QStringLiteral("SumatraPDF capture page is missing");
+        return result;
+    }
+    if (result.locatorType == QLatin1String("sumatrapdf.rect") && !result.rect.isValid()) {
+        result.error = QStringLiteral("SumatraPDF capture rectangle is missing");
+        return result;
+    }
+    if (result.locatorType == QLatin1String("sumatrapdf.search") && result.selectedText.isEmpty()) {
+        result.error = QStringLiteral("SumatraPDF capture search text is missing");
+        return result;
+    }
+    if (result.zoom > 0.0 && !std::isfinite(result.zoom)) {
+        result.error = QStringLiteral("SumatraPDF capture zoom is invalid");
+        return result;
+    }
+
+    Anchor anchor;
+    anchor.type = result.locatorType == QLatin1String("sumatrapdf.rect")
+        ? AnchorType::PdfRegion
+        : AnchorType::PdfPage;
+    anchor.name = request.anchorName.trimmed();
+    anchor.target = anchor.name.isEmpty() ? defaultAnchorName(request) : anchor.name;
+    anchor.targetApp = result.targetApp;
+    anchor.targetFile = result.targetFile;
+    anchor.locatorType = result.locatorType;
+    anchor.locatorJson = pdfLocatorJson(request);
+    anchor.page = result.page;
+    if (result.locatorType == QLatin1String("sumatrapdf.rect") && result.rect.isValid()) {
+        anchor.region = QRectF(result.rect.left,
+                               result.rect.top,
+                               result.rect.right - result.rect.left,
+                               result.rect.bottom - result.rect.top);
+    }
+    result.anchor = anchor;
+    return result;
+}
+
+AnchorCaptureResult captureManualPdfRectAnchor(const PdfCaptureRequest &request)
+{
+    return ManualPdfRectCaptureProvider{}.capture(request);
 }
 
 ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request)

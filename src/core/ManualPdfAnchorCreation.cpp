@@ -64,17 +64,19 @@ QString resourceTitleForFile(const QString &file, const QString &name)
     return fileName.isEmpty() ? name : fileName;
 }
 
-PdfXChangeCaptureRequest captureRequestFromManualRequest(
+PdfCaptureRequest captureRequestFromManualRequest(
     const ManualPdfAnchorCreationRequest &request,
     const QString &name,
     const QString &file)
 {
-    PdfXChangeCaptureRequest captureRequest;
+    PdfCaptureRequest captureRequest;
     captureRequest.anchorName = name;
     captureRequest.targetApp = request.targetApp;
     captureRequest.targetFile = file;
+    captureRequest.locatorType = request.locatorType;
     captureRequest.page = request.page;
     captureRequest.rect = request.rect;
+    captureRequest.selectedText = request.selectedText;
     captureRequest.zoom = request.zoom;
     captureRequest.unit = request.unit;
     captureRequest.source = request.source;
@@ -98,15 +100,24 @@ QString manualPdfAnchorLocatorSummary(const ManualPdfAnchorCreationRequest &requ
     parts.append(request.page > 0
                      ? QStringLiteral("page %1").arg(request.page)
                      : QStringLiteral("page unknown"));
-    if (request.rect.isValid()) {
+    const QString locatorType = request.locatorType.trimmed().isEmpty()
+        ? (request.selectedText.trimmed().isEmpty()
+               ? (request.rect.isValid() ? QStringLiteral("sumatrapdf.rect") : QStringLiteral("sumatrapdf.page"))
+               : QStringLiteral("sumatrapdf.search"))
+        : request.locatorType.trimmed().toLower();
+    parts.append(QStringLiteral("locator %1").arg(locatorType));
+    if (locatorType == QLatin1String("sumatrapdf.search")) {
+        const QString selected = request.selectedText.simplified();
+        parts.append(selected.isEmpty()
+                         ? QStringLiteral("search text unknown")
+                         : QStringLiteral("search \"%1\"").arg(selected.left(80)));
+    } else if (locatorType == QLatin1String("sumatrapdf.rect") && request.rect.isValid()) {
         parts.append(QStringLiteral("rect %1,%2,%3,%4 %5")
                          .arg(decimalText(request.rect.left),
                               decimalText(request.rect.top),
                               decimalText(request.rect.right),
                               decimalText(request.rect.bottom),
                               request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed()));
-    } else {
-        parts.append(QStringLiteral("rect unknown"));
     }
     parts.append(request.zoom > 0.0
                      ? QStringLiteral("zoom %1%").arg(decimalText(request.zoom))
@@ -124,7 +135,15 @@ ManualPdfAnchorCreationService::ManualPdfAnchorCreationService(ILibraryRepositor
 {
 }
 
-ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfXChangeRectAnchor(
+ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfRectAnchor(
+    const ManualPdfAnchorCreationRequest &request)
+{
+    ManualPdfAnchorCreationRequest rectRequest = request;
+    rectRequest.locatorType = QStringLiteral("sumatrapdf.rect");
+    return createManualPdfAnchor(rectRequest);
+}
+
+ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfAnchor(
     const ManualPdfAnchorCreationRequest &request)
 {
     ManualPdfAnchorCreationResult result;
@@ -141,7 +160,7 @@ ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfXCh
         return result;
     }
 
-    const AnchorCaptureResult capture = captureManualPdfXChangeRectAnchor(
+    const AnchorCaptureResult capture = captureManualPdfAnchor(
         captureRequestFromManualRequest(request, name, file));
     if (!capture.success()) {
         result.error = capture.error;
@@ -157,7 +176,12 @@ ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfXCh
     resource.updatedAt = now;
 
     Anchor anchor = capture.anchor;
-    anchor.id = QStringLiteral("%1#rect").arg(resource.id);
+    const QString anchorSuffix = anchor.locatorType == QLatin1String("sumatrapdf.search")
+        ? QStringLiteral("search")
+        : anchor.locatorType == QLatin1String("sumatrapdf.page")
+              ? QStringLiteral("page")
+              : QStringLiteral("rect");
+    anchor.id = QStringLiteral("%1#%2").arg(resource.id, anchorSuffix);
     anchor.name = name;
     anchor.target = name;
     anchor.aliases = cleanedValues(request.aliases);

@@ -6,8 +6,8 @@
 #include "pinloom/core/ManualPowerPointAnchorCreation.h"
 #include "pinloom/core/ManualVisioAnchorCreation.h"
 #include "pinloom/core/ManualWordAnchorCreation.h"
-#include "pinloom/core/PdfXChangeCommand.h"
-#include "pinloom/core/PdfXChangeForegroundCapture.h"
+#include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/VisioCommand.h"
@@ -26,10 +26,12 @@ class AnchorCaptureTest : public QObject {
     Q_OBJECT
 
 private slots:
-    void buildsManualPdfXChangeRectAnchor();
-    void reportsMissingPdfXChangeCaptureInputs();
-    void keepsPdfXChangeLocatorJsonStable();
-    void buildsAnchorCompatibleWithPdfXChangeExecutor();
+    void buildsManualSumatraPdfRectAnchor();
+    void buildsManualSumatraPdfPageAnchor();
+    void buildsManualSumatraPdfTextAnchor();
+    void reportsMissingSumatraPdfCaptureInputs();
+    void keepsSumatraPdfLocatorJsonStable();
+    void buildsAnchorCompatibleWithSumatraPdfExecutor();
     void buildsManualExcelRangeAnchor();
     void buildsManualExcelNamedRangeAnchor();
     void savesManualExcelRangeAnchorInRepository();
@@ -50,22 +52,23 @@ private slots:
     void createsManualPowerPointShapeAnchorCompatibleWithPowerPointExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
-    void createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor();
+    void createsManualPdfRectAnchorCompatibleWithSumatraPdfExecutor();
     void rejectsInvalidManualPdfRectAnchorInputsWithoutSaving();
     void reportsManualPdfRectAnchorRepositorySaveFailure();
     void summarizesManualPdfCaptureLocatorForUsers();
-    void normalizesPdfXChangeDocumentTitlesForFallback();
-    void capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf();
-    void matchesForegroundPdfXChangeTitleToUniqueIndexedPdf();
-    void matchesForegroundPdfXChangeTitleToFileKindPdfLocation();
-    void prefersSavedPdfXChangeTitleMappingOverRepositoryMatch();
-    void rejectsInvalidSavedPdfXChangeTitleMapping();
+    void normalizesSumatraPdfDocumentTitlesForFallback();
+    void capturesForegroundSumatraPdfPathFromWindowTitleWithoutIndexedPdf();
+    void matchesForegroundSumatraPdfTitleToUniqueIndexedPdf();
+    void matchesForegroundSumatraPdfTitleToFileKindPdfLocation();
+    void prefersSavedSumatraPdfTitleMappingOverRepositoryMatch();
+    void rejectsInvalidSavedSumatraPdfTitleMapping();
     void preservesViewStateWhenTitleFallbackBuildsRequest();
-    void parsesPdfXChangeViewStateFromStatusText();
-    void reportsUnparseablePdfXChangeViewStateText();
-    void injectsForegroundPdfXChangeViewStateIntoCaptureRequest();
-    void reportsForegroundPdfXChangeTitleWithoutFilePath();
-    void rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches();
+    void parsesSumatraPdfViewStateFromStatusText();
+    void reportsUnparseableSumatraPdfViewStateText();
+    void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
+    void injectsForegroundSumatraPdfSelectedTextIntoCaptureRequest();
+    void reportsForegroundSumatraPdfTitleWithoutFilePath();
+    void rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMatches();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
 };
 
@@ -106,9 +109,9 @@ public:
     Resource lastResource;
 };
 
-static PdfXChangeCaptureRequest validRectRequest()
+static PdfCaptureRequest validRectRequest()
 {
-    PdfXChangeCaptureRequest request;
+    PdfCaptureRequest request;
     request.anchorName = QStringLiteral("Clock domain window");
     request.targetFile = QStringLiteral("E:/docs/clock.pdf");
     request.page = 12;
@@ -250,14 +253,14 @@ static bool hasAnchorSearchResult(const QList<SearchResult> &results,
     });
 }
 
-void AnchorCaptureTest::buildsManualPdfXChangeRectAnchor()
+void AnchorCaptureTest::buildsManualSumatraPdfRectAnchor()
 {
-    const AnchorCaptureResult result = captureManualPdfXChangeRectAnchor(validRectRequest());
+    const AnchorCaptureResult result = captureManualPdfRectAnchor(validRectRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(result.targetApp, QStringLiteral("SumatraPDF"));
     QCOMPARE(result.targetFile, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(result.locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.rect"));
     QCOMPARE(result.page, 12);
     QCOMPARE(result.rect.left, 420.0);
     QCOMPARE(result.rect.top, 860.0);
@@ -270,9 +273,9 @@ void AnchorCaptureTest::buildsManualPdfXChangeRectAnchor()
     QCOMPARE(result.anchor.type, AnchorType::PdfRegion);
     QCOMPARE(result.anchor.name, QStringLiteral("Clock domain window"));
     QCOMPARE(result.anchor.target, QStringLiteral("Clock domain window"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("PDF-XChange"));
+    QCOMPARE(result.anchor.targetApp, QStringLiteral("SumatraPDF"));
     QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.rect"));
     QCOMPARE(result.anchor.page, 12);
     QCOMPARE(result.anchor.region.x(), 420.0);
     QCOMPARE(result.anchor.region.y(), 860.0);
@@ -280,49 +283,117 @@ void AnchorCaptureTest::buildsManualPdfXChangeRectAnchor()
     QCOMPARE(result.anchor.region.height(), 60.0);
 }
 
-void AnchorCaptureTest::reportsMissingPdfXChangeCaptureInputs()
+void AnchorCaptureTest::buildsManualSumatraPdfPageAnchor()
 {
-    PdfXChangeCaptureRequest missingFile = validRectRequest();
-    missingFile.targetFile.clear();
-    AnchorCaptureResult result = captureManualPdfXChangeRectAnchor(missingFile);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange capture target file is missing"));
+    PdfCaptureRequest request;
+    request.anchorName = QStringLiteral("Clock domain page");
+    request.targetFile = QStringLiteral("E:/docs/clock.pdf");
+    request.locatorType = QStringLiteral("sumatrapdf.page");
+    request.page = 12;
+    request.zoom = 250.0;
+    request.source = QStringLiteral("foreground-sumatrapdf-viewstate");
 
-    PdfXChangeCaptureRequest missingPage = validRectRequest();
-    missingPage.page = -1;
-    result = captureManualPdfXChangeRectAnchor(missingPage);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange capture page is missing"));
+    const AnchorCaptureResult result = captureManualPdfAnchor(request);
 
-    PdfXChangeCaptureRequest missingRect = validRectRequest();
-    missingRect.rect = {};
-    result = captureManualPdfXChangeRectAnchor(missingRect);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange capture rectangle is missing"));
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.page"));
+    QCOMPARE(result.page, 12);
+    QVERIFY(!result.rect.isValid());
+    QCOMPARE(result.anchor.type, AnchorType::PdfPage);
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.page"));
+    QVERIFY(!result.anchor.region.isValid());
+    QCOMPARE(result.anchor.locatorJson,
+             QStringLiteral("{\"page\":12,\"source\":\"foreground-sumatrapdf-viewstate\",\"type\":\"sumatrapdf.page\",\"zoom\":250}"));
 }
 
-void AnchorCaptureTest::keepsPdfXChangeLocatorJsonStable()
+void AnchorCaptureTest::buildsManualSumatraPdfTextAnchor()
 {
-    const AnchorCaptureResult result = captureManualPdfXChangeRectAnchor(validRectRequest());
+    PdfCaptureRequest request;
+    request.anchorName = QStringLiteral("Clock domain text");
+    request.targetFile = QStringLiteral("E:/docs/clock.pdf");
+    request.page = 12;
+    request.selectedText = QStringLiteral(" clock domain crossing ");
+    request.zoom = 250.0;
+    request.source = QStringLiteral("foreground-sumatrapdf-selection");
+
+    const AnchorCaptureResult result = captureManualPdfAnchor(request);
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.search"));
+    QCOMPARE(result.selectedText, QStringLiteral("clock domain crossing"));
+    QVERIFY(!result.rect.isValid());
+    QCOMPARE(result.anchor.type, AnchorType::PdfPage);
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.search"));
+    QVERIFY(!result.anchor.region.isValid());
+    QCOMPARE(result.anchor.locatorJson,
+             QStringLiteral("{\"page\":12,\"source\":\"foreground-sumatrapdf-selection\",\"text\":\"clock domain crossing\",\"type\":\"sumatrapdf.search\",\"zoom\":250}"));
+
+    const SumatraPdfCommandResult command =
+        buildSumatraPdfCommand(result.anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.arguments,
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-search"),
+                          QStringLiteral("clock domain crossing"),
+                          QStringLiteral("E:/docs/clock.pdf")}));
+}
+
+void AnchorCaptureTest::reportsMissingSumatraPdfCaptureInputs()
+{
+    PdfCaptureRequest missingFile = validRectRequest();
+    missingFile.targetFile.clear();
+    AnchorCaptureResult result = captureManualPdfRectAnchor(missingFile);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF capture target file is missing"));
+
+    PdfCaptureRequest missingPage = validRectRequest();
+    missingPage.page = -1;
+    result = captureManualPdfRectAnchor(missingPage);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF capture page is missing"));
+
+    PdfCaptureRequest missingRect = validRectRequest();
+    missingRect.rect = {};
+    result = captureManualPdfRectAnchor(missingRect);
+    QVERIFY(!result.success());
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF capture rectangle is missing"));
+}
+
+void AnchorCaptureTest::keepsSumatraPdfLocatorJsonStable()
+{
+    const AnchorCaptureResult result = captureManualPdfRectAnchor(validRectRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"pdfxchange.rect\",\"unit\":\"pt\",\"zoom\":250}"));
+             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"zoom\":250}"));
 }
 
-void AnchorCaptureTest::buildsAnchorCompatibleWithPdfXChangeExecutor()
+void AnchorCaptureTest::buildsAnchorCompatibleWithSumatraPdfExecutor()
 {
-    const AnchorCaptureResult capture = captureManualPdfXChangeRectAnchor(validRectRequest());
+    const AnchorCaptureResult capture = captureManualPdfRectAnchor(validRectRequest());
 
     QVERIFY2(capture.success(), qPrintable(capture.error));
-    QVERIFY(isPdfXChangeAnchor(capture.anchor));
+    QVERIFY(isSumatraPdfAnchor(capture.anchor));
 
-    const PdfXChangeCommandResult command =
-        buildPdfXChangeCommand(capture.anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    const SumatraPdfCommandResult command =
+        buildSumatraPdfCommand(capture.anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY2(command.success(), qPrintable(command.error));
     QCOMPARE(command.command.filePath, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
+    QCOMPARE(command.command.arguments,
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-scroll"),
+                          QStringLiteral("420,860"),
+                          QStringLiteral("E:/docs/clock.pdf")}));
 }
 
 void AnchorCaptureTest::buildsManualExcelRangeAnchor()
@@ -926,7 +997,7 @@ void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()
     ManualPdfAnchorCreationService service(repository);
 
     const ManualPdfAnchorCreationResult result =
-        service.createManualPdfXChangeRectAnchor(validCreationRequest());
+        service.createManualPdfRectAnchor(validCreationRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QVERIFY(!result.resource.id.isEmpty());
@@ -935,7 +1006,7 @@ void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()
     QCOMPARE(result.resource.location, QStringLiteral("E:/docs/clock.pdf"));
     QCOMPARE(result.anchor.name, QStringLiteral("Clock domain window"));
     QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("pdfxchange.rect"));
+    QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.rect"));
     QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("cdc zoom")});
     QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("reviewpoint")});
     QVERIFY(result.anchor.pinned);
@@ -954,7 +1025,7 @@ void AnchorCaptureTest::searchesCreatedManualPdfRectAnchorByNameAliasAndTag()
     InMemoryLibraryRepository repository;
     ManualPdfAnchorCreationService service(repository);
     const ManualPdfAnchorCreationResult result =
-        service.createManualPdfXChangeRectAnchor(validCreationRequest());
+        service.createManualPdfRectAnchor(validCreationRequest());
     QVERIFY2(result.success(), qPrintable(result.error));
 
     const QList<SearchResult> nameResults =
@@ -976,24 +1047,32 @@ void AnchorCaptureTest::searchesCreatedManualPdfRectAnchorByNameAliasAndTag()
                                   QStringLiteral("Clock domain window")));
 }
 
-void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithPdfXChangeExecutor()
+void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithSumatraPdfExecutor()
 {
     InMemoryLibraryRepository repository;
     ManualPdfAnchorCreationService service(repository);
     const ManualPdfAnchorCreationResult result =
-        service.createManualPdfXChangeRectAnchor(validCreationRequest());
+        service.createManualPdfRectAnchor(validCreationRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"pdfxchange.rect\",\"unit\":\"pt\",\"zoom\":250}"));
-    QVERIFY(isPdfXChangeAnchor(result.anchor));
+             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"zoom\":250}"));
+    QVERIFY(isSumatraPdfAnchor(result.anchor));
 
-    const PdfXChangeCommandResult command =
-        buildPdfXChangeCommand(result.anchor, QString(), QStringLiteral("C:/Tools/PDFXEdit.exe"));
+    const SumatraPdfCommandResult command =
+        buildSumatraPdfCommand(result.anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
 
     QVERIFY2(command.success(), qPrintable(command.error));
     QCOMPARE(command.command.filePath, QStringLiteral("E:/docs/clock.pdf"));
-    QCOMPARE(command.command.action, QStringLiteral("page=12;zoom=250;highlight=420,780,860,920;usept=yes"));
+    QCOMPARE(command.command.arguments,
+             QStringList({QStringLiteral("-reuse-instance"),
+                          QStringLiteral("-page"),
+                          QStringLiteral("12"),
+                          QStringLiteral("-zoom"),
+                          QStringLiteral("250"),
+                          QStringLiteral("-scroll"),
+                          QStringLiteral("420,860"),
+                          QStringLiteral("E:/docs/clock.pdf")}));
 }
 
 void AnchorCaptureTest::rejectsInvalidManualPdfRectAnchorInputsWithoutSaving()
@@ -1003,27 +1082,27 @@ void AnchorCaptureTest::rejectsInvalidManualPdfRectAnchorInputsWithoutSaving()
 
     ManualPdfAnchorCreationRequest request = validCreationRequest();
     request.name = QStringLiteral(" ");
-    ManualPdfAnchorCreationResult result = service.createManualPdfXChangeRectAnchor(request);
+    ManualPdfAnchorCreationResult result = service.createManualPdfRectAnchor(request);
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("Manual PDF anchor name is missing"));
 
     request = validCreationRequest();
     request.file.clear();
-    result = service.createManualPdfXChangeRectAnchor(request);
+    result = service.createManualPdfRectAnchor(request);
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("Manual PDF anchor file is missing"));
 
     request = validCreationRequest();
     request.page = 0;
-    result = service.createManualPdfXChangeRectAnchor(request);
+    result = service.createManualPdfRectAnchor(request);
     QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange capture page is missing"));
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF capture page is missing"));
 
     request = validCreationRequest();
     request.rect.right = request.rect.left;
-    result = service.createManualPdfXChangeRectAnchor(request);
+    result = service.createManualPdfRectAnchor(request);
     QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PDF-XChange capture rectangle is missing"));
+    QCOMPARE(result.error, QStringLiteral("SumatraPDF capture rectangle is missing"));
 
     QVERIFY(repository.search(SearchQuery{}).isEmpty());
 }
@@ -1034,7 +1113,7 @@ void AnchorCaptureTest::reportsManualPdfRectAnchorRepositorySaveFailure()
     ManualPdfAnchorCreationService service(repository);
 
     const ManualPdfAnchorCreationResult result =
-        service.createManualPdfXChangeRectAnchor(validCreationRequest());
+        service.createManualPdfRectAnchor(validCreationRequest());
 
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("Unable to save manual PDF anchor"));
@@ -1045,7 +1124,7 @@ void AnchorCaptureTest::reportsManualPdfRectAnchorRepositorySaveFailure()
 void AnchorCaptureTest::summarizesManualPdfCaptureLocatorForUsers()
 {
     ManualPdfAnchorCreationRequest request = validCreationRequest();
-    request.source = QStringLiteral("foreground-pdfxchange-viewstate");
+    request.source = QStringLiteral("foreground-sumatrapdf-viewstate");
     request.zoom = 175.5;
 
     const QString summary = manualPdfAnchorLocatorSummary(request);
@@ -1053,53 +1132,51 @@ void AnchorCaptureTest::summarizesManualPdfCaptureLocatorForUsers()
     QVERIFY(summary.contains(QStringLiteral("page 12")));
     QVERIFY(summary.contains(QStringLiteral("rect 420,860,780,920 pt")));
     QVERIFY(summary.contains(QStringLiteral("zoom 175.5%")));
-    QVERIFY(summary.contains(QStringLiteral("source foreground-pdfxchange-viewstate")));
+    QVERIFY(summary.contains(QStringLiteral("source foreground-sumatrapdf-viewstate")));
 }
 
-void AnchorCaptureTest::normalizesPdfXChangeDocumentTitlesForFallback()
+void AnchorCaptureTest::normalizesSumatraPdfDocumentTitlesForFallback()
 {
-    QCOMPARE(normalizedPdfXChangeDocumentTitleKey(QStringLiteral(" *\"HB0823_MIV_RV32IMA_L1_AXI.pdf\" ")),
+    QCOMPARE(normalizedSumatraPdfDocumentTitleKey(QStringLiteral(" *\"HB0823_MIV_RV32IMA_L1_AXI.pdf\" ")),
              QStringLiteral("hb0823_miv_rv32ima_l1_axi"));
-    QCOMPARE(normalizedPdfXChangeDocumentTitleKey(QStringLiteral("HB0823   MIV   RV32IMA")),
+    QCOMPARE(normalizedSumatraPdfDocumentTitleKey(QStringLiteral("HB0823   MIV   RV32IMA")),
              QStringLiteral("hb0823 miv rv32ima"));
-    QCOMPARE(normalizedPdfXChangeDocumentTitleKey(QStringLiteral("'Clock Domain Window.PDF'")),
+    QCOMPARE(normalizedSumatraPdfDocumentTitleKey(QStringLiteral("'Clock Domain Window.PDF'")),
              QStringLiteral("clock domain window"));
 }
 
-void AnchorCaptureTest::capturesForegroundPdfXChangePathFromWindowTitleWithoutIndexedPdf()
+void AnchorCaptureTest::capturesForegroundSumatraPdfPathFromWindowTitleWithoutIndexedPdf()
 {
     InMemoryLibraryRepository repository;
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context);
 
     QVERIFY2(result.success(), qPrintable(result.status));
-    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(result.recognizedSumatraPdf);
     QVERIFY(!result.matchedResource);
     QVERIFY(result.matchedResourceId.isEmpty());
     QCOMPARE(result.documentTitle, QStringLiteral("E:/docs/live foreground.pdf"));
     QCOMPARE(result.request.name, QStringLiteral("live foreground"));
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.request.page, 1);
-    QCOMPARE(result.request.rect.left, 0.0);
-    QCOMPARE(result.request.rect.top, 0.0);
-    QCOMPARE(result.request.rect.right, 612.0);
-    QCOMPARE(result.request.rect.bottom, 792.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-fallback"));
-    QCOMPARE(result.request.targetApp, QStringLiteral("PDF-XChange"));
+    QVERIFY(!result.request.rect.isValid());
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-fallback"));
+    QCOMPARE(result.request.targetApp, QStringLiteral("SumatraPDF"));
 
-    QCOMPARE(pdfXChangeDocumentPathFromWindowTitle(context.windowTitle),
+    QCOMPARE(sumatraPdfDocumentPathFromWindowTitle(context.windowTitle),
              QStringLiteral("E:/docs/live foreground.pdf"));
-    QCOMPARE(pdfXChangeDocumentPathFromWindowTitle(
-                 QStringLiteral("PDF-XChange Editor - file:///E:/docs/live%20foreground.pdf")),
+    QCOMPARE(sumatraPdfDocumentPathFromWindowTitle(
+                 QStringLiteral("SumatraPDF - file:///E:/docs/live%20foreground.pdf")),
              QStringLiteral("E:/docs/live foreground.pdf"));
 }
 
-void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
+void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToUniqueIndexedPdf()
 {
     InMemoryLibraryRepository repository;
 
@@ -1111,33 +1188,31 @@ void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToUniqueIndexedPdf()
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi] - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi] - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context);
 
     QVERIFY2(result.success(), qPrintable(result.status));
-    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(result.recognizedSumatraPdf);
     QVERIFY(result.matchedResource);
     QCOMPARE(result.documentTitle, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
     QCOMPARE(result.matchedResourceId, resource.id);
     QCOMPARE(result.request.name, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
     QCOMPARE(result.request.file, resource.location);
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.request.page, 1);
-    QCOMPARE(result.request.rect.left, 0.0);
-    QCOMPARE(result.request.rect.top, 0.0);
-    QCOMPARE(result.request.rect.right, 612.0);
-    QCOMPARE(result.request.rect.bottom, 792.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-fallback"));
-    QCOMPARE(result.request.targetApp, QStringLiteral("PDF-XChange"));
+    QVERIFY(!result.request.rect.isValid());
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-fallback"));
+    QCOMPARE(result.request.targetApp, QStringLiteral("SumatraPDF"));
 
-    QCOMPARE(pdfXChangeDocumentTitleFromWindowTitle(
-                 QStringLiteral("*IHI0022K_amba_axi_protocol_spec[axi] - PDF-XChange Editor")),
+    QCOMPARE(sumatraPdfDocumentTitleFromWindowTitle(
+                 QStringLiteral("*IHI0022K_amba_axi_protocol_spec[axi] - SumatraPDF")),
              QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
 }
 
-void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToFileKindPdfLocation()
+void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToFileKindPdfLocation()
 {
     InMemoryLibraryRepository repository;
 
@@ -1149,21 +1224,21 @@ void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToFileKindPdfLocation()
     QVERIFY(repository.upsertResource(resource));
 
     const QList<Resource> matches =
-        pdfXChangeTitleMatchedPdfResources(repository, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
+        sumatraPdfTitleMatchedPdfResources(repository, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
     QCOMPARE(matches.size(), 1);
     QCOMPARE(matches.first().id, resource.id);
 
     const std::optional<Resource> unique =
-        uniquePdfXChangeTitleMatchedPdfResource(repository, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
+        uniqueSumatraPdfTitleMatchedPdfResource(repository, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
     QVERIFY(unique.has_value());
     QCOMPARE(unique->location, resource.location);
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context);
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.matchedResource);
@@ -1171,7 +1246,7 @@ void AnchorCaptureTest::matchesForegroundPdfXChangeTitleToFileKindPdfLocation()
     QCOMPARE(result.request.file, resource.location);
 }
 
-void AnchorCaptureTest::prefersSavedPdfXChangeTitleMappingOverRepositoryMatch()
+void AnchorCaptureTest::prefersSavedSumatraPdfTitleMappingOverRepositoryMatch()
 {
     InMemoryLibraryRepository repository;
 
@@ -1183,17 +1258,17 @@ void AnchorCaptureTest::prefersSavedPdfXChangeTitleMappingOverRepositoryMatch()
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("clock - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    PdfXChangeViewState viewState;
+    SumatraPdfViewState viewState;
     viewState.currentPage = 26;
     viewState.totalPages = 31;
     viewState.zoom = 300.0;
     viewState.source = QStringLiteral("test-toolbar");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository,
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository,
                                            context,
                                            viewState,
                                            QStringLiteral("E:/docs/saved-title-clock.pdf"));
@@ -1204,10 +1279,10 @@ void AnchorCaptureTest::prefersSavedPdfXChangeTitleMappingOverRepositoryMatch()
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/saved-title-clock.pdf"));
     QCOMPARE(result.request.page, 26);
     QCOMPARE(result.request.zoom, 300.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
 }
 
-void AnchorCaptureTest::rejectsInvalidSavedPdfXChangeTitleMapping()
+void AnchorCaptureTest::rejectsInvalidSavedSumatraPdfTitleMapping()
 {
     InMemoryLibraryRepository repository;
 
@@ -1219,13 +1294,13 @@ void AnchorCaptureTest::rejectsInvalidSavedPdfXChangeTitleMapping()
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("clock - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository,
+    SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository,
                                            context,
-                                           PdfXChangeViewState{},
+                                           SumatraPdfViewState{},
                                            QString());
 
     QVERIFY(!result.success());
@@ -1234,9 +1309,9 @@ void AnchorCaptureTest::rejectsInvalidSavedPdfXChangeTitleMapping()
     QVERIFY(result.status.contains(QStringLiteral("not a valid full PDF path")));
     QVERIFY(result.request.file.isEmpty());
 
-    result = capturePdfXChangeForegroundContext(repository,
+    result = captureSumatraPdfForegroundContext(repository,
                                                 context,
-                                                PdfXChangeViewState{},
+                                                SumatraPdfViewState{},
                                                 QStringLiteral("E:/docs/clock.txt"));
 
     QVERIFY(!result.success());
@@ -1258,17 +1333,17 @@ void AnchorCaptureTest::preservesViewStateWhenTitleFallbackBuildsRequest()
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    PdfXChangeViewState viewState;
+    SumatraPdfViewState viewState;
     viewState.currentPage = 26;
     viewState.totalPages = 31;
     viewState.zoom = 300.0;
     viewState.source = QStringLiteral("test-toolbar");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context, viewState);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context, viewState);
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.matchedResource);
@@ -1276,15 +1351,15 @@ void AnchorCaptureTest::preservesViewStateWhenTitleFallbackBuildsRequest()
     QCOMPARE(result.request.name, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
     QCOMPARE(result.request.page, 26);
     QCOMPARE(result.request.zoom, 300.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
     QCOMPARE(result.viewState.currentPage, 26);
     QCOMPARE(result.viewState.totalPages, 31);
     QCOMPARE(result.viewState.zoom, 300.0);
 }
 
-void AnchorCaptureTest::parsesPdfXChangeViewStateFromStatusText()
+void AnchorCaptureTest::parsesSumatraPdfViewStateFromStatusText()
 {
-    const PdfXChangeViewState state = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState state = parseSumatraPdfViewStateText(
         QStringLiteral("Status: Page: 12 of 345   Zoom: 250%"),
         QStringLiteral("test-status"));
 
@@ -1297,42 +1372,42 @@ void AnchorCaptureTest::parsesPdfXChangeViewStateFromStatusText()
     QCOMPARE(state.source, QStringLiteral("test-status"));
     QVERIFY(state.diagnostics.isEmpty());
 
-    const PdfXChangeViewState slashState = parsePdfXChangeViewStateText(
-        QStringLiteral("PDF-XChange Editor  7 / 91  175%"),
+    const SumatraPdfViewState slashState = parseSumatraPdfViewStateText(
+        QStringLiteral("SumatraPDF  7 / 91  175%"),
         QStringLiteral("test-toolbar"));
     QCOMPARE(slashState.currentPage, 7);
     QCOMPARE(slashState.totalPages, 91);
     QCOMPARE(slashState.zoom, 175.0);
 
-    const PdfXChangeViewState pageBoxState = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState pageBoxState = parseSumatraPdfViewStateText(
         QStringLiteral("28/149\n100%"),
         QStringLiteral("test-page-box"));
     QCOMPARE(pageBoxState.currentPage, 28);
     QCOMPARE(pageBoxState.totalPages, 149);
     QCOMPARE(pageBoxState.zoom, 100.0);
 
-    const PdfXChangeViewState localizedUiaState = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState localizedUiaState = parseSumatraPdfViewStateText(
         QStringLiteral("\u9875:\n28\n\u7f29\u653e\n100%"),
         QStringLiteral("test-localized-uia"));
     QCOMPARE(localizedUiaState.currentPage, 28);
     QCOMPARE(localizedUiaState.totalPages, -1);
     QCOMPARE(localizedUiaState.zoom, 100.0);
 
-    const PdfXChangeViewState localizedCombinedElementState = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState localizedCombinedElementState = parseSumatraPdfViewStateText(
         QStringLiteral("\u9875: 28\nEdit\n100%"),
         QStringLiteral("test-localized-uia-combined"));
     QCOMPARE(localizedCombinedElementState.currentPage, 28);
     QCOMPARE(localizedCombinedElementState.totalPages, -1);
     QCOMPARE(localizedCombinedElementState.zoom, 100.0);
 
-    const PdfXChangeViewState localizedLabelledZoomState = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState localizedLabelledZoomState = parseSumatraPdfViewStateText(
         QStringLiteral("221.58%\n\u9875: 28\n\u7f29\u653e 100%"),
         QStringLiteral("test-localized-labelled-zoom"));
     QCOMPARE(localizedLabelledZoomState.currentPage, 28);
     QCOMPARE(localizedLabelledZoomState.totalPages, -1);
     QCOMPARE(localizedLabelledZoomState.zoom, 100.0);
 
-    const PdfXChangeViewState uiaState = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState uiaState = parseSumatraPdfViewStateText(
         QStringLiteral("Page number\n26\nTotal pages\n31\nZoom\n300%"),
         QStringLiteral("test-uia"));
     QCOMPARE(uiaState.currentPage, 26);
@@ -1340,9 +1415,9 @@ void AnchorCaptureTest::parsesPdfXChangeViewStateFromStatusText()
     QCOMPARE(uiaState.zoom, 300.0);
 }
 
-void AnchorCaptureTest::reportsUnparseablePdfXChangeViewStateText()
+void AnchorCaptureTest::reportsUnparseableSumatraPdfViewStateText()
 {
-    const PdfXChangeViewState state = parsePdfXChangeViewStateText(
+    const SumatraPdfViewState state = parseSumatraPdfViewStateText(
         QStringLiteral("Ready - no deterministic page or zoom here"),
         QStringLiteral("test-status"));
 
@@ -1355,41 +1430,70 @@ void AnchorCaptureTest::reportsUnparseablePdfXChangeViewStateText()
     QVERIFY(state.diagnostics.contains(QStringLiteral("did not contain")));
 }
 
-void AnchorCaptureTest::injectsForegroundPdfXChangeViewStateIntoCaptureRequest()
+void AnchorCaptureTest::injectsForegroundSumatraPdfViewStateIntoCaptureRequest()
 {
     InMemoryLibraryRepository repository;
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    PdfXChangeViewState viewState;
+    SumatraPdfViewState viewState;
     viewState.currentPage = 37;
     viewState.totalPages = 220;
     viewState.zoom = 175.0;
     viewState.source = QStringLiteral("fake-status");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context, viewState);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context, viewState);
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.request.page, 37);
     QCOMPARE(result.request.zoom, 175.0);
-    QCOMPARE(result.request.rect.left, 0.0);
-    QCOMPARE(result.request.rect.top, 0.0);
-    QCOMPARE(result.request.rect.right, 612.0);
-    QCOMPARE(result.request.rect.bottom, 792.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-pdfxchange-viewstate"));
+    QVERIFY(!result.request.rect.isValid());
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
     QCOMPARE(result.viewState.currentPage, 37);
     QCOMPARE(result.viewState.totalPages, 220);
     QCOMPARE(result.viewState.zoom, 175.0);
     QVERIFY(result.status.contains(QStringLiteral("page 37")));
     QVERIFY(result.status.contains(QStringLiteral("zoom 175%")));
-    QVERIFY(result.status.contains(QStringLiteral("rectangle is full-page fallback")));
+    QVERIFY(!result.status.contains(QStringLiteral("rectangle")));
 }
 
-void AnchorCaptureTest::reportsForegroundPdfXChangeTitleWithoutFilePath()
+void AnchorCaptureTest::injectsForegroundSumatraPdfSelectedTextIntoCaptureRequest()
+{
+    InMemoryLibraryRepository repository;
+
+    ForegroundAppWindowContext context;
+    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
+
+    SumatraPdfViewState viewState;
+    viewState.currentPage = 37;
+    viewState.totalPages = 220;
+    viewState.zoom = 175.0;
+    viewState.selectedText = QStringLiteral("selected FPGA requirement");
+    viewState.source = QStringLiteral("fake-uia");
+
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context, viewState);
+
+    QVERIFY2(result.success(), qPrintable(result.status));
+    QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.search"));
+    QCOMPARE(result.request.page, 37);
+    QCOMPARE(result.request.zoom, 175.0);
+    QCOMPARE(result.request.selectedText, QStringLiteral("selected FPGA requirement"));
+    QVERIFY(!result.request.rect.isValid());
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-selection"));
+    QCOMPARE(result.viewState.selectedText, QStringLiteral("selected FPGA requirement"));
+    QVERIFY(result.status.contains(QStringLiteral("selected text")));
+    QVERIFY(!result.status.contains(QStringLiteral("rectangle")));
+}
+
+void AnchorCaptureTest::reportsForegroundSumatraPdfTitleWithoutFilePath()
 {
     InMemoryLibraryRepository repository;
 
@@ -1401,14 +1505,14 @@ void AnchorCaptureTest::reportsForegroundPdfXChangeTitleWithoutFilePath()
     QVERIFY(repository.upsertResource(resource));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("missing-spec - PDF-XChange Editor");
-    context.processName = QStringLiteral("PXCEditor.exe");
+    context.windowTitle = QStringLiteral("missing-spec - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context);
 
     QVERIFY(!result.success());
-    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(result.recognizedSumatraPdf);
     QVERIFY(!result.matchedResource);
     QVERIFY(result.needsFileConfirmation);
     QCOMPARE(result.documentTitle, QStringLiteral("missing-spec"));
@@ -1417,7 +1521,7 @@ void AnchorCaptureTest::reportsForegroundPdfXChangeTitleWithoutFilePath()
     QVERIFY(result.request.file.isEmpty());
 }
 
-void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMatches()
+void AnchorCaptureTest::rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMatches()
 {
     InMemoryLibraryRepository repository;
 
@@ -1436,14 +1540,14 @@ void AnchorCaptureTest::rejectsForegroundPdfXChangeTitleWithMultipleIndexedPdfMa
     QVERIFY(repository.upsertResource(second));
 
     ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("clock - PDF-XChange Editor");
-    context.processName = QStringLiteral("PDFXEdit.exe");
+    context.windowTitle = QStringLiteral("clock - SumatraPDF");
+    context.processName = QStringLiteral("SumatraPDF.exe");
 
-    const PdfXChangeForegroundCaptureResult result =
-        capturePdfXChangeForegroundContext(repository, context);
+    const SumatraPdfForegroundCaptureResult result =
+        captureSumatraPdfForegroundContext(repository, context);
 
     QVERIFY(!result.success());
-    QVERIFY(result.recognizedPdfXChange);
+    QVERIFY(result.recognizedSumatraPdf);
     QVERIFY(!result.matchedResource);
     QVERIFY(result.needsFileConfirmation);
     QCOMPARE(result.documentTitle, QStringLiteral("clock"));
@@ -1468,7 +1572,7 @@ void AnchorCaptureTest::readsCreatedManualPdfRectAnchorAfterSqliteReopen()
 
         ManualPdfAnchorCreationService service(repository);
         const ManualPdfAnchorCreationResult result =
-            service.createManualPdfXChangeRectAnchor(validCreationRequest());
+            service.createManualPdfRectAnchor(validCreationRequest());
         QVERIFY2(result.success(), qPrintable(result.error));
         resourceId = result.resource.id;
         createdAnchor = result.anchor;

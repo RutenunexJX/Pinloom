@@ -1,6 +1,6 @@
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
-#include "pinloom/core/PdfXChangeCommand.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 
 #include <QCheckBox>
 #include <QCoreApplication>
@@ -64,17 +64,17 @@ QString pdfProxyStatusText(const QString &proxyPath)
     return QStringLiteral("Missing. Build pinloom_pdf_proxy before enabling enhanced PDF mode.");
 }
 
-QString resolvedPdfXChangePath(const QString &configuredPath)
+QString resolvedSumatraPdfPath(const QString &configuredPath)
 {
     const QString configured = configuredPath.trimmed();
-    return configured.isEmpty() ? resolvePdfXChangeExecutablePath() : configured;
+    return configured.isEmpty() ? resolveSumatraPdfExecutablePath() : configured;
 }
 
-QString pdfXChangeStatusText(const QString &configuredPath)
+QString sumatraPdfStatusText(const QString &configuredPath)
 {
-    const QString resolved = resolvedPdfXChangePath(configuredPath);
+    const QString resolved = resolvedSumatraPdfPath(configuredPath);
     if (resolved.trimmed().isEmpty()) {
-        return QStringLiteral("Missing. Configure PDFXEdit.exe before using the PDF proxy.");
+        return QStringLiteral("Missing. Configure SumatraPDF.exe before using PDF anchors.");
     }
 
     const QFileInfo executable(resolved);
@@ -109,8 +109,8 @@ PinloomAppSettings pinloomDefaultAppSettings(const QString &dataDirectory)
 PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &dataDirectory)
 {
     PinloomAppSettings loaded = pinloomDefaultAppSettings(dataDirectory);
-    loaded.pdfXChangeExecutablePath =
-        settings.value(QStringLiteral("applications/pdfXChangeExecutablePath")).toString().trimmed();
+    loaded.sumatraPdfExecutablePath =
+        settings.value(QStringLiteral("applications/sumatraPdfExecutablePath")).toString().trimmed();
     loaded.clipMaxTemporaryClips =
         settingsInt(settings, QStringLiteral("clip/maxTemporaryClips"), loaded.clipMaxTemporaryClips);
     loaded.clipMaxTextBytes =
@@ -131,8 +131,8 @@ PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &da
 
 void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSettings)
 {
-    settings.setValue(QStringLiteral("applications/pdfXChangeExecutablePath"),
-                      appSettings.pdfXChangeExecutablePath.trimmed());
+    settings.setValue(QStringLiteral("applications/sumatraPdfExecutablePath"),
+                      appSettings.sumatraPdfExecutablePath.trimmed());
     settings.setValue(QStringLiteral("clip/maxTemporaryClips"), appSettings.clipMaxTemporaryClips);
     settings.setValue(QStringLiteral("clip/maxTextBytes"), appSettings.clipMaxTextBytes);
     settings.setValue(QStringLiteral("clip/temporaryTtlSeconds"), appSettings.clipTemporaryTtlSeconds);
@@ -155,11 +155,11 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     auto *pdfPathRow = new QWidget(this);
     auto *pdfPathLayout = new QHBoxLayout(pdfPathRow);
     pdfPathLayout->setContentsMargins(0, 0, 0, 0);
-    pdfXChangePathEdit_ = new QLineEdit(settings.pdfXChangeExecutablePath, pdfPathRow);
-    pdfXChangePathEdit_->setObjectName(QStringLiteral("pdfXChangePathEdit"));
+    sumatraPdfPathEdit_ = new QLineEdit(settings.sumatraPdfExecutablePath, pdfPathRow);
+    sumatraPdfPathEdit_->setObjectName(QStringLiteral("sumatraPdfPathEdit"));
     auto *browsePdfButton = new QPushButton(tr("Browse"), pdfPathRow);
-    browsePdfButton->setObjectName(QStringLiteral("browsePdfXChangeButton"));
-    pdfPathLayout->addWidget(pdfXChangePathEdit_, 1);
+    browsePdfButton->setObjectName(QStringLiteral("browseSumatraPdfButton"));
+    pdfPathLayout->addWidget(sumatraPdfPathEdit_, 1);
     pdfPathLayout->addWidget(browsePdfButton);
 
     pdfProxyPathEdit_ = new QLineEdit(defaultPinloomPdfProxyExecutablePath(), this);
@@ -170,9 +170,9 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     pdfProxyStatusLabel_->setObjectName(QStringLiteral("pdfProxyStatusLabel"));
     pdfProxyStatusLabel_->setWordWrap(true);
 
-    pdfXChangeStatusLabel_ = new QLabel(pdfXChangeStatusText(settings.pdfXChangeExecutablePath), this);
-    pdfXChangeStatusLabel_->setObjectName(QStringLiteral("pdfXChangeStatusLabel"));
-    pdfXChangeStatusLabel_->setWordWrap(true);
+    sumatraPdfStatusLabel_ = new QLabel(sumatraPdfStatusText(settings.sumatraPdfExecutablePath), this);
+    sumatraPdfStatusLabel_->setObjectName(QStringLiteral("sumatraPdfStatusLabel"));
+    sumatraPdfStatusLabel_->setWordWrap(true);
 
     dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, this);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
@@ -210,8 +210,8 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("settingsButtons"));
 
-    form->addRow(tr("PDF-XChange"), pdfPathRow);
-    form->addRow(tr("PDF-XChange status"), pdfXChangeStatusLabel_);
+    form->addRow(tr("SumatraPDF"), pdfPathRow);
+    form->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);
     form->addRow(tr("PDF proxy"), pdfProxyPathEdit_);
     form->addRow(tr("PDF proxy status"), pdfProxyStatusLabel_);
     form->addRow(tr("Data directory"), dataDirectoryEdit_);
@@ -226,14 +226,14 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 
     connect(browsePdfButton, &QPushButton::clicked, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this,
-                                                          tr("PDF-XChange Executable"),
-                                                          pdfXChangePathEdit_->text());
+                                                          tr("SumatraPDF Executable"),
+                                                          sumatraPdfPathEdit_->text());
         if (!path.trimmed().isEmpty()) {
-            pdfXChangePathEdit_->setText(path.trimmed());
+            sumatraPdfPathEdit_->setText(path.trimmed());
         }
     });
-    connect(pdfXChangePathEdit_, &QLineEdit::textChanged, this, [this](const QString &text) {
-        pdfXChangeStatusLabel_->setText(pdfXChangeStatusText(text));
+    connect(sumatraPdfPathEdit_, &QLineEdit::textChanged, this, [this](const QString &text) {
+        sumatraPdfStatusLabel_->setText(sumatraPdfStatusText(text));
     });
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -242,7 +242,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 PinloomAppSettings PinloomSettingsDialog::settings() const
 {
     PinloomAppSettings settings;
-    settings.pdfXChangeExecutablePath = pdfXChangePathEdit_->text().trimmed();
+    settings.sumatraPdfExecutablePath = sumatraPdfPathEdit_->text().trimmed();
     settings.dataDirectory = dataDirectoryEdit_->text().trimmed();
     settings.clipMaxTemporaryClips = clipMaxTemporaryClipsSpin_->value();
     settings.clipMaxTextBytes = clipMaxTextBytesSpin_->value();

@@ -95,41 +95,42 @@ Status:
 - Build and full `ctest --test-dir build --output-on-failure` validation
   passed for the phase implementation.
 
-## Phase 3: PDF-XChange Jump Executor
+## Phase 3: SumatraPDF Jump Executor
 
-Goal: jump to manually entered PDF-XChange locators.
+Goal: jump to manually entered SumatraPDF locators.
 
 Scope:
 
-- Use PDF-XChange Editor as the unified PDF host.
-- Accept file plus page, rect, zoom, unit, and optional highlight fields.
-- Generate PDF-XChange command-line actions such as:
+- Use SumatraPDF as the unified PDF host.
+- Accept file plus page, rect, zoom, and optional search text.
+- Generate SumatraPDF command-line arguments such as:
 
 ```text
-/A "page=...;zoom=...;highlight=...;usept=yes" "file.pdf"
+SumatraPDF.exe -reuse-instance -page 12 -zoom 250 -scroll 420,860 file.pdf
 ```
 
-- Support viewrect mode where appropriate.
-- Do not use SumatraPDF as the main v1 path.
+- Use rectangle anchors as scroll targets. Do not promise external highlight or
+  viewrect support through SumatraPDF.
 - Do not depend on OCR for scanned PDFs.
 
 Acceptance:
 
 - A manually entered locator can open a scanned or text PDF at the specified
-  page and region, with highlighting when available.
+  page and approximate region.
 
 Status:
 
-- PDF-XChange command building is implemented in core and covered by tests for
-  `pdfxchange.rect`, legacy `PdfPage` fallback, and missing target paths.
-- Launcher activation dispatches PDF-XChange/pdf/pdfxchange anchors through the
+- SumatraPDF command building is implemented in core and covered by tests for
+  `sumatrapdf.rect`, `sumatrapdf.page`, `sumatrapdf.search`, generic PDF
+  page/region fallback, and missing target paths.
+- Launcher activation dispatches SumatraPDF/pdf/sumatrapdf anchors through the
   executor before generic URL/file fallback, while preserving host handler
   priority.
-- Executable lookup supports `PINLOOM_PDFXCHANGE_PATH`, common Windows install
+- Executable lookup supports `PINLOOM_SUMATRAPDF_PATH`, common Windows install
   paths, and widget-level injection for tests or embedding.
 - Command construction, environment path resolution, and UI activation status
   are covered by automated tests; end-to-end GUI verification requires a local
-  PDF-XChange install and is documented in `docs/pdfxchange_validation.md`.
+  SumatraPDF install.
 - Build and full `ctest --test-dir build --output-on-failure` passed again for
   the validation hardening changes.
 
@@ -140,7 +141,7 @@ workflow.
 
 Scope:
 
-- Research whether PDF-XChange exposes current page, selection, annotation, or
+- Research whether SumatraPDF exposes current page, selection, annotation, or
   rectangle coordinates reliably.
 - If native capture is unreliable, implement a Pinloom calibration mode only for
   coordinate capture. This mode must not become a PDF reader.
@@ -152,10 +153,10 @@ Acceptance:
 
 Status:
 
-- Command Window foreground PDF-XChange capture is now implemented for the MVP:
+- Command Window foreground SumatraPDF capture is now implemented for the MVP:
   when `Ctrl+Space` opens Pinloom, the app remembers the foreground window
-  context, and `k n` uses that saved context to create a PDF-XChange anchor.
-- If PDF-XChange exposes a full PDF file path in the foreground window
+  context, and `k n` uses that saved context to create a SumatraPDF anchor.
+- If SumatraPDF exposes a full PDF file path in the foreground window
   title/text, Pinloom pre-fills `target_file` from that path and opens the
   lightweight name/alias/tag/pinned dialog. The user no longer has to search
   the PDF name in Pinloom before creating the anchor.
@@ -163,11 +164,11 @@ Status:
   `Capture PDF Anchor`: users enter name, aliases, tags, and pinned state while
   the locator comes from the selected PDF context.
 - The current supported capture is explicitly a selected-PDF fallback. If a PDF
-  resource or PDF-XChange anchor is selected, Pinloom uses that file and falls
+  resource or SumatraPDF anchor is selected, Pinloom uses that file and falls
   back to page 1 plus an approximate full-page rectangle when no native current
   view/selection data is available.
-- The `k n` foreground path stays tied to foreground PDF-XChange. If
-  PDF-XChange does not expose a full PDF file path, Pinloom now falls back
+- The `k n` foreground path stays tied to foreground SumatraPDF. If
+  SumatraPDF does not expose a full PDF file path, Pinloom now falls back
   through a saved document-title mapping and indexed PDF title matching. A
   unique match pre-fills the anchor request; no match, multiple matches, or an
   invalid saved mapping asks the user to confirm the PDF file and remembers the
@@ -176,11 +177,11 @@ Status:
   fallback and is no longer the default user path.
 - No-PDF-context attempts now report that a PDF must be opened or selected
   before capture.
-- This slice intentionally does not read PDF-XChange's current view, current
-  page, selection, annotations, or live coordinates. Foreground `k n` capture
-  still uses page 1 plus a full-page rectangle unless the user edits the
-  advanced fallback locator. Native PDF-XChange coordinate capture and any
-  calibration mode remain research items for a later Phase 4 step.
+- This slice intentionally does not read SumatraPDF annotations or live
+  coordinates. Foreground `k n` capture can use best-effort page/zoom text when
+  exposed by the foreground window; otherwise it defaults to page 1 unless the
+  user edits the advanced fallback locator. Native SumatraPDF coordinate capture
+  and any calibration mode remain research items for a later Phase 4 step.
 
 ## Phase 5: Office And Visio Executors
 
@@ -263,8 +264,8 @@ Scope:
 Status:
 
 - External application path settings skeleton is implemented in core via
-  launch settings for PDF-XChange and shared PowerShell automation paths.
-- PDF-XChange, Excel, Word, PowerPoint, and Visio executors can consume the
+  launch settings for SumatraPDF and shared PowerShell automation paths.
+- SumatraPDF, Excel, Word, PowerPoint, and Visio executors can consume the
   injected settings while preserving existing default/legacy builder behavior.
 - `PinloomPanelOptions` can host-inject the launch settings, and launcher
   activation passes the configured paths through to the command builders.
@@ -304,11 +305,11 @@ Status:
   Command Window and main launcher Enter both insert Clip text through the same
   clip insertion service, while anchor results keep their native jump behavior.
 - The `k n` command is now wired as the new-anchor/capture-anchor entry for
-  foreground PDF-XChange. It uses the foreground context saved immediately
+  foreground SumatraPDF. It uses the foreground context saved immediately
   before the Command Window is shown by `Ctrl+Space`, opens the lightweight
   PDF anchor dialog with the foreground PDF file pre-filled when available, and
   saves anchors into ordinary search by name, alias, tag, and metadata. Native
-  PDF-XChange current-view/coordinate capture is still pending; the existing
+  SumatraPDF current-view/coordinate capture is still pending; the existing
   `Ctrl+K` selected-PDF fallback remains temporary for compatibility.
 - Pinloom Inbox MVP is implemented as a local file object capture entrypoint,
   not a file manager. The Command Window now exposes `i`, `i n`, and
@@ -347,9 +348,9 @@ Status:
   `restore <query>` or `trash <query>` to search soft-deleted Entries, then use
   the same action list to restore them. Disabled actions carry a reason instead
   of failing silently.
-- PDF-XChange foreground `k n` capture now has a reusable user-facing locator
+- SumatraPDF foreground `k n` capture now has a reusable user-facing locator
   summary for file, page, rectangle, zoom, unit, and capture source. Diagnostics
-  distinguish missing foreground PDF-XChange, missing exposed file path, saved
+  distinguish missing foreground SumatraPDF, missing exposed file path, saved
   title mapping use/rejection, no unique indexed-PDF match, canceled
   confirmation, unparseable view-state text, and full-page fallback locator
   generation.
