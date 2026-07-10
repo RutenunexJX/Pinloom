@@ -104,6 +104,7 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipArchive.h
     include/pinloom/clip/ClipHotkeyService.h
     include/pinloom/clip/ClipInsertionService.h
+    include/pinloom/clip/ObsidianClipStore.h
     include/pinloom/clip/ClipRepository.h
     include/pinloom/clip/ClipSearch.h
     include/pinloom/clip/ClipTrayController.h
@@ -112,6 +113,7 @@ add_library(pinloom_clip_core STATIC
     src/clip/ClipArchive.cpp
     src/clip/ClipHotkeyService.cpp
     src/clip/ClipInsertionService.cpp
+    src/clip/ObsidianClipStore.cpp
     src/clip/ClipRepository.cpp
     src/clip/ClipSearch.cpp
     src/clip/ClipTrayController.cpp

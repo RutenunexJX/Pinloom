@@ -138,7 +138,9 @@ The mismatch is intentional technical debt for the reset:
   launcher access through ordinary Command Window search plus explicit `c s`
   search/insert and `c n` save commands, automatic system clipboard text
   capture, temporary history insertion, row timestamps, and explicit Save Clip
-  metadata.
+  metadata. An optional Obsidian Vault can hold Saved Clips as one Markdown
+  note per Clip; Markdown becomes the content source while SQLite remains the
+  local search and usage cache.
 - Pinloom Inbox is implemented as a local file object capture MVP. It is
   Link-only by default: Pinloom records the original file path and does not
   move or copy user files. Dropping a file on the Command Window or using
@@ -195,7 +197,12 @@ Enter inserts the selected row into the foreground app. Type `c n` to choose a
 recent temporary clipboard item and save it as a named Saved Clip with tags,
 aliases, and pinned state. The tray `Show Clipboard` action routes back to this
 same `c s` launcher path instead of opening a separate picker as the primary
-workflow.
+workflow. When an Obsidian Vault is configured in Settings, `c n` atomically
+writes the Saved Clip to the configured relative archive directory. External
+Markdown edits and renames are synchronized by stable `pinloom_id`; insertion
+reloads the latest note body before pasting. In ordinary unified search, press
+Right Arrow on an Obsidian-backed Clip and choose `Open source note` to open it
+in Obsidian.
 
 Type `k` to see anchor commands. The recommended SumatraPDF flow is: open or
 focus the target PDF in SumatraPDF, press `Ctrl+Space`, type `k n`,
@@ -225,7 +232,12 @@ rich content is future work. Clip insertion defaults to restoring the original
 clipboard text after a successful paste; this can be changed in Pinloom
 Settings. The same settings surface contains the app blacklist, sensitive-text
 markers, maximum text size, temporary history limit, and history TTL so Clip
-history is not an unbounded default store.
+history is not an unbounded default store. Obsidian integration uses direct
+UTF-8 Markdown file access and the `obsidian://` URI; it does not require a
+community plugin. The managed frontmatter fields are `pinloom_id`,
+`pinloom_type`, `pinloom_version`, `name`, `aliases`, `tags`, `pinned`,
+`created`, and `updated`; the text after frontmatter is the exact insertion
+payload.
 
 Internally, the Command Window now routes ordinary work through
 `command -> entry/action -> result`: commands search `PinloomEntry` objects,

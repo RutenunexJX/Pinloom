@@ -50,6 +50,10 @@ This is a deterministic launcher, not a general content discovery system.
 - Preserve useful infrastructure: SQLite, aliases, tags, anchor FTS, ranking,
   recency, pinned state, and host APIs should be reused where they support the
   anchor launcher loop.
+- External text source: when an Obsidian Vault is configured, Saved Clip
+  Markdown is the source of truth and SQLite is a rebuildable search and usage
+  cache. Pinloom remains the capture, retrieval, and insertion surface rather
+  than becoming a note editor.
 - Freeze non-mainline expansion: source readers, content scanners, web/feed
   importers, screenshot search, OCR search, and relationship graphs are not v1
   headline work.

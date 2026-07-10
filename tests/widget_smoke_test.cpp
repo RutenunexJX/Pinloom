@@ -2396,6 +2396,8 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
 
     PinloomAppSettings saved = pinloomDefaultAppSettings(QStringLiteral("E:/PinloomData"));
     saved.sumatraPdfExecutablePath = QStringLiteral("C:/Tools/SumatraPDF.exe");
+    saved.obsidianVaultPath = QStringLiteral("E:/Notes/EngineeringVault");
+    saved.obsidianArchiveDirectory = QStringLiteral("Reference/Pinloom Clips");
     saved.clipMaxTemporaryClips = 42;
     saved.clipMaxTextBytes = 4096;
     saved.clipTemporaryTtlSeconds = 3600;
@@ -2413,6 +2415,8 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QSettings store(settingsPath, QSettings::IniFormat);
     const PinloomAppSettings loaded = loadPinloomAppSettings(store, saved.dataDirectory);
     QCOMPARE(loaded.sumatraPdfExecutablePath, saved.sumatraPdfExecutablePath);
+    QCOMPARE(loaded.obsidianVaultPath, saved.obsidianVaultPath);
+    QCOMPARE(loaded.obsidianArchiveDirectory, saved.obsidianArchiveDirectory);
     QCOMPARE(loaded.dataDirectory, saved.dataDirectory);
     QCOMPARE(loaded.clipMaxTemporaryClips, 42);
     QCOMPARE(loaded.clipMaxTextBytes, 4096);
@@ -2434,6 +2438,9 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *pdfProxyStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfProxyStatusLabel"));
     auto *sumatraPdfStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("sumatraPdfStatusLabel"));
     auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("sumatraPdfPathEdit"));
+    auto *obsidianVaultEdit = dialog.findChild<QLineEdit *>(QStringLiteral("obsidianVaultPathEdit"));
+    auto *obsidianArchiveEdit = dialog.findChild<QLineEdit *>(QStringLiteral("obsidianArchiveDirectoryEdit"));
+    auto *obsidianStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("obsidianStatusLabel"));
     auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
     auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
     auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
@@ -2446,6 +2453,9 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(pdfProxyStatusLabel);
     QVERIFY(sumatraPdfStatusLabel);
     QVERIFY(pdfPathEdit);
+    QVERIFY(obsidianVaultEdit);
+    QVERIFY(obsidianArchiveEdit);
+    QVERIFY(obsidianStatusLabel);
     QVERIFY(dataDirEdit);
     QVERIFY(historySpin);
     QVERIFY(sizeSpin);
@@ -2458,9 +2468,12 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(pdfProxyPathEdit->text().contains(QStringLiteral("pinloom_pdf_proxy"), Qt::CaseInsensitive));
     QVERIFY(!pdfProxyStatusLabel->text().trimmed().isEmpty());
     QVERIFY(!sumatraPdfStatusLabel->text().trimmed().isEmpty());
+    QVERIFY(!obsidianStatusLabel->text().trimmed().isEmpty());
 
     pdfPathEdit->setText(QStringLiteral("D:/Portable/SumatraPDF.exe"));
     QVERIFY(sumatraPdfStatusLabel->text().contains(QStringLiteral("SumatraPDF.exe")));
+    obsidianVaultEdit->setText(QStringLiteral("D:/Notes/Vault"));
+    obsidianArchiveEdit->setText(QStringLiteral("Snippets/Pinloom"));
     historySpin->setValue(7);
     sizeSpin->setValue(2048);
     ttlSpin->setValue(120);
@@ -2471,6 +2484,8 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
 
     const PinloomAppSettings edited = dialog.settings();
     QCOMPARE(edited.sumatraPdfExecutablePath, QStringLiteral("D:/Portable/SumatraPDF.exe"));
+    QCOMPARE(edited.obsidianVaultPath, QStringLiteral("D:/Notes/Vault"));
+    QCOMPARE(edited.obsidianArchiveDirectory, QStringLiteral("Snippets/Pinloom"));
     QCOMPARE(edited.dataDirectory, saved.dataDirectory);
     QCOMPARE(edited.clipMaxTemporaryClips, 7);
     QCOMPARE(edited.clipMaxTextBytes, 2048);
@@ -4137,6 +4152,12 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     QCOMPARE(defaultActionsForPinloomEntry(file).first().label, QStringLiteral("Open"));
     QCOMPARE(defaultActionsForPinloomEntry(anchor).last().id, QStringLiteral("remove"));
     QVERIFY(defaultActionsForPinloomEntry(anchor).last().enabled);
+
+    clip.metadata.insert(QStringLiteral("clipSourceApp"), QStringLiteral("Obsidian"));
+    const QList<PinloomCommandResultAction> obsidianClipActions = defaultActionsForPinloomEntry(clip);
+    QVERIFY(std::any_of(obsidianClipActions.cbegin(), obsidianClipActions.cend(), [](const auto &action) {
+        return action.id == QLatin1String("open_source") && action.enabled;
+    }));
 
     Clip deletedClip;
     deletedClip.id = QStringLiteral("clip-deleted");

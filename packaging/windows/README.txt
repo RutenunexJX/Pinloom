@@ -16,6 +16,7 @@ PDF enhanced mode test steps
 1. Run Register-PinloomPdfProxy.cmd.
 2. In Windows settings, set PDF files to open with pinloom_pdf_proxy.exe.
 3. Open Pinloom settings and configure SumatraPDF if it is not detected.
+   Optionally configure an Obsidian Vault and relative Saved Clip directory.
 4. Double-click a PDF.
 5. SumatraPDF should open the PDF, while Pinloom records the full PDF path.
 6. With SumatraPDF 3.7 active, press Ctrl+Space, type k n, and press Enter.

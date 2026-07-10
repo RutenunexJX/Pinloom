@@ -2099,6 +2099,7 @@ PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
         enriched.location = clip->preview;
         enriched.targetSummary = clip->preview;
         enriched.usedAt = clip->usedAt;
+        enriched.metadata.insert(QStringLiteral("clipSourceApp"), clip->sourceApp);
     }
 
     if (resource.has_value()) {
@@ -2185,6 +2186,13 @@ QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEnt
               QStringLiteral("%1 %2").arg(commandTargetVerb(target), entry.name),
               !deleted,
               restoreFirstReason);
+    if (entry.type == PinloomEntryType::SavedClip
+        && entry.metadata.value(QStringLiteral("clipSourceApp")).toString()
+               == QLatin1String("Obsidian")) {
+        addAction(QStringLiteral("open_source"),
+                  QStringLiteral("Open source note"),
+                  QStringLiteral("Open this Saved Clip in Obsidian"));
+    }
     addAction(QStringLiteral("rename"),
               QStringLiteral("Rename"),
               QStringLiteral("Rename this Pinloom entry"),

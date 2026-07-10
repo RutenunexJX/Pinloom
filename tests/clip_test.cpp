@@ -2,6 +2,7 @@
 #include "pinloom/clip/ClipArchive.h"
 #include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipInsertionService.h"
+#include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
@@ -13,6 +14,7 @@
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QUuid>
 #include <algorithm>
 #include <optional>
 
@@ -306,6 +308,11 @@ private slots:
     void clipArchiveSkipsExistingIdOnRepeatedImport();
     void clipArchiveImportsSameTextWithDifferentIds();
     void clipArchiveRejectsInvalidJsonAndSchemaVersion();
+    void obsidianStoreRoundTripsManagedMarkdown();
+    void obsidianSyncImportsExternalEditsAndTracksRename();
+    void obsidianSyncSoftDeletesMissingNotes();
+    void obsidianWatcherSynchronizesNewNotes();
+    void obsidianRealVaultRoundTrip();
     void clipboardServiceCapturesTextIntoRepository();
     void clipboardServicePauseAndResumeCapture();
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
@@ -1450,6 +1457,221 @@ void ClipTest::clipArchiveRejectsInvalidJsonAndSchemaVersion()
     result = ClipArchive(repository).importSavedClips(invalidVersionPath);
     QVERIFY(!result.succeeded());
     QVERIFY(result.error.contains(QStringLiteral("Unsupported saved clip archive schema/version")));
+}
+
+void ClipTest::obsidianStoreRoundTripsManagedMarkdown()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral(".obsidian")));
+
+    InMemoryClipRepository repository;
+    const QDateTime createdAt = QDateTime::fromString(QStringLiteral("2026-07-10T08:00:00Z"), Qt::ISODate);
+    const QDateTime savedAt = createdAt.addSecs(60);
+    const QString clipId = saveInMemoryClip(repository,
+                                            QStringLiteral("alpha\nbeta\n\nmarkdown **body**"),
+                                            QStringLiteral("Reusable: snippet / example"),
+                                            {QStringLiteral("alpha alias"), QStringLiteral("quoted \"alias\"")},
+                                            {QStringLiteral("engineering"), QStringLiteral("reference")},
+                                            true,
+                                            createdAt,
+                                            savedAt);
+    QVERIFY(!clipId.isEmpty());
+    const std::optional<Clip> clip = repository.findClip(clipId);
+    QVERIFY(clip.has_value());
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    config.archiveDirectory = QStringLiteral("Pinloom Clips");
+    ObsidianClipStore store(config);
+    const ObsidianClipWriteResult written = store.writeClip(clip.value());
+    QVERIFY2(written.succeeded(), qPrintable(written.error));
+    QVERIFY(QFileInfo::exists(written.filePath));
+    QVERIFY(written.relativePath.startsWith(QStringLiteral("Pinloom Clips/")));
+
+    const QByteArray markdown = readClipTestFile(written.filePath);
+    QVERIFY(markdown.startsWith("---\npinloom_id:"));
+    QVERIFY(markdown.contains("pinloom_type: \"clip\""));
+    QVERIFY(markdown.contains("aliases: ["));
+    QVERIFY(markdown.endsWith("alpha\nbeta\n\nmarkdown **body**"));
+
+    QString error;
+    const std::optional<ObsidianClipDocument> loaded = store.readClipFile(written.filePath, &error);
+    QVERIFY2(loaded.has_value(), qPrintable(error));
+    QCOMPARE(loaded->clip.id, clipId);
+    QCOMPARE(loaded->clip.text, clip->text);
+    QCOMPARE(loaded->clip.name, clip->name);
+    QCOMPARE(loaded->clip.aliases, clip->aliases);
+    QCOMPARE(loaded->clip.tags, clip->tags);
+    QCOMPARE(loaded->clip.pinned, clip->pinned);
+    QCOMPARE(loaded->clip.sourceApp, obsidianClipSourceApp());
+
+    const QUrl openUrl = store.openUrlForClip(clipId, &error);
+    QVERIFY2(openUrl.isValid(), qPrintable(error));
+    QCOMPARE(openUrl.scheme(), QStringLiteral("obsidian"));
+    QCOMPARE(openUrl.host(), QStringLiteral("open"));
+    QVERIFY(openUrl.toString().contains(QStringLiteral("path=")));
+}
+
+void ClipTest::obsidianSyncImportsExternalEditsAndTracksRename()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral(".obsidian")));
+
+    InMemoryClipRepository source;
+    const QString clipId = saveInMemoryClip(source,
+                                            QStringLiteral("original body"),
+                                            QStringLiteral("External edit"),
+                                            {QStringLiteral("external")},
+                                            {QStringLiteral("obsidian")},
+                                            false,
+                                            QDateTime::currentDateTimeUtc().addSecs(-60),
+                                            QDateTime::currentDateTimeUtc().addSecs(-30));
+    const std::optional<Clip> sourceClip = source.findClip(clipId);
+    QVERIFY(sourceClip.has_value());
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    ObsidianClipStore store(config);
+    const ObsidianClipWriteResult written = store.writeClip(sourceClip.value());
+    QVERIFY2(written.succeeded(), qPrintable(written.error));
+
+    InMemoryClipRepository index;
+    const ObsidianClipSyncResult initialSync = store.synchronize(index);
+    QVERIFY2(initialSync.succeeded(), qPrintable(initialSync.fatalError));
+    QCOMPARE(initialSync.imported, 1);
+    QCOMPARE(index.findClip(clipId)->text, QStringLiteral("original body"));
+
+    const QString renamedPath = QDir(QFileInfo(written.filePath).absolutePath())
+                                    .filePath(QStringLiteral("renamed-by-obsidian.md"));
+    QVERIFY(QFile::rename(written.filePath, renamedPath));
+    QByteArray markdown = readClipTestFile(renamedPath);
+    const int closingMarker = markdown.indexOf("---\n", 4);
+    QVERIFY(closingMarker >= 0);
+    markdown = markdown.left(closingMarker + 4) + QByteArrayLiteral("edited in Obsidian");
+    QVERIFY(writeClipTestFile(renamedPath, markdown));
+
+    const ObsidianClipSyncResult editedSync = store.synchronize(index);
+    QVERIFY2(editedSync.succeeded(), qPrintable(editedSync.fatalError));
+    QCOMPARE(editedSync.updated, 1);
+    const std::optional<Clip> synchronized = index.findClip(clipId);
+    QVERIFY(synchronized.has_value());
+    QCOMPARE(synchronized->text, QStringLiteral("edited in Obsidian"));
+    QCOMPARE(synchronized->sourceApp, obsidianClipSourceApp());
+
+    QString error;
+    const std::optional<ObsidianClipDocument> renamed = store.findClip(clipId, &error);
+    QVERIFY2(renamed.has_value(), qPrintable(error));
+    QCOMPARE(QFileInfo(renamed->filePath).fileName(), QStringLiteral("renamed-by-obsidian.md"));
+}
+
+void ClipTest::obsidianSyncSoftDeletesMissingNotes()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    InMemoryClipRepository source;
+    const QString clipId = saveInMemoryClip(source,
+                                            QStringLiteral("delete source note"),
+                                            QStringLiteral("Delete source"),
+                                            {},
+                                            {},
+                                            false,
+                                            QDateTime::currentDateTimeUtc().addSecs(-30),
+                                            QDateTime::currentDateTimeUtc().addSecs(-20));
+    QVERIFY(!clipId.isEmpty());
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    ObsidianClipStore store(config);
+    const ObsidianClipWriteResult written = store.writeClip(source.findClip(clipId).value());
+    QVERIFY2(written.succeeded(), qPrintable(written.error));
+
+    InMemoryClipRepository index;
+    QCOMPARE(store.synchronize(index).imported, 1);
+    QVERIFY(QFile::remove(written.filePath));
+
+    const ObsidianClipSyncResult deletedSync = store.synchronize(index);
+    QVERIFY2(deletedSync.succeeded(), qPrintable(deletedSync.fatalError));
+    QCOMPARE(deletedSync.deleted, 1);
+    const std::optional<Clip> deleted = index.findClip(clipId);
+    QVERIFY(deleted.has_value());
+    QCOMPARE(deleted->state, ClipState::Deleted);
+}
+
+void ClipTest::obsidianWatcherSynchronizesNewNotes()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    InMemoryClipRepository index;
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    ObsidianClipSyncService syncService(index, config);
+    QVERIFY2(syncService.start(), qPrintable(syncService.lastError()));
+
+    InMemoryClipRepository source;
+    const QString clipId = saveInMemoryClip(source,
+                                            QStringLiteral("watcher body"),
+                                            QStringLiteral("Watcher clip"),
+                                            {},
+                                            {},
+                                            false,
+                                            QDateTime::currentDateTimeUtc(),
+                                            QDateTime::currentDateTimeUtc());
+    QVERIFY(!clipId.isEmpty());
+    ObsidianClipStore writer(config);
+    const ObsidianClipWriteResult written = writer.writeClip(source.findClip(clipId).value());
+    QVERIFY2(written.succeeded(), qPrintable(written.error));
+
+    QTRY_VERIFY_WITH_TIMEOUT(index.findClip(clipId).has_value(), 3000);
+    QCOMPARE(index.findClip(clipId)->text, QStringLiteral("watcher body"));
+    syncService.stop();
+}
+
+void ClipTest::obsidianRealVaultRoundTrip()
+{
+    const QString vaultPath = qEnvironmentVariable("PINLOOM_TEST_OBSIDIAN_VAULT").trimmed();
+    if (vaultPath.isEmpty()) {
+        QSKIP("PINLOOM_TEST_OBSIDIAN_VAULT is not configured");
+    }
+    QVERIFY2(QFileInfo(vaultPath).isDir(), qPrintable(vaultPath));
+
+    Clip clip;
+    clip.id = QStringLiteral("integration-%1").arg(QUuid::createUuid().toString(QUuid::WithoutBraces));
+    clip.kind = ClipKind::Text;
+    clip.state = ClipState::Saved;
+    clip.text = QStringLiteral("Pinloom Obsidian integration probe\nsecond line");
+    clip.name = QStringLiteral("Pinloom integration probe");
+    clip.aliases = {QStringLiteral("integration probe")};
+    clip.tags = {QStringLiteral("pinloom-test")};
+    clip.createdAt = QDateTime::currentDateTimeUtc();
+    clip.updatedAt = clip.createdAt;
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = vaultPath;
+    ObsidianClipStore store(config);
+    const ObsidianClipWriteResult written = store.writeClip(clip);
+    QVERIFY2(written.succeeded(), qPrintable(written.error));
+
+    QString error;
+    const std::optional<ObsidianClipDocument> reloaded = store.findClip(clip.id, &error);
+    if (!reloaded.has_value()) {
+        QFile::remove(written.filePath);
+    }
+    QVERIFY2(reloaded.has_value(), qPrintable(error));
+    QCOMPARE(reloaded->clip.text, clip.text);
+
+    InMemoryClipRepository index;
+    const ObsidianClipSyncResult synchronized = store.synchronize(index);
+    if (!synchronized.succeeded() || !index.findClip(clip.id).has_value()) {
+        QFile::remove(written.filePath);
+    }
+    QVERIFY2(synchronized.succeeded(), qPrintable(synchronized.fatalError));
+    QVERIFY(index.findClip(clip.id).has_value());
+    QCOMPARE(index.findClip(clip.id)->text, clip.text);
+    QVERIFY(QFile::remove(written.filePath));
 }
 
 void ClipTest::clipboardServiceCapturesTextIntoRepository()

@@ -1,5 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
@@ -20,6 +21,7 @@
 #include <QCheckBox>
 #include <QDateTime>
 #include <QDebug>
+#include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -113,6 +115,109 @@ int main(int argc, char *argv[])
     window.setMinimumWidth(560);
     window.resize(760, 72);
 
+    const auto obsidianConfigForSettings = [](const Pinloom::PinloomAppSettings &settings) {
+        Pinloom::ObsidianClipStoreConfig config;
+        config.vaultPath = settings.obsidianVaultPath;
+        config.archiveDirectory = settings.obsidianArchiveDirectory;
+        return config;
+    };
+    Pinloom::ObsidianClipStore obsidianClipStore(obsidianConfigForSettings(runtimeSettings));
+    std::unique_ptr<Pinloom::ObsidianClipSyncService> obsidianSyncService;
+    if (clipHost && clipHost->sqliteRepository()) {
+        obsidianSyncService = std::make_unique<Pinloom::ObsidianClipSyncService>(
+            *clipHost->sqliteRepository(),
+            obsidianClipStore.config(),
+            &app);
+    } else if (clipHost && clipHost->inMemoryRepository()) {
+        obsidianSyncService = std::make_unique<Pinloom::ObsidianClipSyncService>(
+            *clipHost->inMemoryRepository(),
+            obsidianClipStore.config(),
+            &app);
+    }
+    if (obsidianSyncService) {
+        QObject::connect(obsidianSyncService.get(),
+                         &Pinloom::ObsidianClipSyncService::errorChanged,
+                         &window,
+                         [&window](const QString &error) {
+                             if (!error.trimmed().isEmpty()) {
+                                 window.setRecentError(QStringLiteral("Obsidian Clip synchronization failed"), error);
+                             }
+                         });
+        if (obsidianClipStore.config().isEnabled() && !obsidianSyncService->start()) {
+            window.setRecentError(QStringLiteral("Obsidian Clip synchronization failed"),
+                                  obsidianSyncService->lastError());
+        }
+    }
+
+    const auto upsertSavedClip = [&clipHost](const Pinloom::Clip &clip, QString *error) {
+        bool saved = false;
+        QString repositoryError;
+        if (clipHost && clipHost->sqliteRepository()) {
+            saved = clipHost->sqliteRepository()->upsertSavedClip(clip);
+            repositoryError = clipHost->sqliteRepository()->lastError();
+        } else if (clipHost && clipHost->inMemoryRepository()) {
+            saved = clipHost->inMemoryRepository()->upsertSavedClip(clip);
+        }
+        if (!saved && error) {
+            *error = repositoryError.trimmed().isEmpty()
+                ? QStringLiteral("Unable to update Saved Clip index")
+                : repositoryError.trimmed();
+        } else if (saved && error) {
+            error->clear();
+        }
+        return saved;
+    };
+    const auto persistSavedClip = [&obsidianClipStore, &upsertSavedClip](Pinloom::Clip clip,
+                                                                        QString *error) {
+        clip.state = Pinloom::ClipState::Saved;
+        clip.updatedAt = QDateTime::currentDateTimeUtc();
+        clip.expiresAt = {};
+        if (obsidianClipStore.config().isEnabled()) {
+            clip.sourceApp = Pinloom::obsidianClipSourceApp();
+            const Pinloom::ObsidianClipWriteResult written = obsidianClipStore.writeClip(clip);
+            if (!written.succeeded()) {
+                if (error) {
+                    *error = written.error;
+                }
+                return false;
+            }
+        }
+        return upsertSavedClip(clip, error);
+    };
+    const auto refreshClipFromObsidian = [&clipHost,
+                                          &obsidianClipStore,
+                                          &upsertSavedClip](const QString &clipId,
+                                                            QString *error) {
+        if (!obsidianClipStore.config().isEnabled()) {
+            return true;
+        }
+
+        const std::optional<Pinloom::Clip> indexed = clipHost && clipHost->runtime()
+            ? clipHost->runtime()->searchService().findClip(clipId)
+            : std::nullopt;
+        QString sourceError;
+        const std::optional<Pinloom::ObsidianClipDocument> source =
+            obsidianClipStore.findClip(clipId, &sourceError);
+        if (!source.has_value()) {
+            if (!sourceError.trimmed().isEmpty()
+                || (indexed.has_value() && indexed->sourceApp == Pinloom::obsidianClipSourceApp())) {
+                if (error) {
+                    *error = sourceError.trimmed().isEmpty()
+                        ? QStringLiteral("Obsidian Clip note was not found")
+                        : sourceError.trimmed();
+                }
+                return false;
+            }
+            return true;
+        }
+
+        Pinloom::Clip current = source->clip;
+        if (indexed.has_value()) {
+            current.usedAt = indexed->usedAt;
+        }
+        return upsertSavedClip(current, error);
+    };
+
     Pinloom::PinloomPanelOptions panelOptions;
     panelOptions.applicationLaunchSettings.sumatraPdfExecutablePath =
         runtimeSettings.sumatraPdfExecutablePath.trimmed();
@@ -137,11 +242,15 @@ int main(int argc, char *argv[])
         }
         return clipHost->runtime()->searchService().search(query, options);
     };
-    panelOptions.clipInsertionHandler = [&clipHost](const QString &clipId, QString *error) {
+    panelOptions.clipInsertionHandler = [&clipHost,
+                                         &refreshClipFromObsidian](const QString &clipId, QString *error) {
         if (!clipHost || !clipHost->runtime()) {
             if (error) {
                 *error = QStringLiteral("Pinloom Clip is not running");
             }
+            return false;
+        }
+        if (!refreshClipFromObsidian(clipId, error)) {
             return false;
         }
         const Pinloom::ClipInsertionResult result = clipHost->runtime()->insertionService().insertClip(clipId);
@@ -150,24 +259,28 @@ int main(int argc, char *argv[])
         }
         return result.inserted();
     };
-    auto clipSaveHandler = [&clipHost](const Pinloom::PinloomClipSaveRequest &request, QString *error) {
+    auto clipSaveHandler = [&clipHost,
+                            &persistSavedClip](const Pinloom::PinloomClipSaveRequest &request, QString *error) {
         if (!clipHost || !clipHost->runtime()) {
             if (error) {
                 *error = QStringLiteral("Pinloom Clip is not running");
             }
             return false;
         }
-        if (!clipHost->runtime()->searchService().saveClip(request.clipId,
-                                                           request.name,
-                                                           request.aliases,
-                                                           request.tags,
-                                                           request.pinned)) {
+        const std::optional<Pinloom::Clip> stored =
+            clipHost->runtime()->searchService().findClip(request.clipId);
+        if (!stored.has_value()) {
             if (error) {
-                const QString repositoryError = clipHost->runtime()->searchService().lastError().trimmed();
-                *error = repositoryError.isEmpty()
-                    ? QStringLiteral("Unable to save clip")
-                    : repositoryError;
+                *error = QStringLiteral("Clip not found");
             }
+            return false;
+        }
+        Pinloom::Clip saved = stored.value();
+        saved.name = request.name;
+        saved.aliases = request.aliases;
+        saved.tags = request.tags;
+        saved.pinned = request.pinned;
+        if (!persistSavedClip(saved, error)) {
             return false;
         }
         if (error) {
@@ -302,6 +415,17 @@ int main(int argc, char *argv[])
         runtimeSettings.dataDirectory = appDataPath;
         Pinloom::savePinloomAppSettings(appSettingsStore, runtimeSettings);
         appSettingsStore.sync();
+        const Pinloom::ObsidianClipStoreConfig obsidianConfig = obsidianConfigForSettings(runtimeSettings);
+        obsidianClipStore.setConfig(obsidianConfig);
+        if (obsidianSyncService) {
+            obsidianSyncService->setConfig(obsidianConfig);
+            if (obsidianConfig.isEnabled()
+                && !obsidianSyncService->isRunning()
+                && !obsidianSyncService->start()) {
+                window.setRecentError(QStringLiteral("Obsidian Clip synchronization failed"),
+                                      obsidianSyncService->lastError());
+            }
+        }
         if (clipHost && clipHost->runtime()) {
             clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
             Pinloom::ClipInsertionOptions insertionOptions =
@@ -503,22 +627,27 @@ int main(int argc, char *argv[])
         return clipHost->runtime()->searchService().findClip(clipId);
     };
     const auto saveClipMetadata =
-        [&clipHost](const Pinloom::Clip &clip,
-                    const QString &name,
-                    const QStringList &aliases,
-                    const QStringList &tags,
-                    bool pinned,
-                    QString *status) {
+        [&clipHost, &persistSavedClip](const Pinloom::Clip &clip,
+                                      const QString &name,
+                                      const QStringList &aliases,
+                                      const QStringList &tags,
+                                      bool pinned,
+                                      QString *status) {
         if (!clipHost || !clipHost->runtime()) {
             if (status) {
                 *status = QStringLiteral("Pinloom Clip is not running");
             }
             return false;
         }
-        if (!clipHost->runtime()->searchService().saveClip(clip.id, name, aliases, tags, pinned)) {
+        Pinloom::Clip updated = clip;
+        updated.name = name;
+        updated.aliases = aliases;
+        updated.tags = tags;
+        updated.pinned = pinned;
+        QString error;
+        if (!persistSavedClip(updated, &error)) {
             if (status) {
-                const QString error = clipHost->runtime()->searchService().lastError().trimmed();
-                *status = error.isEmpty() ? QStringLiteral("Unable to update clip") : error;
+                *status = error.trimmed().isEmpty() ? QStringLiteral("Unable to update clip") : error.trimmed();
             }
             return false;
         }
@@ -720,6 +849,7 @@ int main(int argc, char *argv[])
          &promptValueListEdit,
          &findClip,
          &saveClipMetadata,
+         &obsidianClipStore,
          &selectPanelTarget,
          &activateOpenTargetFromPanel](QWidget *parent,
                                         const Pinloom::PinloomOpenTarget &target,
@@ -732,6 +862,22 @@ int main(int argc, char *argv[])
 
         if (!target.clipId.trimmed().isEmpty()) {
             const std::optional<Pinloom::Clip> clip = findClip(target.clipId);
+            if (actionId == QLatin1String("open_source")) {
+                QString error;
+                const QUrl url = obsidianClipStore.openUrlForClip(target.clipId, &error);
+                if (!url.isValid() || !QDesktopServices::openUrl(url)) {
+                    if (status) {
+                        *status = error.trimmed().isEmpty()
+                            ? QStringLiteral("Unable to open Obsidian Clip note")
+                            : error.trimmed();
+                    }
+                    return false;
+                }
+                if (status) {
+                    *status = QStringLiteral("Opened Saved Clip in Obsidian");
+                }
+                return true;
+            }
             if (actionId == QLatin1String("restore")) {
                 if (!clip.has_value() || clip->state != Pinloom::ClipState::Deleted) {
                     if (status) {

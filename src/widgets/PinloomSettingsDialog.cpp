@@ -1,5 +1,6 @@
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
+#include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 
 #include <QCheckBox>
@@ -85,6 +86,34 @@ QString sumatraPdfStatusText(const QString &configuredPath)
     return QStringLiteral("Missing configured executable: %1").arg(QDir::toNativeSeparators(resolved));
 }
 
+QString obsidianStatusText(const QString &vaultPath, const QString &archiveDirectory)
+{
+    const QString configuredVault = vaultPath.trimmed();
+    if (configuredVault.isEmpty()) {
+        return QStringLiteral("Disabled. Configure an Obsidian Vault to archive Saved Clips as Markdown.");
+    }
+
+    const QFileInfo vault(configuredVault);
+    if (!vault.exists() || !vault.isDir()) {
+        return QStringLiteral("Missing Vault directory: %1")
+            .arg(QDir::toNativeSeparators(vault.absoluteFilePath()));
+    }
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = configuredVault;
+    config.archiveDirectory = archiveDirectory;
+    const ObsidianClipStore store(config);
+    if (store.archivePath().isEmpty()) {
+        return QStringLiteral("Invalid archive directory. It must stay inside the Vault.");
+    }
+
+    const bool hasObsidianConfig = QDir(vault.absoluteFilePath()).exists(QStringLiteral(".obsidian"));
+    return hasObsidianConfig
+        ? QStringLiteral("Ready: %1").arg(QDir::toNativeSeparators(store.archivePath()))
+        : QStringLiteral("Directory is accessible but does not contain .obsidian: %1")
+              .arg(QDir::toNativeSeparators(vault.absoluteFilePath()));
+}
+
 } // namespace
 
 ClipCapturePolicy PinloomAppSettings::clipCapturePolicy() const
@@ -111,6 +140,12 @@ PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &da
     PinloomAppSettings loaded = pinloomDefaultAppSettings(dataDirectory);
     loaded.sumatraPdfExecutablePath =
         settings.value(QStringLiteral("applications/sumatraPdfExecutablePath")).toString().trimmed();
+    loaded.obsidianVaultPath =
+        settings.value(QStringLiteral("obsidian/vaultPath")).toString().trimmed();
+    loaded.obsidianArchiveDirectory =
+        settings.value(QStringLiteral("obsidian/archiveDirectory"), loaded.obsidianArchiveDirectory)
+            .toString()
+            .trimmed();
     loaded.clipMaxTemporaryClips =
         settingsInt(settings, QStringLiteral("clip/maxTemporaryClips"), loaded.clipMaxTemporaryClips);
     loaded.clipMaxTextBytes =
@@ -133,6 +168,9 @@ void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSe
 {
     settings.setValue(QStringLiteral("applications/sumatraPdfExecutablePath"),
                       appSettings.sumatraPdfExecutablePath.trimmed());
+    settings.setValue(QStringLiteral("obsidian/vaultPath"), appSettings.obsidianVaultPath.trimmed());
+    settings.setValue(QStringLiteral("obsidian/archiveDirectory"),
+                      appSettings.obsidianArchiveDirectory.trimmed());
     settings.setValue(QStringLiteral("clip/maxTemporaryClips"), appSettings.clipMaxTemporaryClips);
     settings.setValue(QStringLiteral("clip/maxTextBytes"), appSettings.clipMaxTextBytes);
     settings.setValue(QStringLiteral("clip/temporaryTtlSeconds"), appSettings.clipTemporaryTtlSeconds);
@@ -174,6 +212,25 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     sumatraPdfStatusLabel_->setObjectName(QStringLiteral("sumatraPdfStatusLabel"));
     sumatraPdfStatusLabel_->setWordWrap(true);
 
+    auto *obsidianVaultRow = new QWidget(this);
+    auto *obsidianVaultLayout = new QHBoxLayout(obsidianVaultRow);
+    obsidianVaultLayout->setContentsMargins(0, 0, 0, 0);
+    obsidianVaultPathEdit_ = new QLineEdit(settings.obsidianVaultPath, obsidianVaultRow);
+    obsidianVaultPathEdit_->setObjectName(QStringLiteral("obsidianVaultPathEdit"));
+    auto *browseObsidianButton = new QPushButton(tr("Browse"), obsidianVaultRow);
+    browseObsidianButton->setObjectName(QStringLiteral("browseObsidianVaultButton"));
+    obsidianVaultLayout->addWidget(obsidianVaultPathEdit_, 1);
+    obsidianVaultLayout->addWidget(browseObsidianButton);
+
+    obsidianArchiveDirectoryEdit_ = new QLineEdit(settings.obsidianArchiveDirectory, this);
+    obsidianArchiveDirectoryEdit_->setObjectName(QStringLiteral("obsidianArchiveDirectoryEdit"));
+
+    obsidianStatusLabel_ = new QLabel(obsidianStatusText(settings.obsidianVaultPath,
+                                                         settings.obsidianArchiveDirectory),
+                                      this);
+    obsidianStatusLabel_->setObjectName(QStringLiteral("obsidianStatusLabel"));
+    obsidianStatusLabel_->setWordWrap(true);
+
     dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, this);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
     dataDirectoryEdit_->setReadOnly(true);
@@ -214,6 +271,9 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     form->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);
     form->addRow(tr("PDF proxy"), pdfProxyPathEdit_);
     form->addRow(tr("PDF proxy status"), pdfProxyStatusLabel_);
+    form->addRow(tr("Obsidian Vault"), obsidianVaultRow);
+    form->addRow(tr("Obsidian archive directory"), obsidianArchiveDirectoryEdit_);
+    form->addRow(tr("Obsidian status"), obsidianStatusLabel_);
     form->addRow(tr("Data directory"), dataDirectoryEdit_);
     form->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
     form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
@@ -235,6 +295,20 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     connect(sumatraPdfPathEdit_, &QLineEdit::textChanged, this, [this](const QString &text) {
         sumatraPdfStatusLabel_->setText(sumatraPdfStatusText(text));
     });
+    connect(browseObsidianButton, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getExistingDirectory(this,
+                                                               tr("Obsidian Vault"),
+                                                               obsidianVaultPathEdit_->text());
+        if (!path.trimmed().isEmpty()) {
+            obsidianVaultPathEdit_->setText(path.trimmed());
+        }
+    });
+    const auto refreshObsidianStatus = [this]() {
+        obsidianStatusLabel_->setText(obsidianStatusText(obsidianVaultPathEdit_->text(),
+                                                         obsidianArchiveDirectoryEdit_->text()));
+    };
+    connect(obsidianVaultPathEdit_, &QLineEdit::textChanged, this, refreshObsidianStatus);
+    connect(obsidianArchiveDirectoryEdit_, &QLineEdit::textChanged, this, refreshObsidianStatus);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -243,6 +317,8 @@ PinloomAppSettings PinloomSettingsDialog::settings() const
 {
     PinloomAppSettings settings;
     settings.sumatraPdfExecutablePath = sumatraPdfPathEdit_->text().trimmed();
+    settings.obsidianVaultPath = obsidianVaultPathEdit_->text().trimmed();
+    settings.obsidianArchiveDirectory = obsidianArchiveDirectoryEdit_->text().trimmed();
     settings.dataDirectory = dataDirectoryEdit_->text().trimmed();
     settings.clipMaxTemporaryClips = clipMaxTemporaryClipsSpin_->value();
     settings.clipMaxTextBytes = clipMaxTextBytesSpin_->value();

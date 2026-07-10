@@ -88,6 +88,7 @@ public:
                   bool pinned = false,
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
+    bool upsertSavedClip(const Clip &clip);
     bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
     bool restoreClip(const QString &id, const QDateTime &now = {});
     bool markClipUsed(const QString &id, const QDateTime &now = {});
@@ -124,6 +125,7 @@ public:
                   bool pinned = false,
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
+    bool upsertSavedClip(const Clip &clip);
     bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
     bool restoreClip(const QString &id, const QDateTime &now = {});
     bool markClipUsed(const QString &id, const QDateTime &now = {});

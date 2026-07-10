@@ -16,6 +16,8 @@ namespace Pinloom {
 
 struct PinloomAppSettings {
     QString sumatraPdfExecutablePath;
+    QString obsidianVaultPath;
+    QString obsidianArchiveDirectory = QStringLiteral("Pinloom Clips");
     QString dataDirectory;
     int clipMaxTemporaryClips = 100;
     int clipMaxTextBytes = 256 * 1024;
@@ -48,6 +50,9 @@ private:
     QLabel *pdfProxyStatusLabel_ = nullptr;
     QLabel *sumatraPdfStatusLabel_ = nullptr;
     QLineEdit *sumatraPdfPathEdit_ = nullptr;
+    QLabel *obsidianStatusLabel_ = nullptr;
+    QLineEdit *obsidianVaultPathEdit_ = nullptr;
+    QLineEdit *obsidianArchiveDirectoryEdit_ = nullptr;
     QLineEdit *dataDirectoryEdit_ = nullptr;
     QSpinBox *clipMaxTemporaryClipsSpin_ = nullptr;
     QSpinBox *clipMaxTextBytesSpin_ = nullptr;

@@ -364,6 +364,31 @@ Status:
   `nextUiHint`. The current Qt window is a caller of this protocol, keeping the
   surface ready for a future ZeroSlack host without adding a larger framework.
 
+## Phase 7: Obsidian Saved Clip Source
+
+Goal: keep reusable text in an ordinary Obsidian Vault while Pinloom provides
+fast capture, retrieval, and insertion.
+
+Scope and status:
+
+- Settings now accept a Vault path and a relative archive directory. No
+  Obsidian plugin is required.
+- Saving a Clip writes one UTF-8 Markdown note through an atomic replacement.
+  The note body is the insertion text; controlled YAML frontmatter stores the
+  stable `pinloom_id`, name, aliases, tags, pinned state, and timestamps.
+- Startup synchronization and a debounced recursive file watcher import new
+  notes and external edits into the existing Clip SQLite search cache. Rename
+  tracking uses `pinloom_id`, not the filename.
+- Removing a managed note soft-deletes its cached Clip. A malformed managed
+  note prevents deletion propagation for that scan so a parse error cannot
+  remove unrelated cached entries.
+- Before insertion, Pinloom reloads the matching Markdown body, ensuring that
+  an Obsidian edit is used even before the watcher debounce completes.
+- Unified Saved Clip actions expose `Open source note`, dispatched through the
+  `obsidian://open?path=...` URI.
+- Unit coverage verifies exact multiline body round-tripping, metadata,
+  external edits, renames, deletion propagation, and file watching.
+
 ## Frozen Or Demoted Work
 
 The following areas are no longer product mainline for v1:
