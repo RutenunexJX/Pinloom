@@ -392,6 +392,7 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
         result.error = QStringLiteral("SumatraPDF locator page is missing");
         return result;
     }
+    result.command.page = page;
 
     QStringList arguments;
     arguments.append(QStringLiteral("-reuse-instance"));
@@ -400,6 +401,7 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
 
     const std::optional<double> zoom = locatorZoom(locator);
     if (zoom.has_value() && zoom.value() > 0.0) {
+        result.command.zoom = zoom.value();
         arguments.append(QStringLiteral("-zoom"));
         arguments.append(decimalText(zoom.value()));
     }
@@ -430,6 +432,10 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
         }
         arguments.append(QStringLiteral("-scroll"));
         arguments.append(QStringLiteral("%1,%2").arg(decimalText(rect.left), decimalText(rect.top)));
+        result.command.highlightRect = QRectF(rect.left,
+                                              rect.top,
+                                              rect.right - rect.left,
+                                              rect.bottom - rect.top);
     }
 
     arguments.append(result.command.filePath);

@@ -65,8 +65,9 @@ private slots:
     void rejectsInvalidSavedSumatraPdfTitleMapping();
     void preservesViewStateWhenTitleFallbackBuildsRequest();
     void parsesSumatraPdfDdeFileStateAndMousePosition();
+    void buildsSumatraPdfDdeRegionFromMousePositions();
     void prefersDdeDocumentPathOverTitleConfirmation();
-    void injectsForegroundSumatraPdfMousePositionIntoRectRequest();
+    void doesNotTurnForegroundMousePositionIntoRectRequest();
     void parsesSumatraPdfViewStateFromStatusText();
     void reportsUnparseableSumatraPdfViewStateText();
     void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
@@ -1077,6 +1078,9 @@ void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithSumatraPdfExecut
                           QStringLiteral("-scroll"),
                           QStringLiteral("420,860"),
                           QStringLiteral("E:/docs/clock.pdf")}));
+    QCOMPARE(command.command.page, 12);
+    QCOMPARE(command.command.zoom, 250.0);
+    QCOMPARE(command.command.highlightRect, QRectF(420.0, 860.0, 360.0, 60.0));
 }
 
 void AnchorCaptureTest::rejectsInvalidManualPdfRectAnchorInputsWithoutSaving()
@@ -1398,6 +1402,40 @@ void AnchorCaptureTest::parsesSumatraPdfDdeFileStateAndMousePosition()
     QVERIFY(offPage.error.contains(QStringLiteral("not over a page")));
 }
 
+void AnchorCaptureTest::buildsSumatraPdfDdeRegionFromMousePositions()
+{
+    SumatraPdfDdeMousePosition start;
+    start.page = 28;
+    start.x = 420.0;
+    start.y = 920.0;
+
+    SumatraPdfDdeMousePosition end;
+    end.page = 28;
+    end.x = 120.0;
+    end.y = 640.0;
+
+    const SumatraPdfDdeRegion region =
+        sumatraPdfDdeRegionFromMousePositions(start, end);
+    QVERIFY2(region.success(), qPrintable(region.error));
+    QCOMPARE(region.page, 28);
+    QCOMPARE(region.rect.left, 120.0);
+    QCOMPARE(region.rect.top, 640.0);
+    QCOMPARE(region.rect.right, 420.0);
+    QCOMPARE(region.rect.bottom, 920.0);
+
+    end.page = 29;
+    const SumatraPdfDdeRegion crossPage =
+        sumatraPdfDdeRegionFromMousePositions(start, end);
+    QVERIFY(!crossPage.success());
+    QCOMPARE(crossPage.error, QStringLiteral("PDF region must stay on one page"));
+
+    end = start;
+    const SumatraPdfDdeRegion empty =
+        sumatraPdfDdeRegionFromMousePositions(start, end);
+    QVERIFY(!empty.success());
+    QCOMPARE(empty.error, QStringLiteral("PDF region is too small"));
+}
+
 void AnchorCaptureTest::prefersDdeDocumentPathOverTitleConfirmation()
 {
     InMemoryLibraryRepository repository;
@@ -1428,7 +1466,7 @@ void AnchorCaptureTest::prefersDdeDocumentPathOverTitleConfirmation()
     QCOMPARE(result.viewState.documentPath, QStringLiteral("E:/docs/dde-active.pdf"));
 }
 
-void AnchorCaptureTest::injectsForegroundSumatraPdfMousePositionIntoRectRequest()
+void AnchorCaptureTest::doesNotTurnForegroundMousePositionIntoRectRequest()
 {
     InMemoryLibraryRepository repository;
 
@@ -1446,7 +1484,6 @@ void AnchorCaptureTest::injectsForegroundSumatraPdfMousePositionIntoRectRequest(
     viewState.mouseY = 395.58;
     viewState.mouseYPdf = 396.42;
     viewState.hasMouseYPdf = true;
-    viewState.selectedText = QStringLiteral("repeated requirement text");
     viewState.source = QStringLiteral("sumatrapdf-dde");
 
     const SumatraPdfForegroundCaptureResult result =
@@ -1454,16 +1491,13 @@ void AnchorCaptureTest::injectsForegroundSumatraPdfMousePositionIntoRectRequest(
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QCOMPARE(result.request.file, QStringLiteral("E:/test_dir/output.pdf"));
-    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.rect"));
+    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.request.page, 28);
     QVERIFY(result.request.selectedText.isEmpty());
-    QCOMPARE(result.request.rect.left, 299.04);
-    QCOMPARE(result.request.rect.top, 389.58);
-    QCOMPARE(result.request.rect.right, 311.04);
-    QCOMPARE(result.request.rect.bottom, 401.58);
+    QVERIFY(!result.request.rect.isValid());
     QCOMPARE(result.request.zoom, 100.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-mouse"));
-    QVERIFY(result.status.contains(QStringLiteral("cursor page 28")));
+    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
+    QVERIFY(!result.status.contains(QStringLiteral("cursor")));
 }
 
 void AnchorCaptureTest::parsesSumatraPdfViewStateFromStatusText()

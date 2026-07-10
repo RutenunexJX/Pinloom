@@ -156,17 +156,16 @@ Status:
 - Command Window foreground SumatraPDF capture is now implemented for the MVP:
   when `Ctrl+Space` opens Pinloom, the app remembers the foreground window
   context, and `k n` uses that saved context to create a SumatraPDF anchor.
-- If SumatraPDF exposes a full PDF file path in the foreground window
-  title/text, Pinloom pre-fills `target_file` from that path and opens the
-  lightweight name/alias/tag/pinned dialog. The user no longer has to search
-  the PDF name in Pinloom before creating the anchor.
+- SumatraPDF 3.7 DDE now supplies the active full PDF path, current page, zoom,
+  and mouse positions. The user no longer has to search the PDF name in Pinloom
+  before creating the anchor.
 - The PDF UX now treats `Ctrl+K` and the PDF `Add Anchor` path as
   `Capture PDF Anchor`: users enter name, aliases, tags, and pinned state while
   the locator comes from the selected PDF context.
-- The current supported capture is explicitly a selected-PDF fallback. If a PDF
-  resource or SumatraPDF anchor is selected, Pinloom uses that file and falls
-  back to page 1 plus an approximate full-page rectangle when no native current
-  view/selection data is available.
+- Foreground `k n` opens a transparent same-page rectangle capture layer over
+  SumatraPDF. The two DDE mouse positions are normalized and stored as a
+  `sumatrapdf.rect` locator. The selected-PDF path remains a compatibility
+  fallback outside the foreground workflow.
 - The `k n` foreground path stays tied to foreground SumatraPDF. If
   SumatraPDF does not expose a full PDF file path, Pinloom now falls back
   through a saved document-title mapping and indexed PDF title matching. A
@@ -177,11 +176,9 @@ Status:
   fallback and is no longer the default user path.
 - No-PDF-context attempts now report that a PDF must be opened or selected
   before capture.
-- This slice intentionally does not read SumatraPDF annotations or live
-  coordinates. Foreground `k n` capture can use best-effort page/zoom text when
-  exposed by the foreground window; otherwise it defaults to page 1 unless the
-  user edits the advanced fallback locator. Native SumatraPDF coordinate capture
-  and any calibration mode remain research items for a later Phase 4 step.
+- Opening a rectangle anchor uses page/zoom/scroll arguments and a short-lived,
+  click-through Pinloom overlay to highlight the stored target. This slice does
+  not read or modify SumatraPDF annotations.
 
 ## Phase 5: Office And Visio Executors
 
@@ -306,11 +303,10 @@ Status:
   clip insertion service, while anchor results keep their native jump behavior.
 - The `k n` command is now wired as the new-anchor/capture-anchor entry for
   foreground SumatraPDF. It uses the foreground context saved immediately
-  before the Command Window is shown by `Ctrl+Space`, opens the lightweight
-  PDF anchor dialog with the foreground PDF file pre-filled when available, and
-  saves anchors into ordinary search by name, alias, tag, and metadata. Native
-  SumatraPDF current-view/coordinate capture is still pending; the existing
-  `Ctrl+K` selected-PDF fallback remains temporary for compatibility.
+  before the Command Window is shown by `Ctrl+Space`, captures a same-page DDE
+  rectangle, opens the lightweight PDF anchor dialog, and saves anchors into
+  ordinary search by name, alias, tag, and metadata. The existing `Ctrl+K`
+  selected-PDF fallback remains for compatibility.
 - Pinloom Inbox MVP is implemented as a local file object capture entrypoint,
   not a file manager. The Command Window now exposes `i`, `i n`, and
   `i s <query>`; users can drop local files on the Command Window or use

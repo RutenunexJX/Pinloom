@@ -66,17 +66,12 @@ not widen those surfaces unless it directly supports the anchor launcher loop.
    - Text PDFs and scanned PDFs are treated the same: the user names an anchor
      against a foreground or selected PDF context and Pinloom stores page plus
      rectangle.
-  - The current Command Window capture path is a foreground SumatraPDF
-  fallback: when `Ctrl+Space` is pressed, Pinloom remembers the foreground
-  SumatraPDF window, resolves the PDF file path when the window title/text
-  exposes it, or falls back through a remembered document-title mapping and
-  indexed PDF title matching. If the title is not unique, `k n` asks the user to
-  confirm the PDF file once and remembers that mapping for the next capture.
-  This no longer requires searching the PDF name in Pinloom first.
-   - Native current-view coordinates are still pending. Until they are stable,
-     foreground capture pre-fills the PDF file and uses page 1 plus an
-     approximate full-page rectangle; page/rect/zoom remain editable in the
-     advanced locator fallback.
+   - The Command Window capture path uses SumatraPDF 3.7 DDE. When
+     `Ctrl+Space` is pressed, Pinloom remembers the foreground SumatraPDF
+     window and obtains the active PDF full path, page, and zoom.
+   - `k n` hides the Command Window and opens a transparent capture layer over
+     SumatraPDF. Drag a rectangle inside one PDF page; right-click or press
+     `Esc` to cancel. Pinloom stores the two DDE page coordinates directly.
    - Example locator:
 
 ```json
@@ -118,12 +113,12 @@ The current codebase already has useful foundations:
   horizontal search box with an optional compact result list. It searches
   anchors and Saved Clips, with management controls kept off the default
   surface.
-- SumatraPDF manual jump execution now has a tested command builder for page,
+- SumatraPDF jump execution now has a tested command builder for page,
   rectangle, and search locators, launcher activation integration, and
   executable path resolution through `PINLOOM_SUMATRAPDF_PATH`, common install
   paths, or host injection. Rectangle locators scroll to the stored left/top
-  coordinate; SumatraPDF does not provide a guaranteed external highlight
-  command for these anchors.
+  coordinate. Pinloom displays a short-lived, click-through highlight over the
+  target rectangle after SumatraPDF finishes the jump.
 
 The mismatch is intentional technical debt for the reset:
 
@@ -134,11 +129,10 @@ The mismatch is intentional technical debt for the reset:
 - Folder management and resource-library controls still exist for
   compatibility, but they are no longer the default first surface.
 - Foreground SumatraPDF file capture is now wired into the Command Window:
-  focus an open PDF in SumatraPDF, press `Ctrl+Space`, type `k n`, name the
-  anchor, and save. Pinloom uses the foreground PDF path when SumatraPDF
-  exposes it, so the user does not need to search the PDF name first. Native
-  current-page/current-rectangle capture is still pending; page 1 plus a
-  full-page rectangle remains the explicit fallback locator.
+  focus an open PDF in SumatraPDF 3.7, press `Ctrl+Space`, type `k n`, drag a
+  same-page rectangle, name the anchor, and save. Pinloom obtains the full PDF
+  path and the rectangle's page coordinates through DDE, so the user does not
+  need to search or re-import the PDF first.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
   launcher access through ordinary Command Window search plus explicit `c s`
@@ -205,18 +199,13 @@ workflow.
 
 Type `k` to see anchor commands. The recommended SumatraPDF flow is: open or
 focus the target PDF in SumatraPDF, press `Ctrl+Space`, type `k n`,
-enter the anchor name plus optional aliases/tags/pinned state, then save. The
-dialog defaults `target_app` to SumatraPDF and `target_file` to the foreground
-PDF path when SumatraPDF exposes it. If SumatraPDF only exposes the document
-title, Pinloom uses a remembered title mapping or a unique indexed PDF match;
-when neither is unique, it asks the user to confirm the PDF file and remembers
-that choice for the same title. Current page/rectangle capture is still a
-fallback: page defaults to 1 and the rectangle defaults to an approximate
-full-page region until precise SumatraPDF coordinate capture lands. The capture
-dialog shows a readable locator summary with file, page, rectangle, zoom, and
-capture source. Failure statuses distinguish "SumatraPDF not detected",
-invalid saved title mappings, no unique PDF match, canceled confirmation, and
-missing view-state data.
+drag a rectangle inside one PDF page, enter the anchor name plus optional
+aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
+mode is active to cancel. The dialog shows the full PDF path, page, rectangle,
+zoom, and DDE capture source. Opening the anchor returns to the stored page and
+scroll position and briefly highlights the target rectangle. SumatraPDF 3.7 or
+newer is required for the `GetFileState()` and `GetMousePos()` DDE requests used
+by this workflow.
 
 Type `i` to see Inbox commands. Drop a local file on the Command Window, then
 press Enter on `i n` to save it as a Link-mode Inbox file; if no file is

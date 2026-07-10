@@ -210,6 +210,8 @@ void ManualPdfAnchorDialog::updateSummary()
         sourceSummary = tr("foreground SumatraPDF fallback; page defaults to 1, edit if needed");
     } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground SumatraPDF selected text");
+    } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-region"), Qt::CaseInsensitive) == 0) {
+        sourceSummary = tr("foreground SumatraPDF region");
     } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground SumatraPDF page/zoom");
     } else if (source_.compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0) {

@@ -188,6 +188,11 @@ bool SumatraPdfDdeMousePosition::success() const
         && std::isfinite(y);
 }
 
+bool SumatraPdfDdeRegion::success() const
+{
+    return error.isEmpty() && page > 0 && rect.isValid();
+}
+
 SumatraPdfDdeRequestResult requestSumatraPdfDdeCommand(
     const QString &command,
     int timeoutMilliseconds)
@@ -369,6 +374,39 @@ SumatraPdfDdeMousePosition parseSumatraPdfDdeMousePosition(const QString &text)
         position.error = QStringLiteral("SumatraPDF DDE mouse position did not include valid coordinates");
     }
     return position;
+}
+
+SumatraPdfDdeRegion sumatraPdfDdeRegionFromMousePositions(
+    const SumatraPdfDdeMousePosition &start,
+    const SumatraPdfDdeMousePosition &end)
+{
+    SumatraPdfDdeRegion region;
+    if (!start.success()) {
+        region.error = start.error.trimmed().isEmpty()
+            ? QStringLiteral("PDF region start is outside a page")
+            : start.error.trimmed();
+        return region;
+    }
+    if (!end.success()) {
+        region.error = end.error.trimmed().isEmpty()
+            ? QStringLiteral("PDF region end is outside a page")
+            : end.error.trimmed();
+        return region;
+    }
+    if (start.page != end.page) {
+        region.error = QStringLiteral("PDF region must stay on one page");
+        return region;
+    }
+
+    region.page = start.page;
+    region.rect.left = std::min(start.x, end.x);
+    region.rect.top = std::min(start.y, end.y);
+    region.rect.right = std::max(start.x, end.x);
+    region.rect.bottom = std::max(start.y, end.y);
+    if (!region.rect.isValid()) {
+        region.error = QStringLiteral("PDF region is too small");
+    }
+    return region;
 }
 
 SumatraPdfDdeFileState requestSumatraPdfDdeFileState(int timeoutMilliseconds)

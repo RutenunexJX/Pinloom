@@ -1,5 +1,7 @@
 #pragma once
 
+#include "pinloom/core/AnchorCapture.h"
+
 #include <QString>
 
 namespace Pinloom {
@@ -36,11 +38,22 @@ struct SumatraPdfDdeMousePosition {
     bool success() const;
 };
 
+struct SumatraPdfDdeRegion {
+    int page = -1;
+    PdfCaptureRect rect;
+    QString error;
+
+    bool success() const;
+};
+
 SumatraPdfDdeRequestResult requestSumatraPdfDdeCommand(
     const QString &command,
     int timeoutMilliseconds = 3000);
 SumatraPdfDdeFileState parseSumatraPdfDdeFileState(const QString &text);
 SumatraPdfDdeMousePosition parseSumatraPdfDdeMousePosition(const QString &text);
+SumatraPdfDdeRegion sumatraPdfDdeRegionFromMousePositions(
+    const SumatraPdfDdeMousePosition &start,
+    const SumatraPdfDdeMousePosition &end);
 SumatraPdfDdeFileState requestSumatraPdfDdeFileState(int timeoutMilliseconds = 3000);
 SumatraPdfDdeMousePosition requestSumatraPdfDdeMousePosition(int timeoutMilliseconds = 3000);
 

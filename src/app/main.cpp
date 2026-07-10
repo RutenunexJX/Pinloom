@@ -14,6 +14,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
+#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -212,6 +213,47 @@ int main(int argc, char *argv[])
         if (status) {
             *status = result.status;
         }
+        const auto captureRegion =
+            [&](Pinloom::ManualPdfAnchorCreationRequest request)
+                -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
+            const bool restoreCommandWindow = commandWindowForForegroundCapture
+                && commandWindowForForegroundCapture->isVisible();
+            if (restoreCommandWindow) {
+                commandWindowForForegroundCapture->hide();
+                QApplication::processEvents();
+            }
+
+            const Pinloom::SumatraPdfRegionCaptureResult region =
+                Pinloom::captureSumatraPdfRegion(context.windowHandle);
+
+            if (restoreCommandWindow) {
+                commandWindowForForegroundCapture->show();
+                commandWindowForForegroundCapture->raise();
+                commandWindowForForegroundCapture->activateWindow();
+            }
+
+            if (!region.success()) {
+                if (status) {
+                    *status = region.canceled
+                        ? QStringLiteral("PDF region capture canceled")
+                        : (region.region.error.trimmed().isEmpty()
+                               ? QStringLiteral("Unable to capture PDF region")
+                               : region.region.error.trimmed());
+                }
+                return std::nullopt;
+            }
+
+            request.locatorType = QStringLiteral("sumatrapdf.rect");
+            request.page = region.region.page;
+            request.rect = region.region.rect;
+            request.selectedText.clear();
+            request.source = QStringLiteral("foreground-sumatrapdf-region");
+            if (status) {
+                *status = QStringLiteral("Captured SumatraPDF region on page %1")
+                              .arg(request.page);
+            }
+            return request;
+        };
         if (!result.success() && result.needsFileConfirmation) {
             QWidget *parent = commandWindowForForegroundCapture;
             const QString selectedFile = QFileDialog::getOpenFileName(
@@ -240,15 +282,12 @@ int main(int argc, char *argv[])
             }
 
             rememberSumatraPdfTitlePath(result.documentTitle, confirmed.request.file);
-            if (status) {
-                *status = confirmed.status;
-            }
-            return confirmed.request;
+            return captureRegion(confirmed.request);
         }
         if (!result.success()) {
             return std::nullopt;
         }
-        return result.request;
+        return captureRegion(result.request);
     };
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     window.setCentralWidget(panel);

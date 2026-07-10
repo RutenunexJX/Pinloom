@@ -18,6 +18,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
+#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QAction>
@@ -91,6 +92,8 @@ private slots:
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
+    void sumatraPdfRegionOverlayCapturesDdeRectangle();
+    void sumatraPdfRegionOverlayRejectsCrossPageAndCancels();
     void panelUsesInjectedRepository();
     void panelLoadsSavedLibraryRoots();
     void panelExposesHostIndexingControls();
@@ -2476,6 +2479,86 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(edited.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(edited.clipExcludedSourceApps, (QStringList{QStringLiteral("secret.exe"), QStringLiteral("cad.exe")}));
     QCOMPARE(edited.clipSensitiveTextMarkers, (QStringList{QStringLiteral("TOKEN="), QStringLiteral("PRIVATE")}));
+}
+
+void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
+{
+    QList<SumatraPdfDdeMousePosition> positions;
+    SumatraPdfDdeMousePosition start;
+    start.page = 12;
+    start.x = 420.0;
+    start.y = 860.0;
+    positions.append(start);
+    SumatraPdfDdeMousePosition end;
+    end.page = 12;
+    end.x = 780.0;
+    end.y = 920.0;
+    positions.append(end);
+
+    SumatraPdfRegionCaptureOverlay overlay(
+        0,
+        [&positions]() {
+            if (positions.isEmpty()) {
+                SumatraPdfDdeMousePosition missing;
+                missing.error = QStringLiteral("missing test position");
+                return missing;
+            }
+            return positions.takeFirst();
+        });
+    overlay.setGeometry(100, 100, 500, 300);
+    overlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+
+    QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(80, 90));
+    QTest::mouseMove(&overlay, QPoint(320, 210));
+    QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
+
+    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
+    const SumatraPdfRegionCaptureResult result = overlay.captureResult();
+    QVERIFY2(result.success(), qPrintable(result.region.error));
+    QCOMPARE(result.region.page, 12);
+    QCOMPARE(result.region.rect.left, 420.0);
+    QCOMPARE(result.region.rect.top, 860.0);
+    QCOMPARE(result.region.rect.right, 780.0);
+    QCOMPARE(result.region.rect.bottom, 920.0);
+}
+
+void WidgetSmokeTest::sumatraPdfRegionOverlayRejectsCrossPageAndCancels()
+{
+    QList<SumatraPdfDdeMousePosition> positions;
+    SumatraPdfDdeMousePosition start;
+    start.page = 12;
+    start.x = 120.0;
+    start.y = 160.0;
+    positions.append(start);
+    SumatraPdfDdeMousePosition end;
+    end.page = 13;
+    end.x = 220.0;
+    end.y = 260.0;
+    positions.append(end);
+
+    SumatraPdfRegionCaptureOverlay overlay(
+        0,
+        [&positions]() {
+            if (positions.isEmpty()) {
+                SumatraPdfDdeMousePosition missing;
+                missing.error = QStringLiteral("missing test position");
+                return missing;
+            }
+            return positions.takeFirst();
+        });
+    overlay.setGeometry(100, 100, 500, 300);
+    overlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+
+    QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(80, 90));
+    QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
+    QVERIFY(overlay.isVisible());
+    QVERIFY(!overlay.captureResult().success());
+
+    QTest::keyClick(&overlay, Qt::Key_Escape);
+    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Rejected));
+    QVERIFY(overlay.captureResult().canceled);
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

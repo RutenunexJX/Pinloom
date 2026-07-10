@@ -88,8 +88,9 @@ and should not depend on OCR to find anchors in scanned PDFs.
 
 The user creates a PDF anchor manually. Pinloom stores page and rectangle, then
 jumps with SumatraPDF command-line arguments such as `-page`, `-zoom`,
-`-search`, and `-scroll`. Rectangle anchors are used as scroll targets; they do
-not imply guaranteed external highlighting in SumatraPDF.
+`-search`, and `-scroll`. SumatraPDF 3.7 DDE provides the active file state and
+mouse positions used for same-page rectangle capture. Pinloom adds its own
+short-lived, click-through rectangle highlight after a jump.
 
 ### Excel
 

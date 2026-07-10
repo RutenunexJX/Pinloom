@@ -2,6 +2,7 @@
 
 #include "pinloom/core/Anchor.h"
 
+#include <QRectF>
 #include <QString>
 #include <QStringList>
 
@@ -13,6 +14,9 @@ struct SumatraPdfCommand {
     QString executablePath;
     QString filePath;
     QStringList arguments;
+    int page = -1;
+    double zoom = -1.0;
+    QRectF highlightRect;
 };
 
 struct SumatraPdfCommandResult {

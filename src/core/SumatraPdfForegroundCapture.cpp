@@ -29,7 +29,6 @@ namespace Pinloom {
 namespace {
 
 constexpr const char *ForegroundSumatraPdfFallbackSource = "foreground-sumatrapdf-fallback";
-constexpr const char *ForegroundSumatraPdfMouseSource = "foreground-sumatrapdf-mouse";
 constexpr const char *ForegroundSumatraPdfSelectionSource = "foreground-sumatrapdf-selection";
 constexpr const char *ForegroundSumatraPdfViewStateSource = "foreground-sumatrapdf-viewstate";
 
@@ -289,12 +288,6 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
     if (viewState.hasSelectedText()) {
         parts.append(QStringLiteral("selected text \"%1\"").arg(viewState.selectedText.simplified().left(80)));
     }
-    if (viewState.hasMousePosition()) {
-        parts.append(QStringLiteral("cursor page %1 at %2,%3 pt")
-                         .arg(viewState.mousePage)
-                         .arg(decimalText(viewState.mouseX),
-                              decimalText(viewState.mouseY)));
-    }
     if (viewState.hasCurrentPage()) {
         QString pageText = QStringLiteral("page %1").arg(viewState.currentPage);
         if (viewState.totalPages > 0) {
@@ -311,26 +304,10 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
     return QStringLiteral("Captured PDF view state: %1").arg(parts.join(QStringLiteral("; ")));
 }
 
-PdfCaptureRect rectAroundMousePosition(const SumatraPdfViewState &viewState)
-{
-    constexpr double AnchorHalfSizePt = 6.0;
-    PdfCaptureRect rect;
-    rect.left = std::max(0.0, viewState.mouseX - AnchorHalfSizePt);
-    rect.top = std::max(0.0, viewState.mouseY - AnchorHalfSizePt);
-    rect.right = viewState.mouseX + AnchorHalfSizePt;
-    rect.bottom = viewState.mouseY + AnchorHalfSizePt;
-    return rect;
-}
-
 void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfViewState &viewState)
 {
     result.viewState = viewState;
-    if (viewState.hasMousePosition()) {
-        result.request.locatorType = QStringLiteral("sumatrapdf.rect");
-        result.request.page = viewState.mousePage;
-        result.request.rect = rectAroundMousePosition(viewState);
-        result.request.source = QString::fromLatin1(ForegroundSumatraPdfMouseSource);
-    } else if (viewState.hasSelectedText()) {
+    if (viewState.hasSelectedText()) {
         result.request.selectedText = viewState.selectedText.trimmed();
         result.request.locatorType = QStringLiteral("sumatrapdf.search");
         result.request.rect = {};
@@ -339,15 +316,14 @@ void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfV
         result.request.locatorType = QStringLiteral("sumatrapdf.page");
         result.request.rect = {};
     }
-    if (!viewState.hasMousePosition() && viewState.hasCurrentPage()) {
+    if (viewState.hasCurrentPage()) {
         result.request.page = viewState.currentPage;
     }
     if (viewState.hasZoom()) {
         result.request.zoom = viewState.zoom;
     }
     if (viewState.hasAnyViewState()
-        && !viewState.hasSelectedText()
-        && !viewState.hasMousePosition()) {
+        && !viewState.hasSelectedText()) {
         result.request.source = QString::fromLatin1(ForegroundSumatraPdfViewStateSource);
     }
     result.status = viewStateStatus(viewState);
@@ -1113,7 +1089,7 @@ bool SumatraPdfViewState::hasMousePosition() const
 
 bool SumatraPdfViewState::hasAnyViewState() const
 {
-    return hasSelectedText() || hasMousePosition() || hasCurrentPage() || totalPages > 0 || hasZoom();
+    return hasSelectedText() || hasCurrentPage() || totalPages > 0 || hasZoom();
 }
 
 bool SumatraPdfForegroundCaptureResult::success() const
@@ -1382,16 +1358,6 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
         state.sumatraVersion = ddeFileState.version;
         state.source = QStringLiteral("sumatrapdf-dde");
 
-        const SumatraPdfDdeMousePosition mousePosition = requestSumatraPdfDdeMousePosition(800);
-        if (mousePosition.success()) {
-            state.mousePage = mousePosition.page;
-            state.mouseX = mousePosition.x;
-            state.mouseY = mousePosition.y;
-            state.mouseYPdf = mousePosition.yPdf;
-            state.hasMouseYPdf = mousePosition.hasYPdf;
-        } else {
-            state.diagnostics = mousePosition.error;
-        }
     } else if (!ddeFileState.error.trimmed().isEmpty()) {
         state.diagnostics = ddeFileState.error;
     }

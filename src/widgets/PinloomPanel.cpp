@@ -4,6 +4,7 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/LegacyCompatibility.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
+#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QApplication>
@@ -1835,8 +1836,8 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         const bool foregroundPdfSelection =
             suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"),
                                                           Qt::CaseInsensitive) == 0;
-        const bool foregroundPdfMouse =
-            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-mouse"),
+        const bool foregroundPdfRegion =
+            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-region"),
                                                           Qt::CaseInsensitive) == 0;
         const bool foregroundPdfViewState =
             suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-viewstate"),
@@ -1849,8 +1850,8 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
             ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
             updateStatus(foregroundPdfSelection
                              ? tr("Capturing PDF anchor from foreground PDF selected text")
-                             : foregroundPdfMouse
-                                   ? tr("Capturing PDF anchor from foreground PDF cursor position")
+                             : foregroundPdfRegion
+                                   ? tr("Capturing PDF anchor from foreground SumatraPDF region")
                              : foregroundPdfViewState
                                    ? tr("Capturing PDF anchor from foreground PDF page/zoom")
                                    : foregroundPdfFallback
@@ -1896,14 +1897,14 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-fallback"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfSelection =
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0;
-    const bool foregroundPdfMouse =
-        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-mouse"), Qt::CaseInsensitive) == 0;
+    const bool foregroundPdfRegion =
+        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-region"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfViewState =
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0;
     updateStatus(foregroundPdfSelection
                      ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF selected text)").arg(result.anchor.name)
-                     : foregroundPdfMouse
-                     ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF cursor position)").arg(result.anchor.name)
+                     : foregroundPdfRegion
+                     ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF region)").arg(result.anchor.name)
                      : foregroundPdfViewState
                      ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF page/zoom)").arg(result.anchor.name)
                      : foregroundPdfFallback
@@ -3148,6 +3149,17 @@ bool PinloomPanel::activateSumatraPdfTarget(const PinloomOpenTarget &target)
     if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
         updateStatus(tr("Unable to launch SumatraPDF"));
         return false;
+    }
+
+    if (buildResult.command.highlightRect.isValid()
+        && buildResult.command.page > 0
+        && buildResult.command.zoom > 0.0) {
+        const QRectF highlightRect = buildResult.command.highlightRect;
+        const int highlightPage = buildResult.command.page;
+        const double highlightZoom = buildResult.command.zoom;
+        QTimer::singleShot(450, this, [highlightRect, highlightPage, highlightZoom]() {
+            showSumatraPdfRectHighlight(highlightRect, highlightPage, highlightZoom);
+        });
     }
 
     updateStatus(tr("Opened SumatraPDF target"));
