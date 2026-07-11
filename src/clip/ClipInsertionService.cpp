@@ -4,6 +4,7 @@
 #include <QClipboard>
 #include <QCoreApplication>
 #include <QGuiApplication>
+#include <QTimer>
 #include <utility>
 
 namespace Pinloom {
@@ -231,6 +232,7 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
     }
 
     const QString originalClipboardText = clipboard_->text();
+    const quint64 clipboardWriteGeneration = ++clipboardWriteGeneration_;
     suppressNextClipboardCapture();
     if (!clipboard_->setText(clip.text)) {
         return fail(ClipInsertionStatus::ClipboardWriteFailed,
@@ -247,11 +249,22 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
     }
 
     if (options_.restoreOriginalClipboardOnSuccess) {
-        suppressNextClipboardCapture();
-        if (!clipboard_->setText(originalClipboardText)) {
+        const int restoreDelayMs = qMax(0, options_.clipboardRestoreDelayMs);
+        if (restoreDelayMs == 0
+            && !restoreClipboardIfUnchanged(originalClipboardText, clip.text, clipboardWriteGeneration)) {
             return fail(ClipInsertionStatus::ClipboardRestoreFailed,
                         clipId,
                         QStringLiteral("Unable to restore the original clipboard text"));
+        }
+
+        if (restoreDelayMs > 0) {
+            QTimer::singleShot(restoreDelayMs,
+                               this,
+                               [this, originalClipboardText, insertedText = clip.text, clipboardWriteGeneration]() {
+                                   restoreClipboardIfUnchanged(originalClipboardText,
+                                                               insertedText,
+                                                               clipboardWriteGeneration);
+                               });
         }
     }
 
@@ -321,6 +334,18 @@ void ClipInsertionService::suppressNextClipboardCapture()
     if (suppressClipboardCapture_) {
         suppressClipboardCapture_();
     }
+}
+
+bool ClipInsertionService::restoreClipboardIfUnchanged(const QString &originalText,
+                                                       const QString &insertedText,
+                                                       quint64 generation)
+{
+    if (!clipboard_ || generation != clipboardWriteGeneration_ || clipboard_->text() != insertedText) {
+        return true;
+    }
+
+    suppressNextClipboardCapture();
+    return clipboard_->setText(originalText);
 }
 
 } // namespace Pinloom

@@ -41,6 +41,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/SumatraPdfOpenProxy.h
+    include/pinloom/core/TextSelectionCapture.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceRelation.h
     include/pinloom/core/ResourceUsage.h
@@ -71,6 +72,7 @@ add_library(pinloom_core STATIC
     src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
     src/core/SumatraPdfOpenProxy.cpp
+    src/core/TextSelectionCapture.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
     src/core/SumatraPdfCommand.cpp
@@ -103,6 +105,7 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
     include/pinloom/clip/ClipArchive.h
     include/pinloom/clip/ClipHotkeyService.h
+    include/pinloom/clip/HyperHotkeyService.h
     include/pinloom/clip/ClipInsertionService.h
     include/pinloom/clip/ObsidianClipStore.h
     include/pinloom/clip/ClipRepository.h
@@ -112,6 +115,7 @@ add_library(pinloom_clip_core STATIC
     src/clip/ClipboardCaptureService.cpp
     src/clip/ClipArchive.cpp
     src/clip/ClipHotkeyService.cpp
+    src/clip/HyperHotkeyService.cpp
     src/clip/ClipInsertionService.cpp
     src/clip/ObsidianClipStore.cpp
     src/clip/ClipRepository.cpp

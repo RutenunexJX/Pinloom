@@ -190,6 +190,22 @@ search soft-deleted Pinloom Entries, then press Right Arrow and choose Restore.
 Actions that are not valid for the current object state remain visible with a
 disabled reason instead of failing silently.
 
+For the contextual Saved Clip workflow, configure PowerToys Keyboard Manager
+to remap Caps Lock to left Ctrl + left Alt + left Shift + backtick. Pinloom
+recognizes the resulting `Ctrl+Alt+Shift+backtick+S` chord as `Hyper+S`, so the
+physical shortcut is Caps Lock + S:
+
+- With a non-empty text selection exposed through Windows UI Automation or a
+  standard Edit/RichEdit control, `Hyper+S` archives the selected text directly
+  to the configured Obsidian archive directory. It does not send `Ctrl+C` or
+  read the clipboard. The first non-empty line becomes the default Clip name.
+- With only a caret, or when the foreground application does not expose a
+  reliable selection, `Hyper+S` opens `c s`. Choosing a Clip restores the
+  original foreground control and inserts the latest Obsidian note body there.
+- Pinloom consumes the `S` trigger while leaving the backtick carrier key
+  available to PowerToys. Applications with custom, inaccessible editors fall
+  back to the insertion path rather than risking an unintended archive.
+
 The explicit command namespaces remain available. Type `c` to see Clip commands.
 Type `c s` to search all insertable Clip rows (temporary history plus Saved
 Clips), or `c s <query>` to search by name, alias, tag, preview, or content;
@@ -229,8 +245,10 @@ and in `c` mode.
 Re-copying exact text already stored as a Saved Clip is ignored by the content
 hash duplicate check. The current Clip MVP captures and inserts text only;
 rich content is future work. Clip insertion defaults to restoring the original
-clipboard text after a successful paste; this can be changed in Pinloom
-Settings. The same settings surface contains the app blacklist, sensitive-text
+clipboard text after a successful paste; restoration is delayed until the
+target has processed `Ctrl+V` and is skipped if another application changes the
+clipboard meanwhile. This can be changed in Pinloom Settings. The same settings
+surface contains the app blacklist, sensitive-text
 markers, maximum text size, temporary history limit, and history TTL so Clip
 history is not an unbounded default store. Obsidian integration uses direct
 UTF-8 Markdown file access and the `obsidian://` URI; it does not require a

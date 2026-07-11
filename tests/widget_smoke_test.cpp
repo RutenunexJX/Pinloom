@@ -2279,12 +2279,15 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     status.running = true;
     status.mainHotkeyRegistered = true;
     status.mainHotkeyText = QStringLiteral("Ctrl+Space");
+    status.hyperHotkeyRegistered = true;
+    status.hyperHotkeyText = QStringLiteral("Hyper+S");
     status.clipCaptureActive = true;
     status.clipStatus = QStringLiteral("Running");
     window.setResidentStatus(status);
 
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Pinloom running")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Command hotkey: registered (Ctrl+Space)")));
+    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Hyper hotkey: registered (Hyper+S)")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Clip capture: active")));
 
     window.setRecentError(QStringLiteral("Hotkey conflict"),

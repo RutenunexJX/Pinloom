@@ -11,6 +11,8 @@ struct PinloomResidentStatus {
     bool running = false;
     bool mainHotkeyRegistered = false;
     QString mainHotkeyText;
+    bool hyperHotkeyRegistered = false;
+    QString hyperHotkeyText;
     bool clipCaptureActive = false;
     bool clipCapturePaused = false;
     QString clipStatus;

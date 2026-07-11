@@ -389,6 +389,33 @@ Scope and status:
 - Unit coverage verifies exact multiline body round-tripping, metadata,
   external edits, renames, deletion propagation, and file watching.
 
+## Phase 8: Contextual Hyper+S Workflow
+
+Goal: make selection archiving and Saved Clip insertion a single contextual
+operation behind the user's PowerToys Caps Lock Hyper layer.
+
+Scope and status:
+
+- A Windows low-level keyboard hook recognizes
+  `Ctrl+Alt+Shift+backtick+S`. This is required because the PowerToys remap is a
+  multi-key output that cannot be represented reliably by `RegisterHotKey`.
+- Selection capture uses UI Automation `TextPattern::GetSelection()` first and
+  standard Edit/RichEdit selection messages as a fallback. It never sends
+  `Ctrl+C` and excludes password controls.
+- A non-empty, explicit text selection is archived directly into the configured
+  Obsidian directory and synchronized into the Clip cache. Exact existing
+  Saved Clip text is detected as a duplicate.
+- Caret-only and unknown selection states open `c s` while retaining the
+  original foreground window and focused control. Selecting a Clip restores
+  that target and inserts the latest Markdown body.
+- Clipboard restoration after insertion is delayed so the target can process
+  `Ctrl+V`; restoration only occurs if the clipboard still contains Pinloom's
+  inserted text, preventing overwrite of newer external clipboard content.
+- Unit tests cover the Hyper chord state machine, the three-state contextual
+  decision, and delayed clipboard restoration. Real Windows verification
+  covers selection archive, duplicate handling, command opening, focus return,
+  and insertion into Notepad.
+
 ## Frozen Or Demoted Work
 
 The following areas are no longer product mainline for v1:

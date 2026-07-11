@@ -24,6 +24,13 @@ QString pinloomResidentStatusSummary(const PinloomResidentStatus &status)
                      .arg(status.mainHotkeyRegistered ? QStringLiteral("registered")
                                                       : QStringLiteral("not registered"),
                           hotkeyText.isEmpty() ? QString() : QStringLiteral(" (%1)").arg(hotkeyText)));
+    const QString hyperHotkeyText = status.hyperHotkeyText.trimmed();
+    parts.append(QStringLiteral("Hyper hotkey: %1%2")
+                     .arg(status.hyperHotkeyRegistered ? QStringLiteral("registered")
+                                                       : QStringLiteral("not registered"),
+                          hyperHotkeyText.isEmpty()
+                              ? QString()
+                              : QStringLiteral(" (%1)").arg(hyperHotkeyText)));
 
     QString clipCapture = QStringLiteral("stopped");
     if (status.clipCaptureActive) {
@@ -51,6 +58,12 @@ QString pinloomResidentDiagnosticsText(const PinloomResidentStatus &status,
                                                               : QStringLiteral("not registered")));
     if (!status.mainHotkeyText.trimmed().isEmpty()) {
         lines.append(QStringLiteral("Command hotkey key: %1").arg(status.mainHotkeyText.trimmed()));
+    }
+    lines.append(QStringLiteral("Hyper hotkey: %1").arg(status.hyperHotkeyRegistered
+                                                            ? QStringLiteral("registered")
+                                                            : QStringLiteral("not registered")));
+    if (!status.hyperHotkeyText.trimmed().isEmpty()) {
+        lines.append(QStringLiteral("Hyper hotkey key: %1").arg(status.hyperHotkeyText.trimmed()));
     }
     lines.append(QStringLiteral("Clip capture: %1").arg(status.clipCaptureActive
                                                             ? (status.clipCapturePaused

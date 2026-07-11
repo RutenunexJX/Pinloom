@@ -1,5 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/HyperHotkeyService.h"
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/ExplorerFileSelection.h"
@@ -7,6 +8,7 @@
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfOpenProxy.h"
+#include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -19,6 +21,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QCursor>
 #include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
@@ -33,6 +36,8 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
+#include <QThread>
+#include <QToolTip>
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -184,6 +189,125 @@ int main(int argc, char *argv[])
         }
         return upsertSavedClip(clip, error);
     };
+    const auto automaticClipName = [](const QString &text) {
+        for (const QString &line : text.split(QLatin1Char('\n'))) {
+            const QString name = line.simplified();
+            if (!name.isEmpty()) {
+                constexpr qsizetype MaxNameLength = 60;
+                return name.size() <= MaxNameLength
+                    ? name
+                    : name.left(MaxNameLength - 3) + QStringLiteral("...");
+            }
+        }
+        return QStringLiteral("Saved text");
+    };
+    const auto archiveSelectedText = [&clipHost,
+                                      &runtimeSettings,
+                                      &obsidianClipStore,
+                                      &persistSavedClip,
+                                      &automaticClipName](const Pinloom::TextSelectionCaptureResult &selection,
+                                                          QString *status) {
+        if (!clipHost || !clipHost->runtime()) {
+            if (status) {
+                *status = QStringLiteral("Pinloom Clip is not running");
+            }
+            return false;
+        }
+        if (!obsidianClipStore.config().isEnabled()) {
+            if (status) {
+                *status = QStringLiteral("Configure an Obsidian Vault before archiving selected text");
+            }
+            return false;
+        }
+        if (!selection.hasSelectedText()) {
+            if (status) {
+                *status = QStringLiteral("No selected text to archive");
+            }
+            return false;
+        }
+
+        std::optional<Pinloom::Clip> matchingClip;
+        const QList<Pinloom::Clip> existingClips = clipHost->sqliteRepository()
+            ? clipHost->sqliteRepository()->clips()
+            : clipHost->inMemoryRepository()->clips();
+        for (const Pinloom::Clip &candidate : existingClips) {
+            if (candidate.text != selection.text) {
+                continue;
+            }
+            if (!matchingClip.has_value()
+                || (candidate.state == Pinloom::ClipState::Saved
+                    && matchingClip->state != Pinloom::ClipState::Saved)) {
+                matchingClip = candidate;
+            }
+        }
+
+        if (matchingClip.has_value()
+            && matchingClip->state == Pinloom::ClipState::Saved
+            && matchingClip->sourceApp == Pinloom::obsidianClipSourceApp()) {
+            if (status) {
+                *status = QStringLiteral("Already archived: %1")
+                              .arg(matchingClip->name.trimmed().isEmpty()
+                                       ? matchingClip->preview
+                                       : matchingClip->name);
+            }
+            return true;
+        }
+
+        Pinloom::Clip clip;
+        if (matchingClip.has_value()) {
+            clip = matchingClip.value();
+        } else {
+            Pinloom::ClipCaptureResult captured;
+            if (clipHost->sqliteRepository()) {
+                captured = clipHost->sqliteRepository()->captureText(selection.text,
+                                                                     runtimeSettings.clipCapturePolicy(),
+                                                                     selection.context.processName);
+            } else {
+                captured = clipHost->inMemoryRepository()->captureText(selection.text,
+                                                                       runtimeSettings.clipCapturePolicy(),
+                                                                       selection.context.processName);
+            }
+            if (!captured.captured()) {
+                if (status) {
+                    switch (captured.status) {
+                    case Pinloom::ClipCaptureStatus::IgnoredTooLarge:
+                        *status = QStringLiteral("Selected text exceeds the configured Clip size limit");
+                        break;
+                    case Pinloom::ClipCaptureStatus::IgnoredSensitiveContent:
+                        *status = QStringLiteral("Selected text matched the sensitive-content filter");
+                        break;
+                    case Pinloom::ClipCaptureStatus::IgnoredExcludedSource:
+                        *status = QStringLiteral("The foreground app is excluded from Clip capture");
+                        break;
+                    default:
+                        *status = QStringLiteral("Unable to create a Clip from the selected text");
+                        break;
+                    }
+                }
+                return false;
+            }
+            clip = captured.clip.value();
+        }
+
+        clip.name = automaticClipName(selection.text);
+        clip.aliases.clear();
+        clip.tags.clear();
+        clip.pinned = false;
+        clip.sourceApp = selection.context.processName;
+        QString error;
+        if (!persistSavedClip(clip, &error)) {
+            if (status) {
+                *status = error.trimmed().isEmpty()
+                    ? QStringLiteral("Unable to archive selected text")
+                    : error.trimmed();
+            }
+            return false;
+        }
+        if (status) {
+            *status = QStringLiteral("Archived: %1").arg(clip.name);
+        }
+        return true;
+    };
     const auto refreshClipFromObsidian = [&clipHost,
                                           &obsidianClipStore,
                                           &upsertSavedClip](const QString &clipId,
@@ -218,6 +342,9 @@ int main(int argc, char *argv[])
         return upsertSavedClip(current, error);
     };
 
+    std::optional<Pinloom::ForegroundTextTarget> pendingClipInsertionTarget;
+    QMainWindow *commandWindowForClipInsertion = nullptr;
+
     Pinloom::PinloomPanelOptions panelOptions;
     panelOptions.applicationLaunchSettings.sumatraPdfExecutablePath =
         runtimeSettings.sumatraPdfExecutablePath.trimmed();
@@ -242,8 +369,11 @@ int main(int argc, char *argv[])
         }
         return clipHost->runtime()->searchService().search(query, options);
     };
-    panelOptions.clipInsertionHandler = [&clipHost,
-                                         &refreshClipFromObsidian](const QString &clipId, QString *error) {
+    panelOptions.clipInsertionHandler = [&app,
+                                         &clipHost,
+                                         &refreshClipFromObsidian,
+                                         &pendingClipInsertionTarget,
+                                         &commandWindowForClipInsertion](const QString &clipId, QString *error) {
         if (!clipHost || !clipHost->runtime()) {
             if (error) {
                 *error = QStringLiteral("Pinloom Clip is not running");
@@ -253,9 +383,38 @@ int main(int argc, char *argv[])
         if (!refreshClipFromObsidian(clipId, error)) {
             return false;
         }
+
+        const std::optional<Pinloom::ForegroundTextTarget> insertionTarget = pendingClipInsertionTarget;
+        pendingClipInsertionTarget.reset();
+        bool commandWindowWasHidden = false;
+        if (insertionTarget.has_value()) {
+            if (commandWindowForClipInsertion && commandWindowForClipInsertion->isVisible()) {
+                commandWindowForClipInsertion->hide();
+                commandWindowWasHidden = true;
+                app.processEvents();
+            }
+            QString restoreError;
+            if (!Pinloom::restoreForegroundTextTarget(insertionTarget.value(), &restoreError)) {
+                if (commandWindowWasHidden && commandWindowForClipInsertion) {
+                    commandWindowForClipInsertion->show();
+                    commandWindowForClipInsertion->raise();
+                    commandWindowForClipInsertion->activateWindow();
+                }
+                if (error) {
+                    *error = restoreError;
+                }
+                return false;
+            }
+            QThread::msleep(60);
+        }
         const Pinloom::ClipInsertionResult result = clipHost->runtime()->insertionService().insertClip(clipId);
         if (!result.inserted() && error) {
             *error = result.error;
+        }
+        if (!result.inserted() && commandWindowWasHidden && commandWindowForClipInsertion) {
+            commandWindowForClipInsertion->show();
+            commandWindowForClipInsertion->raise();
+            commandWindowForClipInsertion->activateWindow();
         }
         return result.inserted();
     };
@@ -440,6 +599,7 @@ int main(int argc, char *argv[])
 
     QMainWindow commandWindow;
     commandWindowForForegroundCapture = &commandWindow;
+    commandWindowForClipInsertion = &commandWindow;
     commandWindow.setWindowTitle(QStringLiteral("Pinloom Command"));
     commandWindow.setMinimumWidth(560);
     commandWindow.resize(760, 300);
@@ -1589,6 +1749,52 @@ int main(int argc, char *argv[])
         }
     }
 
+    Pinloom::TextSelectionCaptureService textSelectionCaptureService;
+    std::unique_ptr<Pinloom::HyperHotkeyBackend> hyperHotkeyBackend = Pinloom::createHyperHotkeyBackend();
+    Pinloom::HyperHotkeyService hyperHotkeyService(hyperHotkeyBackend.get(), &app);
+    bool hyperArchiveNeedsMenuCleanup = false;
+    hyperHotkeyService.setActivationHandler([&]() {
+        hyperArchiveNeedsMenuCleanup = false;
+        const Pinloom::TextSelectionCaptureResult selection = textSelectionCaptureService.capture();
+        lastForegroundContext = selection.context;
+        if (Pinloom::contextualClipIntent(selection) == Pinloom::ContextualClipIntent::ArchiveSelection) {
+            hyperArchiveNeedsMenuCleanup = true;
+            QString status;
+            const bool archived = archiveSelectedText(selection, &status);
+            const QString message = status.trimmed().isEmpty()
+                ? (archived ? QStringLiteral("Selected text archived")
+                            : QStringLiteral("Unable to archive selected text"))
+                : status.trimmed();
+            QToolTip::showText(QCursor::pos(), message, nullptr, {}, 2500);
+            if (!archived) {
+                window.setRecentError(QStringLiteral("Hyper+S archive failed"), message);
+            }
+            return;
+        }
+
+        if (!selection.target.isValid()) {
+            const QString error = selection.diagnostics.trimmed().isEmpty()
+                ? QStringLiteral("No valid foreground insertion target")
+                : selection.diagnostics.trimmed();
+            QToolTip::showText(QCursor::pos(), error, nullptr, {}, 2500);
+            window.setRecentError(QStringLiteral("Hyper+S insertion target unavailable"), error);
+            return;
+        }
+
+        pendingClipInsertionTarget = selection.target;
+        Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
+        commandPanel->openClipSearch();
+    });
+    QObject::connect(&hyperHotkeyService,
+                     &Pinloom::HyperHotkeyService::chordReleased,
+                     &app,
+                     [&]() {
+                         if (hyperArchiveNeedsMenuCleanup) {
+                             Pinloom::dismissHyperModifierUiState();
+                             hyperArchiveNeedsMenuCleanup = false;
+                         }
+                     });
+
     std::unique_ptr<Pinloom::ClipHotkeyBackend> mainPanelHotkeyBackend = Pinloom::createMainPanelHotkeyBackend();
     Pinloom::ClipHotkeyService mainPanelHotkeyService(Pinloom::defaultMainPanelHotkeyConfig(),
                                                       mainPanelHotkeyBackend.get(),
@@ -1608,6 +1814,8 @@ int main(int argc, char *argv[])
         status.running = true;
         status.mainHotkeyRegistered = mainPanelHotkeyService.isRegistered();
         status.mainHotkeyText = mainPanelHotkeyService.displayText();
+        status.hyperHotkeyRegistered = hyperHotkeyService.isRegistered();
+        status.hyperHotkeyText = hyperHotkeyService.displayText();
         if (clipHost && clipHost->runtime()) {
             status.clipStatus = clipHost->runtime()->trayController().status();
             status.clipCaptureActive = clipHost->runtime()->captureService().isRunning();
@@ -1621,6 +1829,9 @@ int main(int argc, char *argv[])
         if (!mainPanelHotkeyService.lastError().trimmed().isEmpty()) {
             status.lastError = mainPanelHotkeyService.lastError().trimmed();
         }
+        if (!hyperHotkeyService.lastError().trimmed().isEmpty()) {
+            status.lastError = hyperHotkeyService.lastError().trimmed();
+        }
         if (!window.recentError().trimmed().isEmpty()) {
             status.lastError = window.recentError().trimmed();
         }
@@ -1630,6 +1841,18 @@ int main(int argc, char *argv[])
                      &Pinloom::ClipHotkeyService::registeredChanged,
                      &window,
                      [&](bool) {
+                         refreshResidentStatus();
+                     });
+    QObject::connect(&hyperHotkeyService,
+                     &Pinloom::HyperHotkeyService::registeredChanged,
+                     &window,
+                     [&](bool) {
+                         refreshResidentStatus();
+                     });
+    QObject::connect(&hyperHotkeyService,
+                     &Pinloom::HyperHotkeyService::errorChanged,
+                     &window,
+                     [&](const QString &) {
                          refreshResidentStatus();
                      });
     QObject::connect(&mainPanelHotkeyService,
@@ -1698,6 +1921,14 @@ int main(int argc, char *argv[])
     } else {
         refreshResidentStatus();
     }
+
+    if (!hyperHotkeyService.start()) {
+        const QString error = QStringLiteral("Pinloom %1 could not start:\n%2")
+                                  .arg(hyperHotkeyService.displayText(), hyperHotkeyService.lastError());
+        qWarning().noquote() << error;
+        window.setRecentError(QStringLiteral("Pinloom Hyper hotkey could not start"), error);
+    }
+    refreshResidentStatus();
 
     return app.exec();
 }

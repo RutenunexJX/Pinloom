@@ -1,12 +1,14 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipArchive.h"
 #include "pinloom/clip/ClipHotkeyService.h"
+#include "pinloom/clip/HyperHotkeyService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
+#include "pinloom/core/TextSelectionCapture.h"
 
 #include <QFile>
 #include <QJsonArray>
@@ -324,6 +326,9 @@ private slots:
     void hotkeyServiceStopUnregisters();
     void hotkeyServiceReportsRegisterFailure();
     void hotkeyServiceDuplicateStartStopIsStable();
+    void hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger();
+    void hyperHotkeyStateMachineRejectsIncompleteChord();
+    void contextualClipIntentUsesThreeStateSelectionContract();
     void clipPickerHotkeyControllerRequestsShow();
     void trayControllerStartsHotkeyRuntime();
     void trayControllerHotkeyActivationShowsPicker();
@@ -341,6 +346,8 @@ private slots:
     void insertionServiceInsertsTextById();
     void insertionServiceSuppressesCaptureBeforeOwnClipboardWrites();
     void insertionServiceRestoresOriginalClipboardOnSuccess();
+    void insertionServiceDefersClipboardRestore();
+    void insertionServiceDoesNotOverwriteNewClipboardContent();
     void insertionServiceUsesPlatformPasteInvoker();
     void insertionServiceReportsErrors();
     void insertionServiceInsertsSqliteTemporaryAndSavedClips();
@@ -1930,6 +1937,88 @@ void ClipTest::hotkeyServiceDuplicateStartStopIsStable()
     QCOMPARE(backend.unregisterCalls(), 1);
 }
 
+void ClipTest::hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger()
+{
+    HyperHotkeyStateMachine matcher;
+    QVERIFY(!matcher.process(HyperKeyRole::Control, true).consume);
+    QVERIFY(!matcher.process(HyperKeyRole::Alt, true).consume);
+    QVERIFY(!matcher.process(HyperKeyRole::Shift, true).consume);
+
+    const HyperHotkeyMatchResult layerDown = matcher.process(HyperKeyRole::Layer, true);
+    QVERIFY(!layerDown.consume);
+    QVERIFY(!layerDown.activated);
+    QVERIFY(matcher.armed());
+
+    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::Trigger, true);
+    QVERIFY(triggerDown.consume);
+    QVERIFY(triggerDown.activated);
+
+    const HyperHotkeyMatchResult repeated = matcher.process(HyperKeyRole::Trigger, true);
+    QVERIFY(repeated.consume);
+    QVERIFY(!repeated.activated);
+
+    const HyperHotkeyMatchResult triggerUp = matcher.process(HyperKeyRole::Trigger, false);
+    QVERIFY(triggerUp.consume);
+    QVERIFY(!triggerUp.activated);
+
+    const HyperHotkeyMatchResult layerUp = matcher.process(HyperKeyRole::Layer, false);
+    QVERIFY(!layerUp.consume);
+    QVERIFY(layerUp.chordReleased);
+    QVERIFY(!matcher.armed());
+    matcher.process(HyperKeyRole::Shift, false);
+    matcher.process(HyperKeyRole::Alt, false);
+    matcher.process(HyperKeyRole::Control, false);
+}
+
+void ClipTest::hyperHotkeyStateMachineRejectsIncompleteChord()
+{
+    HyperHotkeyStateMachine matcher;
+    matcher.process(HyperKeyRole::Control, true);
+    matcher.process(HyperKeyRole::Alt, true);
+
+    const HyperHotkeyMatchResult layerDown = matcher.process(HyperKeyRole::Layer, true);
+    QVERIFY(!layerDown.consume);
+    QVERIFY(!matcher.armed());
+
+    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::Trigger, true);
+    QVERIFY(!triggerDown.consume);
+    QVERIFY(!triggerDown.activated);
+
+    matcher.reset();
+    matcher.process(HyperKeyRole::Control, true);
+    matcher.process(HyperKeyRole::Alt, true);
+    matcher.process(HyperKeyRole::Shift, true);
+    const HyperHotkeyMatchResult plainS = matcher.process(HyperKeyRole::Trigger, true);
+    QVERIFY(!plainS.consume);
+    QVERIFY(!plainS.activated);
+}
+
+void ClipTest::contextualClipIntentUsesThreeStateSelectionContract()
+{
+    TextSelectionCaptureResult selected;
+    selected.state = TextSelectionState::TextSelected;
+    selected.text = QStringLiteral("selected text");
+    QCOMPARE(contextualClipIntent(selected), ContextualClipIntent::ArchiveSelection);
+
+    TextSelectionCaptureResult emptySelection;
+    emptySelection.state = TextSelectionState::TextSelected;
+    emptySelection.text = QStringLiteral("  \n");
+    QCOMPARE(contextualClipIntent(emptySelection), ContextualClipIntent::OpenInsertionPicker);
+
+    TextSelectionCaptureResult caret;
+    caret.state = TextSelectionState::CaretOnly;
+    QCOMPARE(contextualClipIntent(caret), ContextualClipIntent::OpenInsertionPicker);
+
+    TextSelectionCaptureResult unknown;
+    unknown.state = TextSelectionState::Unknown;
+    QCOMPARE(contextualClipIntent(unknown), ContextualClipIntent::OpenInsertionPicker);
+
+    TextSelectionCaptureService service([selected]() {
+        return selected;
+    });
+    QCOMPARE(service.capture().text, QStringLiteral("selected text"));
+}
+
 void ClipTest::clipPickerHotkeyControllerRequestsShow()
 {
     FakeClipHotkeyBackend backend;
@@ -2281,6 +2370,9 @@ void ClipTest::insertionServiceRestoresOriginalClipboardOnSuccess()
         ++pasteCalls;
         return true;
     });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 0;
+    service.setOptions(options);
 
     int suppressCalls = 0;
     service.setSuppressClipboardCaptureCallback([&]() {
@@ -2295,6 +2387,59 @@ void ClipTest::insertionServiceRestoresOriginalClipboardOnSuccess()
     QCOMPARE(clipboard.text(), QStringLiteral("original clipboard"));
     QCOMPARE(clipboard.writes(),
              (QStringList{QStringLiteral("Temporary paste text"), QStringLiteral("original clipboard")}));
+}
+
+void ClipTest::insertionServiceDefersClipboardRestore()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Deferred paste text"));
+    QVERIFY(captured.captured());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    ClipInsertionService service(&clipboard, repository, []() {
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 30;
+    service.setOptions(options);
+
+    int suppressCalls = 0;
+    service.setSuppressClipboardCaptureCallback([&]() {
+        ++suppressCalls;
+    });
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+
+    QVERIFY(result.inserted());
+    QCOMPARE(clipboard.text(), QStringLiteral("Deferred paste text"));
+    QCOMPARE(suppressCalls, 1);
+    QTRY_COMPARE(clipboard.text(), QStringLiteral("original clipboard"));
+    QCOMPARE(suppressCalls, 2);
+}
+
+void ClipTest::insertionServiceDoesNotOverwriteNewClipboardContent()
+{
+    InMemoryClipRepository repository;
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("Transient paste text"));
+    QVERIFY(captured.captured());
+
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original clipboard"));
+    ClipInsertionService service(&clipboard, repository, []() {
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 30;
+    service.setOptions(options);
+
+    const ClipInsertionResult result = service.insertClip(captured.clip->id);
+    QVERIFY(result.inserted());
+    clipboard.setInitialText(QStringLiteral("new external clipboard content"));
+
+    QTest::qWait(60);
+    QCOMPARE(clipboard.text(), QStringLiteral("new external clipboard content"));
+    QCOMPARE(clipboard.writes(), QStringList{QStringLiteral("Transient paste text")});
 }
 
 void ClipTest::insertionServiceUsesPlatformPasteInvoker()

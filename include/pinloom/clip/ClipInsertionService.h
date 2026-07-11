@@ -25,6 +25,7 @@ enum class ClipInsertionStatus {
 struct ClipInsertionOptions {
     bool restoreOriginalClipboardOnSuccess = true;
     bool markClipUsedOnSuccess = true;
+    int clipboardRestoreDelayMs = 200;
 };
 
 struct ClipInsertionResult {
@@ -119,6 +120,9 @@ private:
     void setLastStatus(ClipInsertionStatus status);
     void setLastError(const QString &error);
     void suppressNextClipboardCapture();
+    bool restoreClipboardIfUnchanged(const QString &originalText,
+                                     const QString &insertedText,
+                                     quint64 generation);
 
     ClipboardTextAccessor *clipboard_ = nullptr;
     FindClipCallback findClip_;
@@ -131,6 +135,7 @@ private:
     std::optional<Clip> lastInsertedClip_;
     ClipInsertionStatus lastStatus_ = ClipInsertionStatus::MissingClip;
     QString lastError_;
+    quint64 clipboardWriteGeneration_ = 0;
 };
 
 } // namespace Pinloom
