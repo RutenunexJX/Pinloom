@@ -38,22 +38,12 @@ struct PinloomCommandActionResult {
 struct PinloomCommandPanelOptions {
     std::function<QList<PinloomEntry>(const QString &query)> unifiedEntrySearchHandler;
     std::function<QList<PinloomEntry>(const QString &query)> deletedEntrySearchHandler;
-    std::function<QList<PinloomOpenTarget>(const QString &query)> unifiedSearchHandler;
     std::function<QList<PinloomCommandResultAction>(const PinloomEntry &entry)> unifiedEntryActionProvider;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> anchorJumpHandler;
     std::function<bool(const PinloomOpenTarget &target, QString *status)> resourceOpenHandler;
-    std::function<QList<PinloomCommandResultAction>(const PinloomOpenTarget &target)> unifiedActionProvider;
-    std::function<bool(QWidget *parent,
-                       const PinloomEntry &entry,
-                       const PinloomCommandResultAction &action,
-                       QString *status)> unifiedEntryActionHandler;
     std::function<PinloomCommandActionResult(QWidget *parent,
                                              const PinloomEntry &entry,
                                              const PinloomCommandResultAction &action)> unifiedEntryCommandHandler;
-    std::function<bool(QWidget *parent,
-                       const PinloomOpenTarget &target,
-                       const PinloomCommandResultAction &action,
-                       QString *status)> unifiedActionHandler;
     std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
     std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
     std::function<std::optional<PinloomClipSaveRequest>(

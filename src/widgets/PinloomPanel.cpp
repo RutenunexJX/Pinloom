@@ -1,8 +1,8 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
-#include "pinloom/core/IndexingService.h"
+#include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
-#include "pinloom/core/LegacyCompatibility.h"
+#include "pinloom/core/ResourceNormalization.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
@@ -10,17 +10,17 @@
 #include <QApplication>
 #include <QDateTime>
 #include <QDesktopServices>
-#include <QCheckBox>
 #include <QClipboard>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QEvent>
-#include <QFileDialog>
 #include <QFileInfo>
 #include <QFontMetrics>
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QInputDialog>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -106,40 +106,31 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
     });
 }
 
-QString rootItemText(const LibraryRoot &root)
-{
-    const QString indexedAt = root.lastIndexedAt.isValid()
-        ? root.lastIndexedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm"))
-        : QStringLiteral("never");
-    return QStringLiteral("%1%2  |  %3  |  %4")
-        .arg(root.pinned ? QStringLiteral("[Pinned] ") : QString(),
-             root.displayName.isEmpty() ? root.path : root.displayName,
-             root.path,
-             indexedAt);
-}
-
 QString anchorLabel(const Anchor &anchor)
 {
-    switch (anchor.type) {
-    case AnchorType::FileLine:
+    const QString type = anchorLocatorType(anchor);
+    if (type == QLatin1String("file.line")) {
         return QStringLiteral("Line");
-    case AnchorType::MarkdownHeading:
-    case AnchorType::TextHeading:
-        return QStringLiteral("Heading");
-    case AnchorType::MarkdownBlock:
-    case AnchorType::TextBlock:
-        return QStringLiteral("Block");
-    case AnchorType::Marker:
-        return QStringLiteral("Marker");
-    case AnchorType::PdfPage:
-        return QStringLiteral("Page");
-    case AnchorType::PdfRegion:
-        return QStringLiteral("PDF Region");
-    case AnchorType::UrlFragment:
-        return QStringLiteral("Fragment");
-    default:
-        return QStringLiteral("Anchor");
     }
+    if (type == QLatin1String("text.heading")) {
+        return QStringLiteral("Heading");
+    }
+    if (type == QLatin1String("text.block")) {
+        return QStringLiteral("Block");
+    }
+    if (type == QLatin1String("marker")) {
+        return QStringLiteral("Marker");
+    }
+    if (type.endsWith(QLatin1String(".page"))) {
+        return QStringLiteral("Page");
+    }
+    if (type.endsWith(QLatin1String(".rect")) || type == QLatin1String("pdf.region")) {
+        return QStringLiteral("PDF Region");
+    }
+    if (type == QLatin1String("url.fragment")) {
+        return QStringLiteral("Fragment");
+    }
+    return QStringLiteral("Anchor");
 }
 
 QString resourceKindLabel(ResourceKind kind)
@@ -149,8 +140,6 @@ QString resourceKindLabel(ResourceKind kind)
         return QStringLiteral("Folder");
     case ResourceKind::Pdf:
         return QStringLiteral("PDF");
-    case ResourceKind::Markdown:
-        return QStringLiteral("Text");
     case ResourceKind::TextSnippet:
         return QStringLiteral("Text");
     case ResourceKind::Url:
@@ -310,10 +299,6 @@ QString anchorDisplayName(const Anchor &anchor, const Resource &resource)
     if (!name.isEmpty()) {
         return name;
     }
-    const QString target = anchor.target.trimmed();
-    if (!target.isEmpty()) {
-        return target;
-    }
     if (!resource.title.trimmed().isEmpty()) {
         return resource.title;
     }
@@ -341,25 +326,6 @@ QString anchorTargetSummary(const Anchor &anchor, const Resource &resource)
     return parts.join(QStringLiteral(" | "));
 }
 
-QString legacyLocatorSummary(const Anchor &anchor)
-{
-    QStringList parts;
-    if (anchor.page > 0) {
-        parts.append(QStringLiteral("page %1").arg(anchor.page));
-    }
-    if (anchor.line > 0) {
-        parts.append(QStringLiteral("line %1").arg(anchor.line));
-    }
-    if (anchor.region.isValid()) {
-        parts.append(QStringLiteral("region %1,%2,%3,%4")
-                         .arg(QString::number(anchor.region.x(), 'f', 2),
-                              QString::number(anchor.region.y(), 'f', 2),
-                              QString::number(anchor.region.width(), 'f', 2),
-                              QString::number(anchor.region.height(), 'f', 2)));
-    }
-    return parts.join(QStringLiteral(", "));
-}
-
 QString locatorSummary(const Anchor &anchor)
 {
     const QString locatorType = anchor.locatorType.trimmed();
@@ -371,10 +337,6 @@ QString locatorSummary(const Anchor &anchor)
         return locatorType;
     }
 
-    const QString legacy = legacyLocatorSummary(anchor);
-    if (!legacy.isEmpty()) {
-        return legacy;
-    }
     return anchorLabel(anchor);
 }
 
@@ -471,21 +433,6 @@ QString resultMatchSummary(const SearchResult &result, const SearchQuery &query)
     if (!contextLocationPrefix.isEmpty()) {
         lines.append(QStringLiteral("Context location: %1").arg(contextLocationPrefix));
     }
-    if (!result.matchedContextResourceId.isEmpty()) {
-        if (result.matchedContextRelationLabel.isEmpty()) {
-            lines.append(QStringLiteral("Context resource: %1").arg(result.matchedContextResourceId));
-        } else {
-            QString relationLine = QStringLiteral("Context relation: %1 via %2")
-                                       .arg(result.matchedContextResourceId,
-                                            result.matchedContextRelationLabel);
-            const QString relationNote = result.matchedContextRelationNote.trimmed();
-            if (!relationNote.isEmpty()) {
-                relationLine.append(QStringLiteral(" (%1)").arg(relationNote));
-            }
-            lines.append(relationLine);
-        }
-    }
-
     return lines.join(QLatin1Char('\n'));
 }
 
@@ -591,21 +538,6 @@ bool launcherEntryLessThan(const LauncherResultEntry &left, const LauncherResult
     return left.stableId < right.stableId;
 }
 
-QString relationText(const ResourceRelation &relation, const QString &currentResourceId, ILibraryRepository &repository)
-{
-    const bool currentIsSource = relation.sourceResourceId == currentResourceId;
-    const QString otherResourceId = currentIsSource ? relation.targetResourceId : relation.sourceResourceId;
-    const std::optional<Resource> otherResource = repository.findResource(otherResourceId);
-    const QString otherLabel = otherResource.has_value()
-        ? (otherResource->title.isEmpty() ? otherResource->location : otherResource->title)
-        : otherResourceId;
-    const QString direction = currentIsSource ? QStringLiteral("->") : QStringLiteral("<-");
-    if (relation.note.trimmed().isEmpty()) {
-        return QStringLiteral("%1 %2 %3").arg(relation.label, direction, otherLabel);
-    }
-    return QStringLiteral("%1 %2 %3 (%4)").arg(relation.label, direction, otherLabel, relation.note);
-}
-
 bool containsValueCaseInsensitive(const QStringList &values, const QString &needle)
 {
     return values.contains(needle, Qt::CaseInsensitive);
@@ -643,24 +575,10 @@ QStringList valuesFromCommaText(const QString &text, bool tags = false)
     return cleanedValues(text.split(QLatin1Char(','), Qt::SkipEmptyParts), tags);
 }
 
-bool sameAnchor(const Anchor &left, const Anchor &right)
-{
-    if (!left.id.trimmed().isEmpty() && !right.id.trimmed().isEmpty()) {
-        return left.id == right.id;
-    }
-    return left.type == right.type
-        && left.target == right.target
-        && left.line == right.line
-        && left.page == right.page
-        && left.region == right.region
-        && left.locatorType == right.locatorType
-        && left.locatorJson == right.locatorJson;
-}
-
 int anchorIndex(const Resource &resource, const Anchor &anchor)
 {
     for (int i = 0; i < resource.anchors.size(); ++i) {
-        if (sameAnchor(resource.anchors.at(i), anchor)) {
+        if (sameAnchorIdentity(resource.anchors.at(i), anchor)) {
             return i;
         }
     }
@@ -720,9 +638,6 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
     target.score = item->data(Qt::UserRole + 14).toDouble();
     target.matchedContextTag = item->data(Qt::UserRole + 15).toString();
     target.matchedContextLocationPrefix = item->data(Qt::UserRole + 16).toString();
-    target.matchedContextResourceId = item->data(Qt::UserRole + 17).toString();
-    target.matchedContextRelationLabel = item->data(Qt::UserRole + 18).toString();
-    target.matchedContextRelationNote = item->data(Qt::UserRole + 19).toString();
     target.matchSummary = item->data(Qt::UserRole + 20).toString();
 
     if (item->data(Qt::UserRole + 2).toBool()) {
@@ -741,43 +656,10 @@ PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
         anchor.updatedAt = item->data(Qt::UserRole + 32).toDateTime();
         anchor.usedAt = item->data(Qt::UserRole + 33).toDateTime();
         anchor.deleted = item->data(AnchorDeletedRole).toBool();
-        anchor.type = static_cast<AnchorType>(item->data(Qt::UserRole + 5).toInt());
-        anchor.target = item->data(Qt::UserRole + 4).toString();
-        anchor.line = item->data(Qt::UserRole + 3).toInt();
-        anchor.page = item->data(Qt::UserRole + 6).toInt();
-        anchor.region = QRectF(item->data(Qt::UserRole + 7).toDouble(),
-                               item->data(Qt::UserRole + 8).toDouble(),
-                               item->data(Qt::UserRole + 9).toDouble(),
-                               item->data(Qt::UserRole + 10).toDouble());
         target.anchor = anchor;
         target.deleted = target.deleted || anchor.deleted;
     }
 
-    return target;
-}
-
-bool isDeprecatedPdfManualLineOpenTarget(const PinloomOpenTarget &target)
-{
-    if (!target.anchor.has_value()) {
-        return false;
-    }
-
-    Resource resource;
-    resource.kind = target.resourceKind;
-    resource.location = target.location;
-    return isDeprecatedPdfManualLineAnchor(resource, target.anchor.value());
-}
-
-PinloomLibraryRootTarget libraryRootTargetForRoot(const LibraryRoot &root, int row)
-{
-    PinloomLibraryRootTarget target;
-    target.id = root.id;
-    target.path = root.path;
-    target.displayName = root.displayName;
-    target.enabled = root.enabled;
-    target.pinned = root.pinned;
-    target.lastIndexedAt = root.lastIndexedAt;
-    target.rootRow = row;
     return target;
 }
 
@@ -789,24 +671,6 @@ QUrl urlForLocation(const QString &location)
         return parsed;
     }
     return QUrl::fromLocalFile(location);
-}
-
-QString pdfFragmentForAnchor(const Anchor &anchor)
-{
-    if (anchor.page <= 0) {
-        return {};
-    }
-
-    if (anchor.type == AnchorType::PdfRegion && anchor.region.isValid()) {
-        return QStringLiteral("page=%1&viewrect=%2,%3,%4,%5")
-            .arg(QString::number(anchor.page),
-                 QString::number(anchor.region.x(), 'f', 2),
-                 QString::number(anchor.region.y(), 'f', 2),
-                 QString::number(anchor.region.width(), 'f', 2),
-                 QString::number(anchor.region.height(), 'f', 2));
-    }
-
-    return QStringLiteral("page=%1").arg(anchor.page);
 }
 
 bool isExcelComAutomationAvailable()
@@ -970,7 +834,7 @@ PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target)
             ? QStringLiteral("anchor:%1").arg(target.resourceId)
             : QStringLiteral("anchor:%1").arg(target.anchor->id);
         entry.name = target.anchor->name.trimmed().isEmpty()
-            ? (target.anchor->target.trimmed().isEmpty() ? target.title : target.anchor->target)
+            ? target.title
             : target.anchor->name;
         entry.aliases = target.anchor->aliases;
         entry.tags = target.anchor->tags;
@@ -1049,36 +913,6 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     layout->setContentsMargins(10, 8, 10, 8);
     layout->setSpacing(6);
 
-    rootControlsWidget_ = new QWidget(this);
-    rootControlsWidget_->setObjectName(QStringLiteral("libraryRootControls"));
-    auto *rootToolbar = new QHBoxLayout(rootControlsWidget_);
-    rootToolbar->setContentsMargins(0, 0, 0, 0);
-    auto *addRootButton = new QPushButton(tr("Add Folder"), this);
-    addRootButton->setObjectName(QStringLiteral("addRootButton"));
-    removeRootButton_ = new QPushButton(tr("Remove Folder"), this);
-    refreshSelectedButton_ = new QPushButton(tr("Refresh Selected"), this);
-    refreshAllButton_ = new QPushButton(tr("Refresh All"), this);
-    rebuildAllButton_ = new QPushButton(tr("Rebuild All"), this);
-    pinRootButton_ = new QPushButton(tr("Pin Folder"), this);
-    pinRootButton_->setObjectName(QStringLiteral("pinRootButton"));
-    pinRootButton_->setCheckable(true);
-    fetchRemoteWebPagesCheck_ = new QCheckBox(tr("Fetch Web"), this);
-    fetchRemoteWebPagesCheck_->setObjectName(QStringLiteral("fetchRemoteWebPagesCheck"));
-    fetchRemoteWebPagesCheck_->setToolTip(tr("Fetch linked HTML pages while indexing web shortcuts"));
-
-    rootToolbar->addWidget(addRootButton);
-    rootToolbar->addWidget(removeRootButton_);
-    rootToolbar->addWidget(refreshSelectedButton_);
-    rootToolbar->addWidget(refreshAllButton_);
-    rootToolbar->addWidget(rebuildAllButton_);
-    rootToolbar->addWidget(pinRootButton_);
-    rootToolbar->addWidget(fetchRemoteWebPagesCheck_);
-    rootToolbar->addStretch(1);
-
-    rootList_ = new QListWidget(this);
-    rootList_->setObjectName(QStringLiteral("libraryRootList"));
-    rootList_->setMaximumHeight(130);
-
     auto *resultToolbar = new QHBoxLayout();
     resultToolbar->setContentsMargins(0, 0, 0, 0);
     searchEdit_ = new QLineEdit(this);
@@ -1095,16 +929,11 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     pinButton_ = new QPushButton(tr("Pin"), this);
     pinButton_->setObjectName(QStringLiteral("pinButton"));
     pinButton_->setCheckable(true);
-    auto *manageButton = new QPushButton(tr("Manage"), this);
-    manageButton->setObjectName(QStringLiteral("manageLibraryButton"));
-    manageButton->setCheckable(true);
-    manageButton->setChecked(options_.showLibraryRootControls);
     resultToolbar->addWidget(searchEdit_, 1);
     resultToolbar->addWidget(openButton_);
     resultToolbar->addWidget(addAliasButton_);
     resultToolbar->addWidget(addAnchorButton_);
     resultToolbar->addWidget(pinButton_);
-    resultToolbar->addWidget(manageButton);
 
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("resultList"));
@@ -1115,9 +944,6 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     resultList_->setMaximumHeight(resultList_->fontMetrics().lineSpacing() * 10 + 24);
     searchEdit_->installEventFilter(this);
     resultList_->installEventFilter(this);
-    relationLabel_ = new QLabel(this);
-    relationLabel_->setObjectName(QStringLiteral("relationLabel"));
-    relationLabel_->setWordWrap(true);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
     installStatusContextMenu(statusLabel_, this, [this]() {
@@ -1126,52 +952,28 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 
     layout->addLayout(resultToolbar);
     layout->addWidget(resultList_, options_.compactLauncherMode ? 0 : 1);
-    layout->addWidget(relationLabel_);
-    layout->addWidget(rootControlsWidget_);
-    layout->addWidget(rootList_);
     layout->addWidget(statusLabel_);
 
-    connect(addRootButton, &QPushButton::clicked, this, &PinloomPanel::addLibraryRoot);
-    connect(removeRootButton_, &QPushButton::clicked, this, &PinloomPanel::removeSelectedLibraryRoot);
-    connect(refreshSelectedButton_, &QPushButton::clicked, this, &PinloomPanel::refreshSelectedRoot);
-    connect(refreshAllButton_, &QPushButton::clicked, this, &PinloomPanel::refreshAllRoots);
-    connect(rebuildAllButton_, &QPushButton::clicked, this, &PinloomPanel::rebuildAllRoots);
-    connect(pinRootButton_, &QPushButton::clicked, this, &PinloomPanel::toggleSelectedLibraryRootPin);
     connect(openButton_, &QPushButton::clicked, this, &PinloomPanel::openSelectedResource);
     connect(addAliasButton_, &QPushButton::clicked, this, &PinloomPanel::promptAddAlias);
     connect(addAnchorButton_, &QPushButton::clicked, this, &PinloomPanel::promptAddManualAnchor);
     connect(pinButton_, &QPushButton::clicked, this, &PinloomPanel::toggleSelectedResourcePin);
-    connect(manageButton, &QPushButton::toggled, this, [this](bool checked) {
-        rootControlsWidget_->setVisible(checked);
-        rootList_->setVisible(checked);
-    });
     connect(searchEdit_, &QLineEdit::textChanged, this, &PinloomPanel::refreshResults);
     connect(searchEdit_, &QLineEdit::returnPressed, this, &PinloomPanel::activateCurrentLauncherItem);
-    connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshRelationSummary);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshAnchorButtonState);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshPinButtonState);
     connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
     connect(resultList_, &QListWidget::itemActivated, this, &PinloomPanel::openResultItem);
-    connect(rootList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshRootPinButtonState);
-    connect(rootList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentLibraryRootChanged);
-
-    rootControlsWidget_->setVisible(options_.showLibraryRootControls);
-    rootList_->setVisible(options_.showLibraryRootControls);
-    manageButton->setVisible(options_.showLibraryRootManagementButton);
     openButton_->setVisible(options_.showOpenButton);
     addAliasButton_->setVisible(options_.showManualEditControls);
     addAnchorButton_->setVisible(options_.showManualEditControls);
     pinButton_->setVisible(options_.showPinControls);
-    pinRootButton_->setVisible(options_.showPinControls);
-    relationLabel_->setVisible(options_.showRelationLine);
     statusLabel_->setVisible(options_.showStatusLine);
     resultList_->setVisible(!options_.compactLauncherMode);
 
-    loadLibraryRoots();
     refreshResults();
     refreshAnchorButtonState();
-    refreshRootPinButtonState();
     focusSearch();
 
     auto installShortcut = [this](const QKeySequence &sequence, const QObject *receiver, const char *member) {
@@ -1308,28 +1110,6 @@ QStringList PinloomPanel::contextLocationPrefixes() const
     return contextLocationPrefixes_;
 }
 
-void PinloomPanel::setContextResourceIds(const QStringList &resourceIds)
-{
-    contextResourceIds_ = resourceIds;
-    refreshResults();
-}
-
-QStringList PinloomPanel::contextResourceIds() const
-{
-    return contextResourceIds_;
-}
-
-void PinloomPanel::setContextRelationLabels(const QStringList &labels)
-{
-    contextRelationLabels_ = labels;
-    refreshResults();
-}
-
-QStringList PinloomPanel::contextRelationLabels() const
-{
-    return contextRelationLabels_;
-}
-
 void PinloomPanel::applyHostContext(const PinloomHostContext &context)
 {
     {
@@ -1341,8 +1121,6 @@ void PinloomPanel::applyHostContext(const PinloomHostContext &context)
     requiredResourceKinds_ = context.requiredResourceKinds;
     contextTags_ = context.contextTags;
     contextLocationPrefixes_ = context.contextLocationPrefixes;
-    contextResourceIds_ = context.contextResourceIds;
-    contextRelationLabels_ = context.contextRelationLabels;
     refreshResults();
 }
 
@@ -1355,8 +1133,6 @@ PinloomHostContext PinloomPanel::hostContext() const
     context.requiredResourceKinds = requiredResourceKinds_;
     context.contextTags = contextTags_;
     context.contextLocationPrefixes = contextLocationPrefixes_;
-    context.contextResourceIds = contextResourceIds_;
-    context.contextRelationLabels = contextRelationLabels_;
     return context;
 }
 
@@ -1412,8 +1188,6 @@ QList<PinloomEntry> PinloomPanel::searchEntries(const QString &text, bool includ
     query.requiredKinds = requiredResourceKinds_;
     query.contextTags = contextTags_;
     query.contextLocationPrefixes = contextLocationPrefixes_;
-    query.contextResourceIds = contextResourceIds_;
-    query.contextRelationLabels = contextRelationLabels_;
     query.includeDeleted = includeDeleted;
     query.limit = 100;
 
@@ -1480,132 +1254,6 @@ QList<PinloomEntry> PinloomPanel::searchEntries(const QString &text, bool includ
     return sortedPinloomEntries(entries);
 }
 
-QList<PinloomRelatedTarget> PinloomPanel::currentRelatedTargets() const
-{
-    return relatedTargetsForResource(selectedResultResourceId());
-}
-
-QList<PinloomRelatedTarget> PinloomPanel::relatedTargetsForResource(const QString &resourceId) const
-{
-    QList<PinloomRelatedTarget> targets;
-    if (resourceId.isEmpty()) {
-        return targets;
-    }
-    for (const ResourceRelation &relation : repository_.resourceRelations(resourceId)) {
-        const bool currentIsSource = relation.sourceResourceId == resourceId;
-        const QString otherResourceId = currentIsSource ? relation.targetResourceId : relation.sourceResourceId;
-
-        PinloomRelatedTarget related;
-        related.relationLabel = relation.label;
-        related.relationNote = relation.note;
-        related.currentIsSource = currentIsSource;
-
-        const std::optional<Resource> resource = repository_.findResource(otherResourceId);
-        if (resource.has_value()) {
-            related.target = openTargetForResource(resource.value());
-        } else {
-            related.target.resourceId = otherResourceId;
-            related.target.title = otherResourceId;
-        }
-        targets.append(related);
-    }
-
-    return targets;
-}
-
-bool PinloomPanel::upsertResourceRelation(const QString &sourceResourceId,
-                                          const QString &targetResourceId,
-                                          const QString &label,
-                                          const QString &note)
-{
-    const QString trimmedLabel = label.trimmed();
-    if (sourceResourceId.isEmpty() || targetResourceId.isEmpty() || trimmedLabel.isEmpty()) {
-        updateStatus(tr("Select related resources and enter a relation label"));
-        return false;
-    }
-
-    if (!repository_.findResource(sourceResourceId).has_value()
-        || !repository_.findResource(targetResourceId).has_value()) {
-        refreshResults();
-        updateStatus(tr("Related resource no longer exists"));
-        return false;
-    }
-
-    ResourceRelation relation;
-    relation.sourceResourceId = sourceResourceId;
-    relation.targetResourceId = targetResourceId;
-    relation.label = trimmedLabel;
-    relation.note = note.trimmed();
-    if (!repository_.upsertResourceRelation(relation)) {
-        updateStatus(tr("Unable to save resource relation"));
-        return false;
-    }
-
-    const QString previousResourceId = selectedResultResourceId();
-    refreshResults();
-    if (!previousResourceId.isEmpty()) {
-        selectResultResource(previousResourceId);
-    }
-    if (selectedResultResourceId().isEmpty()) {
-        selectResultResource(sourceResourceId);
-    }
-    refreshRelationSummary();
-    updateStatus(tr("Saved resource relation"));
-    return true;
-}
-
-bool PinloomPanel::removeResourceRelation(const QString &sourceResourceId,
-                                          const QString &targetResourceId,
-                                          const QString &label)
-{
-    const QString trimmedLabel = label.trimmed();
-    if (sourceResourceId.isEmpty() || targetResourceId.isEmpty() || trimmedLabel.isEmpty()) {
-        updateStatus(tr("Select related resources and enter a relation label"));
-        return false;
-    }
-
-    if (!repository_.removeResourceRelation(sourceResourceId, targetResourceId, trimmedLabel)) {
-        updateStatus(tr("Unable to remove resource relation"));
-        return false;
-    }
-
-    const QString previousResourceId = selectedResultResourceId();
-    refreshResults();
-    if (!previousResourceId.isEmpty()) {
-        selectResultResource(previousResourceId);
-    }
-    refreshRelationSummary();
-    updateStatus(tr("Removed resource relation"));
-    return true;
-}
-
-PinloomLibraryRootTarget PinloomPanel::selectedLibraryRoot() const
-{
-    const QString id = selectedRootId();
-    if (id.isEmpty()) {
-        return {};
-    }
-
-    const QList<LibraryRoot> roots = repository_.libraryRoots();
-    for (int row = 0; row < roots.size(); ++row) {
-        if (roots.at(row).id == id) {
-            return libraryRootTargetForRoot(roots.at(row), row);
-        }
-    }
-    return {};
-}
-
-QList<PinloomLibraryRootTarget> PinloomPanel::libraryRoots() const
-{
-    QList<PinloomLibraryRootTarget> targets;
-    const QList<LibraryRoot> roots = repository_.libraryRoots();
-    targets.reserve(roots.size());
-    for (int row = 0; row < roots.size(); ++row) {
-        targets.append(libraryRootTargetForRoot(roots.at(row), row));
-    }
-    return targets;
-}
-
 int PinloomPanel::resultCount() const
 {
     return resultList_->count();
@@ -1630,21 +1278,6 @@ bool PinloomPanel::selectResultResource(const QString &resourceId)
         if (item->data(Qt::UserRole).toString() == resourceId) {
             resultList_->setCurrentItem(item);
             return true;
-        }
-    }
-    return false;
-}
-
-bool PinloomPanel::selectLibraryRootById(const QString &id)
-{
-    if (id.isEmpty()) {
-        return false;
-    }
-    for (int row = 0; row < rootList_->count(); ++row) {
-        QListWidgetItem *item = rootList_->item(row);
-        if (item->data(Qt::UserRole).toString() == id) {
-            rootList_->setCurrentItem(item);
-            return rootList_->currentItem() == item;
         }
     }
     return false;
@@ -1677,94 +1310,9 @@ bool PinloomPanel::selectPreviousResult()
     return selectResultAt(previousRow);
 }
 
-void PinloomPanel::setRemoteWebFetchingEnabled(bool enabled)
-{
-    if (fetchRemoteWebPagesCheck_) {
-        fetchRemoteWebPagesCheck_->setChecked(enabled);
-    }
-}
-
-bool PinloomPanel::remoteWebFetchingEnabled() const
-{
-    return fetchRemoteWebPagesCheck_ && fetchRemoteWebPagesCheck_->isChecked();
-}
-
 QString PinloomPanel::statusText() const
 {
     return statusText_;
-}
-
-PinloomIndexingResult PinloomPanel::lastIndexingResult() const
-{
-    return lastIndexingResult_;
-}
-
-PinloomIndexingResult PinloomPanel::indexSelectedLibraryRoot()
-{
-    return indexLibraryRootById(selectedRootId());
-}
-
-PinloomIndexingResult PinloomPanel::indexLibraryRootById(const QString &id)
-{
-    if (id.isEmpty()) {
-        const QString error = tr("No library folder selected");
-        updateStatus(error);
-        return finishIndexingResult({false, 0, error});
-    }
-
-    const std::optional<LibraryRoot> root = repository_.findLibraryRoot(id);
-    if (!root.has_value()) {
-        const QString error = tr("Library folder no longer exists");
-        loadLibraryRoots();
-        updateStatus(error);
-        return finishIndexingResult({false, 0, error});
-    }
-
-    IndexingService indexer(repository_);
-    configureIndexingService(indexer);
-    if (!indexer.indexRoot(root.value())) {
-        const QString error = indexer.lastError();
-        updateStatus(error);
-        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
-    }
-
-    loadLibraryRoots();
-    selectLibraryRootById(id);
-    refreshResults();
-    updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
-}
-
-PinloomIndexingResult PinloomPanel::indexAllEnabledLibraryRoots()
-{
-    IndexingService indexer(repository_);
-    configureIndexingService(indexer);
-    if (!indexer.indexEnabledRoots()) {
-        const QString error = indexer.lastError();
-        updateStatus(error);
-        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
-    }
-
-    loadLibraryRoots();
-    refreshResults();
-    updateStatus(tr("Indexed %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
-}
-
-PinloomIndexingResult PinloomPanel::rebuildAllEnabledLibraryRoots()
-{
-    IndexingService indexer(repository_);
-    configureIndexingService(indexer);
-    if (!indexer.rebuildEnabledRoots()) {
-        const QString error = indexer.lastError();
-        updateStatus(error);
-        return finishIndexingResult({false, indexer.lastIndexedCount(), error});
-    }
-
-    loadLibraryRoots();
-    refreshResults();
-    updateStatus(tr("Rebuilt %n resource(s)", nullptr, indexer.lastIndexedCount()));
-    return finishIndexingResult({true, indexer.lastIndexedCount(), {}});
 }
 
 std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCaptureRequest() const
@@ -1786,19 +1334,21 @@ std::optional<ManualPdfAnchorCreationRequest> PinloomPanel::selectedPdfAnchorCap
         if (file.isEmpty()) {
             file = target.location.trimmed();
         }
-        if (anchor.page > 0) {
-            page = anchor.page;
+        const int anchorPage = anchorLocatorPage(anchor);
+        if (anchorPage > 0) {
+            page = anchorPage;
         }
-        if (anchor.region.isValid()) {
-            rect = {anchor.region.x(),
-                    anchor.region.y(),
-                    anchor.region.x() + anchor.region.width(),
-                    anchor.region.y() + anchor.region.height()};
+        const std::optional<QRectF> anchorRegion = anchorLocatorRegion(anchor);
+        if (anchorRegion.has_value()) {
+            rect = {anchorRegion->left(),
+                    anchorRegion->top(),
+                    anchorRegion->right(),
+                    anchorRegion->bottom()};
         }
         if (!anchor.name.trimmed().isEmpty()) {
             initialName = anchor.name.trimmed();
         }
-    } else if (normalizedResourceKind(target.resourceKind) == ResourceKind::Pdf) {
+    } else if (target.resourceKind == ResourceKind::Pdf) {
         file = target.location.trimmed();
     } else {
         return std::nullopt;
@@ -1833,9 +1383,6 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         const bool foregroundPdfFallback =
             suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-fallback"),
                                                           Qt::CaseInsensitive) == 0;
-        const bool foregroundPdfSelection =
-            suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"),
-                                                          Qt::CaseInsensitive) == 0;
         const bool foregroundPdfRegion =
             suggestedPdfRequest->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-region"),
                                                           Qt::CaseInsensitive) == 0;
@@ -1848,9 +1395,7 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
             request = options_.manualPdfAnchorDialogHandler(this);
         } else {
             ManualPdfAnchorDialog dialog(suggestedPdfRequest.value(), this);
-            updateStatus(foregroundPdfSelection
-                             ? tr("Capturing PDF anchor from foreground PDF selected text")
-                             : foregroundPdfRegion
+            updateStatus(foregroundPdfRegion
                                    ? tr("Capturing PDF anchor from foreground SumatraPDF region")
                              : foregroundPdfViewState
                                    ? tr("Capturing PDF anchor from foreground PDF page/zoom")
@@ -1895,15 +1440,11 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
         request->source.trimmed().compare(QStringLiteral("selected-pdf-fallback"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfFallback =
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-fallback"), Qt::CaseInsensitive) == 0;
-    const bool foregroundPdfSelection =
-        request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfRegion =
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-region"), Qt::CaseInsensitive) == 0;
     const bool foregroundPdfViewState =
         request->source.trimmed().compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0;
-    updateStatus(foregroundPdfSelection
-                     ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF selected text)").arg(result.anchor.name)
-                     : foregroundPdfRegion
+    updateStatus(foregroundPdfRegion
                      ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF region)").arg(result.anchor.name)
                      : foregroundPdfViewState
                      ? tr("Captured PDF anchor \"%1\" (foreground SumatraPDF page/zoom)").arg(result.anchor.name)
@@ -1933,106 +1474,6 @@ bool PinloomPanel::captureForegroundPdfAnchor()
 
 bool PinloomPanel::captureCurrentAppPosition()
 {
-    if (options_.manualExcelAnchorRequestProvider) {
-        const std::optional<ManualExcelAnchorCreationRequest> excelRequest =
-            options_.manualExcelAnchorRequestProvider();
-        if (!excelRequest.has_value()) {
-            updateStatus(tr("Capture canceled"));
-            return false;
-        }
-
-        ManualExcelAnchorCreationService creationService(repository_);
-        const ManualExcelAnchorCreationResult result =
-            creationService.createManualExcelAnchor(excelRequest.value());
-        if (!result.success()) {
-            updateStatus(result.error);
-            return false;
-        }
-
-        refreshResults();
-        if (!selectResultResource(result.resource.id)) {
-            setSearchText(result.anchor.name);
-            selectResultResource(result.resource.id);
-        }
-        updateStatus(tr("Created Excel anchor \"%1\"").arg(result.anchor.name));
-        return true;
-    }
-
-    if (options_.manualVisioAnchorRequestProvider) {
-        const std::optional<ManualVisioAnchorCreationRequest> visioRequest =
-            options_.manualVisioAnchorRequestProvider();
-        if (!visioRequest.has_value()) {
-            updateStatus(tr("Capture canceled"));
-            return false;
-        }
-
-        ManualVisioAnchorCreationService creationService(repository_);
-        const ManualVisioAnchorCreationResult result =
-            creationService.createManualVisioAnchor(visioRequest.value());
-        if (!result.success()) {
-            updateStatus(result.error);
-            return false;
-        }
-
-        refreshResults();
-        if (!selectResultResource(result.resource.id)) {
-            setSearchText(result.anchor.name);
-            selectResultResource(result.resource.id);
-        }
-        updateStatus(tr("Created Visio anchor \"%1\"").arg(result.anchor.name));
-        return true;
-    }
-
-    if (options_.manualWordAnchorRequestProvider) {
-        const std::optional<ManualWordAnchorCreationRequest> wordRequest =
-            options_.manualWordAnchorRequestProvider();
-        if (!wordRequest.has_value()) {
-            updateStatus(tr("Capture canceled"));
-            return false;
-        }
-
-        ManualWordAnchorCreationService creationService(repository_);
-        const ManualWordAnchorCreationResult result =
-            creationService.createManualWordBookmarkAnchor(wordRequest.value());
-        if (!result.success()) {
-            updateStatus(result.error);
-            return false;
-        }
-
-        refreshResults();
-        if (!selectResultResource(result.resource.id)) {
-            setSearchText(result.anchor.name);
-            selectResultResource(result.resource.id);
-        }
-        updateStatus(tr("Created Word anchor \"%1\"").arg(result.anchor.name));
-        return true;
-    }
-
-    if (options_.manualPowerPointAnchorRequestProvider) {
-        const std::optional<ManualPowerPointAnchorCreationRequest> powerPointRequest =
-            options_.manualPowerPointAnchorRequestProvider();
-        if (!powerPointRequest.has_value()) {
-            updateStatus(tr("Capture canceled"));
-            return false;
-        }
-
-        ManualPowerPointAnchorCreationService creationService(repository_);
-        const ManualPowerPointAnchorCreationResult result =
-            creationService.createManualPowerPointShapeAnchor(powerPointRequest.value());
-        if (!result.success()) {
-            updateStatus(result.error);
-            return false;
-        }
-
-        refreshResults();
-        if (!selectResultResource(result.resource.id)) {
-            setSearchText(result.anchor.name);
-            selectResultResource(result.resource.id);
-        }
-        updateStatus(tr("Created PowerPoint anchor \"%1\"").arg(result.anchor.name));
-        return true;
-    }
-
     QString foregroundPdfStatus;
     std::optional<ManualPdfAnchorCreationRequest> foregroundPdfRequest;
     if (options_.foregroundPdfAnchorCaptureRequestProvider) {
@@ -2313,20 +1754,26 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
         return false;
     }
 
-    if (normalizedResourceKind(resource->kind) == ResourceKind::Pdf) {
+    if (resource->kind == ResourceKind::Pdf) {
         updateStatus(tr("PDF line anchors are deprecated; use SumatraPDF anchor capture"));
         return false;
     }
 
     Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.target = trimmedTarget;
-    anchor.line = line > 0 ? line : -1;
+    anchor.name = trimmedTarget;
+    anchor.locatorType = line > 0 ? QStringLiteral("file.line") : QStringLiteral("manual");
+    QJsonObject locator;
+    locator.insert(QStringLiteral("type"), anchor.locatorType);
+    if (line > 0) {
+        locator.insert(QStringLiteral("line"), line);
+    }
+    anchor.locatorJson =
+        QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 
     const auto isDuplicate = [&anchor](const Anchor &existing) {
-        return existing.type == AnchorType::Manual
-            && existing.target.compare(anchor.target, Qt::CaseInsensitive) == 0
-            && existing.line == anchor.line;
+        return existing.name.compare(anchor.name, Qt::CaseInsensitive) == 0
+            && anchorLocatorType(existing) == anchorLocatorType(anchor)
+            && anchorLocatorLine(existing) == anchorLocatorLine(anchor);
     };
     if (std::any_of(resource->anchors.cbegin(), resource->anchors.cend(), isDuplicate)) {
         updateStatus(tr("Anchor already exists"));
@@ -2377,181 +1824,6 @@ bool PinloomPanel::setResourcePinnedById(const QString &resourceId, bool pinned)
     return true;
 }
 
-bool PinloomPanel::setSelectedLibraryRootPinned(bool pinned)
-{
-    return setLibraryRootPinnedById(selectedRootId(), pinned);
-}
-
-bool PinloomPanel::setLibraryRootPinnedById(const QString &id, bool pinned)
-{
-    if (id.isEmpty()) {
-        updateStatus(tr("No library folder selected"));
-        refreshRootPinButtonState();
-        return false;
-    }
-
-    if (!repository_.findLibraryRoot(id).has_value()) {
-        loadLibraryRoots();
-        updateStatus(tr("Library folder no longer exists"));
-        return false;
-    }
-
-    if (!repository_.setLibraryRootPinned(id, pinned)) {
-        updateStatus(tr("Unable to update pinned folder"));
-        refreshRootPinButtonState();
-        return false;
-    }
-
-    loadLibraryRoots();
-    selectLibraryRootById(id);
-    refreshResults();
-    updateStatus(pinned ? tr("Pinned folder") : tr("Unpinned folder"));
-    return true;
-}
-
-bool PinloomPanel::setSelectedLibraryRootEnabled(bool enabled)
-{
-    return setLibraryRootEnabledById(selectedRootId(), enabled);
-}
-
-bool PinloomPanel::setLibraryRootEnabledById(const QString &id, bool enabled)
-{
-    if (id.isEmpty()) {
-        updateStatus(tr("No library folder selected"));
-        refreshRootPinButtonState();
-        return false;
-    }
-
-    if (!repository_.findLibraryRoot(id).has_value()) {
-        loadLibraryRoots();
-        updateStatus(tr("Library folder no longer exists"));
-        return false;
-    }
-
-    if (!repository_.setLibraryRootEnabled(id, enabled)) {
-        updateStatus(tr("Unable to update enabled folder"));
-        refreshRootPinButtonState();
-        return false;
-    }
-
-    loadLibraryRoots();
-    selectLibraryRootById(id);
-    updateStatus(enabled ? tr("Enabled folder") : tr("Disabled folder"));
-    return true;
-}
-
-bool PinloomPanel::addLibraryRootPath(const QString &path)
-{
-    if (path.trimmed().isEmpty()) {
-        updateStatus(tr("No library folder path provided"));
-        return false;
-    }
-
-    const LibraryRoot root = makeLibraryRootForPath(path);
-    if (!repository_.upsertLibraryRoot(root)) {
-        updateStatus(tr("Unable to save library folder"));
-        return false;
-    }
-
-    loadLibraryRoots();
-    selectLibraryRootById(root.id);
-    updateStatus(tr("Added library folder"));
-    return true;
-}
-
-bool PinloomPanel::removeSelectedLibraryRoot()
-{
-    return removeLibraryRootById(selectedRootId());
-}
-
-bool PinloomPanel::removeLibraryRootById(const QString &id)
-{
-    if (id.isEmpty()) {
-        updateStatus(tr("No library folder selected"));
-        return false;
-    }
-
-    if (!repository_.findLibraryRoot(id).has_value()) {
-        loadLibraryRoots();
-        updateStatus(tr("Library folder no longer exists"));
-        return false;
-    }
-
-    if (!repository_.removeLibraryRoot(id)) {
-        updateStatus(tr("Unable to remove library folder"));
-        return false;
-    }
-
-    loadLibraryRoots();
-    refreshResults();
-    updateStatus(tr("Removed library folder; indexed resources were kept"));
-    return true;
-}
-
-void PinloomPanel::addLibraryRoot()
-{
-    const QString path = QFileDialog::getExistingDirectory(this, tr("Add Library Folder"));
-    if (path.isEmpty()) {
-        return;
-    }
-
-    if (!addLibraryRootPath(path)) {
-        QMessageBox::warning(this, tr("Add folder failed"), tr("Unable to save library folder."));
-        return;
-    }
-
-    refreshSelectedRoot();
-}
-
-void PinloomPanel::refreshSelectedRoot()
-{
-    const PinloomIndexingResult result = indexSelectedLibraryRoot();
-    if (!result.success && !result.error.isEmpty()) {
-        QMessageBox::warning(this, tr("Indexing failed"), result.error);
-    }
-}
-
-void PinloomPanel::refreshAllRoots()
-{
-    const PinloomIndexingResult result = indexAllEnabledLibraryRoots();
-    if (!result.success && !result.error.isEmpty()) {
-        QMessageBox::warning(this, tr("Indexing failed"), result.error);
-    }
-}
-
-void PinloomPanel::rebuildAllRoots()
-{
-    const QMessageBox::StandardButton answer = QMessageBox::question(
-        this,
-        tr("Rebuild Index"),
-        tr("Clear indexed resources and rebuild from enabled library folders?"));
-    if (answer != QMessageBox::Yes) {
-        return;
-    }
-
-    const PinloomIndexingResult result = rebuildAllEnabledLibraryRoots();
-    if (!result.success && !result.error.isEmpty()) {
-        QMessageBox::warning(this, tr("Rebuild failed"), result.error);
-    }
-}
-
-void PinloomPanel::toggleSelectedLibraryRootPin()
-{
-    const QString id = selectedRootId();
-    if (id.isEmpty()) {
-        setLibraryRootPinnedById(id, true);
-        return;
-    }
-
-    const std::optional<LibraryRoot> root = repository_.findLibraryRoot(id);
-    if (!root.has_value()) {
-        setLibraryRootPinnedById(id, true);
-        return;
-    }
-
-    setLibraryRootPinnedById(id, !root->pinned);
-}
-
 void PinloomPanel::refreshResults()
 {
     const PinloomOpenTarget previousTarget = currentOpenTarget();
@@ -2561,7 +1833,6 @@ void PinloomPanel::refreshResults()
     refreshSearchResults(searchText, previousTarget);
 
     refreshLauncherVisibility();
-    refreshRelationSummary();
     refreshPinButtonState();
     notifyResultCountChanged();
     notifyResultsChanged();
@@ -2596,8 +1867,6 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
     query.requiredKinds = requiredResourceKinds_;
     query.contextTags = contextTags_;
     query.contextLocationPrefixes = contextLocationPrefixes_;
-    query.contextResourceIds = contextResourceIds_;
-    query.contextRelationLabels = contextRelationLabels_;
     query.limit = 100;
 
     const bool emptyCompactLauncherQuery = options_.compactLauncherMode && searchText.trimmed().isEmpty();
@@ -2666,21 +1935,10 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
         item->setData(Qt::UserRole + 14, result.score);
         item->setData(Qt::UserRole + 15, matchedContextTag(result.resource, query.contextTags));
         item->setData(Qt::UserRole + 16, matchedContextLocationPrefix(result.resource, query.contextLocationPrefixes));
-        item->setData(Qt::UserRole + 17, result.matchedContextResourceId);
-        item->setData(Qt::UserRole + 18, result.matchedContextRelationLabel);
-        item->setData(Qt::UserRole + 19, result.matchedContextRelationNote);
         item->setData(Qt::UserRole + 20, resultMatchSummary(result, query));
         if (result.matchedAnchor.has_value()) {
             const Anchor &anchor = result.matchedAnchor.value();
             item->setData(Qt::UserRole + 2, true);
-            item->setData(Qt::UserRole + 3, anchor.line);
-            item->setData(Qt::UserRole + 4, anchor.target);
-            item->setData(Qt::UserRole + 5, static_cast<int>(anchor.type));
-            item->setData(Qt::UserRole + 6, anchor.page);
-            item->setData(Qt::UserRole + 7, anchor.region.x());
-            item->setData(Qt::UserRole + 8, anchor.region.y());
-            item->setData(Qt::UserRole + 9, anchor.region.width());
-            item->setData(Qt::UserRole + 10, anchor.region.height());
             item->setData(Qt::UserRole + 21, anchor.id);
             item->setData(Qt::UserRole + 22, anchor.name);
             item->setData(Qt::UserRole + 23, anchor.targetApp);
@@ -2731,33 +1989,6 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
     }
 
     updateStatus(tr("%n result(s)", nullptr, resultList_->count()));
-}
-
-void PinloomPanel::refreshRelationSummary()
-{
-    const QListWidgetItem *item = resultList_->currentItem();
-    if (!item) {
-        relationLabel_->clear();
-        return;
-    }
-
-    const QString resourceId = item->data(Qt::UserRole).toString();
-    const QList<ResourceRelation> relations = repository_.resourceRelations(resourceId);
-    if (relations.isEmpty()) {
-        relationLabel_->clear();
-        return;
-    }
-
-    QStringList relationLines;
-    const int visibleRelationCount = std::min(static_cast<int>(relations.size()), 3);
-    for (int i = 0; i < visibleRelationCount; ++i) {
-        relationLines.append(relationText(relations.at(i), resourceId, repository_));
-    }
-    if (relations.size() > visibleRelationCount) {
-        relationLines.append(tr("+%n more relation(s)", nullptr, relations.size() - visibleRelationCount));
-    }
-
-    relationLabel_->setText(tr("Related: %1").arg(relationLines.join(QStringLiteral("; "))));
 }
 
 bool PinloomPanel::activateCurrentOpenTarget()
@@ -2843,11 +2074,6 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         }
     };
 
-    if (isDeprecatedPdfManualLineOpenTarget(target)) {
-        updateStatus(tr("Legacy PDF line anchor is deprecated; delete it and recreate a SumatraPDF anchor"));
-        return false;
-    }
-
     if (tryHostOpenTarget(target)) {
         recordOpen();
         return true;
@@ -2893,8 +2119,11 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
-    if (target.anchor.has_value() && target.anchor->line > 0) {
-        TextPreviewDialog preview(target.location, target.anchor->line, this);
+    const int anchorLine = target.anchor.has_value()
+        ? anchorLocatorLine(target.anchor.value())
+        : -1;
+    if (anchorLine > 0) {
+        TextPreviewDialog preview(target.location, anchorLine, this);
         if (!preview.load()) {
             updateStatus(tr("Unable to preview %1").arg(target.location));
             return false;
@@ -2914,10 +2143,8 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
 
     QUrl targetUrl = urlForLocation(target.location);
     if (target.anchor.has_value()
-        && (target.anchor->type == AnchorType::PdfPage || target.anchor->type == AnchorType::PdfRegion)) {
-        targetUrl.setFragment(pdfFragmentForAnchor(target.anchor.value()));
-    } else if (target.anchor.has_value() && target.anchor->type == AnchorType::UrlFragment) {
-        targetUrl.setFragment(target.anchor->target);
+        && anchorLocatorType(target.anchor.value()) == QLatin1String("url.fragment")) {
+        targetUrl.setFragment(anchorLocatorFragment(target.anchor.value()));
     }
 
     if (QDesktopServices::openUrl(targetUrl)) {
@@ -3265,7 +2492,7 @@ void PinloomPanel::promptDeleteSelectedAnchor()
 void PinloomPanel::promptAddManualAnchor()
 {
     const PinloomOpenTarget selectedTarget = currentOpenTarget();
-    if (normalizedResourceKind(selectedTarget.resourceKind) == ResourceKind::Pdf) {
+    if (selectedTarget.resourceKind == ResourceKind::Pdf) {
         captureCurrentAppPosition();
         return;
     }
@@ -3333,25 +2560,6 @@ void PinloomPanel::refreshPinButtonState()
     pinButton_->setText(pinned ? tr("Unpin") : tr("Pin"));
 }
 
-void PinloomPanel::refreshRootPinButtonState()
-{
-    if (!pinRootButton_) {
-        return;
-    }
-
-    const QString rootId = selectedRootId();
-    bool pinned = false;
-    if (!rootId.isEmpty()) {
-        const std::optional<LibraryRoot> root = repository_.findLibraryRoot(rootId);
-        pinned = root.has_value() && root->pinned;
-    }
-
-    const QSignalBlocker blocker(pinRootButton_);
-    pinRootButton_->setEnabled(!rootId.isEmpty());
-    pinRootButton_->setChecked(pinned);
-    pinRootButton_->setText(pinned ? tr("Unpin Folder") : tr("Pin Folder"));
-}
-
 void PinloomPanel::notifyCurrentOpenTargetChanged()
 {
     if (options_.currentOpenTargetChangedHandler) {
@@ -3373,42 +2581,6 @@ void PinloomPanel::notifyResultsChanged()
     }
 }
 
-void PinloomPanel::notifyCurrentLibraryRootChanged()
-{
-    if (options_.currentLibraryRootChangedHandler) {
-        options_.currentLibraryRootChangedHandler(selectedLibraryRoot());
-    }
-}
-
-void PinloomPanel::notifyLibraryRootsChanged()
-{
-    if (options_.libraryRootsChangedHandler) {
-        options_.libraryRootsChangedHandler(libraryRoots());
-    }
-}
-
-void PinloomPanel::loadLibraryRoots()
-{
-    const QString currentId = selectedRootId();
-    rootList_->clear();
-
-    for (const LibraryRoot &root : repository_.libraryRoots()) {
-        auto *item = new QListWidgetItem(rootItemText(root), rootList_);
-        item->setData(Qt::UserRole, root.id);
-        item->setData(Qt::UserRole + 1, root.path);
-        item->setToolTip(root.path);
-    }
-
-    if (!currentId.isEmpty()) {
-        selectLibraryRootById(currentId);
-    }
-    if (!rootList_->currentItem() && rootList_->count() > 0) {
-        rootList_->setCurrentRow(0);
-    }
-    refreshRootPinButtonState();
-    notifyLibraryRootsChanged();
-}
-
 void PinloomPanel::updateStatus(const QString &message)
 {
     statusText_ = message;
@@ -3416,15 +2588,6 @@ void PinloomPanel::updateStatus(const QString &message)
     if (options_.statusChangedHandler) {
         options_.statusChangedHandler(statusText_);
     }
-}
-
-QString PinloomPanel::selectedRootId() const
-{
-    const QListWidgetItem *item = rootList_->currentItem();
-    if (!item) {
-        return {};
-    }
-    return item->data(Qt::UserRole).toString();
 }
 
 QString PinloomPanel::selectedResultResourceId() const
@@ -3445,15 +2608,6 @@ QString PinloomPanel::selectedLocation() const
     return item->data(Qt::UserRole + 1).toString();
 }
 
-PinloomIndexingResult PinloomPanel::finishIndexingResult(const PinloomIndexingResult &result)
-{
-    lastIndexingResult_ = result;
-    if (options_.indexingCompletedHandler) {
-        options_.indexingCompletedHandler(lastIndexingResult_);
-    }
-    return lastIndexingResult_;
-}
-
 bool PinloomPanel::tryHostOpenTarget(const PinloomOpenTarget &target)
 {
     if (!options_.openTargetHandler) {
@@ -3462,16 +2616,10 @@ bool PinloomPanel::tryHostOpenTarget(const PinloomOpenTarget &target)
     return options_.openTargetHandler(target);
 }
 
-void PinloomPanel::configureIndexingService(IndexingService &indexer) const
-{
-    indexer.setRemoteWebFetchingEnabled(remoteWebFetchingEnabled());
-}
-
 void PinloomPanel::refreshLauncherVisibility()
 {
     if (!options_.compactLauncherMode) {
         resultList_->setVisible(true);
-        relationLabel_->setVisible(options_.showRelationLine);
         statusLabel_->setVisible(options_.showStatusLine);
         return;
     }
@@ -3479,7 +2627,6 @@ void PinloomPanel::refreshLauncherVisibility()
     const bool hasQuery = searchEdit_ && !searchEdit_->text().trimmed().isEmpty();
     const bool hasResults = resultList_ && resultList_->count() > 0;
     resultList_->setVisible(hasQuery && hasResults);
-    relationLabel_->setVisible(options_.showRelationLine && hasQuery && hasResults);
     statusLabel_->setVisible(options_.showStatusLine);
 
     QWidget *topLevel = window();

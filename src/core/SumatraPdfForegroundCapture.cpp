@@ -1,6 +1,6 @@
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 
-#include "pinloom/core/LegacyCompatibility.h"
+#include "pinloom/core/ResourceNormalization.h"
 #include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDir>
@@ -29,7 +29,6 @@ namespace Pinloom {
 namespace {
 
 constexpr const char *ForegroundSumatraPdfFallbackSource = "foreground-sumatrapdf-fallback";
-constexpr const char *ForegroundSumatraPdfSelectionSource = "foreground-sumatrapdf-selection";
 constexpr const char *ForegroundSumatraPdfViewStateSource = "foreground-sumatrapdf-viewstate";
 
 QString stripOuterDocumentDecorations(QString value)
@@ -191,7 +190,7 @@ QString defaultAnchorNameForDocument(const QString &documentTitle, const Resourc
 
 bool isPdfResourceCandidate(const Resource &resource)
 {
-    return normalizedResourceKind(resource.kind) == ResourceKind::Pdf
+    return resource.kind == ResourceKind::Pdf
         || resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive);
 }
 
@@ -215,26 +214,11 @@ QList<Resource> uniquePdfResources(const ILibraryRepository &repository)
     return resources;
 }
 
-QStringList resourceIds(const QList<Resource> &resources)
-{
-    QStringList ids;
-    for (const Resource &resource : resources) {
-        if (!resource.id.trimmed().isEmpty()) {
-            ids.append(resource.id);
-        }
-    }
-    ids.removeDuplicates();
-    return ids;
-}
-
 SumatraPdfForegroundCaptureResult resultForMatchedResource(const QString &documentTitle, const Resource &resource)
 {
     SumatraPdfForegroundCaptureResult result;
     result.recognizedSumatraPdf = true;
-    result.matchedResource = true;
     result.documentTitle = stripOuterDocumentDecorations(documentTitle);
-    result.matchedResourceId = resource.id;
-    result.matchedResourceIds = {resource.id};
 
     result.request.name = defaultAnchorNameForDocument(documentTitle, resource);
     result.request.file = resource.location.trimmed();
@@ -250,8 +234,7 @@ SumatraPdfForegroundCaptureResult resultForMatchedResource(const QString &docume
 SumatraPdfForegroundCaptureResult resultNeedsFileConfirmation(
     const QString &documentTitle,
     const SumatraPdfViewState &viewState,
-    const QString &status,
-    const QList<Resource> &matches = {})
+    const QString &status)
 {
     SumatraPdfForegroundCaptureResult result;
     result.recognizedSumatraPdf = true;
@@ -259,7 +242,6 @@ SumatraPdfForegroundCaptureResult resultNeedsFileConfirmation(
     result.viewState = viewState;
     result.status = status;
     result.needsFileConfirmation = true;
-    result.matchedResourceIds = resourceIds(matches);
     return result;
 }
 
@@ -285,9 +267,6 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
     }
 
     QStringList parts;
-    if (viewState.hasSelectedText()) {
-        parts.append(QStringLiteral("selected text \"%1\"").arg(viewState.selectedText.simplified().left(80)));
-    }
     if (viewState.hasCurrentPage()) {
         QString pageText = QStringLiteral("page %1").arg(viewState.currentPage);
         if (viewState.totalPages > 0) {
@@ -307,12 +286,7 @@ QString viewStateStatus(const SumatraPdfViewState &viewState)
 void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfViewState &viewState)
 {
     result.viewState = viewState;
-    if (viewState.hasSelectedText()) {
-        result.request.selectedText = viewState.selectedText.trimmed();
-        result.request.locatorType = QStringLiteral("sumatrapdf.search");
-        result.request.rect = {};
-        result.request.source = QString::fromLatin1(ForegroundSumatraPdfSelectionSource);
-    } else if (viewState.hasCurrentPage()) {
+    if (viewState.hasCurrentPage()) {
         result.request.locatorType = QStringLiteral("sumatrapdf.page");
         result.request.rect = {};
     }
@@ -322,8 +296,7 @@ void applyViewState(SumatraPdfForegroundCaptureResult &result, const SumatraPdfV
     if (viewState.hasZoom()) {
         result.request.zoom = viewState.zoom;
     }
-    if (viewState.hasAnyViewState()
-        && !viewState.hasSelectedText()) {
+    if (viewState.hasAnyViewState()) {
         result.request.source = QString::fromLatin1(ForegroundSumatraPdfViewStateSource);
     }
     result.status = viewStateStatus(viewState);
@@ -614,276 +587,6 @@ void appendTargetedAutomationText(IUIAutomation *automation,
     elements->Release();
 }
 
-QString selectedTextFromRange(IUIAutomationTextRange *range)
-{
-    if (!range) {
-        return {};
-    }
-
-    BSTR text = nullptr;
-    if (FAILED(range->GetText(4096, &text))) {
-        return {};
-    }
-    return stringFromBstr(text).simplified();
-}
-
-bool isUsefulSelectedPdfText(const QString &value)
-{
-    const QString text = value.simplified();
-    if (text.size() < 3) {
-        return false;
-    }
-    if (isCompactPageOrZoomValue(text)) {
-        return false;
-    }
-    return true;
-}
-
-void appendUniqueSelectedText(QStringList &texts, const QString &value)
-{
-    const QString text = value.simplified();
-    if (isUsefulSelectedPdfText(text) && !texts.contains(text, Qt::CaseInsensitive)) {
-        texts.append(text);
-    }
-}
-
-bool isLikelySelectedPdfTextElement(IUIAutomationElement *element)
-{
-    if (!element) {
-        return false;
-    }
-
-    CONTROLTYPEID controlType = 0;
-    if (FAILED(element->get_CurrentControlType(&controlType))) {
-        return false;
-    }
-
-    return controlType == UIA_TextControlTypeId
-        || controlType == UIA_DocumentControlTypeId
-        || controlType == UIA_EditControlTypeId
-        || controlType == UIA_CustomControlTypeId;
-}
-
-void appendReadableTextFromElement(IUIAutomationElement *element, QStringList &texts)
-{
-    if (!isLikelySelectedPdfTextElement(element)) {
-        return;
-    }
-
-    BSTR text = nullptr;
-    if (SUCCEEDED(element->get_CurrentName(&text))) {
-        appendUniqueSelectedText(texts, stringFromBstr(text));
-    }
-
-    IUIAutomationValuePattern *valuePattern = nullptr;
-    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_ValuePatternId,
-                                               IID_PPV_ARGS(&valuePattern)))
-        && valuePattern) {
-        BSTR value = nullptr;
-        if (SUCCEEDED(valuePattern->get_CurrentValue(&value))) {
-            appendUniqueSelectedText(texts, stringFromBstr(value));
-        }
-        valuePattern->Release();
-    }
-
-    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
-    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
-                                               IID_PPV_ARGS(&legacyPattern)))
-        && legacyPattern) {
-        BSTR legacyText = nullptr;
-        if (SUCCEEDED(legacyPattern->get_CurrentName(&legacyText))) {
-            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
-        }
-        legacyText = nullptr;
-        if (SUCCEEDED(legacyPattern->get_CurrentValue(&legacyText))) {
-            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
-        }
-        legacyText = nullptr;
-        if (SUCCEEDED(legacyPattern->get_CurrentDescription(&legacyText))) {
-            appendUniqueSelectedText(texts, stringFromBstr(legacyText));
-        }
-        legacyPattern->Release();
-    }
-
-    IUIAutomationTextPattern *textPattern = nullptr;
-    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern)))
-        && textPattern) {
-        IUIAutomationTextRange *documentRange = nullptr;
-        if (SUCCEEDED(textPattern->get_DocumentRange(&documentRange)) && documentRange) {
-            appendUniqueSelectedText(texts, selectedTextFromRange(documentRange));
-            documentRange->Release();
-        }
-        textPattern->Release();
-    }
-}
-
-void appendTextPatternSelectionFromElement(IUIAutomationElement *element, QStringList &texts)
-{
-    if (!element) {
-        return;
-    }
-
-    IUIAutomationTextPattern *textPattern = nullptr;
-    if (FAILED(element->GetCurrentPatternAs(UIA_TextPatternId, IID_PPV_ARGS(&textPattern)))
-        || !textPattern) {
-        return;
-    }
-
-    IUIAutomationTextRangeArray *selection = nullptr;
-    if (SUCCEEDED(textPattern->GetSelection(&selection)) && selection) {
-        int length = 0;
-        selection->get_Length(&length);
-        const int maxRanges = std::min(length, 64);
-        for (int index = 0; index < maxRanges; ++index) {
-            IUIAutomationTextRange *range = nullptr;
-            if (SUCCEEDED(selection->GetElement(index, &range)) && range) {
-                appendUniqueSelectedText(texts, selectedTextFromRange(range));
-                range->Release();
-            }
-        }
-        selection->Release();
-    }
-
-    textPattern->Release();
-}
-
-void appendReadableTextFromElementArray(IUIAutomationElementArray *elements, QStringList &texts)
-{
-    if (!elements) {
-        return;
-    }
-
-    int length = 0;
-    elements->get_Length(&length);
-    const int maxElements = std::min(length, 128);
-    for (int index = 0; index < maxElements; ++index) {
-        IUIAutomationElement *element = nullptr;
-        if (SUCCEEDED(elements->GetElement(index, &element)) && element) {
-            appendReadableTextFromElement(element, texts);
-            appendTextPatternSelectionFromElement(element, texts);
-            element->Release();
-        }
-    }
-}
-
-void appendSelectionPatternTextFromElement(IUIAutomationElement *element, QStringList &texts)
-{
-    if (!element) {
-        return;
-    }
-
-    IUIAutomationSelectionPattern *selectionPattern = nullptr;
-    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_SelectionPatternId,
-                                               IID_PPV_ARGS(&selectionPattern)))
-        && selectionPattern) {
-        IUIAutomationElementArray *selectedElements = nullptr;
-        if (SUCCEEDED(selectionPattern->GetCurrentSelection(&selectedElements)) && selectedElements) {
-            appendReadableTextFromElementArray(selectedElements, texts);
-            selectedElements->Release();
-        }
-        selectionPattern->Release();
-    }
-}
-
-void appendLegacySelectionTextFromElement(IUIAutomationElement *element, QStringList &texts)
-{
-    if (!element) {
-        return;
-    }
-
-    IUIAutomationLegacyIAccessiblePattern *legacyPattern = nullptr;
-    if (SUCCEEDED(element->GetCurrentPatternAs(UIA_LegacyIAccessiblePatternId,
-                                               IID_PPV_ARGS(&legacyPattern)))
-        && legacyPattern) {
-        IUIAutomationElementArray *selectedElements = nullptr;
-        if (SUCCEEDED(legacyPattern->GetCurrentSelection(&selectedElements)) && selectedElements) {
-            appendReadableTextFromElementArray(selectedElements, texts);
-            selectedElements->Release();
-        }
-        legacyPattern->Release();
-    }
-}
-
-void appendSelectedTextFromElement(IUIAutomationElement *element, QStringList &texts)
-{
-    appendTextPatternSelectionFromElement(element, texts);
-    appendSelectionPatternTextFromElement(element, texts);
-    appendLegacySelectionTextFromElement(element, texts);
-}
-
-void collectSelectedTextRecursive(IUIAutomationTreeWalker *walker,
-                                  IUIAutomationElement *element,
-                                  QStringList &texts,
-                                  int depth,
-                                  int &visited)
-{
-    constexpr int MaxSelectionDepth = 18;
-    constexpr int MaxSelectionElements = 8192;
-    if (!walker || !element || depth > MaxSelectionDepth || visited > MaxSelectionElements) {
-        return;
-    }
-
-    ++visited;
-    appendSelectedTextFromElement(element, texts);
-
-    IUIAutomationElement *child = nullptr;
-    if (FAILED(walker->GetFirstChildElement(element, &child)) || !child) {
-        return;
-    }
-
-    while (child && visited <= MaxSelectionElements) {
-        collectSelectedTextRecursive(walker, child, texts, depth + 1, visited);
-
-        IUIAutomationElement *next = nullptr;
-        walker->GetNextSiblingElement(child, &next);
-        child->Release();
-        child = next;
-    }
-}
-
-QString selectedTextFromAutomation(IUIAutomation *automation, IUIAutomationElement *root)
-{
-    QStringList selectedTexts;
-    appendSelectedTextFromElement(root, selectedTexts);
-
-    if (!automation || !root) {
-        return selectedTexts.join(QLatin1Char(' ')).simplified();
-    }
-
-    IUIAutomationCondition *condition = nullptr;
-    if (FAILED(automation->CreateTrueCondition(&condition)) || !condition) {
-        return selectedTexts.join(QLatin1Char(' ')).simplified();
-    }
-
-    IUIAutomationElementArray *elements = nullptr;
-    const HRESULT hr = root->FindAll(TreeScope_Descendants, condition, &elements);
-    condition->Release();
-    if (FAILED(hr) || !elements) {
-        return selectedTexts.join(QLatin1Char(' ')).simplified();
-    }
-
-    int length = 0;
-    elements->get_Length(&length);
-    const int maxElements = std::min(length, 4096);
-    for (int index = 0; index < maxElements; ++index) {
-        IUIAutomationElement *element = nullptr;
-        if (SUCCEEDED(elements->GetElement(index, &element)) && element) {
-            appendSelectedTextFromElement(element, selectedTexts);
-            element->Release();
-        }
-    }
-    elements->Release();
-
-    IUIAutomationTreeWalker *rawWalker = nullptr;
-    if (SUCCEEDED(automation->get_RawViewWalker(&rawWalker)) && rawWalker) {
-        int visited = 0;
-        collectSelectedTextRecursive(rawWalker, root, selectedTexts, 0, visited);
-        rawWalker->Release();
-    }
-
-    return selectedTexts.join(QLatin1Char(' ')).simplified();
-}
-
 void appendAutomationElementText(IUIAutomationElement *element, QStringList &fragments)
 {
     if (!element) {
@@ -979,8 +682,7 @@ void collectUiAutomationTextRecursive(IUIAutomationTreeWalker *walker,
 }
 
 QStringList uiAutomationTextFragmentsForWindow(HWND window,
-                                               QString *diagnostics,
-                                               QString *selectedText)
+                                               QString *diagnostics)
 {
     QStringList fragments;
     if (!window) {
@@ -1029,9 +731,6 @@ QStringList uiAutomationTextFragmentsForWindow(HWND window,
 
     IUIAutomationTreeWalker *walker = nullptr;
     hr = automation->get_ControlViewWalker(&walker);
-    if (selectedText) {
-        *selectedText = selectedTextFromAutomation(automation, root);
-    }
     appendTargetedAutomationText(automation, root, fragments);
     if (SUCCEEDED(hr) && walker) {
         collectUiAutomationTextRecursive(walker, root, fragments, 0);
@@ -1075,21 +774,9 @@ bool SumatraPdfViewState::hasZoom() const
     return std::isfinite(zoom) && zoom > 0.0;
 }
 
-bool SumatraPdfViewState::hasSelectedText() const
-{
-    return !selectedText.trimmed().isEmpty();
-}
-
-bool SumatraPdfViewState::hasMousePosition() const
-{
-    return mousePage > 0
-        && std::isfinite(mouseX)
-        && std::isfinite(mouseY);
-}
-
 bool SumatraPdfViewState::hasAnyViewState() const
 {
-    return hasSelectedText() || hasCurrentPage() || totalPages > 0 || hasZoom();
+    return hasCurrentPage() || totalPages > 0 || hasZoom();
 }
 
 bool SumatraPdfForegroundCaptureResult::success() const
@@ -1347,7 +1034,6 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
         fragments.append(context.windowTitle.trimmed());
     }
 
-    QString capturedSelectedText;
 #ifdef Q_OS_WIN
     const SumatraPdfDdeFileState ddeFileState = requestSumatraPdfDdeFileState(800);
     if (ddeFileState.success()) {
@@ -1370,7 +1056,7 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
 
         QString uiAutomationDiagnostics;
         const QStringList automationFragments =
-            uiAutomationTextFragmentsForWindow(window, &uiAutomationDiagnostics, &capturedSelectedText);
+            uiAutomationTextFragmentsForWindow(window, &uiAutomationDiagnostics);
         for (const QString &fragment : automationFragments) {
             appendUniqueFragment(fragments, fragment);
         }
@@ -1381,10 +1067,6 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
 #endif
 
     if (state.hasAnyViewState() || state.hasDocumentPath()) {
-        state.selectedText = capturedSelectedText.simplified();
-        if (state.hasSelectedText() && state.source == QLatin1String("sumatrapdf-dde")) {
-            state.source = QStringLiteral("sumatrapdf-dde+uia");
-        }
         return state;
     }
 
@@ -1395,7 +1077,6 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
 
     state = parseSumatraPdfViewStateText(fragments.join(QLatin1Char('\n')),
                                          QStringLiteral("win32-window-text+wm-gettext+uia"));
-    state.selectedText = capturedSelectedText.simplified();
     return state;
 }
 
@@ -1445,10 +1126,7 @@ SumatraPdfForegroundCaptureResult sumatraPdfForegroundCaptureResultForConfirmedP
         return result;
     }
 
-    SumatraPdfForegroundCaptureResult result =
-        resultForResolvedFilePath(documentTitle, cleanedPath, viewState);
-    result.confirmedFile = true;
-    return result;
+    return resultForResolvedFilePath(documentTitle, cleanedPath, viewState);
 }
 
 SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
@@ -1507,20 +1185,14 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     if (savedDocumentPath.has_value()) {
         const QString mappedPath = cleanFullPdfPath(savedDocumentPath.value());
         if (mappedPath.isEmpty()) {
-            SumatraPdfForegroundCaptureResult mappedResult =
-                resultNeedsFileConfirmation(
-                    result.documentTitle,
-                    viewState,
-                    QStringLiteral("Saved PDF mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
-                        .arg(result.documentTitle));
-            mappedResult.rejectedTitleMapping = true;
-            return mappedResult;
+            return resultNeedsFileConfirmation(
+                result.documentTitle,
+                viewState,
+                QStringLiteral("Saved PDF mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
+                    .arg(result.documentTitle));
         }
 
-        SumatraPdfForegroundCaptureResult mappedResult =
-            resultForResolvedFilePath(result.documentTitle, mappedPath, viewState);
-        mappedResult.resolvedFromTitleMapping = true;
-        return mappedResult;
+        return resultForResolvedFilePath(result.documentTitle, mappedPath, viewState);
     }
 
     const QList<Resource> matches = sumatraPdfTitleMatchedPdfResources(repository, result.documentTitle);
@@ -1537,8 +1209,7 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
             viewState,
             QStringLiteral("Confirm the PDF file for PDF document \"%1\": the viewer did not expose a full path and %2 indexed PDFs matched the title")
                 .arg(result.documentTitle)
-                .arg(matches.size()),
-            matches);
+                .arg(matches.size()));
     }
 
     return resultForMatchedResource(result.documentTitle, matches.first(), viewState);

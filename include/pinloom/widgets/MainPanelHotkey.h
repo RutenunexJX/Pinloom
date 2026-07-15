@@ -23,19 +23,9 @@ class MainPanelHotkeyController final : public QObject {
 public:
     using ShowHandler = std::function<void()>;
 
-    explicit MainPanelHotkeyController(ClipHotkeyService &service, QObject *parent = nullptr);
-    MainPanelHotkeyController(ClipHotkeyService &service,
-                              QWidget &mainWindow,
-                              PinloomPanel &panel,
-                              QObject *parent = nullptr);
     MainPanelHotkeyController(ClipHotkeyService &service,
                               ShowHandler showHandler,
                               QObject *parent = nullptr);
-
-    void setShowHandler(ShowHandler showHandler);
-
-signals:
-    void showRequested();
 
 private:
     void handleHotkeyActivated();

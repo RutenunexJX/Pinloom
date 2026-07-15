@@ -147,7 +147,6 @@ ManualPdfAnchorCreationRequest ManualPdfAnchorDialog::request() const
         request.rect.right = rightSpin_->value();
         request.rect.bottom = bottomSpin_->value();
     }
-    request.selectedText = selectedText_;
     request.zoom = zoomSpin_->value();
     request.unit = unit_;
     request.source = source_;
@@ -175,12 +174,9 @@ void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &req
     source_ = request.source.trimmed().isEmpty() ? QStringLiteral("manual") : request.source.trimmed();
     targetApp_ = request.targetApp.trimmed().isEmpty() ? QStringLiteral("SumatraPDF") : request.targetApp.trimmed();
     unit_ = request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed();
-    selectedText_ = request.selectedText.trimmed();
     locatorType_ = request.locatorType.trimmed().toLower();
     if (locatorType_.isEmpty()) {
-        locatorType_ = !selectedText_.isEmpty()
-            ? QStringLiteral("sumatrapdf.search")
-            : request.rect.isValid() ? QStringLiteral("sumatrapdf.rect") : QStringLiteral("sumatrapdf.page");
+        locatorType_ = request.rect.isValid() ? QStringLiteral("sumatrapdf.rect") : QStringLiteral("sumatrapdf.page");
     }
 
     nameEdit_->setText(request.name);
@@ -208,8 +204,6 @@ void ManualPdfAnchorDialog::updateSummary()
     QString sourceSummary;
     if (source_.compare(QStringLiteral("foreground-sumatrapdf-fallback"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground SumatraPDF fallback; page defaults to 1, edit if needed");
-    } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-selection"), Qt::CaseInsensitive) == 0) {
-        sourceSummary = tr("foreground SumatraPDF selected text");
     } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-region"), Qt::CaseInsensitive) == 0) {
         sourceSummary = tr("foreground SumatraPDF region");
     } else if (source_.compare(QStringLiteral("foreground-sumatrapdf-viewstate"), Qt::CaseInsensitive) == 0) {

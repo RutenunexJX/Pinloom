@@ -1,434 +1,101 @@
 # Pinloom Plan
 
-This plan supersedes the previous general content-indexing roadmap. Existing
-reader and indexing work is retained only as infrastructure or compatibility
-unless a later phase explicitly pulls it into the anchor launcher loop.
-
-## Phase 0: Product Specification Reset
-
-Goal: reset the documented product direction to a Listary-style deterministic
-anchor launcher.
-
-Scope:
-
-- Update `goal.md`, `plan.md`, and `readme.md`.
-- State that Anchor is the primary entity.
-- State that files/resources are target containers.
-- State that v1 search is anchor name, alias, tag, and target metadata search.
-- Mark general content indexing, special reader expansion, screenshot search,
-  semantic search, OCR search, and heavy library UI as non-mainline for v1.
-- Build, test, commit, and push.
-
-Status:
-
-- Repository inspection: done.
-- Current implementation versus new direction: documented in `readme.md`.
-- Documentation reset: done.
-- Build/test: required before the phase commit.
-- Commit/push: required for phase closure.
-
-## Phase 1: Anchor Data Model Convergence
-
-Goal: make the persisted model match the product model.
-
-Target model:
-
-```text
-id, name, target_app, target_file/target_uri, locator_type, locator_json,
-aliases, tags, pinned, created_at, updated_at, used_at
-```
-
-Scope:
-
-- Introduce a first-class anchor repository surface.
-- Preserve compatibility with existing resource-attached anchors.
-- Store structured locators for native app dispatch.
-- Keep aliases, tags, FTS, ranking, recent use, and pinned signals.
-- Update SQLite and in-memory repositories together.
-- Add migration tests and repository tests.
-
-Search ranking:
-
-```text
-exact name > alias > tag > recent/pinned > target metadata
-```
-
-Status:
-
-- Anchor structure extended with first-class locator fields while preserving
-  the resource-attached compatibility API.
-- SQLite migration v8 adds anchor locator columns without rebuilding existing
-  tables or deleting legacy anchor data.
-- In-memory and SQLite repositories both persist, hydrate, and search anchor
-  name, aliases, tags, and explicit target metadata.
-- Legacy anchors still read through `type`/`target`/line/page/region fallback.
-- Build and full `ctest --test-dir build --output-on-failure` passed for the
-  phase implementation.
-
-## Phase 2: Listary-Style Overlay UI
-
-Goal: make the main experience a lightweight command palette.
-
-Scope:
-
-- Replace the resource-library dashboard with a compact overlay.
-- Show one search box and a dense result list.
-- Result rows show anchor name, target app/file, locator summary, tag chips,
-  and alias hints.
-- Keyboard shortcuts:
-  - Enter: jump.
-  - Capture and metadata actions should move behind explicit command/action
-    surfaces instead of adding launcher shortcuts.
-- Keep folder/index controls out of the default v1 surface.
-
-Status:
-
-- Default `PinloomPanel` surface now opens as a launcher-style command palette:
-  search box first, compact result list second, and library/root management
-  hidden behind an explicit Manage toggle.
-- Anchor result rows prioritize anchor display name, target app/file/uri,
-  locator summary, tags, and aliases while preserving resource-result
-  compatibility.
-- Enter activation and the initial capture/metadata action placeholders are
-  covered by widget tests. Later command-window work moves fast actions behind
-  an explicit selected-result action list instead of implicit shortcuts.
-- Build and full `ctest --test-dir build --output-on-failure` validation
-  passed for the phase implementation.
-
-## Phase 3: SumatraPDF Jump Executor
-
-Goal: jump to manually entered SumatraPDF locators.
-
-Scope:
-
-- Use SumatraPDF as the unified PDF host.
-- Accept file plus page, rect, zoom, and optional search text.
-- Generate SumatraPDF command-line arguments such as:
-
-```text
-SumatraPDF.exe -reuse-instance -page 12 -zoom 250 -scroll 420,860 file.pdf
-```
-
-- Use rectangle anchors as scroll targets. Do not promise external highlight or
-  viewrect support through SumatraPDF.
-- Do not depend on OCR for scanned PDFs.
-
-Acceptance:
-
-- A manually entered locator can open a scanned or text PDF at the specified
-  page and approximate region.
-
-Status:
-
-- SumatraPDF command building is implemented in core and covered by tests for
-  `sumatrapdf.rect`, `sumatrapdf.page`, `sumatrapdf.search`, generic PDF
-  page/region fallback, and missing target paths.
-- Launcher activation dispatches SumatraPDF/pdf/sumatrapdf anchors through the
-  executor before generic URL/file fallback, while preserving host handler
-  priority.
-- Executable lookup supports `PINLOOM_SUMATRAPDF_PATH`, common Windows install
-  paths, and widget-level injection for tests or embedding.
-- Command construction, environment path resolution, and UI activation status
-  are covered by automated tests; end-to-end GUI verification requires a local
-  SumatraPDF install.
-- Build and full `ctest --test-dir build --output-on-failure` passed again for
-  the validation hardening changes.
-
-## Phase 4: PDF Anchor Capture
-
-Goal: let users create PDF page and rectangle anchors from their current
-workflow.
-
-Scope:
-
-- Research whether SumatraPDF exposes current page, selection, annotation, or
-  rectangle coordinates reliably.
-- If native capture is unreliable, implement a Pinloom calibration mode only for
-  coordinate capture. This mode must not become a PDF reader.
-- Store page and rectangle locators compatible with the Phase 3 executor.
-
-Acceptance:
-
-- The user can create a PDF anchor, search it, and jump back to the same region.
-
-Status:
-
-- Command Window foreground SumatraPDF capture is now implemented for the MVP:
-  when `Ctrl+Space` opens Pinloom, the app remembers the foreground window
-  context, and `k n` uses that saved context to create a SumatraPDF anchor.
-- SumatraPDF 3.7 DDE now supplies the active full PDF path, current page, zoom,
-  and mouse positions. The user no longer has to search the PDF name in Pinloom
-  before creating the anchor.
-- The PDF UX now treats `Ctrl+K` and the PDF `Add Anchor` path as
-  `Capture PDF Anchor`: users enter name, aliases, tags, and pinned state while
-  the locator comes from the selected PDF context.
-- Foreground `k n` opens a transparent same-page rectangle capture layer over
-  SumatraPDF. The two DDE mouse positions are normalized and stored as a
-  `sumatrapdf.rect` locator. The selected-PDF path remains a compatibility
-  fallback outside the foreground workflow.
-- The `k n` foreground path stays tied to foreground SumatraPDF. If
-  SumatraPDF does not expose a full PDF file path, Pinloom now falls back
-  through a saved document-title mapping and indexed PDF title matching. A
-  unique match pre-fills the anchor request; no match, multiple matches, or an
-  invalid saved mapping asks the user to confirm the PDF file and remembers the
-  confirmed title-to-path mapping.
-- Raw file/page/coordinate entry remains available only as an advanced/debug
-  fallback and is no longer the default user path.
-- No-PDF-context attempts now report that a PDF must be opened or selected
-  before capture.
-- Opening a rectangle anchor uses page/zoom/scroll arguments and a short-lived,
-  click-through Pinloom overlay to highlight the stored target. This slice does
-  not read or modify SumatraPDF annotations.
-
-## Phase 5: Office And Visio Executors
-
-Goal: support deterministic jumps into common engineering documents.
-
-Scope:
-
-- Excel: file plus sheet plus range or named range.
-- Word: file plus bookmark.
-- PowerPoint: file plus slide plus shape id or shape name.
-- Visio: file plus page plus shape UniqueID.
-- Implement jump executors first, then capture.
-
-Status:
-
-- Excel jump executor skeleton and launcher dispatch are implemented: anchors
-  with `excel.range` and `excel.name` locators now build a deterministic
-  PowerShell/COM command object and route through an injectable Excel launcher
-  before generic file fallback.
-- Visio jump executor skeleton and launcher dispatch are implemented: anchors
-  with `visio.shape` locators now build a deterministic PowerShell/COM command
-  object for document, page, and shape UniqueID jumps and route through an
-  injectable Visio launcher before generic file fallback.
-- Word jump executor skeleton and launcher dispatch are implemented: anchors
-  with `word.bookmark` locators now build a deterministic PowerShell/COM
-  command object for document and bookmark range jumps and route through an
-  injectable Word launcher before generic file fallback.
-- PowerPoint jump executor skeleton and launcher dispatch are implemented:
-  anchors with `powerpoint.shape` locators now build a deterministic
-  PowerShell/COM command object for presentation, slide, and shape id/name
-  jumps and route through an injectable PowerPoint launcher before generic file
-  fallback.
-- Phase 5 jump executor coverage now includes Excel, Word, PowerPoint, and
-  Visio.
-- Manual Excel anchor capture is now implemented in core: explicit name, file,
-  sheet/range or named range, aliases, tags, pinned, source, and target app
-  inputs are normalized through a manual Excel capture provider, saved as
-  searchable workbook anchors, and remain compatible with the Excel executor's
-  `excel.range` and `excel.name` command builder. `Ctrl+K` can route through an
-  injectable manual Excel request provider; native Excel current-selection
-  capture and a default Excel dialog remain pending.
-- Manual Visio anchor capture is now implemented in core: explicit name, file,
-  page, shape UniqueID, aliases, tags, pinned, source, and target app inputs are
-  normalized through a manual Visio capture provider, saved as searchable Visio
-  file anchors, and remain compatible with the Visio executor's `visio.shape`
-  command builder. `Ctrl+K` can route through an injectable manual Visio request
-  provider. This is manual/injectable Visio capture only; native current-shape
-  capture through live Visio COM remains pending.
-- Manual Word bookmark anchor capture is now implemented in core: explicit
-  name, file, bookmark, aliases, tags, pinned, source, and target app inputs are
-  normalized through a manual Word bookmark capture provider, saved as
-  searchable Word file anchors, and remain compatible with the Word executor's
-  `word.bookmark` command builder. `Ctrl+K` can route through an injectable
-  manual Word request provider. This is manual/injectable Word bookmark capture
-  only; native current-selection capture and automatic bookmark insertion
-  through live Word COM remain pending.
-- Manual PowerPoint shape anchor capture is now implemented in core: explicit
-  name, file, slide, shape id or shape name, aliases, tags, pinned, source, and
-  target app inputs are normalized through a manual PowerPoint shape capture
-  provider, saved as searchable PowerPoint file anchors, and remain compatible
-  with the PowerPoint executor's `powerpoint.shape` command builder. `Ctrl+K`
-  can route through an injectable manual PowerPoint request provider. This is
-  manual/injectable PowerPoint shape capture only; native current-selection
-  capture through live PowerPoint COM remains pending.
-
-## Phase 6: Experience Completion
-
-Goal: make the launcher dependable for daily use.
-
-Scope:
-
-- Tray resident process.
-- Global hotkey.
-- External application path settings.
-- Anchor import/export.
-- Broken-anchor detection.
-- Recent and pinned anchor polish.
-- Fast alias/tag editing.
-
-Status:
-
-- External application path settings skeleton is implemented in core via
-  launch settings for SumatraPDF and shared PowerShell automation paths.
-- SumatraPDF, Excel, Word, PowerPoint, and Visio executors can consume the
-  injected settings while preserving existing default/legacy builder behavior.
-- `PinloomPanelOptions` can host-inject the launch settings, and launcher
-  activation passes the configured paths through to the command builders.
-- This is intentionally not a complete settings UI or persistence layer.
-- Build and full `ctest --test-dir build --output-on-failure` passed for this
-  first Phase 6 slice.
-- Broken-anchor detection now has a core `AnchorHealthCheck` skeleton for
-  static, non-launching checks of local target existence, configured launcher
-  paths, non-local targets, and unsupported locators.
-- This is intentionally not yet wired into realtime UI scanning, background
-  monitoring, or a persisted health cache.
-- Anchor import/export now has a core `AnchorArchive` skeleton for explicit
-  JSON file paths using schema `pinloom.anchors` v1. Export is driven by a
-  caller-provided resource list and only writes resource containers that carry
-  anchors plus anchor fields. Import conservatively skips resources whose ids
-  already exist instead of overwriting local resources.
-- This is intentionally not yet connected to UI, tray actions, app data
-  defaults, or remote sync.
-- Pinloom Clip's resident text runtime is now integrated into `pinloom_app.exe`
-  with the shared app-data directory, `pinloom_clip.sqlite3`, tray actions for
-  Show Clipboard, Pause/Resume Capture, and Quit Pinloom, automatic system
-  clipboard text capture, timestamped temporary text history insertion, and a
-  picker action to save a temporary clip as a named Saved Clip.
-- `pinloom_app.exe` registers a single global `Ctrl+Space` command entry for
-  the Command Window. The main path no longer registers the standalone Clip
-  `Ctrl+Shift+V` hotkey; type an ordinary query to search unified
-  Anchor/Saved Clip/Inbox/File results, or type `c` to see Clip commands,
-  `c s`/`c s <query>` to search/insert temporary history plus Saved Clips, and
-  `c n` to save a recent temporary clipboard item as a Saved Clip.
-  `Ctrl+Space` can still conflict with an IME or another registered global
-  shortcut.
-- Saved Clips are searchable inside ordinary Command Window queries, the normal
-  launcher search, and the `c s` Clip command by name, alias, `#tag`, and text
-  preview/content. `c s` also shows temporary history; `c n` shows temporary
-  history as save candidates. Saved clips are kept out of temporary history and
-  exact saved-text recaptures are ignored as duplicates by content hash.
-  Command Window and main launcher Enter both insert Clip text through the same
-  clip insertion service, while anchor results keep their native jump behavior.
-- The `k n` command is now wired as the new-anchor/capture-anchor entry for
-  foreground SumatraPDF. It uses the foreground context saved immediately
-  before the Command Window is shown by `Ctrl+Space`, captures a same-page DDE
-  rectangle, opens the lightweight PDF anchor dialog, and saves anchors into
-  ordinary search by name, alias, tag, and metadata. The existing `Ctrl+K`
-  selected-PDF fallback remains for compatibility.
-- Pinloom Inbox MVP is implemented as a local file object capture entrypoint,
-  not a file manager. The Command Window now exposes `i`, `i n`, and
-  `i s <query>`; users can drop local files on the Command Window or use
-  `i n` to capture the Explorer selection that was in front before
-  `Ctrl+Space`. The MVP is Link-only: it records the original path, name,
-  aliases, tags, and pinned state without moving, copying, parsing, syncing, or
-  full-text indexing the file.
-- Inbox files are saved as searchable local file resources with stable
-  path-based IDs, so re-saving the same path updates the existing entry instead
-  of creating duplicates. Command Window and main launcher results display
-  Inbox entries as `[Inbox]`, and Enter opens them through the system default
-  application. Missing local files are reported at open time rather than by a
-  background scanner.
-- The Command Window now has a Unified Command Results / Actions MVP: ordinary
-  non-namespace input displays compact mixed `[Anchor]`, `[Clip]`, `[Inbox]`,
-  and file/resource rows; Enter dispatches to anchor jump, clip insert, or
-  resource open handlers. Explicit `c`, `k`, `i`, and search commands remain
-  separate namespaces.
-- Launcher result actions now live behind the selected-result action list:
-  press Right Arrow (`->`) on an ordinary unified result to show compact
-  Jump/Insert/Open, Rename, Edit aliases, Edit tags, Pin/Unpin, Delete/Remove,
-  Restore for deleted Entries, and explicit disabled rows with reasons when an
-  action is not valid for the current object state. The action list keeps
-  keyboard Up/Down navigation, Enter execution, and Esc/Left Arrow return to
-  ordinary results.
-- Ordinary Command Window mixed results use the shared ranking surface: exact
-  name/title buckets are shown before alias, tag, pinned/recent/frequency
-  tie-breaks, and target/path metadata. This keeps explicit `c`, `k`, and `i`
-  namespaces separate from normal search.
-- The Entry management loop is now closed for the daily-use objects that appear
-  in ordinary Command Window search. Right Arrow actions expose Rename, Edit
-  aliases, Edit tags, Pin/Unpin, confirmed Delete / Remove, and Restore. Delete
-  / Remove is a Pinloom soft delete only and does not remove original files,
-  PDFs, Inbox source paths, or external clipboard source content. Type
-  `restore <query>` or `trash <query>` to search soft-deleted Entries, then use
-  the same action list to restore them. Disabled actions carry a reason instead
-  of failing silently.
-- SumatraPDF foreground `k n` capture now has a reusable user-facing locator
-  summary for file, page, rectangle, zoom, unit, and capture source. Diagnostics
-  distinguish missing foreground SumatraPDF, missing exposed file path, saved
-  title mapping use/rejection, no unique indexed-PDF match, canceled
-  confirmation, unparseable view-state text, and full-page fallback locator
-  generation.
-- Saved Clip insertion remains available from ordinary Command Window search
-  and `c s`; the main settings dialog now exposes whether successful insertion
-  restores the original clipboard. The default remains restore-on-success, and
-  privacy controls for source-app blacklist, sensitive markers, size limit,
-  history limit, and TTL feed the capture policy.
-- Pinloom Inbox remains Link-only by default. Drag/drop and `i n` create
-  searchable Inbox Entries without moving or copying the original file; Inbox
-  Entries use the same metadata, pin, soft-delete, restore, search, and default
-  open/reveal path as other local resources.
-- The Command Window now has a forward-compatible command/action result shape:
-  UI handlers can consume `success`, `message`, `diagnostics`, and
-  `nextUiHint`. The current Qt window is a caller of this protocol, keeping the
-  surface ready for a future ZeroSlack host without adding a larger framework.
-
-## Phase 7: Obsidian Saved Clip Source
-
-Goal: keep reusable text in an ordinary Obsidian Vault while Pinloom provides
-fast capture, retrieval, and insertion.
-
-Scope and status:
-
-- Settings now accept a Vault path and a relative archive directory. No
-  Obsidian plugin is required.
-- Saving a Clip writes one UTF-8 Markdown note through an atomic replacement.
-  The note body is the insertion text; controlled YAML frontmatter stores the
-  stable `pinloom_id`, name, aliases, tags, pinned state, and timestamps.
-- Startup synchronization and a debounced recursive file watcher import new
-  notes and external edits into the existing Clip SQLite search cache. Rename
-  tracking uses `pinloom_id`, not the filename.
-- Removing a managed note soft-deletes its cached Clip. A malformed managed
-  note prevents deletion propagation for that scan so a parse error cannot
-  remove unrelated cached entries.
-- Before insertion, Pinloom reloads the matching Markdown body, ensuring that
-  an Obsidian edit is used even before the watcher debounce completes.
-- Unified Saved Clip actions expose `Open source note`, dispatched through the
-  `obsidian://open?path=...` URI.
-- Unit coverage verifies exact multiline body round-tripping, metadata,
-  external edits, renames, deletion propagation, and file watching.
-
-## Phase 8: Contextual Hyper+S Workflow
-
-Goal: make selection archiving and Saved Clip insertion a single contextual
-operation behind the user's PowerToys Caps Lock Hyper layer.
-
-Scope and status:
-
-- A Windows low-level keyboard hook recognizes
-  `Ctrl+Alt+Shift+backtick+S`. This is required because the PowerToys remap is a
-  multi-key output that cannot be represented reliably by `RegisterHotKey`.
-- Selection capture uses UI Automation `TextPattern::GetSelection()` first and
-  standard Edit/RichEdit selection messages as a fallback. It never sends
-  `Ctrl+C` and excludes password controls.
-- A non-empty, explicit text selection is archived directly into the configured
-  Obsidian directory and synchronized into the Clip cache. Exact existing
-  Saved Clip text is detected as a duplicate.
-- Caret-only and unknown selection states open `c s` while retaining the
-  original foreground window and focused control. Selecting a Clip restores
-  that target and inserts the latest Markdown body.
-- Clipboard restoration after insertion is delayed so the target can process
-  `Ctrl+V`; restoration only occurs if the clipboard still contains Pinloom's
-  inserted text, preventing overwrite of newer external clipboard content.
-- Unit tests cover the Hyper chord state machine, the three-state contextual
-  decision, and delayed clipboard restoration. Real Windows verification
-  covers selection archive, duplicate handling, command opening, focus return,
-  and insertion into Notepad.
-
-## Frozen Or Demoted Work
-
-The following areas are no longer product mainline for v1:
-
-- Broad directory content indexing as the headline experience.
-- Web/feed/history/bookmark import expansion.
-- OCR search and screenshot search.
-- Semantic search.
-- Relationship graph browsing.
-- Built-in PDF reader work.
-- Heavy three-pane management UI.
-- Additional special readers unless they directly support deterministic anchor
-  capture or jump execution.
-
-Existing code may remain while the anchor model is introduced. Do not remove
-working infrastructure casually, and do not reset user changes.
+This plan tracks work that remains after the launcher, SumatraPDF, Inbox, and
+Saved Clip foundations are in place. Product boundaries are defined in
+`goal.md`; current usage and build instructions are in `readme.md`.
+
+## Current Baseline
+
+- One resident `pinloom_app.exe` process owns the tray, `Ctrl+Space` Command
+  Window, contextual `Hyper+S` chord, anchor repository, and Clip repository.
+- The Command Window searches and acts on Anchors, Saved Clips, Inbox files,
+  and local resources through one entry/action protocol.
+- Anchors use one canonical model: target application, target file or URI,
+  locator type, and locator JSON. SQLite schema version 11 performs a one-time
+  migration from older anchor columns without retaining a second runtime
+  model.
+- SumatraPDF is the only PDF host. DDE supplies the active file, page, zoom,
+  and same-page rectangle coordinates; launcher execution restores page and
+  position and adds a temporary Pinloom highlight.
+- Excel, Word, PowerPoint, and Visio have structured jump executors for existing
+  anchors. Unsupported or malformed locators fail explicitly.
+- Saved Clips support temporary clipboard history, named persistence, search,
+  insertion, Obsidian-backed Markdown storage, and contextual selected-text
+  capture.
+- Inbox captures local file objects in Link mode and opens them through the
+  operating-system default application.
+- Directory crawling, library-root management, relationship graphs, standalone
+  Clip picker UI, JSON Clip archive, and dormant anchor archive/health shells
+  are not part of the runtime.
+
+## Phase 1: Daily-Use Hardening
+
+- Make command, capture, insertion, and jump failures diagnosable without
+  modal error loops.
+- Preserve foreground-window and insertion-target behavior across repeated
+  Command Window use.
+- Exercise schema migration against a copy of an existing personal database
+  before packaging.
+- Keep search and action latency stable as anchor and Clip counts grow.
+
+Exit criteria:
+
+- Existing schema versions upgrade to version 11 without losing resources,
+  aliases, tags, anchors, or usage ranking.
+- Core, SQLite, Clip, capture, and widget suites pass from a clean build.
+- Normal launcher and Hyper workflows do not require a second picker window.
+
+## Phase 2: Native Capture Depth
+
+- Add native locator capture only where the owning application exposes a
+  stable and legally usable interface.
+- Prefer workbook range, Word bookmark, PowerPoint shape, and Visio UniqueID
+  locators over screen coordinates or inferred text.
+- Keep manual structured locator creation as an explicit fallback when native
+  capture is unavailable.
+
+Exit criteria:
+
+- Each new capture path has a matching jump round trip and a deterministic
+  locator contract.
+- Failure does not create a misleading page-1 or generic-location anchor.
+
+## Phase 3: Clip Reliability
+
+- Improve UI Automation selection coverage without synthesizing `Ctrl+C`.
+- Preserve Obsidian note identity across edits and renames.
+- Keep clipboard restoration race-safe and observable through diagnostics.
+- Add richer payload kinds only after the plain-text contract remains stable.
+
+Exit criteria:
+
+- `Hyper+S` consistently distinguishes accessible selection from caret-only or
+  unknown state.
+- Saved Clip insertion reads the latest external Markdown body.
+- Temporary history remains bounded by policy and excluded applications.
+
+## Phase 4: Distribution
+
+- Produce a repeatable Windows package containing the required Qt runtime and
+  PDF proxy executable.
+- Validate first-run settings, SumatraPDF discovery, database initialization,
+  single-instance behavior, and uninstall behavior.
+- Add operating-system startup only as an explicit user setting.
+
+Exit criteria:
+
+- A clean Windows user profile can install, launch, capture, search, jump,
+  insert, upgrade, and uninstall without source-tree dependencies.
+
+## Engineering Guardrails
+
+- Do not reintroduce dual anchor models or application-specific fields into
+  `Anchor`.
+- Do not add broad file-content indexing, OCR, semantic search, web/feed
+  importers, or relationship graphs as v1 headline behavior.
+- Keep application launchers behind structured locator validation.
+- Treat user files, PDFs, Office documents, Obsidian notes, and Inbox source
+  files as externally owned data; Pinloom metadata deletion must not delete
+  them.
+- Scale tests with behavioral risk and run GUI tests with an installed Qt
+  platform plugin (`windows` in the current local toolchain).

@@ -1,5 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
-#include "pinloom/core/AnchorHealthCheck.h"
+#include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/ExplorerFileSelection.h"
@@ -15,6 +15,8 @@
 #include <QByteArray>
 #include <QDateTime>
 #include <QFile>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
@@ -30,19 +32,12 @@ private slots:
     void persistsAndSearchesAnchorLocatorFields();
     void buildsSumatraPdfRectCommand();
     void buildsSumatraPdfViewRectCommand();
-    void buildsSumatraPdfPageCommandFromLegacyAnchor();
     void buildsSumatraPdfTextCommand();
-    void doesNotTreatLegacyPdfManualLineAsSumatraPdfAnchor();
     void reportsMissingSumatraPdfTargetPath();
     void recordsSumatraPdfOpenProxyPathMappings();
     void resolvesSumatraPdfExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
     void appliesExplicitApplicationLaunchSettings();
-    void checksExistingAnchorTargetHealth();
-    void reportsMissingAnchorTargetHealth();
-    void reportsMissingSumatraPdfLauncherHealth();
-    void reportsMissingExplicitPowerShellLauncherHealth();
-    void reportsUnsupportedAnchorHealthInputs();
     void buildsExcelRangeCommand();
     void buildsExcelNamedRangeCommand();
     void reportsExcelCommandInputErrors();
@@ -66,19 +61,32 @@ private slots:
     void softDeletesAndRestoresAnchorsInSearch();
     void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
     void recognizesExplorerForegroundWindows();
-    void normalizesLegacyTextResourceInputs();
     void ranksAnchorBeforePathMatches();
     void ranksExactMatchesWithinMatchType();
     void ranksPinnedAndOpenedResourcesWithinMatchType();
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
     void ranksContextResourcesWithinMatchType();
-    void ranksRelatedContextResourcesWithinMatchType();
     void ranksOpenedAnchorsWithinAnchorMatches();
     void searchesExtractedContent();
-    void filtersLegacyPdfManualLineAnchorsFromSearch();
     void exposesSqliteFts5SchemaDraft();
 };
+
+static Anchor testAnchor(const QString &name,
+                         const QString &locatorType = QStringLiteral("manual"),
+                         int line = -1)
+{
+    Anchor anchor;
+    anchor.name = name;
+    anchor.locatorType = locatorType;
+    QJsonObject locator{{QStringLiteral("type"), locatorType}};
+    if (line > 0) {
+        locator.insert(QStringLiteral("line"), line);
+    }
+    anchor.locatorJson =
+        QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+    return anchor;
+}
 
 void CoreSmokeTest::searchesAliasesAndTags()
 {
@@ -110,7 +118,6 @@ void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
     InMemoryLibraryRepository repository;
 
     Anchor anchor;
-    anchor.type = AnchorType::Manual;
     anchor.id = QStringLiteral("anchor:clock-domain");
     anchor.name = QStringLiteral("Clock domain window");
     anchor.targetApp = QStringLiteral("SumatraPDF");
@@ -138,7 +145,6 @@ void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
     QCOMPARE(stored->anchors.size(), 1);
     QCOMPARE(stored->anchors.first().id, anchor.id);
     QCOMPARE(stored->anchors.first().name, anchor.name);
-    QCOMPARE(stored->anchors.first().target, anchor.name);
     QCOMPARE(stored->anchors.first().targetApp, anchor.targetApp);
     QCOMPARE(stored->anchors.first().targetFile, anchor.targetFile);
     QCOMPARE(stored->anchors.first().locatorType, anchor.locatorType);
@@ -214,35 +220,9 @@ void CoreSmokeTest::buildsSumatraPdfViewRectCommand()
                           anchor.targetFile}));
 }
 
-void CoreSmokeTest::buildsSumatraPdfPageCommandFromLegacyAnchor()
-{
-    Anchor anchor;
-    anchor.type = AnchorType::PdfPage;
-    anchor.targetApp = QStringLiteral("pdf");
-    anchor.page = 3;
-    anchor.locatorJson = QStringLiteral("{\"zoom\":175}");
-
-    QVERIFY(isSumatraPdfAnchor(anchor));
-    const SumatraPdfCommandResult result =
-        buildSumatraPdfCommand(anchor,
-                               QStringLiteral("E:/docs/spec.pdf"),
-                               QStringLiteral("C:/Tools/SumatraPDF.exe"));
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.command.filePath, QStringLiteral("E:/docs/spec.pdf"));
-    QCOMPARE(result.command.arguments,
-             QStringList({QStringLiteral("-reuse-instance"),
-                          QStringLiteral("-page"),
-                          QStringLiteral("3"),
-                          QStringLiteral("-zoom"),
-                          QStringLiteral("175"),
-                          QStringLiteral("E:/docs/spec.pdf")}));
-}
-
 void CoreSmokeTest::buildsSumatraPdfTextCommand()
 {
     Anchor anchor;
-    anchor.type = AnchorType::PdfPage;
     anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
     anchor.locatorType = QStringLiteral("sumatrapdf.search");
@@ -262,25 +242,6 @@ void CoreSmokeTest::buildsSumatraPdfTextCommand()
                           QStringLiteral("-search"),
                           QStringLiteral("clock; domain crossing"),
                           anchor.targetFile}));
-}
-
-void CoreSmokeTest::doesNotTreatLegacyPdfManualLineAsSumatraPdfAnchor()
-{
-    Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.targetApp = QStringLiteral("pdf");
-    anchor.targetFile = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
-    anchor.locatorType = QStringLiteral("manual");
-    anchor.locatorJson = QStringLiteral("{\"line\":12}");
-    anchor.line = 12;
-
-    QVERIFY(!isSumatraPdfAnchor(anchor));
-
-    const SumatraPdfCommandResult result =
-        buildSumatraPdfCommand(anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
-
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("SumatraPDF locator type is unsupported"));
 }
 
 void CoreSmokeTest::reportsMissingSumatraPdfTargetPath()
@@ -448,136 +409,6 @@ void CoreSmokeTest::appliesExplicitApplicationLaunchSettings()
     QVERIFY2(visioCommand.success(), qPrintable(visioCommand.error));
     QCOMPARE(visioCommand.command.executablePath,
              QStringLiteral("C:/Tools/PowerShell/powershell.exe"));
-}
-
-void CoreSmokeTest::checksExistingAnchorTargetHealth()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-
-    const QString targetPath = tempDir.filePath(QStringLiteral("target.txt"));
-    QFile targetFile(targetPath);
-    QVERIFY(targetFile.open(QIODevice::WriteOnly));
-    QVERIFY(targetFile.write("anchor") > 0);
-    targetFile.close();
-
-    Anchor anchor;
-    anchor.targetFile = targetPath;
-    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
-
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
-    QVERIFY2(result.healthy(), qPrintable(result.message));
-    QCOMPARE(result.path, targetPath);
-
-    Anchor fallbackAnchor;
-    result = checkAnchorHealth(fallbackAnchor, targetPath);
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
-    QCOMPARE(result.path, targetPath);
-}
-
-void CoreSmokeTest::reportsMissingAnchorTargetHealth()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-
-    Anchor anchor;
-    anchor.targetFile = tempDir.filePath(QStringLiteral("missing-target.txt"));
-    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
-
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingTarget));
-    QVERIFY(!result.healthy());
-    QCOMPARE(result.path, anchor.targetFile);
-
-    const QString missingFallback = tempDir.filePath(QStringLiteral("missing-fallback.txt"));
-    Anchor fallbackAnchor;
-    result = checkAnchorHealth(fallbackAnchor, missingFallback);
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingTarget));
-    QCOMPARE(result.path, missingFallback);
-}
-
-void CoreSmokeTest::reportsMissingSumatraPdfLauncherHealth()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-
-    const QString targetPath = tempDir.filePath(QStringLiteral("target.pdf"));
-    QFile targetFile(targetPath);
-    QVERIFY(targetFile.open(QIODevice::WriteOnly));
-    QVERIFY(targetFile.write("%PDF-1.7") > 0);
-    targetFile.close();
-
-    ApplicationLaunchSettings settings;
-    settings.sumatraPdfExecutablePath = tempDir.filePath(QStringLiteral("missing-SumatraPDF.exe"));
-
-    Anchor anchor;
-    anchor.targetFile = targetPath;
-    anchor.locatorType = QStringLiteral("sumatrapdf.page");
-    anchor.locatorJson = QStringLiteral("{\"page\":1}");
-
-    const AnchorHealthCheckResult result = checkAnchorHealth(anchor, QString(), settings);
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingLauncher));
-    QCOMPARE(result.path, targetPath);
-    QCOMPARE(result.launcherPath, settings.sumatraPdfExecutablePath);
-    QCOMPARE(result.app, QStringLiteral("SumatraPDF"));
-    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.page"));
-}
-
-void CoreSmokeTest::reportsMissingExplicitPowerShellLauncherHealth()
-{
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-
-    const QString targetPath = tempDir.filePath(QStringLiteral("target.xlsx"));
-    QFile targetFile(targetPath);
-    QVERIFY(targetFile.open(QIODevice::WriteOnly));
-    QVERIFY(targetFile.write("workbook") > 0);
-    targetFile.close();
-
-    Anchor anchor;
-    anchor.targetFile = targetPath;
-    anchor.locatorType = QStringLiteral("excel.range");
-    anchor.locatorJson = QStringLiteral("{\"sheet\":\"Sheet1\",\"range\":\"A1\"}");
-
-    AnchorHealthCheckResult result = checkAnchorHealth(anchor);
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::Ok));
-
-    ApplicationLaunchSettings settings;
-    settings.powerShellExecutablePath = tempDir.filePath(QStringLiteral("missing-powershell.exe"));
-    result = checkAnchorHealth(anchor, QString(), settings);
-
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::MissingLauncher));
-    QCOMPARE(result.path, targetPath);
-    QCOMPARE(result.launcherPath, settings.powerShellExecutablePath);
-    QCOMPARE(result.app, QStringLiteral("Microsoft Excel"));
-    QCOMPARE(result.locatorType, QStringLiteral("excel.range"));
-}
-
-void CoreSmokeTest::reportsUnsupportedAnchorHealthInputs()
-{
-    Anchor remoteTarget;
-    remoteTarget.targetUri = QStringLiteral("https://example.com/spec.pdf");
-    AnchorHealthCheckResult result = checkAnchorHealth(remoteTarget);
-
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::UnsupportedTarget));
-    QCOMPARE(result.path, remoteTarget.targetUri);
-
-    QTemporaryDir tempDir;
-    QVERIFY(tempDir.isValid());
-    const QString targetPath = tempDir.filePath(QStringLiteral("target.bin"));
-    QFile targetFile(targetPath);
-    QVERIFY(targetFile.open(QIODevice::WriteOnly));
-    QVERIFY(targetFile.write("target") > 0);
-    targetFile.close();
-
-    Anchor unsupportedLocator;
-    unsupportedLocator.targetFile = targetPath;
-    unsupportedLocator.locatorType = QStringLiteral("cad.shape");
-    unsupportedLocator.locatorJson = QStringLiteral("{\"type\":\"cad.shape\"}");
-    result = checkAnchorHealth(unsupportedLocator);
-
-    QCOMPARE(static_cast<int>(result.status), static_cast<int>(AnchorHealthStatus::UnsupportedLocator));
-    QCOMPARE(result.path, targetPath);
-    QCOMPARE(result.locatorType, QStringLiteral("cad.shape"));
 }
 
 void CoreSmokeTest::buildsExcelRangeCommand()
@@ -1142,7 +973,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     nameResource.title = QStringLiteral("Zulu");
     nameResource.location = QStringLiteral("name.pinloom");
     Anchor nameAnchor;
-    nameAnchor.type = AnchorType::Manual;
+    nameAnchor.locatorType = QStringLiteral("manual");
     nameAnchor.name = QStringLiteral("shared");
     nameResource.anchors = {nameAnchor};
     QVERIFY(repository.upsertResource(nameResource));
@@ -1153,7 +984,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     aliasResource.title = QStringLiteral("Alpha");
     aliasResource.location = QStringLiteral("alias.pinloom");
     Anchor aliasAnchor;
-    aliasAnchor.type = AnchorType::Manual;
+    aliasAnchor.locatorType = QStringLiteral("manual");
     aliasAnchor.name = QStringLiteral("alias carrier");
     aliasAnchor.aliases = {QStringLiteral("shared")};
     aliasResource.anchors = {aliasAnchor};
@@ -1165,7 +996,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     tagResource.title = QStringLiteral("Beta");
     tagResource.location = QStringLiteral("tag.pinloom");
     Anchor tagAnchor;
-    tagAnchor.type = AnchorType::Manual;
+    tagAnchor.locatorType = QStringLiteral("manual");
     tagAnchor.name = QStringLiteral("tag carrier");
     tagAnchor.tags = {QStringLiteral("shared")};
     tagResource.anchors = {tagAnchor};
@@ -1177,7 +1008,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     hotMetadataResource.title = QStringLiteral("Gamma");
     hotMetadataResource.location = QStringLiteral("hot-meta.pinloom");
     Anchor hotMetadataAnchor;
-    hotMetadataAnchor.type = AnchorType::Manual;
+    hotMetadataAnchor.locatorType = QStringLiteral("manual");
     hotMetadataAnchor.name = QStringLiteral("hot metadata carrier");
     hotMetadataAnchor.targetFile = QStringLiteral("E:/targets/shared-target.pdf");
     hotMetadataAnchor.pinned = true;
@@ -1190,7 +1021,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     coldMetadataResource.title = QStringLiteral("Delta");
     coldMetadataResource.location = QStringLiteral("cold-meta.pinloom");
     Anchor coldMetadataAnchor;
-    coldMetadataAnchor.type = AnchorType::Manual;
+    coldMetadataAnchor.locatorType = QStringLiteral("manual");
     coldMetadataAnchor.name = QStringLiteral("cold metadata carrier");
     coldMetadataAnchor.targetFile = QStringLiteral("E:/targets/shared-target.pdf");
     coldMetadataResource.anchors = {coldMetadataAnchor};
@@ -1305,9 +1136,8 @@ void CoreSmokeTest::softDeletesAndRestoresAnchorsInSearch()
 
     Anchor anchor;
     anchor.id = QStringLiteral("clock#anchor");
-    anchor.type = AnchorType::Manual;
     anchor.name = QStringLiteral("Clock anchor");
-    anchor.target = anchor.name;
+    anchor.locatorType = QStringLiteral("manual");
     anchor.aliases = {QStringLiteral("clock alias")};
     anchor.tags = {QStringLiteral("review")};
 
@@ -1393,44 +1223,6 @@ void CoreSmokeTest::recognizesExplorerForegroundWindows()
     QVERIFY(!result.recognizedExplorer);
 }
 
-void CoreSmokeTest::normalizesLegacyTextResourceInputs()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource resource;
-    resource.id = QStringLiteral("legacy-text-input");
-    resource.kind = ResourceKind::Markdown;
-    resource.title = QStringLiteral("Legacy Text Input");
-    resource.location = QStringLiteral("docs/legacy.md");
-    resource.anchors = {
-        Anchor{AnchorType::MarkdownHeading, QStringLiteral("Legacy Heading"), 3},
-        Anchor{AnchorType::MarkdownBlock, QStringLiteral("legacy-block"), 9}
-    };
-    QVERIFY(repository.upsertResource(resource));
-
-    const std::optional<Resource> stored = repository.findResource(resource.id);
-    QVERIFY(stored.has_value());
-    QCOMPARE(stored->kind, ResourceKind::File);
-    QCOMPARE(stored->anchors.size(), 2);
-    QCOMPARE(stored->anchors.at(0).type, AnchorType::TextHeading);
-    QCOMPARE(stored->anchors.at(1).type, AnchorType::TextBlock);
-
-    SearchQuery query;
-    query.text = QStringLiteral("Legacy Heading");
-    query.requiredKinds = {ResourceKind::Markdown};
-    const QList<SearchResult> results = repository.search(query);
-    QCOMPARE(results.size(), 1);
-    QVERIFY(results.first().matchedAnchor.has_value());
-    QCOMPARE(results.first().matchedAnchor->type, AnchorType::TextHeading);
-
-    QVERIFY(repository.recordAnchorOpen(resource.id, resource.anchors.first()));
-    Anchor normalizedHeading = resource.anchors.first();
-    normalizedHeading.type = AnchorType::TextHeading;
-    const std::optional<AnchorUsage> usage = repository.anchorUsage(resource.id, normalizedHeading);
-    QVERIFY(usage.has_value());
-    QCOMPARE(usage->anchor.type, AnchorType::TextHeading);
-}
-
 void CoreSmokeTest::ranksAnchorBeforePathMatches()
 {
     InMemoryLibraryRepository repository;
@@ -1440,7 +1232,7 @@ void CoreSmokeTest::ranksAnchorBeforePathMatches()
     anchored.kind = ResourceKind::File;
     anchored.title = QStringLiteral("note.md");
     anchored.location = QStringLiteral("E:/test_dir/note.md");
-    anchored.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("test"), 12}};
+    anchored.anchors = {testAnchor(QStringLiteral("test"), QStringLiteral("text.heading"), 12)};
     QVERIFY(repository.upsertResource(anchored));
 
     Resource pathOnly;
@@ -1452,7 +1244,7 @@ void CoreSmokeTest::ranksAnchorBeforePathMatches()
 
     const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("test")});
     QVERIFY(results.size() >= 2);
-    QCOMPARE(results.first().matchedField, QStringLiteral("anchor"));
+    QCOMPARE(results.first().matchedField, QStringLiteral("anchor_name"));
     QVERIFY(results.first().matchedAnchor.has_value());
 }
 
@@ -1485,7 +1277,8 @@ void CoreSmokeTest::ranksExactMatchesWithinMatchType()
     partialAnchor.kind = ResourceKind::File;
     partialAnchor.title = QStringLiteral("a.md");
     partialAnchor.location = QStringLiteral("a.md");
-    partialAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power sequencing"), 7}};
+    partialAnchor.anchors = {
+        testAnchor(QStringLiteral("Power sequencing"), QStringLiteral("text.heading"), 7)};
     QVERIFY(repository.upsertResource(partialAnchor));
 
     Resource exactAnchor;
@@ -1493,13 +1286,14 @@ void CoreSmokeTest::ranksExactMatchesWithinMatchType()
     exactAnchor.kind = ResourceKind::File;
     exactAnchor.title = QStringLiteral("b.md");
     exactAnchor.location = QStringLiteral("b.md");
-    exactAnchor.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power"), 3}};
+    exactAnchor.anchors = {
+        testAnchor(QStringLiteral("Power"), QStringLiteral("text.heading"), 3)};
     QVERIFY(repository.upsertResource(exactAnchor));
 
     const QList<SearchResult> anchorResults = repository.search(SearchQuery{QStringLiteral("Power")});
     QVERIFY(anchorResults.size() >= 2);
     QCOMPARE(anchorResults.first().resource.id, exactAnchor.id);
-    QCOMPARE(anchorResults.first().matchedField, QStringLiteral("anchor"));
+    QCOMPARE(anchorResults.first().matchedField, QStringLiteral("anchor_name"));
     QVERIFY(anchorResults.first().matchedAnchor.has_value());
     QVERIFY(anchorResults.first().score < anchorResults.at(1).score);
 }
@@ -1577,7 +1371,8 @@ void CoreSmokeTest::filtersByRequiredResourceKinds()
     note.kind = ResourceKind::File;
     note.title = QStringLiteral("UART Note");
     note.location = QStringLiteral("note.md");
-    note.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Dock handoff"), 4}};
+    note.anchors = {
+        testAnchor(QStringLiteral("Dock handoff"), QStringLiteral("text.heading"), 4)};
     QVERIFY(repository.upsertResource(note));
 
     Resource link;
@@ -1585,7 +1380,7 @@ void CoreSmokeTest::filtersByRequiredResourceKinds()
     link.kind = ResourceKind::Url;
     link.title = QStringLiteral("UART Link");
     link.location = QStringLiteral("https://docs.example.com/uart");
-    link.anchors = {Anchor{AnchorType::UrlFragment, QStringLiteral("Dock handoff")}};
+    link.anchors = {testAnchor(QStringLiteral("Dock handoff"), QStringLiteral("url.fragment"))};
     QVERIFY(repository.upsertResource(link));
 
     SearchQuery query;
@@ -1637,67 +1432,6 @@ void CoreSmokeTest::ranksContextResourcesWithinMatchType()
     QCOMPARE(results.first().matchedField, QStringLiteral("title"));
 }
 
-void CoreSmokeTest::ranksRelatedContextResourcesWithinMatchType()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource active;
-    active.id = QStringLiteral("active");
-    active.kind = ResourceKind::File;
-    active.title = QStringLiteral("Current Note");
-    active.location = QStringLiteral("E:/workspace/current.md");
-    QVERIFY(repository.upsertResource(active));
-
-    Resource generic;
-    generic.id = QStringLiteral("generic");
-    generic.kind = ResourceKind::File;
-    generic.title = QStringLiteral("UART Alpha");
-    generic.location = QStringLiteral("E:/workspace/other/alpha.md");
-    QVERIFY(repository.upsertResource(generic));
-
-    Resource related;
-    related.id = QStringLiteral("related");
-    related.kind = ResourceKind::File;
-    related.title = QStringLiteral("UART Zulu");
-    related.location = QStringLiteral("E:/workspace/project/zulu.md");
-    QVERIFY(repository.upsertResource(related));
-
-    ResourceRelation relation;
-    relation.sourceResourceId = active.id;
-    relation.targetResourceId = related.id;
-    relation.label = QStringLiteral("related-to");
-    relation.note = QStringLiteral("active relation edge");
-    QVERIFY(repository.upsertResourceRelation(relation));
-
-    SearchQuery query;
-    query.text = QStringLiteral("UART");
-    QList<SearchResult> results = repository.search(query);
-    QCOMPARE(results.size(), 2);
-    QCOMPARE(results.first().resource.id, generic.id);
-
-    query.contextResourceIds = {active.id};
-    results = repository.search(query);
-    QCOMPARE(results.size(), 2);
-    QCOMPARE(results.first().resource.id, related.id);
-    QCOMPARE(results.first().matchedContextResourceId, active.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
-    QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
-
-    query.contextRelationLabels = {QStringLiteral("file-reference")};
-    results = repository.search(query);
-    QCOMPARE(results.size(), 2);
-    QCOMPARE(results.first().resource.id, generic.id);
-    QVERIFY(results.first().matchedContextRelationLabel.isEmpty());
-    QVERIFY(results.first().matchedContextRelationNote.isEmpty());
-
-    query.contextRelationLabels = {QStringLiteral("RELATED-TO")};
-    results = repository.search(query);
-    QCOMPARE(results.size(), 2);
-    QCOMPARE(results.first().resource.id, related.id);
-    QCOMPARE(results.first().matchedContextRelationLabel, QStringLiteral("related-to"));
-    QCOMPARE(results.first().matchedContextRelationNote, QStringLiteral("active relation edge"));
-}
-
 void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
 {
     InMemoryLibraryRepository repository;
@@ -1707,7 +1441,8 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
     cold.kind = ResourceKind::File;
     cold.title = QStringLiteral("Alpha");
     cold.location = QStringLiteral("alpha.md");
-    cold.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 1}};
+    cold.anchors = {
+        testAnchor(QStringLiteral("Power rail"), QStringLiteral("text.heading"), 1)};
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
@@ -1715,7 +1450,8 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
     hot.kind = ResourceKind::File;
     hot.title = QStringLiteral("Zulu");
     hot.location = QStringLiteral("zulu.md");
-    hot.anchors = {Anchor{AnchorType::TextHeading, QStringLiteral("Power rail"), 2}};
+    hot.anchors = {
+        testAnchor(QStringLiteral("Power rail"), QStringLiteral("text.heading"), 2)};
     QVERIFY(repository.upsertResource(hot));
 
     QVERIFY(repository.recordAnchorOpen(hot.id, hot.anchors.first()));
@@ -1730,7 +1466,7 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, hot.id);
     QVERIFY(results.first().matchedAnchor.has_value());
-    QCOMPARE(results.first().matchedAnchor->line, 2);
+    QCOMPARE(anchorLocatorLine(results.first().matchedAnchor.value()), 2);
 }
 
 void CoreSmokeTest::searchesExtractedContent()
@@ -1749,50 +1485,6 @@ void CoreSmokeTest::searchesExtractedContent()
     QCOMPARE(results.size(), 1);
     QCOMPARE(results.first().resource.id, resource.id);
     QCOMPARE(results.first().matchedField, QStringLiteral("content"));
-}
-
-void CoreSmokeTest::filtersLegacyPdfManualLineAnchorsFromSearch()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource pdf;
-    pdf.id = QStringLiteral("iso-pdf");
-    pdf.kind = ResourceKind::Pdf;
-    pdf.title = QStringLiteral("ISO 11898-1");
-    pdf.location = QStringLiteral("E:/test_dir/ISO 11898-1.pdf");
-    Anchor legacyPdfLine;
-    legacyPdfLine.type = AnchorType::Manual;
-    legacyPdfLine.name = QStringLiteral("legacy PDF line anchor");
-    legacyPdfLine.target = legacyPdfLine.name;
-    legacyPdfLine.line = 12;
-    legacyPdfLine.locatorType = QStringLiteral("manual");
-    legacyPdfLine.locatorJson = QStringLiteral("{\"line\":12}");
-    pdf.anchors = {legacyPdfLine};
-    QVERIFY(repository.upsertResource(pdf));
-
-    Resource text;
-    text.id = QStringLiteral("bringup-note");
-    text.kind = ResourceKind::File;
-    text.title = QStringLiteral("Bringup Note");
-    text.location = QStringLiteral("E:/test_dir/bringup.txt");
-    Anchor textLine;
-    textLine.type = AnchorType::Manual;
-    textLine.name = QStringLiteral("legacy text line anchor");
-    textLine.target = textLine.name;
-    textLine.line = 12;
-    text.anchors = {textLine};
-    QVERIFY(repository.upsertResource(text));
-
-    const QList<SearchResult> pdfResults =
-        repository.search(SearchQuery{QStringLiteral("legacy PDF line anchor")});
-    QCOMPARE(pdfResults.size(), 0);
-
-    const QList<SearchResult> textResults =
-        repository.search(SearchQuery{QStringLiteral("legacy text line anchor")});
-    QCOMPARE(textResults.size(), 1);
-    QCOMPARE(textResults.first().resource.id, text.id);
-    QVERIFY(textResults.first().matchedAnchor.has_value());
-    QCOMPARE(textResults.first().matchedAnchor->line, 12);
 }
 
 void CoreSmokeTest::exposesSqliteFts5SchemaDraft()

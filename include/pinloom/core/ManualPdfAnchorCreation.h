@@ -14,7 +14,6 @@ struct ManualPdfAnchorCreationRequest {
     QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
-    QString selectedText;
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");

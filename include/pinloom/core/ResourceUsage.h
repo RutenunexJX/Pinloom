@@ -16,7 +16,6 @@ struct ResourceUsage {
 
 struct AnchorUsage {
     QString resourceId;
-    Anchor anchor;
     int openCount = 0;
     QDateTime lastOpenedAt;
 };

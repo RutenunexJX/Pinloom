@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 9;
+    return 11;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -52,38 +52,13 @@ QStringList Schema::sqliteFts5Draft()
                        "created_at TEXT,"
                        "updated_at TEXT,"
                        "used_at TEXT,"
-                       "type TEXT NOT NULL,"
-                       "target TEXT,"
-                       "line INTEGER,"
-                       "page INTEGER,"
-                       "x REAL,"
-                       "y REAL,"
-                       "width REAL,"
-                       "height REAL,"
                        "PRIMARY KEY (resource_id, anchor_order),"
                        "FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE"
                        ");"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS resource_fts "
                        "USING fts5(resource_id UNINDEXED, title, aliases, tags, location, content);"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS library_roots ("
-                       "id TEXT PRIMARY KEY,"
-                       "path TEXT NOT NULL UNIQUE,"
-                       "display_name TEXT NOT NULL,"
-                       "enabled INTEGER NOT NULL DEFAULT 1,"
-                       "pinned INTEGER NOT NULL DEFAULT 0,"
-                       "last_indexed_at TEXT"
-                       ");"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS anchor_fts "
-                       "USING fts5(resource_id UNINDEXED, anchor_order UNINDEXED, type, target);"),
-        QStringLiteral("CREATE TABLE IF NOT EXISTS resource_relations ("
-                       "source_resource_id TEXT NOT NULL,"
-                       "target_resource_id TEXT NOT NULL,"
-                       "label TEXT NOT NULL,"
-                       "note TEXT,"
-                       "PRIMARY KEY (source_resource_id, target_resource_id, label),"
-                       "FOREIGN KEY (source_resource_id) REFERENCES resources(id) ON DELETE CASCADE,"
-                       "FOREIGN KEY (target_resource_id) REFERENCES resources(id) ON DELETE CASCADE"
-                       ");"),
+                       "USING fts5(resource_id UNINDEXED, anchor_order UNINDEXED, locator_type, text);"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS resource_usage ("
                        "resource_id TEXT PRIMARY KEY,"
                        "open_count INTEGER NOT NULL DEFAULT 0,"
@@ -94,14 +69,6 @@ QStringList Schema::sqliteFts5Draft()
         QStringLiteral("CREATE TABLE IF NOT EXISTS anchor_usage ("
                        "resource_id TEXT NOT NULL,"
                        "anchor_key TEXT NOT NULL,"
-                       "type TEXT NOT NULL,"
-                       "target TEXT,"
-                       "line INTEGER,"
-                       "page INTEGER,"
-                       "x REAL,"
-                       "y REAL,"
-                       "width REAL,"
-                       "height REAL,"
                        "open_count INTEGER NOT NULL DEFAULT 0,"
                        "last_opened_at TEXT,"
                        "PRIMARY KEY (resource_id, anchor_key),"

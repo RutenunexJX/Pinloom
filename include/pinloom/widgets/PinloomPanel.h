@@ -4,11 +4,7 @@
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/LibraryRepository.h"
-#include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
-#include "pinloom/core/ManualPowerPointAnchorCreation.h"
-#include "pinloom/core/ManualVisioAnchorCreation.h"
-#include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/VisioCommand.h"
@@ -24,7 +20,6 @@
 #include <optional>
 
 class QLabel;
-class QCheckBox;
 class QEvent;
 class QLineEdit;
 class QListWidget;
@@ -32,8 +27,6 @@ class QListWidgetItem;
 class QPushButton;
 
 namespace Pinloom {
-
-class IndexingService;
 
 enum class PinloomEntryType {
     Anchor,
@@ -75,9 +68,6 @@ struct PinloomOpenTarget {
     QString matchedField;
     QString matchedContextTag;
     QString matchedContextLocationPrefix;
-    QString matchedContextResourceId;
-    QString matchedContextRelationLabel;
-    QString matchedContextRelationNote;
     QString matchSummary;
     int resultRow = -1;
     double score = 0.0;
@@ -100,44 +90,14 @@ struct PinloomClipSaveRequest {
     bool pinned = false;
 };
 
-struct PinloomRelatedTarget {
-    QString relationLabel;
-    QString relationNote;
-    bool currentIsSource = false;
-    PinloomOpenTarget target;
-};
-
-struct PinloomLibraryRootTarget {
-    QString id;
-    QString path;
-    QString displayName;
-    bool enabled = false;
-    bool pinned = false;
-    QDateTime lastIndexedAt;
-    int rootRow = -1;
-};
-
-struct PinloomIndexingResult {
-    bool success = false;
-    int indexedCount = 0;
-    QString error;
-};
-
 struct PinloomPanelOptions {
     std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;
     std::function<void(const PinloomOpenTarget &target)> currentOpenTargetChangedHandler;
     std::function<void(int resultCount)> resultCountChangedHandler;
     std::function<void(const QList<PinloomOpenTarget> &results)> resultsChangedHandler;
-    std::function<void(const PinloomLibraryRootTarget &root)> currentLibraryRootChangedHandler;
-    std::function<void(const QList<PinloomLibraryRootTarget> &roots)> libraryRootsChangedHandler;
     std::function<void(const QString &status)> statusChangedHandler;
-    std::function<void(const PinloomIndexingResult &result)> indexingCompletedHandler;
     std::function<QList<ClipSearchResult>(const QString &query, const ClipSearchOptions &options)> clipSearchHandler;
     std::function<bool(const QString &clipId, QString *error)> clipInsertionHandler;
-    std::function<std::optional<ManualExcelAnchorCreationRequest>()> manualExcelAnchorRequestProvider;
-    std::function<std::optional<ManualVisioAnchorCreationRequest>()> manualVisioAnchorRequestProvider;
-    std::function<std::optional<ManualWordAnchorCreationRequest>()> manualWordAnchorRequestProvider;
-    std::function<std::optional<ManualPowerPointAnchorCreationRequest>()> manualPowerPointAnchorRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QString *status)> foregroundPdfAnchorCaptureRequestProvider;
     std::function<std::optional<ManualPdfAnchorCreationRequest>(
         const ManualPdfAnchorCreationRequest &suggestedRequest)> pdfAnchorCaptureRequestProvider;
@@ -153,13 +113,10 @@ struct PinloomPanelOptions {
     std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
-    bool showLibraryRootControls = false;
-    bool showLibraryRootManagementButton = false;
     bool showOpenButton = false;
     bool showManualEditControls = false;
     bool showPinControls = false;
     bool showStatusLine = false;
-    bool showRelationLine = false;
     bool compactLauncherMode = true;
 };
 
@@ -170,8 +127,6 @@ struct PinloomHostContext {
     QList<ResourceKind> requiredResourceKinds;
     QStringList contextTags;
     QStringList contextLocationPrefixes;
-    QStringList contextResourceIds;
-    QStringList contextRelationLabels;
 };
 
 class PinloomPanel : public QWidget {
@@ -194,10 +149,6 @@ public:
     QStringList contextTags() const;
     void setContextLocationPrefixes(const QStringList &prefixes);
     QStringList contextLocationPrefixes() const;
-    void setContextResourceIds(const QStringList &resourceIds);
-    QStringList contextResourceIds() const;
-    void setContextRelationLabels(const QStringList &labels);
-    QStringList contextRelationLabels() const;
     void applyHostContext(const PinloomHostContext &context);
     PinloomHostContext hostContext() const;
     PinloomOpenTarget currentOpenTarget() const;
@@ -206,38 +157,16 @@ public:
     QList<PinloomOpenTarget> currentResults() const;
     QList<PinloomEntry> currentEntries() const;
     QList<PinloomEntry> searchEntries(const QString &text, bool includeDeleted = false) const;
-    QList<PinloomRelatedTarget> currentRelatedTargets() const;
-    QList<PinloomRelatedTarget> relatedTargetsForResource(const QString &resourceId) const;
-    bool upsertResourceRelation(const QString &sourceResourceId,
-                                const QString &targetResourceId,
-                                const QString &label,
-                                const QString &note = QString());
-    bool removeResourceRelation(const QString &sourceResourceId,
-                                const QString &targetResourceId,
-                                const QString &label);
-    PinloomLibraryRootTarget selectedLibraryRoot() const;
-    QList<PinloomLibraryRootTarget> libraryRoots() const;
     int resultCount() const;
     bool selectResultAt(int row);
     bool selectResultResource(const QString &resourceId);
-    bool selectLibraryRootById(const QString &id);
     bool selectFirstResult();
     bool selectNextResult();
     bool selectPreviousResult();
     bool activateCurrentOpenTarget();
     bool activateResourceById(const QString &resourceId);
     bool activateOpenTarget(const PinloomOpenTarget &target);
-    void setRemoteWebFetchingEnabled(bool enabled);
-    bool remoteWebFetchingEnabled() const;
     QString statusText() const;
-    PinloomIndexingResult lastIndexingResult() const;
-    PinloomIndexingResult indexSelectedLibraryRoot();
-    PinloomIndexingResult indexLibraryRootById(const QString &id);
-    PinloomIndexingResult indexAllEnabledLibraryRoots();
-    PinloomIndexingResult rebuildAllEnabledLibraryRoots();
-    bool addLibraryRootPath(const QString &path);
-    bool removeSelectedLibraryRoot();
-    bool removeLibraryRootById(const QString &id);
     bool captureCurrentAppPosition();
     bool addAliasToSelectedTarget(const QString &alias);
     bool addAliasToSelectedResource(const QString &alias);
@@ -251,23 +180,14 @@ public:
     bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);
     bool setResourcePinnedById(const QString &resourceId, bool pinned);
-    bool setSelectedLibraryRootPinned(bool pinned);
-    bool setLibraryRootPinnedById(const QString &id, bool pinned);
-    bool setSelectedLibraryRootEnabled(bool enabled);
-    bool setLibraryRootEnabledById(const QString &id, bool enabled);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
 
 private slots:
-    void addLibraryRoot();
-    void refreshSelectedRoot();
-    void refreshAllRoots();
-    void rebuildAllRoots();
     void refreshResults();
     void openSelectedResource();
     void openResultItem(QListWidgetItem *item);
-    void toggleSelectedLibraryRootPin();
     void triggerCaptureCurrentAppPosition();
     void addSearchTextAsAlias();
     void addSearchTextAsTag();
@@ -276,27 +196,20 @@ private slots:
     void promptDeleteSelectedAnchor();
     void promptAddManualAnchor();
     void toggleSelectedResourcePin();
-    void refreshRelationSummary();
     void refreshAnchorButtonState();
     void refreshPinButtonState();
-    void refreshRootPinButtonState();
     void notifyCurrentOpenTargetChanged();
     void notifyResultCountChanged();
     void notifyResultsChanged();
-    void notifyCurrentLibraryRootChanged();
-    void notifyLibraryRootsChanged();
 
 private:
-    void loadLibraryRoots();
     void updateStatus(const QString &message);
-    QString selectedRootId() const;
     QString selectedResultResourceId() const;
     QString selectedLocation() const;
     bool capturePdfAnchorFromSuggestedRequest(
         const std::optional<ManualPdfAnchorCreationRequest> &suggestedPdfRequest,
         const QString &missingContextStatus,
         bool allowManualFallback);
-    PinloomIndexingResult finishIndexingResult(const PinloomIndexingResult &result);
     std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
     bool activateCurrentLauncherItem();
@@ -307,7 +220,6 @@ private:
     bool activateVisioTarget(const PinloomOpenTarget &target);
     bool activateWordTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
-    void configureIndexingService(IndexingService &indexer) const;
     void refreshLauncherVisibility();
 
     ILibraryRepository &repository_;
@@ -317,22 +229,10 @@ private:
     QList<ResourceKind> requiredResourceKinds_;
     QStringList contextTags_;
     QStringList contextLocationPrefixes_;
-    QStringList contextResourceIds_;
-    QStringList contextRelationLabels_;
     QString statusText_;
-    PinloomIndexingResult lastIndexingResult_;
-    QWidget *rootControlsWidget_ = nullptr;
-    QListWidget *rootList_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
     QListWidget *resultList_ = nullptr;
-    QLabel *relationLabel_ = nullptr;
     QLabel *statusLabel_ = nullptr;
-    QCheckBox *fetchRemoteWebPagesCheck_ = nullptr;
-    QPushButton *removeRootButton_ = nullptr;
-    QPushButton *refreshSelectedButton_ = nullptr;
-    QPushButton *refreshAllButton_ = nullptr;
-    QPushButton *rebuildAllButton_ = nullptr;
-    QPushButton *pinRootButton_ = nullptr;
     QPushButton *openButton_ = nullptr;
     QPushButton *addAliasButton_ = nullptr;
     QPushButton *addAnchorButton_ = nullptr;

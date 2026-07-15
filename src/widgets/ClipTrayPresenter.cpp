@@ -36,7 +36,7 @@ ClipTrayPresenter::ClipTrayPresenter(ClipTrayController &controller,
     connect(&backend_, &ClipTrayBackend::actionTriggered, this, [this](const QString &actionId) {
         controller_.triggerAction(actionId);
     });
-    connect(&backend_, &ClipTrayBackend::primaryActivated, &controller_, &ClipTrayController::requestShowPicker);
+    connect(&backend_, &ClipTrayBackend::primaryActivated, &controller_, &ClipTrayController::requestShowClipboard);
 
     syncAll();
 }
@@ -89,16 +89,6 @@ QString ClipTrayPresenter::buildToolTip() const
     lines.append(QStringLiteral("Clip: %1").arg(controller_.isRunning()
                                                     ? QStringLiteral("running")
                                                     : QStringLiteral("stopped")));
-
-    if (controller_.hotkeyRegistrationEnabled()) {
-        lines.append(QStringLiteral("Hotkey: %1 (%2)")
-                         .arg(controller_.hotkeyRegistered()
-                                  ? QStringLiteral("registered")
-                                  : QStringLiteral("not registered"),
-                              controller_.hotkeyDisplayText()));
-    } else {
-        lines.append(QStringLiteral("Hotkey: handled by Command Window"));
-    }
 
     QString capture = QStringLiteral("stopped");
     if (controller_.isRunning()) {

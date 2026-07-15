@@ -1,11 +1,13 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 
-#include "pinloom/core/LegacyCompatibility.h"
+#include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/ResourceNormalization.h"
 
 #include <QDateTime>
 #include <QDir>
 #include <QFileInfo>
 #include <algorithm>
+#include <utility>
 
 namespace Pinloom {
 
@@ -72,23 +74,17 @@ QString tagNeedleFromQuery(const QString &needle)
 
 QString effectiveAnchorName(const Anchor &anchor)
 {
-    return anchor.name.trimmed().isEmpty() ? anchor.target : anchor.name;
+    return anchor.name;
 }
 
 QStringList anchorMetadataValues(const Anchor &anchor)
 {
     QStringList values;
-    if (!anchor.name.trimmed().isEmpty()) {
-        values = nonEmptyValues({anchor.targetApp,
-                                 anchor.targetFile,
-                                 anchor.targetUri,
-                                 anchor.locatorType,
-                                 anchor.locatorJson});
-    }
-    if (!anchor.target.trimmed().isEmpty()
-        && !equalsNeedle(anchor.target, effectiveAnchorName(anchor))) {
-        values.append(anchor.target);
-    }
+    values = nonEmptyValues({anchor.targetApp,
+                             anchor.targetFile,
+                             anchor.targetUri,
+                             anchor.locatorType,
+                             anchor.locatorJson});
     return values;
 }
 
@@ -129,48 +125,9 @@ SearchResult anchorResult(const Resource &resource, const Anchor &anchor, const 
     return SearchResult{resource, match.score, match.field, anchor};
 }
 
-QString anchorTypeKey(AnchorType type)
-{
-    return QString::number(static_cast<int>(normalizedAnchorType(type)));
-}
-
-QString legacyAnchorUsageKey(const QString &resourceId, const Anchor &anchor)
-{
-    return QStringLiteral("%1|%2|%3|%4|%5|%6|%7|%8|%9")
-        .arg(resourceId,
-             anchorTypeKey(anchor.type),
-             anchor.target,
-             QString::number(anchor.line),
-             QString::number(anchor.page),
-             QString::number(anchor.region.x(), 'f', 2),
-             QString::number(anchor.region.y(), 'f', 2),
-             QString::number(anchor.region.width(), 'f', 2),
-             QString::number(anchor.region.height(), 'f', 2));
-}
-
 QStringList anchorUsageKeys(const QString &resourceId, const Anchor &anchor)
 {
-    QStringList keys;
-    if (!anchor.id.trimmed().isEmpty()) {
-        keys.append(QStringLiteral("%1|id|%2").arg(resourceId, anchor.id));
-    }
-    keys.append(legacyAnchorUsageKey(resourceId, anchor));
-    keys.removeDuplicates();
-    return keys;
-}
-
-bool sameAnchorIdentity(const Anchor &left, const Anchor &right)
-{
-    if (!left.id.trimmed().isEmpty() && !right.id.trimmed().isEmpty()) {
-        return left.id == right.id;
-    }
-    return left.type == right.type
-        && left.target == right.target
-        && left.line == right.line
-        && left.page == right.page
-        && left.region == right.region
-        && left.locatorType == right.locatorType
-        && left.locatorJson == right.locatorJson;
+    return {QStringLiteral("%1|%2").arg(resourceId, anchorIdentityKey(anchor))};
 }
 
 double usageScoreAdjustment(const ResourceUsage &usage)
@@ -275,47 +232,6 @@ bool matchesRequiredKinds(ResourceKind kind, const QList<ResourceKind> &required
     return resourceKindMatchesFilter(kind, requiredKinds);
 }
 
-bool matchesContextRelationLabel(const ResourceRelation &relation, const QStringList &labels)
-{
-    const bool hasFilter = std::any_of(labels.cbegin(), labels.cend(), [](const QString &label) {
-        return !label.trimmed().isEmpty();
-    });
-    if (!hasFilter) {
-        return true;
-    }
-    for (const QString &label : labels) {
-        const QString trimmedLabel = label.trimmed();
-        if (!trimmedLabel.isEmpty()
-            && relation.label.compare(trimmedLabel, Qt::CaseInsensitive) == 0) {
-            return true;
-        }
-    }
-    return false;
-}
-
-std::optional<ResourceRelation> matchedContextRelation(const Resource &resource,
-                                                       const SearchQuery &query,
-                                                       const QList<ResourceRelation> &relations)
-{
-    for (const QString &contextResourceId : query.contextResourceIds) {
-        const QString contextId = contextResourceId.trimmed();
-        if (contextId.isEmpty() || contextId == resource.id) {
-            continue;
-        }
-
-        for (const ResourceRelation &relation : relations) {
-            if (!matchesContextRelationLabel(relation, query.contextRelationLabels)) {
-                continue;
-            }
-            if ((relation.sourceResourceId == resource.id && relation.targetResourceId == contextId)
-                || (relation.targetResourceId == resource.id && relation.sourceResourceId == contextId)) {
-                return relation;
-            }
-        }
-    }
-    return std::nullopt;
-}
-
 double contextScoreAdjustment(const Resource &resource, const SearchQuery &query)
 {
     double adjustment = 0.0;
@@ -328,48 +244,12 @@ double contextScoreAdjustment(const Resource &resource, const SearchQuery &query
     return adjustment;
 }
 
-bool resourceMatchesLibraryRoot(const Resource &resource, const LibraryRoot &root)
-{
-    if (!root.enabled || !root.pinned) {
-        return false;
-    }
-
-    const QString normalizedResourceLocation = normalizedLocation(resource.location);
-    const QString normalizedRootPath = normalizedLocation(root.path);
-    return !normalizedResourceLocation.isEmpty()
-        && !normalizedRootPath.isEmpty()
-        && (normalizedResourceLocation == normalizedRootPath
-            || normalizedResourceLocation.startsWith(normalizedRootPath + QLatin1Char('/')));
-}
-
-double pinnedRootScoreAdjustment(const Resource &resource, const QHash<QString, LibraryRoot> &roots)
-{
-    for (const LibraryRoot &root : roots) {
-        if (resourceMatchesLibraryRoot(resource, root)) {
-            return -0.45;
-        }
-    }
-    return 0.0;
-}
-
 void applyRankingSignals(SearchResult &result,
                          const SearchQuery &query,
                          const QHash<QString, ResourceUsage> &usage,
-                         const QHash<QString, AnchorUsage> &anchorUsage,
-                         const QHash<QString, LibraryRoot> &roots,
-                         const QList<ResourceRelation> &relations)
+                         const QHash<QString, AnchorUsage> &anchorUsage)
 {
     result.score += contextScoreAdjustment(result.resource, query);
-    const std::optional<ResourceRelation> contextRelation = matchedContextRelation(result.resource, query, relations);
-    if (contextRelation.has_value()) {
-        result.score -= 0.4;
-        result.matchedContextRelationLabel = contextRelation->label;
-        result.matchedContextRelationNote = contextRelation->note;
-        result.matchedContextResourceId = contextRelation->sourceResourceId == result.resource.id
-            ? contextRelation->targetResourceId
-            : contextRelation->sourceResourceId;
-    }
-    result.score += pinnedRootScoreAdjustment(result.resource, roots);
 
     const auto usageIt = usage.constFind(result.resource.id);
     if (usageIt != usage.constEnd()) {
@@ -441,44 +321,44 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 
         if (needle.isEmpty()) {
             SearchResult result = resourceResult(resource, 100.0, QStringLiteral("all"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (resource.title.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  10.0 + exactMatchScoreAdjustment(resource.title, needle),
                                                  QStringLiteral("title"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  15.0 + exactMatchScoreAdjustment(QFileInfo(resource.location).fileName(), needle),
                                                  QStringLiteral("filename"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  20.0 + exactMatchScoreAdjustment(resource.aliases, needle),
                                                  QStringLiteral("alias"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (!tagNeedle.isEmpty()
                    && resource.tags.join(QLatin1Char('\n')).contains(tagNeedle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  30.0 + exactMatchScoreAdjustment(resource.tags, tagNeedle),
                                                  QStringLiteral("tag"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (resource.content.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  80.0 + exactMatchScoreAdjustment(resource.content, needle),
                                                  QStringLiteral("content"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         } else if (resource.location.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  90.0 + exactMatchScoreAdjustment(resource.location, needle),
                                                  QStringLiteral("path"));
-            applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+            applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
         }
 
@@ -487,13 +367,10 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
                 if (!query.includeDeleted && anchor.deleted) {
                     continue;
                 }
-                if (isDeprecatedPdfManualLineAnchor(resource, anchor)) {
-                    continue;
-                }
                 const AnchorMatch match = classifyAnchorMatch(anchor, needle);
                 if (match.matched) {
                     SearchResult result = anchorResult(resource, anchor, match);
-                    applyRankingSignals(result, query, usage_, anchorUsage_, libraryRoots_, relations_);
+                    applyRankingSignals(result, query, usage_, anchorUsage_);
                     results.append(result);
                 }
             }
@@ -545,7 +422,7 @@ bool InMemoryLibraryRepository::softDeleteAnchor(const QString &resourceId, cons
         return false;
     }
 
-    const Anchor normalized = normalizedAnchor(anchor);
+    const Anchor normalized = anchor;
     for (Anchor &storedAnchor : it->anchors) {
         if (!sameAnchorIdentity(storedAnchor, normalized)) {
             continue;
@@ -565,7 +442,7 @@ bool InMemoryLibraryRepository::restoreAnchor(const QString &resourceId, const A
         return false;
     }
 
-    const Anchor normalized = normalizedAnchor(anchor);
+    const Anchor normalized = anchor;
     for (Anchor &storedAnchor : it->anchors) {
         if (!sameAnchorIdentity(storedAnchor, normalized)) {
             continue;
@@ -581,63 +458,9 @@ bool InMemoryLibraryRepository::restoreAnchor(const QString &resourceId, const A
 bool InMemoryLibraryRepository::clearResources()
 {
     resources_.clear();
-    relations_.clear();
     usage_.clear();
     anchorUsage_.clear();
     return true;
-}
-
-bool InMemoryLibraryRepository::upsertResourceRelation(const ResourceRelation &relation)
-{
-    if (relation.sourceResourceId.trimmed().isEmpty()
-        || relation.targetResourceId.trimmed().isEmpty()
-        || relation.label.trimmed().isEmpty()) {
-        return false;
-    }
-
-    for (ResourceRelation &stored : relations_) {
-        if (stored.sourceResourceId == relation.sourceResourceId
-            && stored.targetResourceId == relation.targetResourceId
-            && stored.label == relation.label) {
-            stored.note = relation.note;
-            return true;
-        }
-    }
-
-    relations_.append(relation);
-    return true;
-}
-
-QList<ResourceRelation> InMemoryLibraryRepository::resourceRelations(const QString &resourceId) const
-{
-    QList<ResourceRelation> relations;
-    for (const ResourceRelation &relation : relations_) {
-        if (relation.sourceResourceId == resourceId || relation.targetResourceId == resourceId) {
-            relations.append(relation);
-        }
-    }
-    return relations;
-}
-
-QList<ResourceRelation> InMemoryLibraryRepository::allResourceRelations() const
-{
-    return relations_;
-}
-
-bool InMemoryLibraryRepository::removeResourceRelation(const QString &sourceResourceId,
-                                                       const QString &targetResourceId,
-                                                       const QString &label)
-{
-    for (int i = 0; i < relations_.size(); ++i) {
-        const ResourceRelation &relation = relations_.at(i);
-        if (relation.sourceResourceId == sourceResourceId
-            && relation.targetResourceId == targetResourceId
-            && relation.label == label) {
-            relations_.removeAt(i);
-            return true;
-        }
-    }
-    return false;
 }
 
 bool InMemoryLibraryRepository::recordResourceOpen(const QString &resourceId)
@@ -678,27 +501,28 @@ std::optional<ResourceUsage> InMemoryLibraryRepository::resourceUsage(const QStr
 
 bool InMemoryLibraryRepository::recordAnchorOpen(const QString &resourceId, const Anchor &anchor)
 {
-    if (!resources_.contains(resourceId) || anchor.type == AnchorType::None) {
+    if (!resources_.contains(resourceId) || !hasAnchorIdentity(anchor)) {
         return false;
     }
 
-    const Anchor normalized = normalizedAnchor(anchor);
-    const QString key = anchorUsageKeys(resourceId, normalized).first();
+    Resource &resource = resources_[resourceId];
+    Anchor effective = anchor;
+    for (const Anchor &storedAnchor : std::as_const(resource.anchors)) {
+        if (sameAnchorIdentity(storedAnchor, anchor)) {
+            effective = storedAnchor;
+            break;
+        }
+    }
+
+    const QString key = anchorUsageKeys(resourceId, effective).first();
     AnchorUsage usage = anchorUsage_.value(key);
     usage.resourceId = resourceId;
-    usage.anchor = normalized;
     usage.openCount += 1;
     usage.lastOpenedAt = QDateTime::currentDateTimeUtc();
     anchorUsage_.insert(key, usage);
 
-    Resource &resource = resources_[resourceId];
-    const QStringList updatedKeys = anchorUsageKeys(resourceId, normalized);
     for (Anchor &storedAnchor : resource.anchors) {
-        const QStringList storedKeys = anchorUsageKeys(resourceId, storedAnchor);
-        const bool matches = std::any_of(updatedKeys.cbegin(), updatedKeys.cend(), [&](const QString &key) {
-            return storedKeys.contains(key);
-        });
-        if (matches) {
+        if (sameAnchorIdentity(storedAnchor, effective)) {
             storedAnchor.usedAt = usage.lastOpenedAt;
             break;
         }
@@ -708,7 +532,18 @@ bool InMemoryLibraryRepository::recordAnchorOpen(const QString &resourceId, cons
 
 std::optional<AnchorUsage> InMemoryLibraryRepository::anchorUsage(const QString &resourceId, const Anchor &anchor) const
 {
-    for (const QString &key : anchorUsageKeys(resourceId, normalizedAnchor(anchor))) {
+    Anchor effective = anchor;
+    const auto resourceIt = resources_.constFind(resourceId);
+    if (resourceIt != resources_.constEnd()) {
+        for (const Anchor &storedAnchor : resourceIt->anchors) {
+            if (sameAnchorIdentity(storedAnchor, anchor)) {
+                effective = storedAnchor;
+                break;
+            }
+        }
+    }
+
+    for (const QString &key : anchorUsageKeys(resourceId, effective)) {
         const auto it = anchorUsage_.constFind(key);
         if (it != anchorUsage_.constEnd()) {
             return it.value();
@@ -717,71 +552,5 @@ std::optional<AnchorUsage> InMemoryLibraryRepository::anchorUsage(const QString 
     return std::nullopt;
 }
 
-bool InMemoryLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)
-{
-    if (root.id.trimmed().isEmpty() || root.path.trimmed().isEmpty()) {
-        return false;
-    }
-
-    libraryRoots_.insert(root.id, root);
-    return true;
-}
-
-QList<LibraryRoot> InMemoryLibraryRepository::libraryRoots() const
-{
-    QList<LibraryRoot> roots = libraryRoots_.values();
-    std::sort(roots.begin(), roots.end(), [](const LibraryRoot &left, const LibraryRoot &right) {
-        if (left.pinned != right.pinned) {
-            return left.pinned;
-        }
-        return left.path < right.path;
-    });
-    return roots;
-}
-
-std::optional<LibraryRoot> InMemoryLibraryRepository::findLibraryRoot(const QString &id) const
-{
-    const auto it = libraryRoots_.constFind(id);
-    if (it == libraryRoots_.constEnd()) {
-        return std::nullopt;
-    }
-
-    return it.value();
-}
-
-bool InMemoryLibraryRepository::removeLibraryRoot(const QString &id)
-{
-    return libraryRoots_.remove(id) > 0;
-}
-
-bool InMemoryLibraryRepository::setLibraryRootEnabled(const QString &id, bool enabled)
-{
-    auto it = libraryRoots_.find(id);
-    if (it == libraryRoots_.end()) {
-        return false;
-    }
-    it->enabled = enabled;
-    return true;
-}
-
-bool InMemoryLibraryRepository::setLibraryRootPinned(const QString &id, bool pinned)
-{
-    auto it = libraryRoots_.find(id);
-    if (it == libraryRoots_.end()) {
-        return false;
-    }
-    it->pinned = pinned;
-    return true;
-}
-
-bool InMemoryLibraryRepository::updateLibraryRootLastIndexedAt(const QString &id, const QDateTime &indexedAt)
-{
-    auto it = libraryRoots_.find(id);
-    if (it == libraryRoots_.end()) {
-        return false;
-    }
-    it->lastIndexedAt = indexedAt.toUTC();
-    return true;
-}
 
 } // namespace Pinloom

@@ -42,13 +42,6 @@ QString effectiveLocatorType(const Anchor &anchor, const QJsonObject &locator)
     if (locatorType.isEmpty()) {
         locatorType = locator.value(QStringLiteral("type")).toString().trimmed();
     }
-    if (locatorType.isEmpty()) {
-        if (anchor.type == AnchorType::PdfRegion) {
-            locatorType = QStringLiteral("sumatrapdf.rect");
-        } else if (anchor.type == AnchorType::PdfPage) {
-            locatorType = QStringLiteral("sumatrapdf.page");
-        }
-    }
     return locatorType.toLower();
 }
 
@@ -85,14 +78,11 @@ std::optional<double> numberValue(const QJsonValue &value)
     return std::nullopt;
 }
 
-int locatorPage(const Anchor &anchor, const QJsonObject &locator)
+int locatorPage(const QJsonObject &locator)
 {
     const std::optional<double> page = numberValue(locator.value(QStringLiteral("page")));
     if (page.has_value()) {
         return static_cast<int>(std::round(page.value()));
-    }
-    if (anchor.page > 0) {
-        return anchor.page;
     }
     return -1;
 }
@@ -175,19 +165,7 @@ RectValues boundsFromViewRectArray(const QJsonArray &array)
                        values->at(1) + values->at(3));
 }
 
-RectValues rectFromAnchorRegion(const Anchor &anchor)
-{
-    if (!anchor.region.isValid()) {
-        return {};
-    }
-
-    return boundedRect(anchor.region.x(),
-                       anchor.region.y(),
-                       anchor.region.x() + anchor.region.width(),
-                       anchor.region.y() + anchor.region.height());
-}
-
-RectValues locatorRect(const Anchor &anchor, const QJsonObject &locator)
+RectValues locatorRect(const QJsonObject &locator)
 {
     const QJsonValue rectValue = locator.value(QStringLiteral("rect"));
     if (rectValue.isArray()) {
@@ -221,7 +199,7 @@ RectValues locatorRect(const Anchor &anchor, const QJsonObject &locator)
         }
     }
 
-    return rectFromAnchorRegion(anchor);
+    return {};
 }
 
 QString decimalText(double value)
@@ -317,11 +295,6 @@ bool isSumatraPdfAnchor(const Anchor &anchor)
         return true;
     }
 
-    if (anchor.type == AnchorType::Manual
-        && (type.isEmpty() || type == QLatin1String("manual"))) {
-        return false;
-    }
-
     const QString app = normalizedToken(anchor.targetApp);
     return app == QLatin1String("pdf")
         || app == QLatin1String("sumatrapdf");
@@ -387,7 +360,7 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
         return result;
     }
 
-    const int page = locatorPage(anchor, locator);
+    const int page = locatorPage(locator);
     if (page <= 0) {
         result.error = QStringLiteral("SumatraPDF locator page is missing");
         return result;
@@ -407,12 +380,9 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
     }
 
     const bool isSearchLocator = locatorType == QLatin1String("sumatrapdf.search");
-    const bool isPageLocator = locatorType == QLatin1String("sumatrapdf.page")
-        || locatorType == QLatin1String("pdf.page");
     const bool isRectLocator = !isSearchLocator
         && (locatorType == QLatin1String("sumatrapdf.rect")
-            || locatorType == QLatin1String("pdf.region")
-            || (!isPageLocator && anchor.type == AnchorType::PdfRegion));
+            || locatorType == QLatin1String("pdf.region"));
 
     if (isSearchLocator) {
         const QString text = openParameterText(locatorText(locator));
@@ -425,7 +395,7 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
     }
 
     if (isRectLocator) {
-        const RectValues rect = locatorRect(anchor, locator);
+        const RectValues rect = locatorRect(locator);
         if (!rect.valid) {
             result.error = QStringLiteral("SumatraPDF locator rectangle is missing");
             return result;

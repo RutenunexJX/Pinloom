@@ -35,8 +35,6 @@ QString keyText(Qt::Key key)
 
 #ifdef Q_OS_WIN
 
-constexpr int ClipHotkeyId = 0x50434c50;
-
 UINT windowsModifiers(Qt::KeyboardModifiers modifiers)
 {
     UINT result = 0;
@@ -254,11 +252,6 @@ bool ClipHotkeyConfig::operator!=(const ClipHotkeyConfig &other) const
     return !(*this == other);
 }
 
-ClipHotkeyConfig defaultClipHotkeyConfig()
-{
-    return {};
-}
-
 ClipHotkeyBackend::ClipHotkeyBackend(QObject *parent)
     : QObject(parent)
 {
@@ -267,16 +260,6 @@ ClipHotkeyBackend::ClipHotkeyBackend(QObject *parent)
 bool ClipHotkeyBackend::isAvailable() const
 {
     return true;
-}
-
-ClipHotkeyService::ClipHotkeyService(QObject *parent)
-    : ClipHotkeyService(defaultClipHotkeyConfig(), defaultClipHotkeyBackend(), parent)
-{
-}
-
-ClipHotkeyService::ClipHotkeyService(ClipHotkeyBackend *backend, QObject *parent)
-    : ClipHotkeyService(defaultClipHotkeyConfig(), backend, parent)
-{
 }
 
 ClipHotkeyService::ClipHotkeyService(ClipHotkeyConfig config, ClipHotkeyBackend *backend, QObject *parent)
@@ -311,11 +294,6 @@ ClipHotkeyConfig ClipHotkeyService::config() const
 QString ClipHotkeyService::displayText() const
 {
     return config_.displayText();
-}
-
-void ClipHotkeyService::setActivationHandler(ActivationHandler handler)
-{
-    activationHandler_ = std::move(handler);
 }
 
 bool ClipHotkeyService::start()
@@ -387,9 +365,6 @@ void ClipHotkeyService::handleBackendActivated()
         return;
     }
 
-    if (activationHandler_) {
-        activationHandler_();
-    }
     emit activated();
 }
 
@@ -401,44 +376,6 @@ void ClipHotkeyService::setLastError(const QString &error)
 
     lastError_ = error;
     emit errorChanged(lastError_);
-}
-
-ClipPickerHotkeyController::ClipPickerHotkeyController(ClipHotkeyService &service, QObject *parent)
-    : ClipPickerHotkeyController(service, {}, parent)
-{
-}
-
-ClipPickerHotkeyController::ClipPickerHotkeyController(ClipHotkeyService &service,
-                                                       ShowHandler showHandler,
-                                                       QObject *parent)
-    : QObject(parent)
-    , service_(service)
-    , showHandler_(std::move(showHandler))
-{
-    connect(&service_, &ClipHotkeyService::activated, this, &ClipPickerHotkeyController::handleHotkeyActivated);
-}
-
-void ClipPickerHotkeyController::setShowHandler(ShowHandler showHandler)
-{
-    showHandler_ = std::move(showHandler);
-}
-
-void ClipPickerHotkeyController::handleHotkeyActivated()
-{
-    if (showHandler_) {
-        showHandler_();
-    }
-    emit showRequested();
-}
-
-ClipHotkeyBackend *defaultClipHotkeyBackend()
-{
-#ifdef Q_OS_WIN
-    static WindowsClipHotkeyBackend backend(ClipHotkeyId);
-#else
-    static UnavailableClipHotkeyBackend backend;
-#endif
-    return &backend;
 }
 
 std::unique_ptr<ClipHotkeyBackend> createClipHotkeyBackend(int hotkeyId)

@@ -1,14 +1,10 @@
 #include "pinloom/clip/ClipTrayController.h"
 
-#include "pinloom/clip/ClipHotkeyService.h"
-
-#include <utility>
-
 namespace Pinloom {
 
 namespace {
 
-constexpr auto ShowPickerActionId = "show_picker";
+constexpr auto ShowClipboardActionId = "show_clipboard";
 constexpr auto ToggleCaptureActionId = "toggle_capture";
 constexpr auto SettingsActionId = "settings";
 constexpr auto DiagnosticsActionId = "diagnostics";
@@ -16,67 +12,14 @@ constexpr auto QuitActionId = "quit";
 
 } // namespace
 
-ClipTrayController::ClipTrayController(ClipHotkeyService &hotkeyService, QObject *parent)
-    : ClipTrayController(hotkeyService, {}, parent)
-{
-}
-
-ClipTrayController::ClipTrayController(ClipHotkeyService &hotkeyService,
-                                       ClipTrayControllerOptions options,
-                                       QObject *parent)
+ClipTrayController::ClipTrayController(QObject *parent)
     : QObject(parent)
-    , hotkeyService_(hotkeyService)
-    , options_(std::move(options))
 {
-    running_ = hotkeyService_.isRegistered();
     status_ = currentStatusText();
-
-    connect(&hotkeyService_, &ClipHotkeyService::activated, this, &ClipTrayController::handleHotkeyActivated);
-    connect(&hotkeyService_,
-            &ClipHotkeyService::registeredChanged,
-            this,
-            &ClipTrayController::handleHotkeyRegisteredChanged);
-}
-
-void ClipTrayController::setShowPickerHandler(ShowPickerHandler handler)
-{
-    options_.showPickerHandler = std::move(handler);
-}
-
-void ClipTrayController::setCapturePausedHandler(CapturePausedHandler handler)
-{
-    options_.capturePausedHandler = std::move(handler);
-}
-
-void ClipTrayController::setSettingsHandler(ClipTrayActionHandler handler)
-{
-    options_.settingsHandler = std::move(handler);
-}
-
-void ClipTrayController::setDiagnosticsHandler(ClipTrayActionHandler handler)
-{
-    options_.diagnosticsHandler = std::move(handler);
 }
 
 bool ClipTrayController::start()
 {
-    if (!options_.registerHotkeyOnStart) {
-        setRunning(true);
-        setLastError({});
-        return true;
-    }
-
-    if (running_ && hotkeyService_.isRegistered()) {
-        return true;
-    }
-
-    if (!hotkeyService_.start()) {
-        setRunning(false);
-        const QString error = hotkeyService_.lastError().trimmed();
-        setLastError(error.isEmpty() ? QStringLiteral("Unable to start clip hotkey runtime") : error);
-        return false;
-    }
-
     setRunning(true);
     setLastError({});
     return true;
@@ -84,9 +27,6 @@ bool ClipTrayController::start()
 
 void ClipTrayController::stop()
 {
-    if (options_.registerHotkeyOnStart) {
-        hotkeyService_.stop();
-    }
     setRunning(false);
 }
 
@@ -105,39 +45,19 @@ QString ClipTrayController::lastError() const
     return lastError_;
 }
 
-int ClipTrayController::pickerShownCount() const
-{
-    return pickerShownCount_;
-}
-
-bool ClipTrayController::hotkeyRegistrationEnabled() const
-{
-    return options_.registerHotkeyOnStart;
-}
-
-bool ClipTrayController::hotkeyRegistered() const
-{
-    return hotkeyService_.isRegistered();
-}
-
-QString ClipTrayController::hotkeyDisplayText() const
-{
-    return hotkeyService_.displayText();
-}
-
 bool ClipTrayController::capturePaused() const
 {
-    return options_.capturePaused;
+    return capturePaused_;
 }
 
 QList<ClipTrayAction> ClipTrayController::actions() const
 {
     return {
-        {QStringLiteral("show_picker"), QStringLiteral("Show Clipboard"), true, false},
+        {QStringLiteral("show_clipboard"), QStringLiteral("Show Clipboard"), true, false},
         {QStringLiteral("toggle_capture"),
-         options_.capturePaused ? QStringLiteral("Resume Capture") : QStringLiteral("Pause Capture"),
+         capturePaused_ ? QStringLiteral("Resume Capture") : QStringLiteral("Pause Capture"),
          true,
-         options_.capturePaused,
+         capturePaused_,
          true},
         {QStringLiteral("settings"), QStringLiteral("Settings"), true, false},
         {QStringLiteral("diagnostics"), QStringLiteral("Diagnostics"), true, false},
@@ -148,26 +68,22 @@ QList<ClipTrayAction> ClipTrayController::actions() const
 bool ClipTrayController::triggerAction(const QString &actionId)
 {
     const QString normalizedId = actionId.trimmed();
-    if (normalizedId == QLatin1String(ShowPickerActionId)) {
-        requestShowPicker();
+    if (normalizedId == QLatin1String(ShowClipboardActionId)) {
+        requestShowClipboard();
         return true;
     }
-
     if (normalizedId == QLatin1String(ToggleCaptureActionId)) {
         toggleCapturePaused();
         return true;
     }
-
     if (normalizedId == QLatin1String(SettingsActionId)) {
         requestSettings();
         return true;
     }
-
     if (normalizedId == QLatin1String(DiagnosticsActionId)) {
         requestDiagnostics();
         return true;
     }
-
     if (normalizedId == QLatin1String(QuitActionId)) {
         requestQuit();
         return true;
@@ -177,15 +93,9 @@ bool ClipTrayController::triggerAction(const QString &actionId)
     return false;
 }
 
-void ClipTrayController::requestShowPicker()
+void ClipTrayController::requestShowClipboard()
 {
-    if (options_.showPickerHandler) {
-        options_.showPickerHandler();
-    }
-
-    ++pickerShownCount_;
-    emit pickerShownCountChanged(pickerShownCount_);
-    emit showPickerRequested();
+    emit showClipboardRequested();
 }
 
 void ClipTrayController::pauseCapture()
@@ -200,58 +110,34 @@ void ClipTrayController::resumeCapture()
 
 void ClipTrayController::setCapturePaused(bool paused)
 {
-    if (options_.capturePaused == paused) {
+    if (capturePaused_ == paused) {
         return;
     }
 
-    options_.capturePaused = paused;
-    if (options_.capturePausedHandler) {
-        options_.capturePausedHandler(options_.capturePaused);
-    }
-
-    emit capturePausedChanged(options_.capturePaused);
+    capturePaused_ = paused;
+    emit capturePausedChanged(capturePaused_);
     emit trayActionsChanged();
     refreshStatus();
 }
 
 void ClipTrayController::toggleCapturePaused()
 {
-    setCapturePaused(!options_.capturePaused);
+    setCapturePaused(!capturePaused_);
 }
 
 void ClipTrayController::requestSettings()
 {
-    if (options_.settingsHandler) {
-        options_.settingsHandler();
-    }
     emit settingsRequested();
 }
 
 void ClipTrayController::requestDiagnostics()
 {
-    if (options_.diagnosticsHandler) {
-        options_.diagnosticsHandler();
-    }
     emit diagnosticsRequested();
 }
 
 void ClipTrayController::requestQuit()
 {
     emit quitRequested();
-}
-
-void ClipTrayController::handleHotkeyActivated()
-{
-    if (!options_.registerHotkeyOnStart) {
-        return;
-    }
-
-    requestShowPicker();
-}
-
-void ClipTrayController::handleHotkeyRegisteredChanged(bool registered)
-{
-    setRunning(registered);
 }
 
 void ClipTrayController::setRunning(bool running)
@@ -281,13 +167,11 @@ void ClipTrayController::setLastError(const QString &error)
 QString ClipTrayController::currentStatusText() const
 {
     if (running_) {
-        return options_.capturePaused ? QStringLiteral("Running, capture paused") : QStringLiteral("Running");
+        return capturePaused_ ? QStringLiteral("Running, capture paused") : QStringLiteral("Running");
     }
-
     if (!lastError_.isEmpty()) {
         return QStringLiteral("Stopped: %1").arg(lastError_);
     }
-
     return QStringLiteral("Stopped");
 }
 

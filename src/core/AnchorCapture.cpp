@@ -1,10 +1,5 @@
 #include "pinloom/core/AnchorCapture.h"
 
-#include "pinloom/core/ExcelCommand.h"
-#include "pinloom/core/PowerPointCommand.h"
-#include "pinloom/core/VisioCommand.h"
-#include "pinloom/core/WordCommand.h"
-
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -33,9 +28,6 @@ QString effectiveLocatorType(const PdfCaptureRequest &request)
         }
         return locatorType;
     }
-    if (!request.selectedText.trimmed().isEmpty()) {
-        return QStringLiteral("sumatrapdf.search");
-    }
     if (request.rect.isValid()) {
         return QStringLiteral("sumatrapdf.rect");
     }
@@ -54,96 +46,10 @@ QString effectiveSource(const PdfCaptureRequest &request, const QString &fallbac
     return source.isEmpty() ? fallback : source;
 }
 
-QString effectiveSource(const ExcelCaptureRequest &request, const QString &fallback)
-{
-    const QString source = request.source.trimmed().toLower();
-    return source.isEmpty() ? fallback : source;
-}
-
-QString effectiveSource(const VisioCaptureRequest &request, const QString &fallback)
-{
-    const QString source = request.source.trimmed().toLower();
-    return source.isEmpty() ? fallback : source;
-}
-
-QString effectiveSource(const WordCaptureRequest &request, const QString &fallback)
-{
-    const QString source = request.source.trimmed().toLower();
-    return source.isEmpty() ? fallback : source;
-}
-
-QString effectiveSource(const PowerPointCaptureRequest &request, const QString &fallback)
-{
-    const QString source = request.source.trimmed().toLower();
-    return source.isEmpty() ? fallback : source;
-}
-
-QString effectiveExcelTargetApp(const ExcelCaptureRequest &request)
-{
-    const QString targetApp = request.targetApp.trimmed();
-    return targetApp.isEmpty() ? QStringLiteral("Microsoft Excel") : targetApp;
-}
-
-QString effectiveExcelLocatorType(const ExcelCaptureRequest &request)
-{
-    const QString locatorType = request.locatorType.trimmed().toLower();
-    if (!locatorType.isEmpty()) {
-        return locatorType;
-    }
-
-    if (!request.rangeAddress.trimmed().isEmpty()) {
-        return QStringLiteral("excel.range");
-    }
-    return QStringLiteral("excel.name");
-}
-
-QString effectiveVisioTargetApp(const VisioCaptureRequest &request)
-{
-    const QString targetApp = request.targetApp.trimmed();
-    return targetApp.isEmpty() ? QStringLiteral("Microsoft Visio") : targetApp;
-}
-
-QString effectiveVisioLocatorType(const VisioCaptureRequest &request)
-{
-    const QString locatorType = request.locatorType.trimmed().toLower();
-    return locatorType.isEmpty() ? QStringLiteral("visio.shape") : locatorType;
-}
-
-QString effectiveWordTargetApp(const WordCaptureRequest &request)
-{
-    const QString targetApp = request.targetApp.trimmed();
-    return targetApp.isEmpty() ? QStringLiteral("Microsoft Word") : targetApp;
-}
-
-QString effectiveWordLocatorType(const WordCaptureRequest &request)
-{
-    const QString locatorType = request.locatorType.trimmed().toLower();
-    return locatorType.isEmpty() ? QStringLiteral("word.bookmark") : locatorType;
-}
-
-QString effectivePowerPointTargetApp(const PowerPointCaptureRequest &request)
-{
-    const QString targetApp = request.targetApp.trimmed();
-    return targetApp.isEmpty() ? QStringLiteral("Microsoft PowerPoint") : targetApp;
-}
-
-QString effectivePowerPointLocatorType(const PowerPointCaptureRequest &request)
-{
-    const QString locatorType = request.locatorType.trimmed().toLower();
-    return locatorType.isEmpty() ? QStringLiteral("powerpoint.shape") : locatorType;
-}
-
 QString defaultAnchorName(const PdfCaptureRequest &request)
 {
     const QString fileName = QFileInfo(request.targetFile.trimmed()).fileName();
     const QString target = fileName.isEmpty() ? request.targetFile.trimmed() : fileName;
-    const QString selectedText = request.selectedText.simplified();
-    if (!selectedText.isEmpty()) {
-        const QString preview = selectedText.left(64);
-        return target.isEmpty()
-            ? preview
-            : QStringLiteral("%1 - %2").arg(target, preview);
-    }
     if (target.isEmpty()) {
         return QStringLiteral("PDF page %1").arg(request.page);
     }
@@ -159,62 +65,8 @@ AnchorCaptureResult resultForRequest(const PdfCaptureRequest &request,
     result.locatorType = effectiveLocatorType(request);
     result.page = request.page;
     result.rect = request.rect;
-    result.selectedText = request.selectedText.trimmed();
     result.zoom = request.zoom;
     result.unit = effectiveUnit(request);
-    result.source = effectiveSource(request, source);
-    return result;
-}
-
-ExcelCaptureResult resultForRequest(const ExcelCaptureRequest &request,
-                                    const QString &source)
-{
-    ExcelCaptureResult result;
-    result.targetApp = effectiveExcelTargetApp(request);
-    result.targetFile = request.targetFile.trimmed();
-    result.locatorType = effectiveExcelLocatorType(request);
-    result.sheet = request.sheet.trimmed();
-    result.rangeAddress = request.rangeAddress.trimmed();
-    result.namedRange = request.namedRange.trimmed();
-    result.source = effectiveSource(request, source);
-    return result;
-}
-
-VisioCaptureResult resultForRequest(const VisioCaptureRequest &request,
-                                    const QString &source)
-{
-    VisioCaptureResult result;
-    result.targetApp = effectiveVisioTargetApp(request);
-    result.targetFile = request.targetFile.trimmed();
-    result.locatorType = effectiveVisioLocatorType(request);
-    result.page = request.page.trimmed();
-    result.shapeUniqueId = request.shapeUniqueId.trimmed();
-    result.source = effectiveSource(request, source);
-    return result;
-}
-
-WordCaptureResult resultForRequest(const WordCaptureRequest &request,
-                                   const QString &source)
-{
-    WordCaptureResult result;
-    result.targetApp = effectiveWordTargetApp(request);
-    result.targetFile = request.targetFile.trimmed();
-    result.locatorType = effectiveWordLocatorType(request);
-    result.bookmark = request.bookmark.trimmed();
-    result.source = effectiveSource(request, source);
-    return result;
-}
-
-PowerPointCaptureResult resultForRequest(const PowerPointCaptureRequest &request,
-                                         const QString &source)
-{
-    PowerPointCaptureResult result;
-    result.targetApp = effectivePowerPointTargetApp(request);
-    result.targetFile = request.targetFile.trimmed();
-    result.locatorType = effectivePowerPointLocatorType(request);
-    result.slide = request.slide;
-    result.shapeId = request.shapeId;
-    result.shapeName = request.shapeName.trimmed();
     result.source = effectiveSource(request, source);
     return result;
 }
@@ -242,26 +94,6 @@ bool PdfCaptureRect::isValid() const
 }
 
 bool AnchorCaptureResult::success() const
-{
-    return error.isEmpty();
-}
-
-bool ExcelCaptureResult::success() const
-{
-    return error.isEmpty();
-}
-
-bool VisioCaptureResult::success() const
-{
-    return error.isEmpty();
-}
-
-bool WordCaptureResult::success() const
-{
-    return error.isEmpty();
-}
-
-bool PowerPointCaptureResult::success() const
 {
     return error.isEmpty();
 }
@@ -299,193 +131,14 @@ AnchorCaptureResult ManualPdfRectCaptureProvider::capture(const PdfCaptureReques
     }
 
     Anchor anchor;
-    anchor.type = AnchorType::PdfRegion;
     anchor.name = rectRequest.anchorName.trimmed();
-    anchor.target = anchor.name.isEmpty() ? defaultAnchorName(rectRequest) : anchor.name;
+    if (anchor.name.isEmpty()) {
+        anchor.name = defaultAnchorName(rectRequest);
+    }
     anchor.targetApp = result.targetApp;
     anchor.targetFile = result.targetFile;
     anchor.locatorType = result.locatorType;
     anchor.locatorJson = pdfRectLocatorJson(rectRequest);
-    anchor.page = result.page;
-    anchor.region = QRectF(result.rect.left,
-                           result.rect.top,
-                           result.rect.right - result.rect.left,
-                           result.rect.bottom - result.rect.top);
-    result.anchor = anchor;
-    return result;
-}
-
-QString ManualExcelAnchorCaptureProvider::source() const
-{
-    return QStringLiteral("manual");
-}
-
-ExcelCaptureResult ManualExcelAnchorCaptureProvider::capture(const ExcelCaptureRequest &request) const
-{
-    ExcelCaptureResult result = resultForRequest(request, source());
-
-    if (request.anchorName.trimmed().isEmpty()) {
-        result.error = QStringLiteral("Excel capture anchor name is missing");
-        return result;
-    }
-    if (result.targetFile.isEmpty()) {
-        result.error = QStringLiteral("Excel capture target file is missing");
-        return result;
-    }
-    if (!isExcelLocatorType(result.locatorType)) {
-        result.error = QStringLiteral("Excel capture locator type is unsupported");
-        return result;
-    }
-    if (result.rangeAddress.isEmpty() && result.namedRange.isEmpty()) {
-        result.error = QStringLiteral("Excel capture range or named range is missing");
-        return result;
-    }
-
-    if (result.locatorType == QLatin1String("excel.range")) {
-        if (result.sheet.isEmpty()) {
-            result.error = QStringLiteral("Excel capture range sheet is missing");
-            return result;
-        }
-        if (result.rangeAddress.isEmpty()) {
-            result.error = QStringLiteral("Excel capture range address is missing");
-            return result;
-        }
-    } else if (result.namedRange.isEmpty()) {
-        result.error = QStringLiteral("Excel capture named range is missing");
-        return result;
-    }
-
-    Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name;
-    anchor.targetApp = result.targetApp;
-    anchor.targetFile = result.targetFile;
-    anchor.locatorType = result.locatorType;
-    anchor.locatorJson = excelLocatorJson(request);
-    result.anchor = anchor;
-    return result;
-}
-
-QString ManualVisioAnchorCaptureProvider::source() const
-{
-    return QStringLiteral("manual");
-}
-
-VisioCaptureResult ManualVisioAnchorCaptureProvider::capture(const VisioCaptureRequest &request) const
-{
-    VisioCaptureResult result = resultForRequest(request, source());
-
-    if (request.anchorName.trimmed().isEmpty()) {
-        result.error = QStringLiteral("Visio capture anchor name is missing");
-        return result;
-    }
-    if (result.targetFile.isEmpty()) {
-        result.error = QStringLiteral("Visio capture target file is missing");
-        return result;
-    }
-    if (!isVisioLocatorType(result.locatorType)) {
-        result.error = QStringLiteral("Visio capture locator type is unsupported");
-        return result;
-    }
-    if (result.page.isEmpty()) {
-        result.error = QStringLiteral("Visio capture page is missing");
-        return result;
-    }
-    if (result.shapeUniqueId.isEmpty()) {
-        result.error = QStringLiteral("Visio capture shape UniqueID is missing");
-        return result;
-    }
-
-    Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name;
-    anchor.targetApp = result.targetApp;
-    anchor.targetFile = result.targetFile;
-    anchor.locatorType = result.locatorType;
-    anchor.locatorJson = visioLocatorJson(request);
-    result.anchor = anchor;
-    return result;
-}
-
-QString ManualWordBookmarkAnchorCaptureProvider::source() const
-{
-    return QStringLiteral("manual");
-}
-
-WordCaptureResult ManualWordBookmarkAnchorCaptureProvider::capture(const WordCaptureRequest &request) const
-{
-    WordCaptureResult result = resultForRequest(request, source());
-
-    if (request.anchorName.trimmed().isEmpty()) {
-        result.error = QStringLiteral("Word capture anchor name is missing");
-        return result;
-    }
-    if (result.targetFile.isEmpty()) {
-        result.error = QStringLiteral("Word capture target file is missing");
-        return result;
-    }
-    if (!isWordLocatorType(result.locatorType)) {
-        result.error = QStringLiteral("Word capture locator type is unsupported");
-        return result;
-    }
-    if (result.bookmark.isEmpty()) {
-        result.error = QStringLiteral("Word capture bookmark is missing");
-        return result;
-    }
-
-    Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name;
-    anchor.targetApp = result.targetApp;
-    anchor.targetFile = result.targetFile;
-    anchor.locatorType = result.locatorType;
-    anchor.locatorJson = wordLocatorJson(request);
-    result.anchor = anchor;
-    return result;
-}
-
-QString ManualPowerPointShapeAnchorCaptureProvider::source() const
-{
-    return QStringLiteral("manual");
-}
-
-PowerPointCaptureResult ManualPowerPointShapeAnchorCaptureProvider::capture(
-    const PowerPointCaptureRequest &request) const
-{
-    PowerPointCaptureResult result = resultForRequest(request, source());
-
-    if (request.anchorName.trimmed().isEmpty()) {
-        result.error = QStringLiteral("PowerPoint capture anchor name is missing");
-        return result;
-    }
-    if (result.targetFile.isEmpty()) {
-        result.error = QStringLiteral("PowerPoint capture target file is missing");
-        return result;
-    }
-    if (!isPowerPointLocatorType(result.locatorType)) {
-        result.error = QStringLiteral("PowerPoint capture locator type is unsupported");
-        return result;
-    }
-    if (result.slide <= 0) {
-        result.error = QStringLiteral("PowerPoint capture slide is missing");
-        return result;
-    }
-    if (result.shapeId <= 0 && result.shapeName.isEmpty()) {
-        result.error = QStringLiteral("PowerPoint capture shape id or name is missing");
-        return result;
-    }
-
-    Anchor anchor;
-    anchor.type = AnchorType::Manual;
-    anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name;
-    anchor.targetApp = result.targetApp;
-    anchor.targetFile = result.targetFile;
-    anchor.locatorType = result.locatorType;
-    anchor.locatorJson = powerPointLocatorJson(request);
     result.anchor = anchor;
     return result;
 }
@@ -506,85 +159,11 @@ QString pdfLocatorJson(const PdfCaptureRequest &request)
     if (locatorType == QLatin1String("sumatrapdf.rect")) {
         locator.insert(QStringLiteral("rect"), rectArray(request.rect));
         locator.insert(QStringLiteral("unit"), effectiveUnit(request));
-    } else if (locatorType == QLatin1String("sumatrapdf.search")) {
-        locator.insert(QStringLiteral("text"), request.selectedText.trimmed());
     }
     locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
     if (request.zoom > 0.0) {
         locator.insert(QStringLiteral("zoom"), request.zoom);
     }
-
-    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
-}
-
-QString excelLocatorJson(const ExcelCaptureRequest &request)
-{
-    const QString locatorType = effectiveExcelLocatorType(request);
-
-    QJsonObject locator;
-    locator.insert(QStringLiteral("type"), locatorType);
-    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
-    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
-    if (locatorType == QLatin1String("excel.range")) {
-        locator.insert(QStringLiteral("sheet"), request.sheet.trimmed());
-        locator.insert(QStringLiteral("range"), request.rangeAddress.trimmed());
-        const QString namedRange = request.namedRange.trimmed();
-        if (!namedRange.isEmpty()) {
-            locator.insert(QStringLiteral("name"), namedRange);
-        }
-    } else {
-        locator.insert(QStringLiteral("name"), request.namedRange.trimmed());
-    }
-
-    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
-}
-
-QString visioLocatorJson(const VisioCaptureRequest &request)
-{
-    const QString shapeUniqueId = request.shapeUniqueId.trimmed();
-
-    QJsonObject locator;
-    locator.insert(QStringLiteral("type"), effectiveVisioLocatorType(request));
-    locator.insert(QStringLiteral("page"), request.page.trimmed());
-    locator.insert(QStringLiteral("shape_unique_id"), shapeUniqueId);
-    locator.insert(QStringLiteral("shapeUniqueID"), shapeUniqueId);
-    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
-    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
-
-    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
-}
-
-QString wordLocatorJson(const WordCaptureRequest &request)
-{
-    QJsonObject locator;
-    locator.insert(QStringLiteral("type"), effectiveWordLocatorType(request));
-    locator.insert(QStringLiteral("bookmark"), request.bookmark.trimmed());
-    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
-    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
-    locator.insert(QStringLiteral("target_app"), effectiveWordTargetApp(request));
-
-    return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
-}
-
-QString powerPointLocatorJson(const PowerPointCaptureRequest &request)
-{
-    const QString shapeName = request.shapeName.trimmed();
-
-    QJsonObject locator;
-    locator.insert(QStringLiteral("type"), effectivePowerPointLocatorType(request));
-    locator.insert(QStringLiteral("slide"), request.slide);
-    locator.insert(QStringLiteral("slide_index"), request.slide);
-    if (request.shapeId > 0) {
-        locator.insert(QStringLiteral("shape_id"), request.shapeId);
-        locator.insert(QStringLiteral("shapeId"), request.shapeId);
-    }
-    if (!shapeName.isEmpty()) {
-        locator.insert(QStringLiteral("shape_name"), shapeName);
-        locator.insert(QStringLiteral("shapeName"), shapeName);
-    }
-    locator.insert(QStringLiteral("target_file"), request.targetFile.trimmed());
-    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
-    locator.insert(QStringLiteral("target_app"), effectivePowerPointTargetApp(request));
 
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
@@ -598,8 +177,7 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
         return result;
     }
     if (result.locatorType != QLatin1String("sumatrapdf.rect")
-        && result.locatorType != QLatin1String("sumatrapdf.page")
-        && result.locatorType != QLatin1String("sumatrapdf.search")) {
+        && result.locatorType != QLatin1String("sumatrapdf.page")) {
         result.error = QStringLiteral("SumatraPDF capture locator type is unsupported");
         return result;
     }
@@ -611,32 +189,20 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
         result.error = QStringLiteral("SumatraPDF capture rectangle is missing");
         return result;
     }
-    if (result.locatorType == QLatin1String("sumatrapdf.search") && result.selectedText.isEmpty()) {
-        result.error = QStringLiteral("SumatraPDF capture search text is missing");
-        return result;
-    }
     if (result.zoom > 0.0 && !std::isfinite(result.zoom)) {
         result.error = QStringLiteral("SumatraPDF capture zoom is invalid");
         return result;
     }
 
     Anchor anchor;
-    anchor.type = result.locatorType == QLatin1String("sumatrapdf.rect")
-        ? AnchorType::PdfRegion
-        : AnchorType::PdfPage;
     anchor.name = request.anchorName.trimmed();
-    anchor.target = anchor.name.isEmpty() ? defaultAnchorName(request) : anchor.name;
+    if (anchor.name.isEmpty()) {
+        anchor.name = defaultAnchorName(request);
+    }
     anchor.targetApp = result.targetApp;
     anchor.targetFile = result.targetFile;
     anchor.locatorType = result.locatorType;
     anchor.locatorJson = pdfLocatorJson(request);
-    anchor.page = result.page;
-    if (result.locatorType == QLatin1String("sumatrapdf.rect") && result.rect.isValid()) {
-        anchor.region = QRectF(result.rect.left,
-                               result.rect.top,
-                               result.rect.right - result.rect.left,
-                               result.rect.bottom - result.rect.top);
-    }
     result.anchor = anchor;
     return result;
 }
@@ -644,26 +210,6 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
 AnchorCaptureResult captureManualPdfRectAnchor(const PdfCaptureRequest &request)
 {
     return ManualPdfRectCaptureProvider{}.capture(request);
-}
-
-ExcelCaptureResult captureManualExcelAnchor(const ExcelCaptureRequest &request)
-{
-    return ManualExcelAnchorCaptureProvider{}.capture(request);
-}
-
-VisioCaptureResult captureManualVisioAnchor(const VisioCaptureRequest &request)
-{
-    return ManualVisioAnchorCaptureProvider{}.capture(request);
-}
-
-WordCaptureResult captureManualWordBookmarkAnchor(const WordCaptureRequest &request)
-{
-    return ManualWordBookmarkAnchorCaptureProvider{}.capture(request);
-}
-
-PowerPointCaptureResult captureManualPowerPointShapeAnchor(const PowerPointCaptureRequest &request)
-{
-    return ManualPowerPointShapeAnchorCaptureProvider{}.capture(request);
 }
 
 } // namespace Pinloom

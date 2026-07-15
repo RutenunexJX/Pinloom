@@ -1,7 +1,6 @@
 #pragma once
 
 #include "pinloom/core/Anchor.h"
-#include "pinloom/core/ResourceRelation.h"
 
 #include <QDateTime>
 #include <QString>
@@ -14,7 +13,6 @@ enum class ResourceKind {
     File,
     Folder,
     Pdf,
-    Markdown,
     TextSnippet,
     Url,
     Note,
@@ -29,7 +27,6 @@ struct Resource {
     QStringList tags;
     QStringList aliases;
     QList<Anchor> anchors;
-    QList<ResourceRelation> relations;
     QString content;
     bool deleted = false;
     QDateTime updatedAt;

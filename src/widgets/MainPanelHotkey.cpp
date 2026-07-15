@@ -39,23 +39,6 @@ void showMainPanelForHotkey(QWidget &mainWindow, PinloomPanel &panel)
     panel.focusSearch();
 }
 
-MainPanelHotkeyController::MainPanelHotkeyController(ClipHotkeyService &service, QObject *parent)
-    : MainPanelHotkeyController(service, ShowHandler{}, parent)
-{
-}
-
-MainPanelHotkeyController::MainPanelHotkeyController(ClipHotkeyService &service,
-                                                     QWidget &mainWindow,
-                                                     PinloomPanel &panel,
-                                                     QObject *parent)
-    : MainPanelHotkeyController(service,
-                                [&mainWindow, &panel]() {
-                                    showMainPanelForHotkey(mainWindow, panel);
-                                },
-                                parent)
-{
-}
-
 MainPanelHotkeyController::MainPanelHotkeyController(ClipHotkeyService &service,
                                                      ShowHandler showHandler,
                                                      QObject *parent)
@@ -66,17 +49,11 @@ MainPanelHotkeyController::MainPanelHotkeyController(ClipHotkeyService &service,
     connect(&service_, &ClipHotkeyService::activated, this, &MainPanelHotkeyController::handleHotkeyActivated);
 }
 
-void MainPanelHotkeyController::setShowHandler(ShowHandler showHandler)
-{
-    showHandler_ = std::move(showHandler);
-}
-
 void MainPanelHotkeyController::handleHotkeyActivated()
 {
     if (showHandler_) {
         showHandler_();
     }
-    emit showRequested();
 }
 
 } // namespace Pinloom

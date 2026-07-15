@@ -30,19 +30,7 @@ ClipResidentRuntime::ClipResidentRuntime(InMemoryClipRepository &repository,
     , searchService_(repository)
     , captureService_(dependencies.captureClipboard, repository, this)
     , insertionService_(dependencies.insertionClipboard, repository, std::move(dependencies.pasteInvoker), this)
-    , hotkeyService_(dependencies.hotkeyBackend, this)
-    , trayController_(hotkeyService_,
-                      ClipTrayControllerOptions{[this]() {
-                                                    showPicker();
-                                                },
-                                                [this](bool paused) {
-                                                    captureService_.setCapturePaused(paused);
-                                                },
-                                                {},
-                                                {},
-                                                false,
-                                                options_.registerHotkeyOnStart},
-                      this)
+    , trayController_(this)
 {
     configure(dependencies.trayBackend);
 }
@@ -63,19 +51,7 @@ ClipResidentRuntime::ClipResidentRuntime(SqliteClipRepository &repository,
     , searchService_(repository)
     , captureService_(dependencies.captureClipboard, repository, this)
     , insertionService_(dependencies.insertionClipboard, repository, std::move(dependencies.pasteInvoker), this)
-    , hotkeyService_(dependencies.hotkeyBackend, this)
-    , trayController_(hotkeyService_,
-                      ClipTrayControllerOptions{[this]() {
-                                                    showPicker();
-                                                },
-                                                [this](bool paused) {
-                                                    captureService_.setCapturePaused(paused);
-                                                },
-                                                {},
-                                                {},
-                                                false,
-                                                options_.registerHotkeyOnStart},
-                      this)
+    , trayController_(this)
 {
     configure(dependencies.trayBackend);
 }
@@ -128,10 +104,6 @@ void ClipResidentRuntime::stop()
     trayController_.stop();
     captureService_.stop();
 
-    if (options_.hidePickerOnStop && pickerPanel_) {
-        pickerPanel_->hide();
-    }
-
     if (options_.hideTrayOnStop && trayPresenter_) {
         trayPresenter_->hide();
     }
@@ -142,27 +114,6 @@ void ClipResidentRuntime::stop()
 bool ClipResidentRuntime::isRunning() const
 {
     return running_;
-}
-
-void ClipResidentRuntime::showPicker()
-{
-    if (!pickerPanel_) {
-        setLastError(QStringLiteral("Clip picker panel is required"));
-        return;
-    }
-
-    pickerPanel_->refreshResults();
-    pickerPanel_->show();
-    pickerPanel_->raise();
-    pickerPanel_->activateWindow();
-    pickerPanel_->focusSearch();
-    ++pickerShownCount_;
-    emit pickerShown();
-}
-
-int ClipResidentRuntime::pickerShownCount() const
-{
-    return pickerShownCount_;
 }
 
 void ClipResidentRuntime::requestQuit()
@@ -210,16 +161,6 @@ const ClipInsertionService &ClipResidentRuntime::insertionService() const
     return insertionService_;
 }
 
-ClipHotkeyService &ClipResidentRuntime::hotkeyService()
-{
-    return hotkeyService_;
-}
-
-const ClipHotkeyService &ClipResidentRuntime::hotkeyService() const
-{
-    return hotkeyService_;
-}
-
 ClipTrayController &ClipResidentRuntime::trayController()
 {
     return trayController_;
@@ -240,29 +181,16 @@ const ClipTrayPresenter *ClipResidentRuntime::trayPresenter() const
     return trayPresenter_.get();
 }
 
-ClipPickerPanel &ClipResidentRuntime::pickerPanel()
-{
-    return *pickerPanel_;
-}
-
-const ClipPickerPanel &ClipResidentRuntime::pickerPanel() const
-{
-    return *pickerPanel_;
-}
-
 void ClipResidentRuntime::configure(ClipTrayBackend *trayBackend)
 {
     insertionService_.setOptions(options_.insertionOptions);
     insertionService_.setSuppressClipboardCaptureCallback([this]() {
         captureService_.suppressNextChange();
     });
-
-    ClipPickerOptions pickerOptions;
-    pickerOptions.searchOptions = options_.pickerSearchOptions;
-    pickerOptions.insertionHandler = makeClipPickerInsertionHandler(insertionService_);
-    pickerOptions.closeOnActivationSuccess = options_.closePickerOnActivationSuccess;
-    pickerPanel_ = std::make_unique<ClipPickerPanel>(searchService_, pickerOptions);
-    pickerPanel_->setAttribute(Qt::WA_DeleteOnClose, false);
+    connect(&trayController_,
+            &ClipTrayController::capturePausedChanged,
+            &captureService_,
+            &ClipboardCaptureService::setCapturePaused);
 
     if (trayBackend) {
         trayPresenter_ = std::make_unique<ClipTrayPresenter>(trayController_, *trayBackend, this);

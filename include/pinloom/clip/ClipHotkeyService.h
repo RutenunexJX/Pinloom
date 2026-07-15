@@ -3,22 +3,19 @@
 #include <QObject>
 #include <QString>
 #include <Qt>
-#include <functional>
 #include <memory>
 
 namespace Pinloom {
 
 struct ClipHotkeyConfig {
-    Qt::Key key = Qt::Key_V;
-    Qt::KeyboardModifiers modifiers = Qt::ControlModifier | Qt::ShiftModifier;
+    Qt::Key key = Qt::Key_unknown;
+    Qt::KeyboardModifiers modifiers = Qt::NoModifier;
 
     bool isValid() const;
     QString displayText() const;
     bool operator==(const ClipHotkeyConfig &other) const;
     bool operator!=(const ClipHotkeyConfig &other) const;
 };
-
-ClipHotkeyConfig defaultClipHotkeyConfig();
 
 class ClipHotkeyBackend : public QObject {
     Q_OBJECT
@@ -39,18 +36,12 @@ class ClipHotkeyService : public QObject {
     Q_OBJECT
 
 public:
-    using ActivationHandler = std::function<void()>;
-
-    explicit ClipHotkeyService(QObject *parent = nullptr);
-    explicit ClipHotkeyService(ClipHotkeyBackend *backend, QObject *parent = nullptr);
     ClipHotkeyService(ClipHotkeyConfig config, ClipHotkeyBackend *backend, QObject *parent = nullptr);
     ~ClipHotkeyService() override;
 
     void setConfig(const ClipHotkeyConfig &config);
     ClipHotkeyConfig config() const;
     QString displayText() const;
-
-    void setActivationHandler(ActivationHandler handler);
 
     bool start();
     void stop();
@@ -68,34 +59,11 @@ private:
 
     ClipHotkeyConfig config_;
     ClipHotkeyBackend *backend_ = nullptr;
-    ActivationHandler activationHandler_;
     QMetaObject::Connection backendConnection_;
     QString lastError_;
     bool registered_ = false;
 };
 
-class ClipPickerHotkeyController : public QObject {
-    Q_OBJECT
-
-public:
-    using ShowHandler = std::function<void()>;
-
-    explicit ClipPickerHotkeyController(ClipHotkeyService &service, QObject *parent = nullptr);
-    ClipPickerHotkeyController(ClipHotkeyService &service, ShowHandler showHandler, QObject *parent = nullptr);
-
-    void setShowHandler(ShowHandler showHandler);
-
-signals:
-    void showRequested();
-
-private:
-    void handleHotkeyActivated();
-
-    ClipHotkeyService &service_;
-    ShowHandler showHandler_;
-};
-
-ClipHotkeyBackend *defaultClipHotkeyBackend();
 std::unique_ptr<ClipHotkeyBackend> createClipHotkeyBackend(int hotkeyId);
 
 } // namespace Pinloom

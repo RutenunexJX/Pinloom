@@ -18,32 +18,22 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
-    include/pinloom/core/AnchorArchive.h
+    include/pinloom/core/AnchorLocator.h
     include/pinloom/core/AnchorCapture.h
-    include/pinloom/core/AnchorHealthCheck.h
     include/pinloom/core/ApplicationLaunchSettings.h
     include/pinloom/core/ExcelCommand.h
     include/pinloom/core/ExplorerFileSelection.h
     include/pinloom/core/InboxFileCapture.h
     include/pinloom/core/InMemoryLibraryRepository.h
-    include/pinloom/core/DirectoryLibrarySource.h
-    include/pinloom/core/IndexingService.h
-    include/pinloom/core/LegacyCompatibility.h
+    include/pinloom/core/ResourceNormalization.h
     include/pinloom/core/LibraryRepository.h
-    include/pinloom/core/LibraryRoot.h
-    include/pinloom/core/LibrarySource.h
-    include/pinloom/core/ManualExcelAnchorCreation.h
     include/pinloom/core/ManualPdfAnchorCreation.h
-    include/pinloom/core/ManualPowerPointAnchorCreation.h
-    include/pinloom/core/ManualVisioAnchorCreation.h
-    include/pinloom/core/ManualWordAnchorCreation.h
     include/pinloom/core/SumatraPdfForegroundCapture.h
     include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
     include/pinloom/core/SumatraPdfOpenProxy.h
     include/pinloom/core/TextSelectionCapture.h
     include/pinloom/core/Resource.h
-    include/pinloom/core/ResourceRelation.h
     include/pinloom/core/ResourceUsage.h
     include/pinloom/core/Schema.h
     include/pinloom/core/Search.h
@@ -52,22 +42,14 @@ add_library(pinloom_core STATIC
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
-    src/core/AnchorArchive.cpp
-    src/core/AnchorHealthCheck.cpp
+    src/core/AnchorLocator.cpp
     src/core/ApplicationLaunchSettings.cpp
-    src/core/DirectoryLibrarySource.cpp
     src/core/ExcelCommand.cpp
     src/core/ExplorerFileSelection.cpp
     src/core/InboxFileCapture.cpp
-    src/core/IndexingService.cpp
     src/core/InMemoryLibraryRepository.cpp
-    src/core/LegacyCompatibility.cpp
-    src/core/LibraryRoot.cpp
-    src/core/ManualExcelAnchorCreation.cpp
+    src/core/ResourceNormalization.cpp
     src/core/ManualPdfAnchorCreation.cpp
-    src/core/ManualPowerPointAnchorCreation.cpp
-    src/core/ManualVisioAnchorCreation.cpp
-    src/core/ManualWordAnchorCreation.cpp
     src/core/SumatraPdfForegroundCapture.cpp
     src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
@@ -88,7 +70,6 @@ target_include_directories(pinloom_core
 target_link_libraries(pinloom_core
     PUBLIC
         Qt6::Core
-        Qt6::Network
         Qt6::Sql
 )
 
@@ -103,7 +84,6 @@ endif()
 
 add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
-    include/pinloom/clip/ClipArchive.h
     include/pinloom/clip/ClipHotkeyService.h
     include/pinloom/clip/HyperHotkeyService.h
     include/pinloom/clip/ClipInsertionService.h
@@ -113,7 +93,6 @@ add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipTrayController.h
     include/pinloom/clip/PlatformPasteInvoker.h
     src/clip/ClipboardCaptureService.cpp
-    src/clip/ClipArchive.cpp
     src/clip/ClipHotkeyService.cpp
     src/clip/HyperHotkeyService.cpp
     src/clip/ClipInsertionService.cpp
@@ -146,11 +125,8 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
-    include/pinloom/widgets/ClipResidentApp.h
-    include/pinloom/widgets/ClipResidentAppConfigStore.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
-    include/pinloom/widgets/ClipPickerPanel.h
     include/pinloom/widgets/ClipTrayPresenter.h
     include/pinloom/widgets/MainPanelHotkey.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
@@ -161,11 +137,8 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/SumatraPdfRegionCaptureOverlay.h
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
-    src/widgets/ClipResidentApp.cpp
-    src/widgets/ClipResidentAppConfigStore.cpp
     src/widgets/ClipResidentHost.cpp
     src/widgets/ClipResidentRuntime.cpp
-    src/widgets/ClipPickerPanel.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
     src/widgets/ManualPdfAnchorDialog.cpp
@@ -188,6 +161,8 @@ target_link_libraries(pinloom_widgets
         pinloom_clip_core
         pinloom_core
         Qt6::Widgets
+    PRIVATE
+        Qt6::Network
 )
 
 add_executable(pinloom_app
@@ -227,9 +202,8 @@ function(pinloom_add_test target)
         set(_pinloom_test_runtime_environment
             "PATH=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
             "PATH=path_list_prepend:${PINLOOM_CXX_RUNTIME_DIR}"
-            "Path=path_list_prepend:$<TARGET_FILE_DIR:Qt6::Core>"
-            "Path=path_list_prepend:${PINLOOM_CXX_RUNTIME_DIR}"
             "QT_PLUGIN_PATH=set:$<TARGET_FILE_DIR:Qt6::Core>/../plugins"
+            "QT_QPA_PLATFORM=set:offscreen"
         )
 
         set_tests_properties(${target}
@@ -263,18 +237,6 @@ target_link_libraries(pinloom_anchor_capture_test
 
 pinloom_add_test(pinloom_anchor_capture_test)
 
-add_executable(pinloom_anchor_archive_test
-    tests/anchor_archive_test.cpp
-)
-
-target_link_libraries(pinloom_anchor_archive_test
-    PRIVATE
-        pinloom_core
-        Qt6::Test
-)
-
-pinloom_add_test(pinloom_anchor_archive_test)
-
 add_executable(pinloom_sqlite_repository_test
     tests/sqlite_repository_test.cpp
 )
@@ -286,18 +248,6 @@ target_link_libraries(pinloom_sqlite_repository_test
 )
 
 pinloom_add_test(pinloom_sqlite_repository_test)
-
-add_executable(pinloom_directory_source_test
-    tests/directory_source_test.cpp
-)
-
-target_link_libraries(pinloom_directory_source_test
-    PRIVATE
-        pinloom_core
-        Qt6::Test
-)
-
-pinloom_add_test(pinloom_directory_source_test)
 
 add_executable(pinloom_clip_test
     tests/clip_test.cpp

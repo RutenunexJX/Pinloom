@@ -46,7 +46,6 @@ private:
     QString targetApp_ = QStringLiteral("SumatraPDF");
     QString unit_ = QStringLiteral("pt");
     QString locatorType_;
-    QString selectedText_;
 };
 
 } // namespace Pinloom

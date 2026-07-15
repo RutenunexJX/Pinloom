@@ -1148,10 +1148,8 @@ std::optional<Anchor> savedClipAnchor(const Clip &clip, ClipInsertMode mode)
     }
 
     Anchor anchor;
-    anchor.type = AnchorType::Manual;
     anchor.id = QStringLiteral("clip:%1").arg(clip.id);
     anchor.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name.trimmed();
-    anchor.target = anchor.name;
     anchor.targetApp = clipTargetApp();
     anchor.targetUri = clipTargetUri(clip.id);
     anchor.locatorType = clipLocatorType();

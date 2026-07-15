@@ -1,5 +1,7 @@
 #include "pinloom/widgets/PinloomCommandPanel.h"
 
+#include "pinloom/core/AnchorLocator.h"
+
 #include <QApplication>
 #include <QCheckBox>
 #include <QClipboard>
@@ -57,14 +59,6 @@ constexpr int TargetMatchedFieldRole = Qt::UserRole + 125;
 constexpr int TargetScoreRole = Qt::UserRole + 126;
 constexpr int TargetMatchSummaryRole = Qt::UserRole + 127;
 constexpr int TargetHasAnchorRole = Qt::UserRole + 128;
-constexpr int TargetAnchorTypeRole = Qt::UserRole + 129;
-constexpr int TargetAnchorTargetRole = Qt::UserRole + 130;
-constexpr int TargetAnchorLineRole = Qt::UserRole + 131;
-constexpr int TargetAnchorPageRole = Qt::UserRole + 132;
-constexpr int TargetAnchorRegionXRole = Qt::UserRole + 133;
-constexpr int TargetAnchorRegionYRole = Qt::UserRole + 134;
-constexpr int TargetAnchorRegionWidthRole = Qt::UserRole + 135;
-constexpr int TargetAnchorRegionHeightRole = Qt::UserRole + 136;
 constexpr int TargetAnchorIdRole = Qt::UserRole + 137;
 constexpr int TargetAnchorNameRole = Qt::UserRole + 138;
 constexpr int TargetAnchorTargetAppRole = Qt::UserRole + 139;
@@ -366,7 +360,6 @@ QString commandResourceKindLabel(ResourceKind kind)
         return QStringLiteral("Folder");
     case ResourceKind::Pdf:
         return QStringLiteral("PDF");
-    case ResourceKind::Markdown:
     case ResourceKind::TextSnippet:
         return QStringLiteral("Text");
     case ResourceKind::Url:
@@ -388,9 +381,6 @@ QString commandAnchorTitle(const Anchor &anchor, const PinloomOpenTarget &target
     if (!anchor.name.trimmed().isEmpty()) {
         return anchor.name.trimmed();
     }
-    if (!anchor.target.trimmed().isEmpty()) {
-        return anchor.target.trimmed();
-    }
     if (!target.title.trimmed().isEmpty()) {
         return target.title.trimmed();
     }
@@ -408,21 +398,7 @@ QString commandAnchorLocatorSummary(const Anchor &anchor)
         return locatorType;
     }
 
-    QStringList parts;
-    if (anchor.page > 0) {
-        parts.append(QStringLiteral("page %1").arg(anchor.page));
-    }
-    if (anchor.line > 0) {
-        parts.append(QStringLiteral("line %1").arg(anchor.line));
-    }
-    if (anchor.region.isValid()) {
-        parts.append(QStringLiteral("region %1,%2,%3,%4")
-                         .arg(QString::number(anchor.region.x(), 'f', 2),
-                              QString::number(anchor.region.y(), 'f', 2),
-                              QString::number(anchor.region.width(), 'f', 2),
-                              QString::number(anchor.region.height(), 'f', 2)));
-    }
-    return parts.join(QStringLiteral(", "));
+    return {};
 }
 
 QString commandAnchorHintsSummary(const Anchor &anchor)
@@ -771,14 +747,6 @@ void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
     }
 
     const Anchor &anchor = target.anchor.value();
-    item->setData(TargetAnchorTypeRole, static_cast<int>(anchor.type));
-    item->setData(TargetAnchorTargetRole, anchor.target);
-    item->setData(TargetAnchorLineRole, anchor.line);
-    item->setData(TargetAnchorPageRole, anchor.page);
-    item->setData(TargetAnchorRegionXRole, anchor.region.x());
-    item->setData(TargetAnchorRegionYRole, anchor.region.y());
-    item->setData(TargetAnchorRegionWidthRole, anchor.region.width());
-    item->setData(TargetAnchorRegionHeightRole, anchor.region.height());
     item->setData(TargetAnchorIdRole, anchor.id);
     item->setData(TargetAnchorNameRole, anchor.name);
     item->setData(TargetAnchorTargetAppRole, anchor.targetApp);
@@ -815,14 +783,6 @@ PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row 
 
     if (item->data(TargetHasAnchorRole).toBool()) {
         Anchor anchor;
-        anchor.type = static_cast<AnchorType>(item->data(TargetAnchorTypeRole).toInt());
-        anchor.target = item->data(TargetAnchorTargetRole).toString();
-        anchor.line = item->data(TargetAnchorLineRole).toInt();
-        anchor.page = item->data(TargetAnchorPageRole).toInt();
-        anchor.region = QRectF(item->data(TargetAnchorRegionXRole).toDouble(),
-                               item->data(TargetAnchorRegionYRole).toDouble(),
-                               item->data(TargetAnchorRegionWidthRole).toDouble(),
-                               item->data(TargetAnchorRegionHeightRole).toDouble());
         anchor.id = item->data(TargetAnchorIdRole).toString();
         anchor.name = item->data(TargetAnchorNameRole).toString();
         anchor.targetApp = item->data(TargetAnchorTargetAppRole).toString();
@@ -1115,7 +1075,7 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
         } else if (command.commandNamespace == CommandNamespace::None
                    && commandEdit_
                    && !commandEdit_->text().trimmed().isEmpty()) {
-            updateStatus(options_.unifiedSearchHandler
+            updateStatus(options_.unifiedEntrySearchHandler
                              ? tr("No unified results")
                              : tr("Unified search is not configured"));
         } else {
@@ -1298,12 +1258,8 @@ void PinloomCommandPanel::refreshResults()
     const QString plainQuery = commandEdit_->text().trimmed();
     if (command.commandNamespace == CommandNamespace::None
         && !plainQuery.isEmpty()
-        && (options_.unifiedEntrySearchHandler || options_.unifiedSearchHandler)) {
-        if (options_.unifiedEntrySearchHandler) {
-            appendUnifiedEntries(options_.unifiedEntrySearchHandler(plainQuery));
-        } else {
-            appendUnifiedResults(options_.unifiedSearchHandler(plainQuery));
-        }
+        && options_.unifiedEntrySearchHandler) {
+        appendUnifiedEntries(options_.unifiedEntrySearchHandler(plainQuery));
     } else if (command.commandNamespace == CommandNamespace::Restore
                && command.action == CommandAction::RestoreSearch
                && options_.deletedEntrySearchHandler) {
@@ -1422,7 +1378,7 @@ void PinloomCommandPanel::refreshResults()
     if (commandEdit_->text().trimmed().isEmpty()) {
         updateStatus(tr("Type to search Anchor, Clip, Inbox, or File; c/k/i for commands"));
     } else if (command.commandNamespace == CommandNamespace::None) {
-        if (!options_.unifiedEntrySearchHandler && !options_.unifiedSearchHandler) {
+        if (!options_.unifiedEntrySearchHandler) {
             updateStatus(tr("Unified search is not configured"));
         } else {
             updateStatus(resultList_->count() > 0
@@ -1643,8 +1599,6 @@ QList<PinloomCommandResultAction> PinloomCommandPanel::actionsForTarget(const Pi
     QList<PinloomCommandResultAction> actions;
     if (options_.unifiedEntryActionProvider) {
         actions = options_.unifiedEntryActionProvider(entryFromOpenTarget(target));
-    } else if (options_.unifiedActionProvider) {
-        actions = options_.unifiedActionProvider(target);
     }
 
     const bool hasPrimaryAction = std::any_of(actions.cbegin(), actions.cend(), [](const PinloomCommandResultAction &action) {
@@ -1721,40 +1675,11 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
         updateStatus(status.trimmed().isEmpty() ? fallback : status.trimmed());
         return result.success;
     }
-    if (options_.unifiedEntryActionHandler) {
-        QString status;
-        if (!options_.unifiedEntryActionHandler(this, entryFromOpenTarget(target), action, &status)) {
-            updateStatus(status.trimmed().isEmpty()
-                             ? tr("Unable to run action \"%1\"").arg(action.label)
-                             : status.trimmed());
-            return false;
-        }
-
-        updateStatus(status.trimmed().isEmpty()
-                         ? tr("Completed action \"%1\"").arg(action.label)
-                         : status.trimmed());
-        return true;
-    }
     if (action.id == QLatin1String(PrimaryResultActionId)) {
         return activateUnifiedTarget(target);
     }
-    if (!options_.unifiedActionHandler) {
-        updateStatus(tr("Result action is not configured"));
-        return false;
-    }
-
-    QString status;
-    if (!options_.unifiedActionHandler(this, target, action, &status)) {
-        updateStatus(status.trimmed().isEmpty()
-                         ? tr("Unable to run action \"%1\"").arg(action.label)
-                         : status.trimmed());
-        return false;
-    }
-
-    updateStatus(status.trimmed().isEmpty()
-                     ? tr("Completed action \"%1\"").arg(action.label)
-                     : status.trimmed());
-    return true;
+    updateStatus(tr("Result action is not configured"));
+    return false;
 }
 
 bool PinloomCommandPanel::restoreResultSelection(const PinloomOpenTarget &target, int fallbackRow)

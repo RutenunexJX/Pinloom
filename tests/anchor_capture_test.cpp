@@ -1,18 +1,11 @@
 #include "pinloom/core/AnchorCapture.h"
-#include "pinloom/core/ExcelCommand.h"
+#include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
-#include "pinloom/core/ManualExcelAnchorCreation.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
-#include "pinloom/core/ManualPowerPointAnchorCreation.h"
-#include "pinloom/core/ManualVisioAnchorCreation.h"
-#include "pinloom/core/ManualWordAnchorCreation.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
-#include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
-#include "pinloom/core/VisioCommand.h"
-#include "pinloom/core/WordCommand.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -29,28 +22,9 @@ class AnchorCaptureTest : public QObject {
 private slots:
     void buildsManualSumatraPdfRectAnchor();
     void buildsManualSumatraPdfPageAnchor();
-    void buildsManualSumatraPdfTextAnchor();
     void reportsMissingSumatraPdfCaptureInputs();
     void keepsSumatraPdfLocatorJsonStable();
     void buildsAnchorCompatibleWithSumatraPdfExecutor();
-    void buildsManualExcelRangeAnchor();
-    void buildsManualExcelNamedRangeAnchor();
-    void savesManualExcelRangeAnchorInRepository();
-    void rejectsInvalidManualExcelAnchorInputsWithoutSaving();
-    void createsManualExcelAnchorCompatibleWithExcelExecutor();
-    void buildsManualVisioShapeAnchor();
-    void savesManualVisioShapeAnchorInRepository();
-    void rejectsInvalidManualVisioAnchorInputsWithoutSaving();
-    void createsManualVisioAnchorCompatibleWithVisioExecutor();
-    void buildsManualWordBookmarkAnchor();
-    void savesManualWordBookmarkAnchorInRepository();
-    void rejectsInvalidManualWordBookmarkAnchorInputsWithoutSaving();
-    void createsManualWordBookmarkAnchorCompatibleWithWordExecutor();
-    void buildsManualPowerPointShapeIdAnchor();
-    void buildsManualPowerPointShapeNameAnchor();
-    void savesManualPowerPointShapeAnchorInRepository();
-    void rejectsInvalidManualPowerPointAnchorInputsWithoutSaving();
-    void createsManualPowerPointShapeAnchorCompatibleWithPowerPointExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
     void createsManualPdfRectAnchorCompatibleWithSumatraPdfExecutor();
@@ -67,11 +41,9 @@ private slots:
     void parsesSumatraPdfDdeFileStateAndMousePosition();
     void buildsSumatraPdfDdeRegionFromMousePositions();
     void prefersDdeDocumentPathOverTitleConfirmation();
-    void doesNotTurnForegroundMousePositionIntoRectRequest();
     void parsesSumatraPdfViewStateFromStatusText();
     void reportsUnparseableSumatraPdfViewStateText();
     void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
-    void injectsForegroundSumatraPdfSelectedTextIntoCaptureRequest();
     void reportsForegroundSumatraPdfTitleWithoutFilePath();
     void rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMatches();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
@@ -93,22 +65,11 @@ public:
     bool softDeleteAnchor(const QString &, const Anchor &) override { return false; }
     bool restoreAnchor(const QString &, const Anchor &) override { return false; }
     bool clearResources() override { return true; }
-    bool upsertResourceRelation(const ResourceRelation &) override { return false; }
-    QList<ResourceRelation> resourceRelations(const QString &) const override { return {}; }
-    QList<ResourceRelation> allResourceRelations() const override { return {}; }
-    bool removeResourceRelation(const QString &, const QString &, const QString &) override { return false; }
     bool recordResourceOpen(const QString &) override { return false; }
     bool setResourcePinned(const QString &, bool) override { return false; }
     std::optional<ResourceUsage> resourceUsage(const QString &) const override { return std::nullopt; }
     bool recordAnchorOpen(const QString &, const Anchor &) override { return false; }
     std::optional<AnchorUsage> anchorUsage(const QString &, const Anchor &) const override { return std::nullopt; }
-    bool upsertLibraryRoot(const LibraryRoot &) override { return false; }
-    QList<LibraryRoot> libraryRoots() const override { return {}; }
-    std::optional<LibraryRoot> findLibraryRoot(const QString &) const override { return std::nullopt; }
-    bool removeLibraryRoot(const QString &) override { return false; }
-    bool setLibraryRootEnabled(const QString &, bool) override { return false; }
-    bool setLibraryRootPinned(const QString &, bool) override { return false; }
-    bool updateLibraryRootLastIndexedAt(const QString &, const QDateTime &) override { return false; }
 
     int upsertCount = 0;
     Resource lastResource;
@@ -135,114 +96,6 @@ static ManualPdfAnchorCreationRequest validCreationRequest()
     request.zoom = 250.0;
     request.aliases = {QStringLiteral("cdc zoom"), QStringLiteral("CDC Zoom")};
     request.tags = {QStringLiteral("#reviewpoint"), QStringLiteral("reviewpoint")};
-    request.pinned = true;
-    return request;
-}
-
-static ExcelCaptureRequest validExcelRangeCaptureRequest()
-{
-    ExcelCaptureRequest request;
-    request.anchorName = QStringLiteral("Q3 budget table");
-    request.targetFile = QStringLiteral("E:/books/budget.xlsx");
-    request.sheet = QStringLiteral(" Sheet1 ");
-    request.rangeAddress = QStringLiteral(" B12:D18 ");
-    request.namedRange = QStringLiteral("BudgetTable");
-    return request;
-}
-
-static ManualExcelAnchorCreationRequest validExcelRangeCreationRequest()
-{
-    ManualExcelAnchorCreationRequest request;
-    request.name = QStringLiteral("Q3 budget table");
-    request.file = QStringLiteral("E:/books/budget.xlsx");
-    request.sheet = QStringLiteral("Sheet1");
-    request.rangeAddress = QStringLiteral("B12:D18");
-    request.aliases = {QStringLiteral("worksheet slice"), QStringLiteral("Worksheet Slice")};
-    request.tags = {QStringLiteral("#finance"), QStringLiteral("finance")};
-    request.pinned = true;
-    return request;
-}
-
-static VisioCaptureRequest validVisioShapeCaptureRequest()
-{
-    VisioCaptureRequest request;
-    request.anchorName = QStringLiteral("Power gate symbol");
-    request.targetFile = QStringLiteral("E:/drawings/power.vsdx");
-    request.page = QStringLiteral(" Page-1 ");
-    request.shapeUniqueId = QStringLiteral(" {00000000-0000-0000-0000-000000000000} ");
-    return request;
-}
-
-static ManualVisioAnchorCreationRequest validVisioShapeCreationRequest()
-{
-    ManualVisioAnchorCreationRequest request;
-    request.name = QStringLiteral("Power gate symbol");
-    request.file = QStringLiteral("E:/drawings/power.vsdx");
-    request.page = QStringLiteral("Page-1");
-    request.shapeUniqueId = QStringLiteral("{00000000-0000-0000-0000-000000000000}");
-    request.aliases = {QStringLiteral("gate mark"), QStringLiteral("Gate Mark")};
-    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
-    request.pinned = true;
-    return request;
-}
-
-static WordCaptureRequest validWordBookmarkCaptureRequest()
-{
-    WordCaptureRequest request;
-    request.anchorName = QStringLiteral("Requirement 12");
-    request.targetApp = QStringLiteral(" MS Word ");
-    request.targetFile = QStringLiteral("E:/docs/requirements.docx");
-    request.bookmark = QStringLiteral(" Requirement_12 ");
-    request.source = QStringLiteral(" Host ");
-    return request;
-}
-
-static ManualWordAnchorCreationRequest validWordBookmarkCreationRequest()
-{
-    ManualWordAnchorCreationRequest request;
-    request.name = QStringLiteral("Requirement 12");
-    request.file = QStringLiteral("E:/docs/requirements.docx");
-    request.bookmark = QStringLiteral("Requirement_12");
-    request.targetApp = QStringLiteral("MS Word");
-    request.source = QStringLiteral("Host");
-    request.aliases = {QStringLiteral("word bookmark"), QStringLiteral("Word Bookmark")};
-    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
-    request.pinned = true;
-    return request;
-}
-
-static PowerPointCaptureRequest validPowerPointShapeIdCaptureRequest()
-{
-    PowerPointCaptureRequest request;
-    request.anchorName = QStringLiteral("Valve A callout");
-    request.targetApp = QStringLiteral(" PPT ");
-    request.targetFile = QStringLiteral("E:/slides/process.pptx");
-    request.slide = 12;
-    request.shapeId = 42;
-    request.shapeName = QStringLiteral(" Valve A ");
-    request.source = QStringLiteral(" Host ");
-    return request;
-}
-
-static PowerPointCaptureRequest validPowerPointShapeNameCaptureRequest()
-{
-    PowerPointCaptureRequest request;
-    request.anchorName = QStringLiteral("Pump curve note");
-    request.targetFile = QStringLiteral("E:/slides/process.pptx");
-    request.slide = 7;
-    request.shapeName = QStringLiteral(" Pump Curve ");
-    return request;
-}
-
-static ManualPowerPointAnchorCreationRequest validPowerPointShapeCreationRequest()
-{
-    ManualPowerPointAnchorCreationRequest request;
-    request.name = QStringLiteral("Valve A callout");
-    request.file = QStringLiteral("E:/slides/process.pptx");
-    request.slide = 12;
-    request.shapeId = 42;
-    request.aliases = {QStringLiteral("slide callout"), QStringLiteral("Slide Callout")};
-    request.tags = {QStringLiteral("#phase5"), QStringLiteral("phase5")};
     request.pinned = true;
     return request;
 }
@@ -275,17 +128,17 @@ void AnchorCaptureTest::buildsManualSumatraPdfRectAnchor()
     QCOMPARE(result.unit, QStringLiteral("pt"));
     QCOMPARE(result.source, QStringLiteral("manual"));
 
-    QCOMPARE(result.anchor.type, AnchorType::PdfRegion);
     QCOMPARE(result.anchor.name, QStringLiteral("Clock domain window"));
-    QCOMPARE(result.anchor.target, QStringLiteral("Clock domain window"));
     QCOMPARE(result.anchor.targetApp, QStringLiteral("SumatraPDF"));
     QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/clock.pdf"));
     QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.rect"));
-    QCOMPARE(result.anchor.page, 12);
-    QCOMPARE(result.anchor.region.x(), 420.0);
-    QCOMPARE(result.anchor.region.y(), 860.0);
-    QCOMPARE(result.anchor.region.width(), 360.0);
-    QCOMPARE(result.anchor.region.height(), 60.0);
+    QCOMPARE(anchorLocatorPage(result.anchor), 12);
+    const std::optional<QRectF> region = anchorLocatorRegion(result.anchor);
+    QVERIFY(region.has_value());
+    QCOMPARE(region->x(), 420.0);
+    QCOMPARE(region->y(), 860.0);
+    QCOMPARE(region->width(), 360.0);
+    QCOMPARE(region->height(), 60.0);
 }
 
 void AnchorCaptureTest::buildsManualSumatraPdfPageAnchor()
@@ -304,48 +157,10 @@ void AnchorCaptureTest::buildsManualSumatraPdfPageAnchor()
     QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.page, 12);
     QVERIFY(!result.rect.isValid());
-    QCOMPARE(result.anchor.type, AnchorType::PdfPage);
     QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.page"));
-    QVERIFY(!result.anchor.region.isValid());
+    QVERIFY(!anchorLocatorRegion(result.anchor).has_value());
     QCOMPARE(result.anchor.locatorJson,
              QStringLiteral("{\"page\":12,\"source\":\"foreground-sumatrapdf-viewstate\",\"type\":\"sumatrapdf.page\",\"zoom\":250}"));
-}
-
-void AnchorCaptureTest::buildsManualSumatraPdfTextAnchor()
-{
-    PdfCaptureRequest request;
-    request.anchorName = QStringLiteral("Clock domain text");
-    request.targetFile = QStringLiteral("E:/docs/clock.pdf");
-    request.page = 12;
-    request.selectedText = QStringLiteral(" clock domain crossing ");
-    request.zoom = 250.0;
-    request.source = QStringLiteral("foreground-sumatrapdf-selection");
-
-    const AnchorCaptureResult result = captureManualPdfAnchor(request);
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.locatorType, QStringLiteral("sumatrapdf.search"));
-    QCOMPARE(result.selectedText, QStringLiteral("clock domain crossing"));
-    QVERIFY(!result.rect.isValid());
-    QCOMPARE(result.anchor.type, AnchorType::PdfPage);
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.search"));
-    QVERIFY(!result.anchor.region.isValid());
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"source\":\"foreground-sumatrapdf-selection\",\"text\":\"clock domain crossing\",\"type\":\"sumatrapdf.search\",\"zoom\":250}"));
-
-    const SumatraPdfCommandResult command =
-        buildSumatraPdfCommand(result.anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
-
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.arguments,
-             QStringList({QStringLiteral("-reuse-instance"),
-                          QStringLiteral("-page"),
-                          QStringLiteral("12"),
-                          QStringLiteral("-zoom"),
-                          QStringLiteral("250"),
-                          QStringLiteral("-search"),
-                          QStringLiteral("clock domain crossing"),
-                          QStringLiteral("E:/docs/clock.pdf")}));
 }
 
 void AnchorCaptureTest::reportsMissingSumatraPdfCaptureInputs()
@@ -399,601 +214,6 @@ void AnchorCaptureTest::buildsAnchorCompatibleWithSumatraPdfExecutor()
                           QStringLiteral("-scroll"),
                           QStringLiteral("420,860"),
                           QStringLiteral("E:/docs/clock.pdf")}));
-}
-
-void AnchorCaptureTest::buildsManualExcelRangeAnchor()
-{
-    const ExcelCaptureResult result = captureManualExcelAnchor(validExcelRangeCaptureRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("Microsoft Excel"));
-    QCOMPARE(result.targetFile, QStringLiteral("E:/books/budget.xlsx"));
-    QCOMPARE(result.locatorType, QStringLiteral("excel.range"));
-    QCOMPARE(result.sheet, QStringLiteral("Sheet1"));
-    QCOMPARE(result.rangeAddress, QStringLiteral("B12:D18"));
-    QCOMPARE(result.namedRange, QStringLiteral("BudgetTable"));
-    QCOMPARE(result.source, QStringLiteral("manual"));
-
-    QCOMPARE(result.anchor.type, AnchorType::Manual);
-    QCOMPARE(result.anchor.name, QStringLiteral("Q3 budget table"));
-    QCOMPARE(result.anchor.target, QStringLiteral("Q3 budget table"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Excel"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/books/budget.xlsx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.range"));
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"name\":\"BudgetTable\",\"range\":\"B12:D18\",\"sheet\":\"Sheet1\",\"source\":\"manual\",\"target_file\":\"E:/books/budget.xlsx\",\"type\":\"excel.range\"}"));
-}
-
-void AnchorCaptureTest::buildsManualExcelNamedRangeAnchor()
-{
-    ExcelCaptureRequest request;
-    request.anchorName = QStringLiteral("Revenue table");
-    request.targetFile = QStringLiteral("E:/books/revenue.xlsx");
-    request.namedRange = QStringLiteral(" RevenueTable ");
-
-    const ExcelCaptureResult result = captureManualExcelAnchor(request);
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.locatorType, QStringLiteral("excel.name"));
-    QCOMPARE(result.namedRange, QStringLiteral("RevenueTable"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.name"));
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"name\":\"RevenueTable\",\"source\":\"manual\",\"target_file\":\"E:/books/revenue.xlsx\",\"type\":\"excel.name\"}"));
-    QVERIFY(isExcelAnchor(result.anchor));
-
-    const ExcelJumpCommandResult command = buildExcelJumpCommand(result.anchor, QString());
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.workbookPath, QStringLiteral("E:/books/revenue.xlsx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("excel.name"));
-    QCOMPARE(command.command.namedRange, QStringLiteral("RevenueTable"));
-}
-
-void AnchorCaptureTest::savesManualExcelRangeAnchorInRepository()
-{
-    InMemoryLibraryRepository repository;
-    ManualExcelAnchorCreationService service(repository);
-
-    const ManualExcelAnchorCreationResult result =
-        service.createManualExcelAnchor(validExcelRangeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(!result.resource.id.isEmpty());
-    QCOMPARE(result.resource.kind, ResourceKind::File);
-    QCOMPARE(result.resource.title, QStringLiteral("budget.xlsx"));
-    QCOMPARE(result.resource.location, QStringLiteral("E:/books/budget.xlsx"));
-    QCOMPARE(result.anchor.name, QStringLiteral("Q3 budget table"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Excel"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/books/budget.xlsx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("excel.range"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("worksheet slice")});
-    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("finance")});
-    QVERIFY(result.anchor.pinned);
-    QVERIFY(result.anchor.createdAt.isValid());
-    QVERIFY(result.anchor.updatedAt.isValid());
-
-    const std::optional<Resource> stored = repository.findResource(result.resource.id);
-    QVERIFY(stored.has_value());
-    QCOMPARE(stored->anchors.size(), 1);
-    QCOMPARE(stored->anchors.first().id, result.anchor.id);
-    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
-
-    const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("worksheet slice")});
-    QVERIFY(hasAnchorSearchResult(aliasResults,
-                                  QStringLiteral("anchor_alias"),
-                                  QStringLiteral("Q3 budget table")));
-
-    const QList<SearchResult> tagResults = repository.search(SearchQuery{QStringLiteral("finance")});
-    QVERIFY(hasAnchorSearchResult(tagResults,
-                                  QStringLiteral("anchor_tag"),
-                                  QStringLiteral("Q3 budget table")));
-}
-
-void AnchorCaptureTest::rejectsInvalidManualExcelAnchorInputsWithoutSaving()
-{
-    InMemoryLibraryRepository repository;
-    ManualExcelAnchorCreationService service(repository);
-
-    ManualExcelAnchorCreationRequest request = validExcelRangeCreationRequest();
-    request.name = QStringLiteral(" ");
-    ManualExcelAnchorCreationResult result = service.createManualExcelAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Excel anchor name is missing"));
-
-    request = validExcelRangeCreationRequest();
-    request.file.clear();
-    result = service.createManualExcelAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Excel anchor file is missing"));
-
-    request = validExcelRangeCreationRequest();
-    request.rangeAddress.clear();
-    result = service.createManualExcelAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Excel capture range or named range is missing"));
-
-    request = validExcelRangeCreationRequest();
-    request.sheet.clear();
-    result = service.createManualExcelAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Excel capture range sheet is missing"));
-
-    request = validExcelRangeCreationRequest();
-    request.locatorType = QStringLiteral("excel.cell");
-    result = service.createManualExcelAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Excel capture locator type is unsupported"));
-
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
-}
-
-void AnchorCaptureTest::createsManualExcelAnchorCompatibleWithExcelExecutor()
-{
-    InMemoryLibraryRepository repository;
-    ManualExcelAnchorCreationService service(repository);
-    const ManualExcelAnchorCreationResult result =
-        service.createManualExcelAnchor(validExcelRangeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(isExcelAnchor(result.anchor));
-
-    const ExcelJumpCommandResult command = buildExcelJumpCommand(result.anchor, QString());
-
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.workbookPath, QStringLiteral("E:/books/budget.xlsx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("excel.range"));
-    QCOMPARE(command.command.sheetName, QStringLiteral("Sheet1"));
-    QCOMPARE(command.command.rangeAddress, QStringLiteral("B12:D18"));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Workbooks.Open('E:/books/budget.xlsx')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Worksheets.Item('Sheet1')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Range('B12:D18')")));
-}
-
-void AnchorCaptureTest::buildsManualVisioShapeAnchor()
-{
-    const VisioCaptureResult result = captureManualVisioAnchor(validVisioShapeCaptureRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("Microsoft Visio"));
-    QCOMPARE(result.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(result.locatorType, QStringLiteral("visio.shape"));
-    QCOMPARE(result.page, QStringLiteral("Page-1"));
-    QCOMPARE(result.shapeUniqueId, QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
-    QCOMPARE(result.source, QStringLiteral("manual"));
-
-    QCOMPARE(result.anchor.type, AnchorType::Manual);
-    QCOMPARE(result.anchor.name, QStringLiteral("Power gate symbol"));
-    QCOMPARE(result.anchor.target, QStringLiteral("Power gate symbol"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Visio"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("visio.shape"));
-
-    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
-    QVERIFY(locatorDocument.isObject());
-    const QJsonObject locator = locatorDocument.object();
-    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("visio.shape"));
-    QCOMPARE(locator.value(QStringLiteral("page")).toString(), QStringLiteral("Page-1"));
-    QCOMPARE(locator.value(QStringLiteral("shape_unique_id")).toString(),
-             QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
-    QCOMPARE(locator.value(QStringLiteral("shapeUniqueID")).toString(),
-             QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
-    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("manual"));
-}
-
-void AnchorCaptureTest::savesManualVisioShapeAnchorInRepository()
-{
-    InMemoryLibraryRepository repository;
-    ManualVisioAnchorCreationService service(repository);
-
-    const ManualVisioAnchorCreationResult result =
-        service.createManualVisioAnchor(validVisioShapeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(!result.resource.id.isEmpty());
-    QCOMPARE(result.resource.kind, ResourceKind::File);
-    QCOMPARE(result.resource.title, QStringLiteral("power.vsdx"));
-    QCOMPARE(result.resource.location, QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(result.anchor.name, QStringLiteral("Power gate symbol"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft Visio"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("visio.shape"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("gate mark")});
-    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
-    QVERIFY(result.anchor.pinned);
-    QVERIFY(result.anchor.createdAt.isValid());
-    QVERIFY(result.anchor.updatedAt.isValid());
-
-    const std::optional<Resource> stored = repository.findResource(result.resource.id);
-    QVERIFY(stored.has_value());
-    QCOMPARE(stored->anchors.size(), 1);
-    QCOMPARE(stored->anchors.first().id, result.anchor.id);
-    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
-
-    const QList<SearchResult> nameResults =
-        repository.search(SearchQuery{QStringLiteral("Power gate symbol")});
-    QVERIFY(hasAnchorSearchResult(nameResults,
-                                  QStringLiteral("anchor_name"),
-                                  QStringLiteral("Power gate symbol")));
-
-    const QList<SearchResult> aliasResults =
-        repository.search(SearchQuery{QStringLiteral("gate mark")});
-    QVERIFY(hasAnchorSearchResult(aliasResults,
-                                  QStringLiteral("anchor_alias"),
-                                  QStringLiteral("Power gate symbol")));
-
-    const QList<SearchResult> tagResults =
-        repository.search(SearchQuery{QStringLiteral("phase5")});
-    QVERIFY(hasAnchorSearchResult(tagResults,
-                                  QStringLiteral("anchor_tag"),
-                                  QStringLiteral("Power gate symbol")));
-}
-
-void AnchorCaptureTest::rejectsInvalidManualVisioAnchorInputsWithoutSaving()
-{
-    InMemoryLibraryRepository repository;
-    ManualVisioAnchorCreationService service(repository);
-
-    ManualVisioAnchorCreationRequest request = validVisioShapeCreationRequest();
-    request.name = QStringLiteral(" ");
-    ManualVisioAnchorCreationResult result = service.createManualVisioAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Visio anchor name is missing"));
-
-    request = validVisioShapeCreationRequest();
-    request.file.clear();
-    result = service.createManualVisioAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Visio anchor file is missing"));
-
-    request = validVisioShapeCreationRequest();
-    request.page.clear();
-    result = service.createManualVisioAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Visio capture page is missing"));
-
-    request = validVisioShapeCreationRequest();
-    request.shapeUniqueId.clear();
-    result = service.createManualVisioAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Visio capture shape UniqueID is missing"));
-
-    request = validVisioShapeCreationRequest();
-    request.locatorType = QStringLiteral("visio.page");
-    result = service.createManualVisioAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Visio capture locator type is unsupported"));
-
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
-}
-
-void AnchorCaptureTest::createsManualVisioAnchorCompatibleWithVisioExecutor()
-{
-    InMemoryLibraryRepository repository;
-    ManualVisioAnchorCreationService service(repository);
-    const ManualVisioAnchorCreationResult result =
-        service.createManualVisioAnchor(validVisioShapeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(isVisioAnchor(result.anchor));
-
-    const VisioJumpCommandResult command = buildVisioJumpCommand(result.anchor, QString());
-
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.documentPath, QStringLiteral("E:/drawings/power.vsdx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("visio.shape"));
-    QCOMPARE(command.command.pageName, QStringLiteral("Page-1"));
-    QCOMPARE(command.command.shapeUniqueId, QStringLiteral("{00000000-0000-0000-0000-000000000000}"));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/drawings/power.vsdx')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Pages.ItemU('Page-1')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("ItemFromUniqueID('{00000000-0000-0000-0000-000000000000}')")));
-}
-
-void AnchorCaptureTest::buildsManualWordBookmarkAnchor()
-{
-    const WordCaptureResult result = captureManualWordBookmarkAnchor(validWordBookmarkCaptureRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("MS Word"));
-    QCOMPARE(result.targetFile, QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(result.locatorType, QStringLiteral("word.bookmark"));
-    QCOMPARE(result.bookmark, QStringLiteral("Requirement_12"));
-    QCOMPARE(result.source, QStringLiteral("host"));
-
-    QCOMPARE(result.anchor.type, AnchorType::Manual);
-    QCOMPARE(result.anchor.name, QStringLiteral("Requirement 12"));
-    QCOMPARE(result.anchor.target, QStringLiteral("Requirement 12"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("MS Word"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("word.bookmark"));
-
-    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
-    QVERIFY(locatorDocument.isObject());
-    const QJsonObject locator = locatorDocument.object();
-    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("word.bookmark"));
-    QCOMPARE(locator.value(QStringLiteral("bookmark")).toString(), QStringLiteral("Requirement_12"));
-    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("host"));
-    QCOMPARE(locator.value(QStringLiteral("target_app")).toString(), QStringLiteral("MS Word"));
-}
-
-void AnchorCaptureTest::savesManualWordBookmarkAnchorInRepository()
-{
-    InMemoryLibraryRepository repository;
-    ManualWordAnchorCreationService service(repository);
-
-    const ManualWordAnchorCreationResult result =
-        service.createManualWordBookmarkAnchor(validWordBookmarkCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(!result.resource.id.isEmpty());
-    QCOMPARE(result.resource.kind, ResourceKind::File);
-    QCOMPARE(result.resource.title, QStringLiteral("requirements.docx"));
-    QCOMPARE(result.resource.location, QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(result.anchor.name, QStringLiteral("Requirement 12"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("MS Word"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("word.bookmark"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("word bookmark")});
-    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
-    QVERIFY(result.anchor.pinned);
-    QVERIFY(result.anchor.createdAt.isValid());
-    QVERIFY(result.anchor.updatedAt.isValid());
-
-    const std::optional<Resource> stored = repository.findResource(result.resource.id);
-    QVERIFY(stored.has_value());
-    QCOMPARE(stored->anchors.size(), 1);
-    QCOMPARE(stored->anchors.first().id, result.anchor.id);
-    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
-
-    const QList<SearchResult> nameResults =
-        repository.search(SearchQuery{QStringLiteral("Requirement 12")});
-    QVERIFY(hasAnchorSearchResult(nameResults,
-                                  QStringLiteral("anchor_name"),
-                                  QStringLiteral("Requirement 12")));
-
-    const QList<SearchResult> aliasResults =
-        repository.search(SearchQuery{QStringLiteral("word bookmark")});
-    QVERIFY(hasAnchorSearchResult(aliasResults,
-                                  QStringLiteral("anchor_alias"),
-                                  QStringLiteral("Requirement 12")));
-
-    const QList<SearchResult> tagResults =
-        repository.search(SearchQuery{QStringLiteral("phase5")});
-    QVERIFY(hasAnchorSearchResult(tagResults,
-                                  QStringLiteral("anchor_tag"),
-                                  QStringLiteral("Requirement 12")));
-}
-
-void AnchorCaptureTest::rejectsInvalidManualWordBookmarkAnchorInputsWithoutSaving()
-{
-    InMemoryLibraryRepository repository;
-    ManualWordAnchorCreationService service(repository);
-
-    ManualWordAnchorCreationRequest request = validWordBookmarkCreationRequest();
-    request.name = QStringLiteral(" ");
-    ManualWordAnchorCreationResult result = service.createManualWordBookmarkAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Word anchor name is missing"));
-
-    request = validWordBookmarkCreationRequest();
-    request.file.clear();
-    result = service.createManualWordBookmarkAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual Word anchor file is missing"));
-
-    request = validWordBookmarkCreationRequest();
-    request.bookmark.clear();
-    result = service.createManualWordBookmarkAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Word capture bookmark is missing"));
-
-    request = validWordBookmarkCreationRequest();
-    request.locatorType = QStringLiteral("word.heading");
-    result = service.createManualWordBookmarkAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Word capture locator type is unsupported"));
-
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
-}
-
-void AnchorCaptureTest::createsManualWordBookmarkAnchorCompatibleWithWordExecutor()
-{
-    InMemoryLibraryRepository repository;
-    ManualWordAnchorCreationService service(repository);
-    const ManualWordAnchorCreationResult result =
-        service.createManualWordBookmarkAnchor(validWordBookmarkCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(isWordAnchor(result.anchor));
-
-    const WordJumpCommandResult command = buildWordJumpCommand(result.anchor, QString());
-
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.documentPath, QStringLiteral("E:/docs/requirements.docx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("word.bookmark"));
-    QCOMPARE(command.command.bookmarkName, QStringLiteral("Requirement_12"));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/docs/requirements.docx')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Bookmarks.Item('Requirement_12')")));
-}
-
-void AnchorCaptureTest::buildsManualPowerPointShapeIdAnchor()
-{
-    const PowerPointCaptureResult result =
-        captureManualPowerPointShapeAnchor(validPowerPointShapeIdCaptureRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("PPT"));
-    QCOMPARE(result.targetFile, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(result.locatorType, QStringLiteral("powerpoint.shape"));
-    QCOMPARE(result.slide, 12);
-    QCOMPARE(result.shapeId, 42);
-    QCOMPARE(result.shapeName, QStringLiteral("Valve A"));
-    QCOMPARE(result.source, QStringLiteral("host"));
-
-    QCOMPARE(result.anchor.type, AnchorType::Manual);
-    QCOMPARE(result.anchor.name, QStringLiteral("Valve A callout"));
-    QCOMPARE(result.anchor.target, QStringLiteral("Valve A callout"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("PPT"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
-
-    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
-    QVERIFY(locatorDocument.isObject());
-    const QJsonObject locator = locatorDocument.object();
-    QCOMPARE(locator.value(QStringLiteral("type")).toString(), QStringLiteral("powerpoint.shape"));
-    QCOMPARE(locator.value(QStringLiteral("slide")).toInt(), 12);
-    QCOMPARE(locator.value(QStringLiteral("slide_index")).toInt(), 12);
-    QCOMPARE(locator.value(QStringLiteral("shape_id")).toInt(), 42);
-    QCOMPARE(locator.value(QStringLiteral("shapeId")).toInt(), 42);
-    QCOMPARE(locator.value(QStringLiteral("shape_name")).toString(), QStringLiteral("Valve A"));
-    QCOMPARE(locator.value(QStringLiteral("shapeName")).toString(), QStringLiteral("Valve A"));
-    QCOMPARE(locator.value(QStringLiteral("target_file")).toString(), QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(locator.value(QStringLiteral("source")).toString(), QStringLiteral("host"));
-    QCOMPARE(locator.value(QStringLiteral("target_app")).toString(), QStringLiteral("PPT"));
-}
-
-void AnchorCaptureTest::buildsManualPowerPointShapeNameAnchor()
-{
-    const PowerPointCaptureResult result =
-        captureManualPowerPointShapeAnchor(validPowerPointShapeNameCaptureRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.targetApp, QStringLiteral("Microsoft PowerPoint"));
-    QCOMPARE(result.targetFile, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(result.locatorType, QStringLiteral("powerpoint.shape"));
-    QCOMPARE(result.slide, 7);
-    QCOMPARE(result.shapeId, -1);
-    QCOMPARE(result.shapeName, QStringLiteral("Pump Curve"));
-    QCOMPARE(result.source, QStringLiteral("manual"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
-
-    const QJsonDocument locatorDocument = QJsonDocument::fromJson(result.anchor.locatorJson.toUtf8());
-    QVERIFY(locatorDocument.isObject());
-    const QJsonObject locator = locatorDocument.object();
-    QCOMPARE(locator.value(QStringLiteral("slide")).toInt(), 7);
-    QCOMPARE(locator.value(QStringLiteral("slide_index")).toInt(), 7);
-    QVERIFY(locator.value(QStringLiteral("shape_id")).isUndefined());
-    QCOMPARE(locator.value(QStringLiteral("shape_name")).toString(), QStringLiteral("Pump Curve"));
-    QVERIFY(isPowerPointAnchor(result.anchor));
-
-    const PowerPointJumpCommandResult command = buildPowerPointJumpCommand(result.anchor, QString());
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.presentationPath, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("powerpoint.shape"));
-    QCOMPARE(command.command.slideIndex, 7);
-    QCOMPARE(command.command.shapeId, -1);
-    QCOMPARE(command.command.shapeName, QStringLiteral("Pump Curve"));
-}
-
-void AnchorCaptureTest::savesManualPowerPointShapeAnchorInRepository()
-{
-    InMemoryLibraryRepository repository;
-    ManualPowerPointAnchorCreationService service(repository);
-
-    const ManualPowerPointAnchorCreationResult result =
-        service.createManualPowerPointShapeAnchor(validPowerPointShapeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(!result.resource.id.isEmpty());
-    QCOMPARE(result.resource.kind, ResourceKind::File);
-    QCOMPARE(result.resource.title, QStringLiteral("process.pptx"));
-    QCOMPARE(result.resource.location, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(result.anchor.name, QStringLiteral("Valve A callout"));
-    QCOMPARE(result.anchor.targetApp, QStringLiteral("Microsoft PowerPoint"));
-    QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(result.anchor.locatorType, QStringLiteral("powerpoint.shape"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("slide callout")});
-    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("phase5")});
-    QVERIFY(result.anchor.pinned);
-    QVERIFY(result.anchor.createdAt.isValid());
-    QVERIFY(result.anchor.updatedAt.isValid());
-
-    const std::optional<Resource> stored = repository.findResource(result.resource.id);
-    QVERIFY(stored.has_value());
-    QCOMPARE(stored->anchors.size(), 1);
-    QCOMPARE(stored->anchors.first().id, result.anchor.id);
-    QCOMPARE(stored->anchors.first().locatorJson, result.anchor.locatorJson);
-
-    const QList<SearchResult> nameResults =
-        repository.search(SearchQuery{QStringLiteral("Valve A callout")});
-    QVERIFY(hasAnchorSearchResult(nameResults,
-                                  QStringLiteral("anchor_name"),
-                                  QStringLiteral("Valve A callout")));
-
-    const QList<SearchResult> aliasResults =
-        repository.search(SearchQuery{QStringLiteral("slide callout")});
-    QVERIFY(hasAnchorSearchResult(aliasResults,
-                                  QStringLiteral("anchor_alias"),
-                                  QStringLiteral("Valve A callout")));
-
-    const QList<SearchResult> tagResults =
-        repository.search(SearchQuery{QStringLiteral("phase5")});
-    QVERIFY(hasAnchorSearchResult(tagResults,
-                                  QStringLiteral("anchor_tag"),
-                                  QStringLiteral("Valve A callout")));
-}
-
-void AnchorCaptureTest::rejectsInvalidManualPowerPointAnchorInputsWithoutSaving()
-{
-    InMemoryLibraryRepository repository;
-    ManualPowerPointAnchorCreationService service(repository);
-
-    ManualPowerPointAnchorCreationRequest request = validPowerPointShapeCreationRequest();
-    request.name = QStringLiteral(" ");
-    ManualPowerPointAnchorCreationResult result = service.createManualPowerPointShapeAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual PowerPoint anchor name is missing"));
-
-    request = validPowerPointShapeCreationRequest();
-    request.file.clear();
-    result = service.createManualPowerPointShapeAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("Manual PowerPoint anchor file is missing"));
-
-    request = validPowerPointShapeCreationRequest();
-    request.slide = 0;
-    result = service.createManualPowerPointShapeAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PowerPoint capture slide is missing"));
-
-    request = validPowerPointShapeCreationRequest();
-    request.shapeId = -1;
-    request.shapeName.clear();
-    result = service.createManualPowerPointShapeAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PowerPoint capture shape id or name is missing"));
-
-    request = validPowerPointShapeCreationRequest();
-    request.locatorType = QStringLiteral("powerpoint.slide");
-    result = service.createManualPowerPointShapeAnchor(request);
-    QVERIFY(!result.success());
-    QCOMPARE(result.error, QStringLiteral("PowerPoint capture locator type is unsupported"));
-
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
-}
-
-void AnchorCaptureTest::createsManualPowerPointShapeAnchorCompatibleWithPowerPointExecutor()
-{
-    InMemoryLibraryRepository repository;
-    ManualPowerPointAnchorCreationService service(repository);
-    const ManualPowerPointAnchorCreationResult result =
-        service.createManualPowerPointShapeAnchor(validPowerPointShapeCreationRequest());
-
-    QVERIFY2(result.success(), qPrintable(result.error));
-    QVERIFY(isPowerPointAnchor(result.anchor));
-
-    const PowerPointJumpCommandResult command =
-        buildPowerPointJumpCommand(result.anchor, QString());
-
-    QVERIFY2(command.success(), qPrintable(command.error));
-    QCOMPARE(command.command.presentationPath, QStringLiteral("E:/slides/process.pptx"));
-    QCOMPARE(command.command.locatorType, QStringLiteral("powerpoint.shape"));
-    QCOMPARE(command.command.slideIndex, 12);
-    QCOMPARE(command.command.shapeId, 42);
-    QVERIFY(command.command.shapeName.isEmpty());
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Presentations.Open('E:/slides/process.pptx')")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Slides.Item(12)")));
-    QVERIFY(command.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(42)")));
 }
 
 void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()
@@ -1166,8 +386,6 @@ void AnchorCaptureTest::capturesForegroundSumatraPdfPathFromWindowTitleWithoutIn
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.recognizedSumatraPdf);
-    QVERIFY(!result.matchedResource);
-    QVERIFY(result.matchedResourceId.isEmpty());
     QCOMPARE(result.documentTitle, QStringLiteral("E:/docs/live foreground.pdf"));
     QCOMPARE(result.request.name, QStringLiteral("live foreground"));
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
@@ -1204,9 +422,7 @@ void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToUniqueIndexedPdf()
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(result.recognizedSumatraPdf);
-    QVERIFY(result.matchedResource);
     QCOMPARE(result.documentTitle, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
-    QCOMPARE(result.matchedResourceId, resource.id);
     QCOMPARE(result.request.name, QStringLiteral("IHI0022K_amba_axi_protocol_spec[axi]"));
     QCOMPARE(result.request.file, resource.location);
     QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
@@ -1249,8 +465,6 @@ void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToFileKindPdfLocation()
         captureSumatraPdfForegroundContext(repository, context, SumatraPdfViewState{});
 
     QVERIFY2(result.success(), qPrintable(result.status));
-    QVERIFY(result.matchedResource);
-    QCOMPARE(result.matchedResourceId, resource.id);
     QCOMPARE(result.request.file, resource.location);
 }
 
@@ -1282,8 +496,6 @@ void AnchorCaptureTest::prefersSavedSumatraPdfTitleMappingOverRepositoryMatch()
                                            QStringLiteral("E:/docs/saved-title-clock.pdf"));
 
     QVERIFY2(result.success(), qPrintable(result.status));
-    QVERIFY(result.resolvedFromTitleMapping);
-    QVERIFY(!result.matchedResource);
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/saved-title-clock.pdf"));
     QCOMPARE(result.request.page, 26);
     QCOMPARE(result.request.zoom, 300.0);
@@ -1313,7 +525,6 @@ void AnchorCaptureTest::rejectsInvalidSavedSumatraPdfTitleMapping()
 
     QVERIFY(!result.success());
     QVERIFY(result.needsFileConfirmation);
-    QVERIFY(result.rejectedTitleMapping);
     QVERIFY(result.status.contains(QStringLiteral("not a valid full PDF path")));
     QVERIFY(result.request.file.isEmpty());
 
@@ -1324,7 +535,6 @@ void AnchorCaptureTest::rejectsInvalidSavedSumatraPdfTitleMapping()
 
     QVERIFY(!result.success());
     QVERIFY(result.needsFileConfirmation);
-    QVERIFY(result.rejectedTitleMapping);
     QVERIFY(result.status.contains(QStringLiteral("not a valid full PDF path")));
     QVERIFY(result.request.file.isEmpty());
 }
@@ -1354,7 +564,6 @@ void AnchorCaptureTest::preservesViewStateWhenTitleFallbackBuildsRequest()
         captureSumatraPdfForegroundContext(repository, context, viewState);
 
     QVERIFY2(result.success(), qPrintable(result.status));
-    QVERIFY(result.matchedResource);
     QCOMPARE(result.request.file, resource.location);
     QCOMPARE(result.request.name, QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI"));
     QCOMPARE(result.request.page, 26);
@@ -1457,47 +666,12 @@ void AnchorCaptureTest::prefersDdeDocumentPathOverTitleConfirmation()
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QVERIFY(!result.needsFileConfirmation);
-    QVERIFY(!result.matchedResource);
     QCOMPARE(result.request.file, QStringLiteral("E:/docs/dde-active.pdf"));
     QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
     QCOMPARE(result.request.page, 43);
     QCOMPARE(result.request.zoom, 100.0);
     QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
     QCOMPARE(result.viewState.documentPath, QStringLiteral("E:/docs/dde-active.pdf"));
-}
-
-void AnchorCaptureTest::doesNotTurnForegroundMousePositionIntoRectRequest()
-{
-    InMemoryLibraryRepository repository;
-
-    ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("output - SumatraPDF");
-    context.processName = QStringLiteral("SumatraPDF.exe");
-
-    SumatraPdfViewState viewState;
-    viewState.documentPath = QStringLiteral("E:/test_dir/output.pdf");
-    viewState.currentPage = 28;
-    viewState.totalPages = 149;
-    viewState.zoom = 100.0;
-    viewState.mousePage = 28;
-    viewState.mouseX = 305.04;
-    viewState.mouseY = 395.58;
-    viewState.mouseYPdf = 396.42;
-    viewState.hasMouseYPdf = true;
-    viewState.source = QStringLiteral("sumatrapdf-dde");
-
-    const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context, viewState);
-
-    QVERIFY2(result.success(), qPrintable(result.status));
-    QCOMPARE(result.request.file, QStringLiteral("E:/test_dir/output.pdf"));
-    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.page"));
-    QCOMPARE(result.request.page, 28);
-    QVERIFY(result.request.selectedText.isEmpty());
-    QVERIFY(!result.request.rect.isValid());
-    QCOMPARE(result.request.zoom, 100.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
-    QVERIFY(!result.status.contains(QStringLiteral("cursor")));
 }
 
 void AnchorCaptureTest::parsesSumatraPdfViewStateFromStatusText()
@@ -1605,37 +779,6 @@ void AnchorCaptureTest::injectsForegroundSumatraPdfViewStateIntoCaptureRequest()
     QVERIFY(!result.status.contains(QStringLiteral("rectangle")));
 }
 
-void AnchorCaptureTest::injectsForegroundSumatraPdfSelectedTextIntoCaptureRequest()
-{
-    InMemoryLibraryRepository repository;
-
-    ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("*\"E:/docs/live foreground.pdf\" - SumatraPDF");
-    context.processName = QStringLiteral("SumatraPDF.exe");
-
-    SumatraPdfViewState viewState;
-    viewState.currentPage = 37;
-    viewState.totalPages = 220;
-    viewState.zoom = 175.0;
-    viewState.selectedText = QStringLiteral("selected FPGA requirement");
-    viewState.source = QStringLiteral("fake-uia");
-
-    const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository, context, viewState);
-
-    QVERIFY2(result.success(), qPrintable(result.status));
-    QCOMPARE(result.request.file, QStringLiteral("E:/docs/live foreground.pdf"));
-    QCOMPARE(result.request.locatorType, QStringLiteral("sumatrapdf.search"));
-    QCOMPARE(result.request.page, 37);
-    QCOMPARE(result.request.zoom, 175.0);
-    QCOMPARE(result.request.selectedText, QStringLiteral("selected FPGA requirement"));
-    QVERIFY(!result.request.rect.isValid());
-    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-selection"));
-    QCOMPARE(result.viewState.selectedText, QStringLiteral("selected FPGA requirement"));
-    QVERIFY(result.status.contains(QStringLiteral("selected text")));
-    QVERIFY(!result.status.contains(QStringLiteral("rectangle")));
-}
-
 void AnchorCaptureTest::reportsForegroundSumatraPdfTitleWithoutFilePath()
 {
     InMemoryLibraryRepository repository;
@@ -1656,7 +799,6 @@ void AnchorCaptureTest::reportsForegroundSumatraPdfTitleWithoutFilePath()
 
     QVERIFY(!result.success());
     QVERIFY(result.recognizedSumatraPdf);
-    QVERIFY(!result.matchedResource);
     QVERIFY(result.needsFileConfirmation);
     QCOMPARE(result.documentTitle, QStringLiteral("missing-spec"));
     QVERIFY(result.status.contains(QStringLiteral("Confirm the PDF file")));
@@ -1691,10 +833,8 @@ void AnchorCaptureTest::rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMa
 
     QVERIFY(!result.success());
     QVERIFY(result.recognizedSumatraPdf);
-    QVERIFY(!result.matchedResource);
     QVERIFY(result.needsFileConfirmation);
     QCOMPARE(result.documentTitle, QStringLiteral("clock"));
-    QCOMPARE(result.matchedResourceIds.size(), 2);
     QVERIFY(result.status.contains(QStringLiteral("Confirm the PDF file")));
     QVERIFY(result.status.contains(QStringLiteral("2 indexed PDFs matched")));
     QVERIFY(result.request.file.isEmpty());

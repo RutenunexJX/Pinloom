@@ -30,9 +30,6 @@ QString validateRuntimeDependencies(const ClipResidentRuntimeDependencies &depen
     if (!dependencies.insertionClipboard) {
         return QStringLiteral("Clipboard text accessor is required");
     }
-    if (!dependencies.hotkeyBackend) {
-        return QStringLiteral("Hotkey backend is required");
-    }
     if (!dependencies.trayBackend) {
         return QStringLiteral("Tray backend is required");
     }
@@ -230,7 +227,6 @@ ClipResidentHostResult ClipResidentRuntimeFactory::createDefaultPlatformHost(
     ClipResidentRuntimeDependencies dependencies;
     dependencies.captureClipboard = ownedDependencies.captureClipboard.get();
     dependencies.insertionClipboard = ownedDependencies.insertionClipboard.get();
-    dependencies.hotkeyBackend = defaultClipHotkeyBackend();
     dependencies.trayBackend = ownedDependencies.trayBackend.get();
     dependencies.pasteInvoker = createPlatformPasteInvoker();
 

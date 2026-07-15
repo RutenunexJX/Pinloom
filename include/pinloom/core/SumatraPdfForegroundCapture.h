@@ -25,12 +25,6 @@ struct SumatraPdfViewState {
     int currentPage = -1;
     int totalPages = -1;
     double zoom = -1.0;
-    QString selectedText;
-    int mousePage = -1;
-    double mouseX = 0.0;
-    double mouseY = 0.0;
-    double mouseYPdf = 0.0;
-    bool hasMouseYPdf = false;
     QString sumatraVersion;
     QString source;
     QString diagnostics;
@@ -38,8 +32,6 @@ struct SumatraPdfViewState {
     bool hasDocumentPath() const;
     bool hasCurrentPage() const;
     bool hasZoom() const;
-    bool hasSelectedText() const;
-    bool hasMousePosition() const;
     bool hasAnyViewState() const;
 };
 
@@ -48,14 +40,8 @@ struct SumatraPdfForegroundCaptureResult {
     SumatraPdfViewState viewState;
     QString status;
     QString documentTitle;
-    QString matchedResourceId;
-    QStringList matchedResourceIds;
     bool recognizedSumatraPdf = false;
-    bool matchedResource = false;
     bool needsFileConfirmation = false;
-    bool resolvedFromTitleMapping = false;
-    bool rejectedTitleMapping = false;
-    bool confirmedFile = false;
 
     bool success() const;
 };
