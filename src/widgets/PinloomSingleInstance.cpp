@@ -4,6 +4,8 @@
 #include <QEventLoop>
 #include <QLocalServer>
 #include <QLocalSocket>
+#include <QTimer>
+#include <QVariant>
 #include <utility>
 
 namespace Pinloom {
@@ -131,25 +133,44 @@ void PinloomSingleInstanceGuard::handleIncomingActivation()
 {
     while (server_->hasPendingConnections()) {
         QLocalSocket *socket = server_->nextPendingConnection();
-        QString message = QStringLiteral("activate");
-        if (socket) {
-            if (socket->bytesAvailable() <= 0) {
-                socket->waitForReadyRead(options_.activationTimeoutMs);
-            }
-            if (socket->bytesAvailable() > 0) {
-                const QString payload = QString::fromUtf8(socket->readAll()).trimmed();
-                if (!payload.isEmpty()) {
-                    message = payload;
-                }
-            }
-            connect(socket, &QLocalSocket::readyRead, socket, [socket]() {
-                socket->readAll();
-            });
-            socket->disconnectFromServer();
-            socket->deleteLater();
+        if (!socket) {
+            continue;
         }
-        emit activationRequested(message);
+        socket->setParent(this);
+        connect(socket, &QLocalSocket::readyRead, this, [this, socket]() {
+            finishIncomingActivation(socket, false);
+        });
+        connect(socket, &QLocalSocket::disconnected, this, [this, socket]() {
+            finishIncomingActivation(socket, true);
+        });
+        QTimer::singleShot(options_.activationTimeoutMs, socket, [this, socket]() {
+            finishIncomingActivation(socket, true);
+        });
+        finishIncomingActivation(socket, false);
     }
+}
+
+void PinloomSingleInstanceGuard::finishIncomingActivation(QLocalSocket *socket,
+                                                           bool allowIncompletePayload)
+{
+    if (!socket || socket->property("pinloomActivationHandled").toBool()) {
+        return;
+    }
+
+    QByteArray payload = socket->property("pinloomActivationPayload").toByteArray();
+    payload.append(socket->readAll());
+    socket->setProperty("pinloomActivationPayload", payload);
+    if (!allowIncompletePayload && !payload.contains('\n')) {
+        return;
+    }
+
+    socket->setProperty("pinloomActivationHandled", true);
+    const QString message = QString::fromUtf8(payload).trimmed();
+    emit activationRequested(message.isEmpty() ? QStringLiteral("activate") : message);
+    socket->write("ok\n");
+    socket->flush();
+    socket->disconnectFromServer();
+    socket->deleteLater();
 }
 
 QString defaultPinloomSingleInstanceServerName()
@@ -169,7 +190,7 @@ bool sendPinloomSingleInstanceMessage(const QString &serverName,
                                       QString *error)
 {
     QLocalSocket socket;
-    socket.connectToServer(normalizedServerName(serverName), QIODevice::WriteOnly);
+    socket.connectToServer(normalizedServerName(serverName), QIODevice::ReadWrite);
     if (!socket.waitForConnected(timeoutMs)) {
         if (error) {
             const QString socketError = socket.errorString().trimmed();
@@ -201,11 +222,28 @@ bool sendPinloomSingleInstanceMessage(const QString &serverName,
 
     socket.flush();
     if (QCoreApplication::instance()) {
-        QCoreApplication::processEvents(QEventLoop::AllEvents, timeoutMs);
-    }
-    if (socket.bytesToWrite() > 0) {
+        QEventLoop deliveryLoop;
+        QTimer deliveryTimer;
+        deliveryTimer.setSingleShot(true);
+        QObject::connect(&socket, &QLocalSocket::readyRead, &deliveryLoop, &QEventLoop::quit);
+        QObject::connect(&socket, &QLocalSocket::disconnected, &deliveryLoop, &QEventLoop::quit);
+        QObject::connect(&deliveryTimer, &QTimer::timeout, &deliveryLoop, &QEventLoop::quit);
+        deliveryTimer.start(timeoutMs);
+        deliveryLoop.exec();
+    } else if (socket.bytesToWrite() > 0) {
         socket.waitForBytesWritten(timeoutMs);
     }
+    if (socket.bytesToWrite() > 0) {
+        if (error) {
+            const QString socketError = socket.errorString().trimmed();
+            *error = socketError.isEmpty() || socketError == QLatin1String("Unknown error")
+                ? QStringLiteral("Unable to finish writing Pinloom single-instance message")
+                : socketError;
+        }
+        socket.disconnectFromServer();
+        return false;
+    }
+    socket.readAll();
 
     socket.disconnectFromServer();
     if (error) {

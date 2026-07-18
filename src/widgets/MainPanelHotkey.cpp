@@ -1,8 +1,5 @@
 #include "pinloom/widgets/MainPanelHotkey.h"
 
-#include "pinloom/widgets/PinloomPanel.h"
-
-#include <QWidget>
 #include <utility>
 
 namespace Pinloom {
@@ -24,19 +21,6 @@ ClipHotkeyConfig defaultMainPanelHotkeyConfig()
 std::unique_ptr<ClipHotkeyBackend> createMainPanelHotkeyBackend()
 {
     return createClipHotkeyBackend(MainPanelHotkeyId);
-}
-
-void showMainPanelForHotkey(QWidget &mainWindow, PinloomPanel &panel)
-{
-    if (mainWindow.isMinimized()) {
-        mainWindow.showNormal();
-    } else {
-        mainWindow.show();
-    }
-
-    mainWindow.raise();
-    mainWindow.activateWindow();
-    panel.focusSearch();
 }
 
 MainPanelHotkeyController::MainPanelHotkeyController(ClipHotkeyService &service,

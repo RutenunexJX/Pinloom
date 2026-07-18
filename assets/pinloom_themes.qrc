@@ -1,0 +1,8 @@
+<RCC>
+    <qresource prefix="/pinloom/themes">
+        <file alias="command-neutral.png">themes/command-neutral.png</file>
+        <file alias="command-anchor.png">themes/command-anchor.png</file>
+        <file alias="command-clip.png">themes/command-clip.png</file>
+        <file alias="command-inbox.png">themes/command-inbox.png</file>
+    </qresource>
+</RCC>

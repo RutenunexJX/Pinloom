@@ -6,16 +6,10 @@
 #include <functional>
 #include <memory>
 
-class QWidget;
-
 namespace Pinloom {
-
-class PinloomPanel;
 
 ClipHotkeyConfig defaultMainPanelHotkeyConfig();
 std::unique_ptr<ClipHotkeyBackend> createMainPanelHotkeyBackend();
-
-void showMainPanelForHotkey(QWidget &mainWindow, PinloomPanel &panel);
 
 class MainPanelHotkeyController final : public QObject {
     Q_OBJECT

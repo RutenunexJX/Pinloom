@@ -4,6 +4,7 @@
 #include <QString>
 
 class QLocalServer;
+class QLocalSocket;
 
 namespace Pinloom {
 
@@ -48,6 +49,7 @@ private:
     PinloomSingleInstanceStartResult listenAsPrimary();
     PinloomSingleInstanceStartResult notifyExistingInstance() const;
     void handleIncomingActivation();
+    void finishIncomingActivation(QLocalSocket *socket, bool allowIncompletePayload);
 
     PinloomSingleInstanceOptions options_;
     QLocalServer *server_ = nullptr;

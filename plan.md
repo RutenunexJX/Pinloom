@@ -77,7 +77,7 @@ Exit criteria:
 ## Phase 4: Distribution
 
 - Produce a repeatable Windows package containing the required Qt runtime and
-  PDF proxy executable.
+  Pinloom executable.
 - Validate first-run settings, SumatraPDF discovery, database initialization,
   single-instance behavior, and uninstall behavior.
 - Add operating-system startup only as an explicit user setting.

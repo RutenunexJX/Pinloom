@@ -35,8 +35,6 @@ private slots:
     void capturesForegroundSumatraPdfPathFromWindowTitleWithoutIndexedPdf();
     void matchesForegroundSumatraPdfTitleToUniqueIndexedPdf();
     void matchesForegroundSumatraPdfTitleToFileKindPdfLocation();
-    void prefersSavedSumatraPdfTitleMappingOverRepositoryMatch();
-    void rejectsInvalidSavedSumatraPdfTitleMapping();
     void preservesViewStateWhenTitleFallbackBuildsRequest();
     void parsesSumatraPdfDdeFileStateAndMousePosition();
     void buildsSumatraPdfDdeRegionFromMousePositions();
@@ -466,77 +464,6 @@ void AnchorCaptureTest::matchesForegroundSumatraPdfTitleToFileKindPdfLocation()
 
     QVERIFY2(result.success(), qPrintable(result.status));
     QCOMPARE(result.request.file, resource.location);
-}
-
-void AnchorCaptureTest::prefersSavedSumatraPdfTitleMappingOverRepositoryMatch()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource resource;
-    resource.id = QStringLiteral("repo-clock");
-    resource.kind = ResourceKind::Pdf;
-    resource.title = QStringLiteral("clock");
-    resource.location = QStringLiteral("E:/docs/repository-clock.pdf");
-    QVERIFY(repository.upsertResource(resource));
-
-    ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("clock - SumatraPDF");
-    context.processName = QStringLiteral("SumatraPDF.exe");
-
-    SumatraPdfViewState viewState;
-    viewState.currentPage = 26;
-    viewState.totalPages = 31;
-    viewState.zoom = 300.0;
-    viewState.source = QStringLiteral("test-toolbar");
-
-    const SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository,
-                                           context,
-                                           viewState,
-                                           QStringLiteral("E:/docs/saved-title-clock.pdf"));
-
-    QVERIFY2(result.success(), qPrintable(result.status));
-    QCOMPARE(result.request.file, QStringLiteral("E:/docs/saved-title-clock.pdf"));
-    QCOMPARE(result.request.page, 26);
-    QCOMPARE(result.request.zoom, 300.0);
-    QCOMPARE(result.request.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
-}
-
-void AnchorCaptureTest::rejectsInvalidSavedSumatraPdfTitleMapping()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource resource;
-    resource.id = QStringLiteral("clock");
-    resource.kind = ResourceKind::Pdf;
-    resource.title = QStringLiteral("clock");
-    resource.location = QStringLiteral("E:/docs/clock.pdf");
-    QVERIFY(repository.upsertResource(resource));
-
-    ForegroundAppWindowContext context;
-    context.windowTitle = QStringLiteral("clock - SumatraPDF");
-    context.processName = QStringLiteral("SumatraPDF.exe");
-
-    SumatraPdfForegroundCaptureResult result =
-        captureSumatraPdfForegroundContext(repository,
-                                           context,
-                                           SumatraPdfViewState{},
-                                           QString());
-
-    QVERIFY(!result.success());
-    QVERIFY(result.needsFileConfirmation);
-    QVERIFY(result.status.contains(QStringLiteral("not a valid full PDF path")));
-    QVERIFY(result.request.file.isEmpty());
-
-    result = captureSumatraPdfForegroundContext(repository,
-                                                context,
-                                                SumatraPdfViewState{},
-                                                QStringLiteral("E:/docs/clock.txt"));
-
-    QVERIFY(!result.success());
-    QVERIFY(result.needsFileConfirmation);
-    QVERIFY(result.status.contains(QStringLiteral("not a valid full PDF path")));
-    QVERIFY(result.request.file.isEmpty());
 }
 
 void AnchorCaptureTest::preservesViewStateWhenTitleFallbackBuildsRequest()

@@ -46,8 +46,6 @@ private:
     QStringList commaSeparatedValues(const QString &text) const;
     QString commaSeparatedText(const QStringList &values) const;
 
-    QLineEdit *pdfProxyPathEdit_ = nullptr;
-    QLabel *pdfProxyStatusLabel_ = nullptr;
     QLabel *sumatraPdfStatusLabel_ = nullptr;
     QLineEdit *sumatraPdfPathEdit_ = nullptr;
     QLabel *obsidianStatusLabel_ = nullptr;

@@ -6,7 +6,6 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
-#include "pinloom/core/SumatraPdfOpenProxy.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
@@ -34,7 +33,6 @@ private slots:
     void buildsSumatraPdfViewRectCommand();
     void buildsSumatraPdfTextCommand();
     void reportsMissingSumatraPdfTargetPath();
-    void recordsSumatraPdfOpenProxyPathMappings();
     void resolvesSumatraPdfExecutableFromEnvironment();
     void defaultsApplicationLaunchSettings();
     void appliesExplicitApplicationLaunchSettings();
@@ -256,39 +254,6 @@ void CoreSmokeTest::reportsMissingSumatraPdfTargetPath()
 
     QVERIFY(!result.success());
     QCOMPARE(result.error, QStringLiteral("SumatraPDF target file is missing"));
-}
-
-void CoreSmokeTest::recordsSumatraPdfOpenProxyPathMappings()
-{
-    QTemporaryDir settingsDir;
-    QVERIFY(settingsDir.isValid());
-    QSettings settings(settingsDir.filePath(QStringLiteral("pinloom.ini")), QSettings::IniFormat);
-
-    const QString filePath = QStringLiteral("E:/docs/Clock Spec.pdf");
-    const QString normalizedPath = normalizedSumatraPdfOpenFilePath(filePath);
-    QCOMPARE(normalizedPath, filePath);
-
-    const QString message = pinloomSumatraPdfOpenMessageForFile(filePath);
-    QVERIFY(!message.isEmpty());
-    const std::optional<QString> messagePath = sumatraPdfOpenFileFromPinloomMessage(message);
-    QVERIFY(messagePath.has_value());
-    QCOMPARE(messagePath.value(), normalizedPath);
-
-    QVERIFY(rememberSumatraPdfOpenedFile(settings, filePath));
-    const std::optional<QString> baseNameMatch =
-        lookupRememberedSumatraPdfDocumentPath(settings,
-                                               QStringLiteral("Clock Spec"),
-                                               normalizedSumatraPdfDocumentTitleKey(QStringLiteral("Clock Spec")));
-    QVERIFY(baseNameMatch.has_value());
-    QCOMPARE(baseNameMatch.value(), normalizedPath);
-
-    QVERIFY(rememberSumatraPdfDocumentTitlePath(settings, QStringLiteral("Spec Window Title"), filePath));
-    const std::optional<QString> titleMatch =
-        lookupRememberedSumatraPdfDocumentPath(settings,
-                                               QStringLiteral("Spec Window Title"),
-                                               normalizedSumatraPdfDocumentTitleKey(QStringLiteral("Spec Window Title")));
-    QVERIFY(titleMatch.has_value());
-    QCOMPARE(titleMatch.value(), normalizedPath);
 }
 
 void CoreSmokeTest::resolvesSumatraPdfExecutableFromEnvironment()

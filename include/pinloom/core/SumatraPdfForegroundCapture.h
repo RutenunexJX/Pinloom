@@ -49,16 +49,9 @@ struct SumatraPdfForegroundCaptureResult {
 class SumatraPdfForegroundCaptureProvider {
 public:
     using ViewStateProvider = std::function<SumatraPdfViewState(const ForegroundAppWindowContext &context)>;
-    using TitlePathProvider = std::function<std::optional<QString>(
-        const QString &documentTitle,
-        const QString &normalizedTitleKey)>;
-
     explicit SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository);
     SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository,
                                         ViewStateProvider viewStateProvider);
-    SumatraPdfForegroundCaptureProvider(const ILibraryRepository &repository,
-                                        ViewStateProvider viewStateProvider,
-                                        TitlePathProvider titlePathProvider);
 
     SumatraPdfForegroundCaptureResult capture(const ForegroundAppWindowContext &context) const;
     SumatraPdfForegroundCaptureResult captureCurrentForeground() const;
@@ -66,7 +59,6 @@ public:
 private:
     const ILibraryRepository &repository_;
     ViewStateProvider viewStateProvider_;
-    TitlePathProvider titlePathProvider_;
 };
 
 ForegroundAppWindowContext currentForegroundAppWindowContext();
@@ -95,10 +87,4 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ILibraryRepository &repository,
     const ForegroundAppWindowContext &context,
     const SumatraPdfViewState &viewState);
-SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
-    const ILibraryRepository &repository,
-    const ForegroundAppWindowContext &context,
-    const SumatraPdfViewState &viewState,
-    const std::optional<QString> &savedDocumentPath);
-
 } // namespace Pinloom

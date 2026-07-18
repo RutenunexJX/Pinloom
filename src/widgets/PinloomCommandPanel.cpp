@@ -20,6 +20,8 @@
 #include <QListWidgetItem>
 #include <QMenu>
 #include <QMimeData>
+#include <QPaintEvent>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSize>
@@ -29,13 +31,18 @@
 #include <functional>
 #include <utility>
 
+static int initializePinloomThemeResources()
+{
+    Q_INIT_RESOURCE(pinloom_themes);
+    return 0;
+}
+
 namespace Pinloom {
 
 namespace {
 
 constexpr int CommandActionRole = Qt::UserRole + 80;
 constexpr int CommandSearchTextRole = Qt::UserRole + 81;
-constexpr int CommandSearchQueryRole = Qt::UserRole + 82;
 constexpr int ClipIdRole = Qt::UserRole + 83;
 constexpr int ClipDisplayNameRole = Qt::UserRole + 84;
 constexpr int ClipPreviewRole = Qt::UserRole + 85;
@@ -129,8 +136,7 @@ enum class CommandNamespace {
     Clip,
     Anchor,
     Inbox,
-    Search,
-    Restore
+    Library
 };
 
 enum class CommandAction {
@@ -138,6 +144,7 @@ enum class CommandAction {
     ClipSearch,
     ClipNew,
     AnchorNew,
+    AnchorLibrary,
     InboxNew,
     InboxSearch,
     OpenSearch,
@@ -151,8 +158,8 @@ enum class CommandRowAction {
     ClipInsert,
     ClipSave,
     AnchorCapture,
+    AnchorLibrary,
     InboxSave,
-    OpenSearchWindow,
     UnifiedTargetAction
 };
 
@@ -161,6 +168,215 @@ struct CommandState {
     CommandAction action = CommandAction::None;
     QString query;
 };
+
+struct CommandDomainDefinition {
+    CommandNamespace commandNamespace = CommandNamespace::None;
+    QString canonical;
+    QStringList aliases;
+};
+
+struct CommandDefinition {
+    CommandNamespace commandNamespace = CommandNamespace::None;
+    CommandAction action = CommandAction::None;
+    QString actionName;
+    QStringList legacyForms;
+};
+
+const QList<CommandDomainDefinition> &commandDomains()
+{
+    static const QList<CommandDomainDefinition> domains{
+        {CommandNamespace::Clip, QStringLiteral("clip"), {QStringLiteral("c")}},
+        {CommandNamespace::Anchor, QStringLiteral("anchor"), {QStringLiteral("k")}},
+        {CommandNamespace::Inbox, QStringLiteral("inbox"), {QStringLiteral("i")}},
+        {CommandNamespace::Library, QStringLiteral("library"), {QStringLiteral("l")}}
+    };
+    return domains;
+}
+
+const QList<CommandDefinition> &commandDefinitions()
+{
+    static const QList<CommandDefinition> definitions{
+        {CommandNamespace::Clip,
+         CommandAction::ClipSearch,
+         QStringLiteral("search"),
+         {QStringLiteral("c s")}},
+        {CommandNamespace::Clip,
+         CommandAction::ClipNew,
+         QStringLiteral("new"),
+         {QStringLiteral("c n")}},
+        {CommandNamespace::Anchor,
+         CommandAction::AnchorNew,
+         QStringLiteral("new"),
+         {QStringLiteral("k n")}},
+        {CommandNamespace::Anchor,
+         CommandAction::AnchorLibrary,
+         QStringLiteral("library"),
+         {QStringLiteral("k l")}},
+        {CommandNamespace::Inbox,
+         CommandAction::InboxNew,
+         QStringLiteral("new"),
+         {QStringLiteral("i n")}},
+        {CommandNamespace::Inbox,
+         CommandAction::InboxSearch,
+         QStringLiteral("search"),
+         {QStringLiteral("i s")}},
+        {CommandNamespace::Library,
+         CommandAction::OpenSearch,
+         QStringLiteral("search"),
+         {QStringLiteral("s"), QStringLiteral("search")}},
+        {CommandNamespace::Library,
+         CommandAction::RestoreSearch,
+         QStringLiteral("restore"),
+         {QStringLiteral("restore"), QStringLiteral("trash")}}
+    };
+    return definitions;
+}
+
+int orderedSubsequenceScore(const QString &pattern, const QString &candidate)
+{
+    const QString foldedPattern = pattern.trimmed().toCaseFolded();
+    const QString foldedCandidate = candidate.trimmed().toCaseFolded();
+    if (foldedPattern.isEmpty() || foldedCandidate.isEmpty()) {
+        return -1;
+    }
+    if (foldedPattern == foldedCandidate) {
+        return 100000;
+    }
+
+    QList<int> positions;
+    positions.reserve(foldedPattern.size());
+    int cursor = 0;
+    for (const QChar character : foldedPattern) {
+        const int position = foldedCandidate.indexOf(character, cursor);
+        if (position < 0) {
+            return -1;
+        }
+        positions.append(position);
+        cursor = position + 1;
+    }
+
+    int score = foldedPattern.size() * 1000 - foldedCandidate.size();
+    if (!positions.isEmpty() && positions.first() == 0) {
+        score += 20000;
+    }
+    if (foldedCandidate.startsWith(foldedPattern)) {
+        score += 10000;
+    }
+    for (int index = 1; index < positions.size(); ++index) {
+        const int gap = positions.at(index) - positions.at(index - 1) - 1;
+        score += gap == 0 ? 500 : -gap * 20;
+    }
+    return score;
+}
+
+std::optional<CommandNamespace> matchCommandDomain(const QString &pattern)
+{
+    int bestScore = -1;
+    std::optional<CommandNamespace> bestMatch;
+    bool ambiguous = false;
+    for (const CommandDomainDefinition &domain : commandDomains()) {
+        int score = orderedSubsequenceScore(pattern, domain.canonical);
+        for (const QString &alias : domain.aliases) {
+            if (pattern.compare(alias, Qt::CaseInsensitive) == 0) {
+                score = std::max(score, 90000);
+            }
+        }
+        if (score > bestScore) {
+            bestScore = score;
+            bestMatch = domain.commandNamespace;
+            ambiguous = false;
+        } else if (score >= 0 && score == bestScore
+                   && bestMatch.has_value()
+                   && bestMatch.value() != domain.commandNamespace) {
+            ambiguous = true;
+        }
+    }
+    return bestScore >= 0 && !ambiguous ? bestMatch : std::nullopt;
+}
+
+std::optional<CommandAction> matchCommandAction(CommandNamespace commandNamespace,
+                                                const QString &pattern)
+{
+    int bestScore = -1;
+    std::optional<CommandAction> bestMatch;
+    bool ambiguous = false;
+    for (const CommandDefinition &definition : commandDefinitions()) {
+        if (definition.commandNamespace != commandNamespace) {
+            continue;
+        }
+        const int score = orderedSubsequenceScore(pattern, definition.actionName);
+        if (score > bestScore) {
+            bestScore = score;
+            bestMatch = definition.action;
+            ambiguous = false;
+        } else if (score >= 0 && score == bestScore
+                   && bestMatch.has_value()
+                   && bestMatch.value() != definition.action) {
+            ambiguous = true;
+        }
+    }
+    return bestScore >= 0 && !ambiguous ? bestMatch : std::nullopt;
+}
+
+PinloomCommandTheme themeForNamespace(CommandNamespace commandNamespace)
+{
+    switch (commandNamespace) {
+    case CommandNamespace::Anchor:
+        return PinloomCommandTheme::Anchor;
+    case CommandNamespace::Clip:
+        return PinloomCommandTheme::Clip;
+    case CommandNamespace::Inbox:
+        return PinloomCommandTheme::Inbox;
+    case CommandNamespace::None:
+    case CommandNamespace::Library:
+        return PinloomCommandTheme::Neutral;
+    }
+    return PinloomCommandTheme::Neutral;
+}
+
+PinloomCommandTheme themeForTarget(const PinloomOpenTarget &target)
+{
+    if (!target.clipId.trimmed().isEmpty()) {
+        return PinloomCommandTheme::Clip;
+    }
+    if (target.anchor.has_value()) {
+        return PinloomCommandTheme::Anchor;
+    }
+    if (isInboxResourceId(target.resourceId)) {
+        return PinloomCommandTheme::Inbox;
+    }
+    return PinloomCommandTheme::Neutral;
+}
+
+QString themeResourcePath(PinloomCommandTheme theme)
+{
+    switch (theme) {
+    case PinloomCommandTheme::Anchor:
+        return QStringLiteral(":/pinloom/themes/command-anchor.png");
+    case PinloomCommandTheme::Clip:
+        return QStringLiteral(":/pinloom/themes/command-clip.png");
+    case PinloomCommandTheme::Inbox:
+        return QStringLiteral(":/pinloom/themes/command-inbox.png");
+    case PinloomCommandTheme::Neutral:
+        return QStringLiteral(":/pinloom/themes/command-neutral.png");
+    }
+    return QStringLiteral(":/pinloom/themes/command-neutral.png");
+}
+
+QColor themeAccent(PinloomCommandTheme theme)
+{
+    switch (theme) {
+    case PinloomCommandTheme::Anchor:
+        return QColor(QStringLiteral("#2563eb"));
+    case PinloomCommandTheme::Clip:
+        return QColor(QStringLiteral("#0f766e"));
+    case PinloomCommandTheme::Inbox:
+        return QColor(QStringLiteral("#b45309"));
+    case PinloomCommandTheme::Neutral:
+        return QColor(QStringLiteral("#59636f"));
+    }
+    return QColor(QStringLiteral("#59636f"));
+}
 
 QString compactValue(QString value, int maxLength = 96)
 {
@@ -582,84 +798,61 @@ QString readCommandToken(const QString &text, int *index)
 
 CommandState parseCommandState(const QString &text)
 {
-    int index = 0;
-    const QString firstToken = readCommandToken(text, &index).toCaseFolded();
-    if (firstToken.isEmpty()) {
+    const QString trimmed = text.trimmed();
+    if (trimmed.isEmpty()) {
         return {};
     }
 
-    if (firstToken == QLatin1String("c")) {
+    const QString folded = trimmed.toCaseFolded();
+    for (const CommandDefinition &definition : commandDefinitions()) {
+        for (const QString &legacyForm : definition.legacyForms) {
+            const QString foldedLegacy = legacyForm.toCaseFolded();
+            if (folded == foldedLegacy
+                || folded.startsWith(foldedLegacy + QLatin1Char(' '))) {
+                CommandState state;
+                state.commandNamespace = definition.commandNamespace;
+                state.action = definition.action;
+                state.query = trimmed.mid(legacyForm.size()).trimmed();
+                return state;
+            }
+        }
+    }
+
+    int tokenEnd = 0;
+    const QString commandToken = readCommandToken(trimmed, &tokenEnd);
+    const int colon = commandToken.indexOf(QLatin1Char(':'));
+    if (colon >= 0) {
+        const QString domainPattern = commandToken.left(colon);
+        const QString actionPattern = commandToken.mid(colon + 1);
+        const std::optional<CommandNamespace> commandNamespace = matchCommandDomain(domainPattern);
+        if (!commandNamespace.has_value()) {
+            return {};
+        }
+
         CommandState state;
-        state.commandNamespace = CommandNamespace::Clip;
-        const QString option = readCommandToken(text, &index).toCaseFolded();
-        if (option.isEmpty()) {
-            return state;
-        }
-        if (option == QLatin1String("s")) {
-            state.action = CommandAction::ClipSearch;
-            state.query = text.mid(index).trimmed();
-            return state;
-        }
-        if (option == QLatin1String("n")) {
-            state.action = CommandAction::ClipNew;
-            state.query = text.mid(index).trimmed();
-            return state;
+        state.commandNamespace = commandNamespace.value();
+        state.query = trimmed.mid(tokenEnd).trimmed();
+        if (!actionPattern.isEmpty()) {
+            const std::optional<CommandAction> action = matchCommandAction(state.commandNamespace,
+                                                                           actionPattern);
+            if (action.has_value()) {
+                state.action = action.value();
+            }
         }
         return state;
     }
 
-    if (firstToken == QLatin1String("k")) {
-        CommandState state;
-        state.commandNamespace = CommandNamespace::Anchor;
-        const QString option = readCommandToken(text, &index).toCaseFolded();
-        if (option.isEmpty()) {
-            return state;
-        }
-        if (option == QLatin1String("n")) {
-            state.action = CommandAction::AnchorNew;
-            state.query = text.mid(index).trimmed();
-            return state;
-        }
-        return state;
+    if (!trimmed.mid(tokenEnd).trimmed().isEmpty()) {
+        return {};
+    }
+    const std::optional<CommandNamespace> commandNamespace = matchCommandDomain(commandToken);
+    if (!commandNamespace.has_value()) {
+        return {};
     }
 
-    if (firstToken == QLatin1String("i")) {
-        CommandState state;
-        state.commandNamespace = CommandNamespace::Inbox;
-        const QString option = readCommandToken(text, &index).toCaseFolded();
-        if (option.isEmpty()) {
-            return state;
-        }
-        if (option == QLatin1String("n")) {
-            state.action = CommandAction::InboxNew;
-            state.query = text.mid(index).trimmed();
-            return state;
-        }
-        if (option == QLatin1String("s")) {
-            state.action = CommandAction::InboxSearch;
-            state.query = text.mid(index).trimmed();
-            return state;
-        }
-        return state;
-    }
-
-    if (firstToken == QLatin1String("s") || firstToken == QLatin1String("search")) {
-        CommandState state;
-        state.commandNamespace = CommandNamespace::Search;
-        state.action = CommandAction::OpenSearch;
-        state.query = text.mid(index).trimmed();
-        return state;
-    }
-
-    if (firstToken == QLatin1String("restore") || firstToken == QLatin1String("trash")) {
-        CommandState state;
-        state.commandNamespace = CommandNamespace::Restore;
-        state.action = CommandAction::RestoreSearch;
-        state.query = text.mid(index).trimmed();
-        return state;
-    }
-
-    return {};
+    CommandState state;
+    state.commandNamespace = commandNamespace.value();
+    return state;
 }
 
 CommandRowAction rowActionForItem(const QListWidgetItem *item)
@@ -889,10 +1082,14 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     : QWidget(parent)
     , options_(std::move(options))
 {
+    static const int themeResourcesInitialized = initializePinloomThemeResources();
+    Q_UNUSED(themeResourcesInitialized);
+
     setObjectName(QStringLiteral("pinloomCommandPanel"));
     setWindowTitle(tr("Pinloom Command"));
     setAcceptDrops(true);
-    resize(760, 300);
+    setAutoFillBackground(false);
+    resize(760, preferredWindowHeight_);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 10, 10, 8);
@@ -903,6 +1100,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     commandEdit_->setPlaceholderText(tr("Command"));
     commandEdit_->setClearButtonEnabled(true);
     commandEdit_->setAcceptDrops(true);
+    commandEdit_->setFixedHeight(42);
 
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
@@ -930,6 +1128,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     connect(resultList_, &QListWidget::itemActivated, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
 
+    setTheme(PinloomCommandTheme::Neutral);
     refreshResults();
     focusCommand();
 }
@@ -1071,7 +1270,10 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
             updateStatus(tr("No pending Inbox file; drop a file or select one in Explorer"));
         } else if (command.commandNamespace == CommandNamespace::Inbox
                    && command.action == CommandAction::InboxSearch) {
-            updateStatus(tr("No Inbox search command selected"));
+            updateStatus(tr("No Inbox results"));
+        } else if (command.commandNamespace == CommandNamespace::Library
+                   && command.action == CommandAction::OpenSearch) {
+            updateStatus(tr("No unified results"));
         } else if (command.commandNamespace == CommandNamespace::None
                    && commandEdit_
                    && !commandEdit_->text().trimmed().isEmpty()) {
@@ -1124,6 +1326,21 @@ bool PinloomCommandPanel::returnToResultList()
 bool PinloomCommandPanel::isShowingResultActions() const
 {
     return showingResultActions_;
+}
+
+PinloomCommandTheme PinloomCommandPanel::theme() const
+{
+    return theme_;
+}
+
+bool PinloomCommandPanel::isCompact() const
+{
+    return compact_;
+}
+
+int PinloomCommandPanel::preferredWindowHeight() const
+{
+    return preferredWindowHeight_;
 }
 
 bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
@@ -1181,6 +1398,30 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
     return QWidget::eventFilter(watched, event);
 }
 
+void PinloomCommandPanel::paintEvent(QPaintEvent *event)
+{
+    QWidget::paintEvent(event);
+
+    QPainter painter(this);
+    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
+    if (!backgroundPixmap_.isNull() && width() > 0 && height() > 0) {
+        const qreal scale = std::max(static_cast<qreal>(width()) / backgroundPixmap_.width(),
+                                     static_cast<qreal>(height()) / backgroundPixmap_.height());
+        const QSizeF sourceSize(width() / scale, height() / scale);
+        const qreal availableSourceHeight = backgroundPixmap_.height() - sourceSize.height();
+        const QRectF sourceRect((backgroundPixmap_.width() - sourceSize.width()) / 2.0,
+                                std::max<qreal>(0.0, availableSourceHeight * 0.08),
+                                sourceSize.width(),
+                                sourceSize.height());
+        painter.drawPixmap(QRectF(rect()), backgroundPixmap_, sourceRect);
+    } else {
+        painter.fillRect(rect(), QColor(QStringLiteral("#eef1f3")));
+    }
+
+    painter.fillRect(rect(), QColor(255, 255, 255, compact_ ? 96 : 138));
+    painter.fillRect(QRect(0, 0, 4, height()), themeAccent(theme_));
+}
+
 void PinloomCommandPanel::dragEnterEvent(QDragEnterEvent *event)
 {
     handleInboxDragEnter(event);
@@ -1204,6 +1445,7 @@ void PinloomCommandPanel::refreshResults()
     resultList_->clear();
 
     const CommandState command = parseCommandState(commandEdit_->text());
+    setTheme(themeForNamespace(command.commandNamespace));
     QStringList listedClipIds;
 
     const auto appendCommandResult = [this](CommandRowAction action,
@@ -1260,7 +1502,21 @@ void PinloomCommandPanel::refreshResults()
         && !plainQuery.isEmpty()
         && options_.unifiedEntrySearchHandler) {
         appendUnifiedEntries(options_.unifiedEntrySearchHandler(plainQuery));
-    } else if (command.commandNamespace == CommandNamespace::Restore
+    } else if (command.commandNamespace == CommandNamespace::Inbox
+               && command.action == CommandAction::InboxSearch
+               && options_.unifiedEntrySearchHandler) {
+        QList<PinloomEntry> inboxEntries;
+        for (const PinloomEntry &entry : options_.unifiedEntrySearchHandler(command.query)) {
+            if (entry.type == PinloomEntryType::Inbox || isInboxResourceId(entry.resourceId)) {
+                inboxEntries.append(entry);
+            }
+        }
+        appendUnifiedEntries(inboxEntries);
+    } else if (command.commandNamespace == CommandNamespace::Library
+               && command.action == CommandAction::OpenSearch
+               && options_.unifiedEntrySearchHandler) {
+        appendUnifiedEntries(options_.unifiedEntrySearchHandler(command.query));
+    } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::RestoreSearch
                && options_.deletedEntrySearchHandler) {
         appendUnifiedEntries(options_.deletedEntrySearchHandler(command.query));
@@ -1317,17 +1573,29 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::None) {
         appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("k n"),
+                            QStringLiteral("anchor:new"),
                             tr("New Anchor / Capture Anchor"),
                             tr("Open"),
-                            tr("k n - capture current app position"));
+                            tr("anchor:new - capture current app position; legacy k n"));
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("anchor:library"),
+                            tr("Anchor Library"),
+                            tr("Open"),
+                            tr("anchor:library - organize all marked files"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorNew) {
         appendCommandResult(CommandRowAction::AnchorCapture,
-                            QStringLiteral("k n"),
+                            QStringLiteral("anchor:new"),
                             tr("New Anchor / Capture Anchor"),
                             tr("Capture"),
-                            tr("k n - capture current app position"));
+                            tr("anchor:new - capture current app position; legacy k n"));
+    } else if (command.commandNamespace == CommandNamespace::Anchor
+               && command.action == CommandAction::AnchorLibrary) {
+        appendCommandResult(CommandRowAction::AnchorLibrary,
+                            QStringLiteral("anchor:library"),
+                            tr("Anchor Library"),
+                            tr("Open"),
+                            tr("Browse and organize all files with anchors"));
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::None) {
         appendCommandResult(CommandRowAction::OpenCommand,
@@ -1347,21 +1615,7 @@ void PinloomCommandPanel::refreshResults()
                             tr("New Inbox File"),
                             tr("Save"),
                             tr("Link mode - %1").arg(inboxFilesSummary(pendingInboxFiles_)));
-    } else if (command.commandNamespace == CommandNamespace::Inbox
-               && command.action == CommandAction::InboxSearch) {
-        auto *item = new QListWidgetItem(QStringLiteral("[Command] Inbox Search -> Open\ni s <query> - open Inbox results in Pinloom search"),
-                                         resultList_);
-        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
-        item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenSearchWindow));
-        item->setData(CommandSearchQueryRole, command.query);
-    } else if (command.commandNamespace == CommandNamespace::Search
-               && command.action == CommandAction::OpenSearch) {
-        auto *item = new QListWidgetItem(QStringLiteral("[Command] Pinloom Search -> Open\nsearch <query> - open the search window"),
-                                         resultList_);
-        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
-        item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenSearchWindow));
-        item->setData(CommandSearchQueryRole, command.query);
-    } else if (command.commandNamespace == CommandNamespace::Restore
+    } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::RestoreSearch
                && !options_.deletedEntrySearchHandler) {
         appendCommandResult(CommandRowAction::OpenCommand,
@@ -1369,6 +1623,18 @@ void PinloomCommandPanel::refreshResults()
                             tr("Restore Deleted Entry"),
                             tr("Unavailable"),
                             tr("restore <query> - restore search is not configured"));
+    } else if (command.commandNamespace == CommandNamespace::Library
+               && command.action == CommandAction::None) {
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("library:search"),
+                            tr("Library Search"),
+                            tr("Open"),
+                            tr("library:search <query> - search all active entries"));
+        appendCommandResult(CommandRowAction::OpenCommand,
+                            QStringLiteral("library:restore"),
+                            tr("Restore Deleted Entry"),
+                            tr("Open"),
+                            tr("library:restore <query> - search deleted entries"));
     }
 
     if (resultList_->count() > 0) {
@@ -1404,6 +1670,9 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorNew) {
         updateStatus(tr("Capture anchor current app context pending"));
+    } else if (command.commandNamespace == CommandNamespace::Anchor
+               && command.action == CommandAction::AnchorLibrary) {
+        updateStatus(tr("Open Anchor Library pending"));
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::None) {
         updateStatus(tr("Inbox commands"));
@@ -1414,13 +1683,23 @@ void PinloomCommandPanel::refreshResults()
                          : tr("Inbox pending: %1").arg(inboxFilesSummary(pendingInboxFiles_)));
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::InboxSearch) {
-        updateStatus(command.query.trimmed().isEmpty()
-                         ? tr("Open Inbox search")
-                         : tr("Open Inbox search for \"%1\"").arg(command.query.trimmed()));
-    } else if (command.commandNamespace == CommandNamespace::Search
+        if (!options_.unifiedEntrySearchHandler) {
+            updateStatus(tr("Unified search is not configured"));
+        } else {
+            updateStatus(resultList_->count() > 0
+                             ? tr("Inbox search: %n result(s)", nullptr, resultList_->count())
+                             : tr("No Inbox results"));
+        }
+    } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::OpenSearch) {
-        updateStatus(tr("Open Pinloom search window"));
-    } else if (command.commandNamespace == CommandNamespace::Restore
+        if (!options_.unifiedEntrySearchHandler) {
+            updateStatus(tr("Unified search is not configured"));
+        } else {
+            updateStatus(resultList_->count() > 0
+                             ? tr("Unified search: %n result(s)", nullptr, resultList_->count())
+                             : tr("No unified results"));
+        }
+    } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::RestoreSearch) {
         if (!options_.deletedEntrySearchHandler) {
             updateStatus(tr("Restore search is not configured"));
@@ -1429,6 +1708,9 @@ void PinloomCommandPanel::refreshResults()
                              ? tr("Restore search: %n deleted item(s)", nullptr, resultList_->count())
                              : tr("No deleted items to restore"));
         }
+    } else if (command.commandNamespace == CommandNamespace::Library
+               && command.action == CommandAction::None) {
+        updateStatus(tr("Library commands"));
     } else {
         updateStatus(tr("Unknown command"));
     }
@@ -1443,14 +1725,113 @@ void PinloomCommandPanel::activateResultItem(QListWidgetItem *item)
     activateCommandItem(item);
 }
 
+void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
+{
+    if (theme_ == theme && !backgroundPixmap_.isNull()) {
+        return;
+    }
+
+    theme_ = theme;
+    backgroundPixmap_.load(themeResourcePath(theme_));
+    const QString accent = themeAccent(theme_).name();
+    setStyleSheet(QStringLiteral(
+        "QWidget#pinloomCommandPanel { color: #20252b; }"
+        "QLineEdit#commandSearchEdit {"
+        "  background-color: rgba(255, 255, 255, 232);"
+        "  border: 1px solid %1;"
+        "  border-left: 4px solid %1;"
+        "  border-radius: 4px;"
+        "  color: #171a1f;"
+        "  font-size: 14px;"
+        "  padding: 6px 10px;"
+        "  selection-background-color: %1;"
+        "  selection-color: white;"
+        "}"
+        "QListWidget#commandResultList {"
+        "  background-color: rgba(255, 255, 255, 210);"
+        "  alternate-background-color: rgba(239, 242, 244, 202);"
+        "  border: 1px solid rgba(70, 78, 86, 90);"
+        "  border-radius: 4px;"
+        "  color: #20252b;"
+        "  outline: 0;"
+        "}"
+        "QListWidget#commandResultList::item {"
+        "  border-bottom: 1px solid rgba(70, 78, 86, 28);"
+        "  padding: 4px 7px;"
+        "}"
+        "QListWidget#commandResultList::item:selected {"
+        "  background-color: %1;"
+        "  color: white;"
+        "}"
+        "QLabel#commandStatusLabel {"
+        "  background-color: rgba(255, 255, 255, 190);"
+        "  border-left: 3px solid %1;"
+        "  color: #30363d;"
+        "  padding: 4px 7px;"
+        "}"
+    ).arg(accent));
+    update();
+}
+
+void PinloomCommandPanel::updatePresentation()
+{
+    const bool nextCompact = resultList_->count() == 0;
+    resultList_->setVisible(!nextCompact);
+    statusLabel_->setVisible(!nextCompact);
+
+    auto *boxLayout = static_cast<QVBoxLayout *>(layout());
+    const QMargins margins = boxLayout->contentsMargins();
+    int nextHeight = margins.top() + commandEdit_->height() + margins.bottom();
+    if (!nextCompact) {
+        const int visibleRows = std::min(resultList_->count(), 6);
+        int listHeight = resultList_->frameWidth() * 2;
+        for (int row = 0; row < visibleRows; ++row) {
+            const QSize itemSize = resultList_->item(row)->sizeHint();
+            listHeight += itemSize.isValid()
+                ? itemSize.height()
+                : resultList_->fontMetrics().lineSpacing() * 2 + 12;
+        }
+        listHeight = std::max(listHeight, resultList_->fontMetrics().lineSpacing() * 2 + 14);
+        resultList_->setFixedHeight(listHeight);
+
+        const int statusWidth = std::max(320, width() - margins.left() - margins.right());
+        const int measuredStatusHeight = statusLabel_->heightForWidth(statusWidth);
+        const int statusHeight = std::max(statusLabel_->fontMetrics().lineSpacing() + 8,
+                                          measuredStatusHeight > 0 ? measuredStatusHeight : 0);
+        statusLabel_->setFixedHeight(statusHeight);
+        nextHeight += boxLayout->spacing() * 2 + listHeight + statusHeight;
+    }
+
+    nextHeight = std::clamp(nextHeight, 62, 390);
+    const bool changed = compact_ != nextCompact || preferredWindowHeight_ != nextHeight;
+    compact_ = nextCompact;
+    preferredWindowHeight_ = nextHeight;
+    setFixedHeight(preferredWindowHeight_);
+    updateGeometry();
+
+    QWidget *host = window();
+    if (host && host != this) {
+        host->setFixedHeight(preferredWindowHeight_);
+        host->resize(std::max(host->width(), host->minimumWidth()), preferredWindowHeight_);
+    } else if (height() != preferredWindowHeight_) {
+        resize(width(), preferredWindowHeight_);
+    }
+    if (changed) {
+        emit presentationChanged(compact_, preferredWindowHeight_);
+    }
+    update();
+}
+
 void PinloomCommandPanel::updateStatus(const QString &status)
 {
     statusText_ = status;
     statusLabel_->setText(statusText_);
+    commandEdit_->setToolTip(statusText_);
     if (options_.statusChangedHandler) {
         options_.statusChangedHandler(statusText_);
     }
     emit statusChanged(statusText_);
+    updatePresentation();
 }
 
 bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
@@ -1484,11 +1865,11 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
     if (action == CommandRowAction::AnchorCapture) {
         return captureAnchor();
     }
+    if (action == CommandRowAction::AnchorLibrary) {
+        return openAnchorLibrary();
+    }
     if (action == CommandRowAction::InboxSave) {
         return saveInboxFromCommand();
-    }
-    if (action == CommandRowAction::OpenSearchWindow) {
-        return openSearchWindow(item);
     }
     if (action == CommandRowAction::UnifiedTargetAction) {
         return activateResultActionFromItem(item);
@@ -1632,6 +2013,7 @@ void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target,
     showingResultActions_ = true;
     actionSourceTarget_ = target;
     actionSourceRow_ = sourceRow;
+    setTheme(themeForTarget(target));
     resultList_->clear();
 
     for (const PinloomCommandResultAction &action : actions) {
@@ -1763,6 +2145,21 @@ bool PinloomCommandPanel::captureAnchor()
     return captured;
 }
 
+bool PinloomCommandPanel::openAnchorLibrary()
+{
+    if (!options_.anchorLibraryHandler) {
+        updateStatus(tr("Anchor Library is not configured"));
+        return false;
+    }
+
+    QString status;
+    const bool opened = options_.anchorLibraryHandler(&status);
+    updateStatus(status.trimmed().isEmpty()
+                     ? (opened ? tr("Opened Anchor Library") : tr("Unable to open Anchor Library"))
+                     : status.trimmed());
+    return opened;
+}
+
 bool PinloomCommandPanel::saveInboxFromCommand()
 {
     if (!options_.inboxSaveHandler) {
@@ -1848,22 +2245,6 @@ bool PinloomCommandPanel::saveInboxFromCommand()
     for (const QString &resourceId : savedResourceIds) {
         emit inboxSaved(resourceId);
     }
-    return true;
-}
-
-bool PinloomCommandPanel::openSearchWindow(const QListWidgetItem *item)
-{
-    const QString query = item ? item->data(CommandSearchQueryRole).toString() : QString();
-    if (!options_.searchWindowHandler) {
-        updateStatus(tr("Pinloom search window is not configured"));
-        return false;
-    }
-
-    options_.searchWindowHandler(query);
-    updateStatus(query.trimmed().isEmpty()
-                     ? tr("Opened Pinloom search")
-                     : tr("Opened Pinloom search for \"%1\"").arg(query.trimmed()));
-    emit searchWindowRequested(query);
     return true;
 }
 
@@ -1992,6 +2373,9 @@ bool PinloomCommandPanel::handleInboxDrop(QEvent *event)
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel)
 {
+    commandWindow.setFixedHeight(panel.preferredWindowHeight());
+    commandWindow.resize(std::max(commandWindow.width(), commandWindow.minimumWidth()),
+                         panel.preferredWindowHeight());
     if (commandWindow.isMinimized()) {
         commandWindow.showNormal();
     } else {

@@ -4,7 +4,6 @@
 #include "pinloom/core/SumatraPdfCommand.h"
 
 #include <QCheckBox>
-#include <QCoreApplication>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
@@ -38,31 +37,6 @@ int settingsInt(QSettings &settings, const QString &key, int fallback)
     bool ok = false;
     const int value = settings.value(key, fallback).toInt(&ok);
     return ok ? value : fallback;
-}
-
-QString siblingExecutablePath(const QString &baseName)
-{
-    QString executableName = baseName;
-#ifdef Q_OS_WIN
-    if (!executableName.endsWith(QStringLiteral(".exe"), Qt::CaseInsensitive)) {
-        executableName.append(QStringLiteral(".exe"));
-    }
-#endif
-    return QDir(QCoreApplication::applicationDirPath()).filePath(executableName);
-}
-
-QString defaultPinloomPdfProxyExecutablePath()
-{
-    return QDir::toNativeSeparators(siblingExecutablePath(QStringLiteral("pinloom_pdf_proxy")));
-}
-
-QString pdfProxyStatusText(const QString &proxyPath)
-{
-    const QFileInfo proxy(proxyPath.trimmed());
-    if (proxy.exists() && proxy.isFile()) {
-        return QStringLiteral("Ready. Use this executable as the Windows PDF default app.");
-    }
-    return QStringLiteral("Missing. Build pinloom_pdf_proxy before enabling enhanced PDF mode.");
 }
 
 QString resolvedSumatraPdfPath(const QString &configuredPath)
@@ -200,14 +174,6 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     pdfPathLayout->addWidget(sumatraPdfPathEdit_, 1);
     pdfPathLayout->addWidget(browsePdfButton);
 
-    pdfProxyPathEdit_ = new QLineEdit(defaultPinloomPdfProxyExecutablePath(), this);
-    pdfProxyPathEdit_->setObjectName(QStringLiteral("pdfProxyPathEdit"));
-    pdfProxyPathEdit_->setReadOnly(true);
-
-    pdfProxyStatusLabel_ = new QLabel(pdfProxyStatusText(pdfProxyPathEdit_->text()), this);
-    pdfProxyStatusLabel_->setObjectName(QStringLiteral("pdfProxyStatusLabel"));
-    pdfProxyStatusLabel_->setWordWrap(true);
-
     sumatraPdfStatusLabel_ = new QLabel(sumatraPdfStatusText(settings.sumatraPdfExecutablePath), this);
     sumatraPdfStatusLabel_->setObjectName(QStringLiteral("sumatraPdfStatusLabel"));
     sumatraPdfStatusLabel_->setWordWrap(true);
@@ -269,8 +235,6 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 
     form->addRow(tr("SumatraPDF"), pdfPathRow);
     form->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);
-    form->addRow(tr("PDF proxy"), pdfProxyPathEdit_);
-    form->addRow(tr("PDF proxy status"), pdfProxyStatusLabel_);
     form->addRow(tr("Obsidian Vault"), obsidianVaultRow);
     form->addRow(tr("Obsidian archive directory"), obsidianArchiveDirectoryEdit_);
     form->addRow(tr("Obsidian status"), obsidianStatusLabel_);

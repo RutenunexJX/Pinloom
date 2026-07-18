@@ -5,6 +5,7 @@
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
+#include <QPixmap>
 #include <QWidget>
 #include <functional>
 #include <optional>
@@ -17,8 +18,16 @@ class QDropEvent;
 class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
+class QPaintEvent;
 
 namespace Pinloom {
+
+enum class PinloomCommandTheme {
+    Neutral,
+    Anchor,
+    Clip,
+    Inbox
+};
 
 struct PinloomCommandResultAction {
     QString id;
@@ -51,12 +60,12 @@ struct PinloomCommandPanelOptions {
         const ClipSearchResult &result)> clipSaveRequestProvider;
     std::function<bool(const PinloomClipSaveRequest &request, QString *error)> clipSaveHandler;
     std::function<bool(QString *status)> anchorCaptureHandler;
+    std::function<bool(QString *status)> anchorLibraryHandler;
     std::function<QStringList(QString *status)> inboxSelectionProvider;
     std::function<std::optional<InboxFileSaveRequest>(
         QWidget *parent,
         const QString &filePath)> inboxSaveRequestProvider;
     std::function<bool(const InboxFileSaveRequest &request, QString *status)> inboxSaveHandler;
-    std::function<void(const QString &query)> searchWindowHandler;
     std::function<void(const QString &status)> statusChangedHandler;
 };
 
@@ -88,6 +97,9 @@ public:
     bool showActionsForCurrentResult();
     bool returnToResultList();
     bool isShowingResultActions() const;
+    PinloomCommandTheme theme() const;
+    bool isCompact() const;
+    int preferredWindowHeight() const;
 
 signals:
     void statusChanged(const QString &status);
@@ -97,10 +109,11 @@ signals:
     void anchorJumped(const QString &resourceId);
     void resourceOpened(const QString &resourceId);
     void inboxSaved(const QString &resourceId);
-    void searchWindowRequested(const QString &query);
+    void presentationChanged(bool compact, int preferredWindowHeight);
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void paintEvent(QPaintEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dragMoveEvent(QDragMoveEvent *event) override;
     void dropEvent(QDropEvent *event) override;
@@ -116,8 +129,8 @@ private:
     bool activateUnifiedTargetFromItem(const QListWidgetItem *item);
     bool saveClipFromItem(const QListWidgetItem *item);
     bool captureAnchor();
+    bool openAnchorLibrary();
     bool saveInboxFromCommand();
-    bool openSearchWindow(const QListWidgetItem *item);
     bool activateUnifiedTarget(const PinloomOpenTarget &target);
     QList<PinloomCommandResultAction> actionsForTarget(const PinloomOpenTarget &target) const;
     bool activateResultActionFromItem(const QListWidgetItem *item);
@@ -127,6 +140,8 @@ private:
     std::optional<InboxFileSaveRequest> promptInboxSaveRequest(const QString &filePath);
     bool handleInboxDragEnter(QEvent *event);
     bool handleInboxDrop(QEvent *event);
+    void setTheme(PinloomCommandTheme theme);
+    void updatePresentation();
 
     PinloomCommandPanelOptions options_;
     QLineEdit *commandEdit_ = nullptr;
@@ -137,6 +152,10 @@ private:
     bool showingResultActions_ = false;
     PinloomOpenTarget actionSourceTarget_;
     int actionSourceRow_ = -1;
+    PinloomCommandTheme theme_ = PinloomCommandTheme::Neutral;
+    QPixmap backgroundPixmap_;
+    bool compact_ = true;
+    int preferredWindowHeight_ = 62;
 };
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel);

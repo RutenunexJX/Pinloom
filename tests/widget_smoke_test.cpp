@@ -5,6 +5,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
@@ -23,7 +24,9 @@
 #include <QDesktopServices>
 #include <QApplication>
 #include <QCloseEvent>
+#include <QComboBox>
 #include <QDialogButtonBox>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QCheckBox>
@@ -33,14 +36,18 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
+#include <QStatusBar>
 #include <QTemporaryDir>
+#include <QTableWidget>
 #include <QTest>
 #include <QTimer>
+#include <QToolButton>
 #include <QUrl>
 #include <algorithm>
 #include <memory>
@@ -64,6 +71,7 @@ private slots:
     void mainWindowCloseHidesToTray();
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
+    void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
@@ -76,10 +84,12 @@ private slots:
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
     void commandPanelAnchorCaptureCommandCallsHandler();
+    void commandPanelAnchorLibraryUsesOrderedSubsequenceCommands();
     void commandPanelInboxRootCommandShowsCandidates();
     void commandPanelInboxNewCommandSavesPendingFile();
     void commandPanelInboxNewReportsMissingPendingAndExplorerSelection();
-    void commandPanelInboxSearchOpensSearchWindow();
+    void commandPanelInboxSearchStaysInUnifiedWindow();
+    void commandPanelThemesAndCompactLayout();
     void commandPanelPlainQueryShowsUnifiedMixedResults();
     void commandPanelPlainQueryEnterDispatchesByTargetType();
     void commandPanelRightArrowShowsActionsForUnifiedResultTypes();
@@ -946,6 +956,14 @@ void WidgetSmokeTest::mainWindowCloseHidesToTray()
 void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
 {
     PinloomMainWindow window;
+    QVERIFY(!window.launcherMode());
+    QVERIFY(!window.menuBar()->isHidden());
+    QVERIFY(!window.statusBar()->isHidden());
+    window.setLauncherMode(true);
+    QVERIFY(window.launcherMode());
+    QVERIFY(window.menuBar()->isHidden());
+    QVERIFY(window.statusBar()->isHidden());
+
     PinloomResidentStatus status;
     status.running = true;
     status.mainHotkeyRegistered = true;
@@ -989,15 +1007,13 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
 {
     InMemoryLibraryRepository repository;
-    QMainWindow searchWindow;
-    auto *panel = new PinloomPanel(repository, &searchWindow);
-    searchWindow.setCentralWidget(panel);
-    searchWindow.hide();
-
-    QMainWindow commandWindow;
-    auto *commandPanel = new PinloomCommandPanel(&commandWindow);
-    commandWindow.setCentralWidget(commandPanel);
-    commandWindow.hide();
+    PinloomMainWindow window;
+    window.setLauncherMode(true);
+    auto *panel = new PinloomPanel(repository, &window);
+    panel->hide();
+    auto *commandPanel = new PinloomCommandPanel(&window);
+    window.setCentralWidget(commandPanel);
+    window.hide();
 
     auto *commandEdit = commandPanel->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
     auto *searchEdit = panel->findChild<QLineEdit *>(QStringLiteral("searchEdit"));
@@ -1009,8 +1025,8 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     FakeClipHotkeyBackend hotkeyBackend;
     ClipHotkeyService service(defaultMainPanelHotkeyConfig(), &hotkeyBackend);
     MainPanelHotkeyController controller(service,
-                                         [&commandWindow, commandPanel]() {
-                                             showCommandPanelForHotkey(commandWindow, *commandPanel);
+                                         [&window, commandPanel]() {
+                                             showCommandPanelForHotkey(window, *commandPanel);
                                          });
 
     QVERIFY(service.start());
@@ -1021,11 +1037,194 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     hotkeyBackend.activate();
     QApplication::processEvents();
 
-    QVERIFY(commandWindow.isVisible());
-    QVERIFY(!searchWindow.isVisible());
+    QVERIFY(window.isVisible());
+    QCOMPARE(window.centralWidget(), static_cast<QWidget *>(commandPanel));
+    QVERIFY(panel->isHidden());
     QCOMPARE(commandPanel->focusWidget(), static_cast<QWidget *>(commandEdit));
     QCOMPARE(commandEdit->selectedText(), QStringLiteral("c"));
     QVERIFY(!searchEdit->hasFocus());
+}
+
+void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString existingPath = directory.filePath(QStringLiteral("clock-spec.pdf"));
+    QFile existingFile(existingPath);
+    QVERIFY(existingFile.open(QIODevice::WriteOnly));
+    existingFile.write("pdf placeholder");
+    existingFile.close();
+
+    AnchorLibraryFile clockFile;
+    clockFile.resource.id = QStringLiteral("clock-spec");
+    clockFile.resource.kind = ResourceKind::Pdf;
+    clockFile.resource.title = QStringLiteral("Clock Specification");
+    clockFile.resource.location = existingPath;
+    clockFile.resource.tags = {QStringLiteral("hardware")};
+    Anchor jitter;
+    jitter.id = QStringLiteral("clock-spec#jitter");
+    jitter.name = QStringLiteral("PLL jitter budget");
+    jitter.tags = {QStringLiteral("clock")};
+    jitter.locatorType = QStringLiteral("sumatrapdf.page");
+    jitter.locatorJson = QStringLiteral("{\"page\":12}");
+    jitter.updatedAt = QDateTime::currentDateTimeUtc();
+    Anchor timing;
+    timing.id = QStringLiteral("clock-spec#timing");
+    timing.name = QStringLiteral("Timing table");
+    timing.aliases = {QStringLiteral("limits")};
+    timing.updatedAt = jitter.updatedAt.addSecs(-60);
+    Anchor deleted;
+    deleted.id = QStringLiteral("clock-spec#deleted");
+    deleted.name = QStringLiteral("Deleted marker");
+    deleted.deleted = true;
+    clockFile.anchors = {{clockFile.resource.id, jitter},
+                         {clockFile.resource.id, timing},
+                         {clockFile.resource.id, deleted}};
+
+    AnchorLibraryFile duplicateClockFile;
+    duplicateClockFile.resource.id = QStringLiteral("clock-spec-duplicate");
+    duplicateClockFile.resource.kind = ResourceKind::Pdf;
+    duplicateClockFile.resource.title = QStringLiteral("Clock Specification Duplicate");
+    duplicateClockFile.resource.location = existingPath;
+    Anchor overview;
+    overview.id = QStringLiteral("clock-spec-duplicate#overview");
+    overview.name = QStringLiteral("Overview");
+    overview.updatedAt = jitter.updatedAt.addSecs(-30);
+    duplicateClockFile.anchors = {{duplicateClockFile.resource.id, overview}};
+
+    AnchorLibraryFile missingFile;
+    missingFile.resource.id = QStringLiteral("missing-spec");
+    missingFile.resource.kind = ResourceKind::File;
+    missingFile.resource.title = QStringLiteral("Missing Specification");
+    missingFile.resource.location = directory.filePath(QStringLiteral("missing.docx"));
+    Anchor missingAnchor;
+    missingAnchor.id = QStringLiteral("missing-spec#requirements");
+    missingAnchor.name = QStringLiteral("Requirements");
+    missingAnchor.updatedAt = jitter.updatedAt.addSecs(-120);
+    missingFile.anchors = {{missingFile.resource.id, missingAnchor}};
+
+    AnchorLibraryFile deletedOnlyFile;
+    deletedOnlyFile.resource.id = QStringLiteral("deleted-only");
+    deletedOnlyFile.resource.title = QStringLiteral("Deleted Only");
+    deletedOnlyFile.anchors = {{deletedOnlyFile.resource.id, deleted}};
+
+    QString jumpedResourceId;
+    QString jumpedAnchorId;
+    QString deletedResourceId;
+    QString deletedAnchorId;
+    bool confirmDelete = false;
+    QList<AnchorLibraryFile> libraryFiles{clockFile, duplicateClockFile, missingFile, deletedOnlyFile};
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&libraryFiles]() {
+        return libraryFiles;
+    };
+    options.anchorJumpHandler = [&](const AnchorLibraryFile &,
+                                    const AnchorLibraryAnchor &entry,
+                                    QString *status) {
+        jumpedResourceId = entry.resourceId;
+        jumpedAnchorId = entry.anchor.id;
+        if (status) {
+            *status = QStringLiteral("Jumped from Anchor Library");
+        }
+        return true;
+    };
+    options.anchorDeleteConfirmationHandler = [&](const AnchorLibraryFile &,
+                                                   const AnchorLibraryAnchor &) {
+        return confirmDelete;
+    };
+    options.anchorDeleteHandler = [&](const AnchorLibraryFile &,
+                                      const AnchorLibraryAnchor &entry,
+                                      QString *status) {
+        for (AnchorLibraryFile &file : libraryFiles) {
+            if (file.resource.id != entry.resourceId) {
+                continue;
+            }
+            for (AnchorLibraryAnchor &candidate : file.anchors) {
+                if (candidate.anchor.id != entry.anchor.id) {
+                    continue;
+                }
+                candidate.anchor.deleted = true;
+                deletedResourceId = entry.resourceId;
+                deletedAnchorId = entry.anchor.id;
+                if (status) {
+                    *status = QStringLiteral("Deleted from Anchor Library");
+                }
+                return true;
+            }
+        }
+        return false;
+    };
+
+    AnchorLibraryWindow window(options);
+    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
+    auto *deleteButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDeleteButton"));
+    QVERIFY(fileTable);
+    QVERIFY(anchorTable);
+    QVERIFY(scope);
+    QVERIFY(deleteButton);
+    QCOMPARE(window.visibleFileCount(), 2);
+    QVERIFY(window.statusText().contains(QStringLiteral("2 marked file(s) | 4 anchor(s)")));
+
+    window.setFilterText(QStringLiteral("jitter"));
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(window.visibleAnchorCount(), 3);
+    window.setFilterText(QString());
+    QCOMPARE(window.visibleFileCount(), 2);
+
+    scope->setCurrentIndex(1);
+    QCOMPARE(window.visibleFileCount(), 1);
+    QVERIFY(fileTable->item(0, 0)->text().contains(QStringLiteral("Missing")));
+    scope->setCurrentIndex(2);
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(fileTable->item(0, 6)->text(), QStringLiteral("Missing"));
+    scope->setCurrentIndex(0);
+
+    int clockRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Clock Specification")) {
+            clockRow = row;
+            break;
+        }
+    }
+    QVERIFY(clockRow >= 0);
+    QVERIFY(window.selectFileAt(clockRow));
+    int overviewRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Overview")) {
+            overviewRow = row;
+            break;
+        }
+    }
+    QVERIFY(overviewRow >= 0);
+    QVERIFY(window.selectAnchorAt(overviewRow));
+    QVERIFY(window.activateSelectedAnchor());
+    QCOMPARE(jumpedResourceId, QStringLiteral("clock-spec-duplicate"));
+    QCOMPARE(jumpedAnchorId, QStringLiteral("clock-spec-duplicate#overview"));
+    QCOMPARE(window.statusText(), QStringLiteral("Jumped from Anchor Library"));
+
+    QVERIFY(deleteButton->isEnabled());
+    QVERIFY(!window.deleteSelectedAnchor());
+    QCOMPARE(window.statusText(), QStringLiteral("Delete canceled"));
+    QCOMPARE(window.visibleAnchorCount(), 3);
+
+    confirmDelete = true;
+    deleteButton->click();
+    QCOMPARE(deletedResourceId, QStringLiteral("clock-spec-duplicate"));
+    QCOMPARE(deletedAnchorId, QStringLiteral("clock-spec-duplicate#overview"));
+    QCOMPARE(window.visibleFileCount(), 2);
+    QCOMPARE(window.visibleAnchorCount(), 2);
+    QCOMPARE(window.statusText(), QStringLiteral("Deleted from Anchor Library"));
+
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        window.show();
+        QApplication::processEvents();
+        QVERIFY(window.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library.png"))));
+        window.hide();
+    }
 }
 
 void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
@@ -1043,7 +1242,7 @@ void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
         activationMessage = message;
     });
 
-    const QString customMessage = QStringLiteral("{\"type\":\"sumatrapdf.opened\",\"file\":\"E:/docs/spec.pdf\"}");
+    const QString customMessage = QStringLiteral("custom-activation");
     QString sendError;
     QVERIFY2(sendPinloomSingleInstanceMessage(serverName, customMessage, 100, &sendError), qPrintable(sendError));
     QTRY_COMPARE(activationCount, 1);
@@ -1103,8 +1302,6 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(policy.excludedSourceApps, saved.clipExcludedSourceApps);
 
     PinloomSettingsDialog dialog(loaded);
-    auto *pdfProxyPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("pdfProxyPathEdit"));
-    auto *pdfProxyStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("pdfProxyStatusLabel"));
     auto *sumatraPdfStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("sumatraPdfStatusLabel"));
     auto *pdfPathEdit = dialog.findChild<QLineEdit *>(QStringLiteral("sumatraPdfPathEdit"));
     auto *obsidianVaultEdit = dialog.findChild<QLineEdit *>(QStringLiteral("obsidianVaultPathEdit"));
@@ -1118,8 +1315,6 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *restoreClipboardCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
     auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
-    QVERIFY(pdfProxyPathEdit);
-    QVERIFY(pdfProxyStatusLabel);
     QVERIFY(sumatraPdfStatusLabel);
     QVERIFY(pdfPathEdit);
     QVERIFY(obsidianVaultEdit);
@@ -1133,9 +1328,6 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(restoreClipboardCheck);
     QVERIFY(blacklistEdit);
     QVERIFY(markersEdit);
-    QVERIFY(pdfProxyPathEdit->isReadOnly());
-    QVERIFY(pdfProxyPathEdit->text().contains(QStringLiteral("pinloom_pdf_proxy"), Qt::CaseInsensitive));
-    QVERIFY(!pdfProxyStatusLabel->text().trimmed().isEmpty());
     QVERIFY(!sumatraPdfStatusLabel->text().trimmed().isEmpty());
     QVERIFY(!obsidianStatusLabel->text().trimmed().isEmpty());
 
@@ -1721,19 +1913,20 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 
     panel.setCommandText(QStringLiteral("k"));
 
-    QCOMPARE(results->count(), 1);
+    QCOMPARE(results->count(), 2);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("k n")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("anchor:new")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Anchor Library -> Open")));
     QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(panel.commandText(), QStringLiteral("k n"));
+    QCOMPARE(panel.commandText(), QStringLiteral("anchor:new"));
     QCOMPARE(results->count(), 1);
     QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
     QCOMPARE(captureCount, 1);
-    QCOMPARE(panel.commandText(), QStringLiteral("k n"));
+    QCOMPARE(panel.commandText(), QStringLiteral("anchor:new"));
     QCOMPARE(panel.statusText(), QStringLiteral("Captured via test handler"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
@@ -1749,6 +1942,58 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 
     QVERIFY(!noContextPanel.activateCurrentCommandItem());
     QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+}
+
+void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
+{
+    int libraryOpenCount = 0;
+    PinloomCommandPanelOptions options;
+    options.anchorLibraryHandler = [&](QString *status) {
+        ++libraryOpenCount;
+        if (status) {
+            *status = QStringLiteral("Opened test Anchor Library");
+        }
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(results);
+
+    const QStringList rootAbbreviations{
+        QStringLiteral("an"),
+        QStringLiteral("ar"),
+        QStringLiteral("ah"),
+        QStringLiteral("ancr"),
+        QStringLiteral("anco")
+    };
+    for (const QString &abbreviation : rootAbbreviations) {
+        panel.setCommandText(abbreviation);
+        QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
+        QCOMPARE(results->count(), 2);
+        QVERIFY(results->item(0)->text().contains(QStringLiteral("New Anchor")));
+        QVERIFY(results->item(1)->text().contains(QStringLiteral("Anchor Library")));
+    }
+
+    const QStringList structuredAbbreviations{
+        QStringLiteral("anchor:library"),
+        QStringLiteral("an:li"),
+        QStringLiteral("ar:lb"),
+        QStringLiteral("ah:l"),
+        QStringLiteral("ancr:li"),
+        QStringLiteral("anco:l"),
+        QStringLiteral("k l")
+    };
+    for (const QString &abbreviation : structuredAbbreviations) {
+        panel.setCommandText(abbreviation);
+        QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
+        QCOMPARE(results->count(), 1);
+        QVERIFY(results->item(0)->text().contains(QStringLiteral("Anchor Library -> Open")));
+    }
+
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(libraryOpenCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened test Anchor Library"));
 }
 
 void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
@@ -1887,20 +2132,120 @@ void WidgetSmokeTest::commandPanelInboxNewReportsMissingPendingAndExplorerSelect
     QCOMPARE(panel.statusText(), QStringLiteral("Explorer selection did not contain files"));
 }
 
-void WidgetSmokeTest::commandPanelInboxSearchOpensSearchWindow()
+void WidgetSmokeTest::commandPanelInboxSearchStaysInUnifiedWindow()
 {
     QStringList queries;
+    QString openedResourceId;
+    const QList<PinloomOpenTarget> targets = makeCommandPanelUnifiedTargets();
     PinloomCommandPanelOptions options;
-    options.searchWindowHandler = [&](const QString &query) {
+    options.unifiedEntrySearchHandler = [&](const QString &query) {
         queries.append(query);
+        return commandPanelEntries(targets);
+    };
+    options.resourceOpenHandler = [&](const PinloomOpenTarget &target, QString *status) {
+        openedResourceId = target.resourceId;
+        if (status) {
+            *status = QStringLiteral("Opened Inbox file");
+        }
+        return true;
     };
 
     PinloomCommandPanel panel(options);
     panel.setCommandText(QStringLiteral("i s clock alias"));
 
-    QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(queries, QStringList{QStringLiteral("clock alias")});
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened Pinloom search for \"clock alias\""));
+    QCOMPARE(panel.resultCount(), 1);
+    QCOMPARE(panel.openTargetAt(0).resourceId,
+             inboxResourceIdForPath(QStringLiteral("E:/inbox/Board Spec.txt")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Inbox search: 1 result(s)"));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(openedResourceId,
+             inboxResourceIdForPath(QStringLiteral("E:/inbox/Board Spec.txt")));
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened Inbox file"));
+}
+
+void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
+{
+    PinloomCommandPanelOptions options;
+    options.unifiedEntrySearchHandler = [](const QString &) {
+        return QList<PinloomEntry>{};
+    };
+    PinloomCommandPanel panel(options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *status = panel.findChild<QLabel *>(QStringLiteral("commandStatusLabel"));
+    QVERIFY(results);
+    QVERIFY(status);
+
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Neutral);
+    QVERIFY(panel.isCompact());
+    QVERIFY(results->isHidden());
+    QVERIFY(status->isHidden());
+    QVERIFY(panel.preferredWindowHeight() <= 72);
+    QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-neutral.png")));
+    QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-anchor.png")));
+    QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-clip.png")));
+    QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-inbox.png")));
+
+    panel.setCommandText(QStringLiteral("k"));
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
+    QVERIFY(!panel.isCompact());
+    QVERIFY(!results->isHidden());
+    QVERIFY(!status->isHidden());
+
+    panel.setCommandText(QStringLiteral("c"));
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Clip);
+    QVERIFY(!panel.isCompact());
+
+    panel.setCommandText(QStringLiteral("i"));
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Inbox);
+    QVERIFY(!panel.isCompact());
+
+    panel.setCommandText(QStringLiteral("no-match"));
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Neutral);
+    QVERIFY(panel.isCompact());
+    QVERIFY(results->isHidden());
+    QVERIFY(status->isHidden());
+
+    PinloomMainWindow host;
+    host.setLauncherMode(true);
+    auto *hostedPanel = new PinloomCommandPanel(options, &host);
+    host.setCentralWidget(hostedPanel);
+    host.resize(760, hostedPanel->preferredWindowHeight());
+    showCommandPanelForHotkey(host, *hostedPanel);
+    QApplication::processEvents();
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    const auto saveSnapshot = [&host, &snapshotDirectory](const QString &name) {
+        if (snapshotDirectory.isEmpty()) {
+            return;
+        }
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QVERIFY(host.grab().save(QDir(snapshotDirectory).filePath(name)));
+    };
+    saveSnapshot(QStringLiteral("command-neutral.png"));
+
+    hostedPanel->setCommandText(QStringLiteral("k"));
+    QApplication::processEvents();
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    saveSnapshot(QStringLiteral("command-anchor.png"));
+
+    hostedPanel->setCommandText(QStringLiteral("c"));
+    QApplication::processEvents();
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    saveSnapshot(QStringLiteral("command-clip.png"));
+
+    hostedPanel->setCommandText(QStringLiteral("i"));
+    QApplication::processEvents();
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    saveSnapshot(QStringLiteral("command-inbox.png"));
+
+    hostedPanel->setCommandText(QStringLiteral("no-match"));
+    QApplication::processEvents();
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QVERIFY(hostedPanel->isCompact());
+    saveSnapshot(QStringLiteral("command-no-result.png"));
+    host.hide();
 }
 
 void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
@@ -2601,7 +2946,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
     QVERIFY(commandEdit);
-    panel.setCommandText(QStringLiteral("anchor"));
+    panel.setCommandText(QStringLiteral("jitter result"));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
     QVERIFY(panel.selectResultAt(5));

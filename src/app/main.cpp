@@ -7,10 +7,10 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
-#include "pinloom/core/SumatraPdfOpenProxy.h"
 #include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
+#include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
@@ -32,7 +32,6 @@
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QLineEdit>
-#include <QMainWindow>
 #include <QMessageBox>
 #include <QSettings>
 #include <QStandardPaths>
@@ -117,6 +116,7 @@ int main(int argc, char *argv[])
     window.setWindowTitle(QStringLiteral("Pinloom"));
     window.setMinimumWidth(560);
     window.resize(760, 72);
+    window.setLauncherMode(true);
 
     const auto obsidianConfigForSettings = [](const Pinloom::PinloomAppSettings &settings) {
         Pinloom::ObsidianClipStoreConfig config;
@@ -448,27 +448,14 @@ int main(int argc, char *argv[])
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
-    const auto lookupSumatraPdfTitlePath =
-        [&appSettingsStore](const QString &documentTitle, const QString &normalizedTitleKey)
-            -> std::optional<QString> {
-        return Pinloom::lookupRememberedSumatraPdfDocumentPath(appSettingsStore,
-                                                               documentTitle,
-                                                               normalizedTitleKey);
-    };
-    const auto rememberSumatraPdfTitlePath =
-        [&appSettingsStore](const QString &documentTitle, const QString &filePath) {
-        Pinloom::rememberSumatraPdfDocumentTitlePath(appSettingsStore, documentTitle, filePath);
-    };
     Pinloom::SumatraPdfForegroundCaptureProvider foregroundPdfCaptureProvider(
         repository,
-        Pinloom::captureSumatraPdfViewState,
-        lookupSumatraPdfTitlePath);
+        Pinloom::captureSumatraPdfViewState);
 
     panelOptions.foregroundPdfAnchorCaptureRequestProvider =
         [&foregroundPdfCaptureProvider,
          &lastForegroundContext,
-         &commandWindowForForegroundCapture,
-         rememberSumatraPdfTitlePath](QString *status)
+         &commandWindowForForegroundCapture](QString *status)
         -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
         const bool useLastForegroundContext =
             commandWindowForForegroundCapture
@@ -550,7 +537,6 @@ int main(int argc, char *argv[])
                 return std::nullopt;
             }
 
-            rememberSumatraPdfTitlePath(result.documentTitle, confirmed.request.file);
             return captureRegion(confirmed.request);
         }
         if (!result.success()) {
@@ -559,7 +545,66 @@ int main(int argc, char *argv[])
         return captureRegion(result.request);
     };
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
-    window.setCentralWidget(panel);
+    panel->hide();
+
+    Pinloom::AnchorLibraryWindowOptions anchorLibraryOptions;
+    anchorLibraryOptions.filesProvider = [&repository]() {
+        QList<Pinloom::AnchorLibraryFile> files;
+        Pinloom::SearchQuery query;
+        query.limit = 0;
+        for (const Pinloom::SearchResult &result : repository.search(query)) {
+            if (result.resource.deleted) {
+                continue;
+            }
+            Pinloom::AnchorLibraryFile file;
+            file.resource = result.resource;
+            for (const Pinloom::Anchor &anchor : result.resource.anchors) {
+                if (!anchor.deleted) {
+                    file.anchors.append({result.resource.id, anchor});
+                }
+            }
+            if (!file.anchors.isEmpty()) {
+                files.append(file);
+            }
+        }
+        return files;
+    };
+    anchorLibraryOptions.anchorJumpHandler = [panel](const Pinloom::AnchorLibraryFile &file,
+                                                      const Pinloom::AnchorLibraryAnchor &entry,
+                                                      QString *status) {
+        const Pinloom::Anchor &anchor = entry.anchor;
+        Pinloom::PinloomOpenTarget target;
+        target.resourceId = entry.resourceId;
+        target.resourceKind = file.resource.kind;
+        target.title = anchor.name.trimmed().isEmpty() ? file.resource.title : anchor.name;
+        target.location = file.resource.location;
+        target.anchor = anchor;
+        const bool activated = panel->activateOpenTarget(target);
+        if (status) {
+            *status = panel->statusText();
+        }
+        return activated;
+    };
+    anchorLibraryOptions.anchorDeleteHandler = [&repository](const Pinloom::AnchorLibraryFile &,
+                                                              const Pinloom::AnchorLibraryAnchor &entry,
+                                                              QString *status) {
+        const bool deleted = repository.softDeleteAnchor(entry.resourceId, entry.anchor);
+        if (status) {
+            if (deleted) {
+                const QString name = entry.anchor.name.trimmed().isEmpty()
+                    ? entry.anchor.id
+                    : entry.anchor.name.trimmed();
+                *status = QStringLiteral("Deleted anchor: %1").arg(name);
+            } else {
+                const QString error = repository.lastError().trimmed();
+                *status = error.isEmpty()
+                    ? QStringLiteral("Unable to delete anchor")
+                    : QStringLiteral("Unable to delete anchor: %1").arg(error);
+            }
+        }
+        return deleted;
+    };
+    std::unique_ptr<Pinloom::AnchorLibraryWindow> anchorLibraryWindow;
 
     auto showSettingsDialog = [&]() {
         Pinloom::PinloomSettingsDialog dialog(runtimeSettings, &window);
@@ -594,12 +639,8 @@ int main(int argc, char *argv[])
     QObject::connect(&window, &Pinloom::PinloomMainWindow::settingsRequested, &window, showSettingsDialog);
     QObject::connect(&window, &Pinloom::PinloomMainWindow::quitRequested, &app, &QApplication::quit);
 
-    QMainWindow commandWindow;
-    commandWindowForForegroundCapture = &commandWindow;
-    commandWindowForClipInsertion = &commandWindow;
-    commandWindow.setWindowTitle(QStringLiteral("Pinloom Command"));
-    commandWindow.setMinimumWidth(560);
-    commandWindow.resize(760, 300);
+    commandWindowForForegroundCapture = &window;
+    commandWindowForClipInsertion = &window;
 
     Pinloom::PinloomCommandPanelOptions commandOptions;
     commandOptions.statusChangedHandler = [&window](const QString &status) {
@@ -645,6 +686,27 @@ int main(int argc, char *argv[])
         }
         return captured;
     };
+    commandOptions.anchorLibraryHandler = [&anchorLibraryWindow,
+                                           &anchorLibraryOptions,
+                                           &window](QString *status) {
+        if (!anchorLibraryWindow) {
+            anchorLibraryWindow = std::make_unique<Pinloom::AnchorLibraryWindow>(anchorLibraryOptions);
+        }
+        anchorLibraryWindow->refreshLibrary();
+        if (anchorLibraryWindow->isMinimized()) {
+            anchorLibraryWindow->showNormal();
+        } else {
+            anchorLibraryWindow->show();
+        }
+        anchorLibraryWindow->raise();
+        anchorLibraryWindow->activateWindow();
+        window.hide();
+        if (status) {
+            *status = QStringLiteral("Opened Anchor Library: %1 marked file(s)")
+                          .arg(anchorLibraryWindow->visibleFileCount());
+        }
+        return true;
+    };
     commandOptions.inboxSelectionProvider =
         [&lastForegroundContext, &commandWindowForForegroundCapture](QString *status) -> QStringList {
         const bool useLastForegroundContext =
@@ -668,13 +730,6 @@ int main(int argc, char *argv[])
             *status = result.status;
         }
         return result.success();
-    };
-    commandOptions.searchWindowHandler = [&window, panel](const QString &query) {
-        Pinloom::showMainPanelForHotkey(window, *panel);
-        const QString trimmedQuery = query.trimmed();
-        if (!trimmedQuery.isEmpty()) {
-            panel->setSearchText(trimmedQuery);
-        }
     };
     const auto targetTitle = [](const Pinloom::PinloomOpenTarget &target) {
         if (target.anchor.has_value()) {
@@ -1512,52 +1567,39 @@ int main(int argc, char *argv[])
         return result;
     };
 
-    auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &commandWindow);
-    commandWindow.setCentralWidget(commandPanel);
+    auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &window);
+    window.setCentralWidget(commandPanel);
 
     QObject::connect(&instanceGuard,
                      &Pinloom::PinloomSingleInstanceGuard::activationRequested,
                      &app,
-                     [&appSettingsStore, &commandWindow, commandPanel](const QString &message) {
-                         const std::optional<QString> openedPdf =
-                             Pinloom::sumatraPdfOpenFileFromPinloomMessage(message);
-                         if (openedPdf.has_value()) {
-                             Pinloom::rememberSumatraPdfOpenedFile(appSettingsStore, openedPdf.value());
-                             return;
-                         }
-
+                     [&window, commandPanel](const QString &message) {
                          if (message.trimmed().compare(QStringLiteral("resident"), Qt::CaseInsensitive) == 0) {
                              return;
                          }
 
-                         Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
+                         Pinloom::showCommandPanelForHotkey(window, *commandPanel);
                      });
 
     if (clipHost && clipHost->runtime()) {
         Pinloom::ClipTrayController &trayController = clipHost->runtime()->trayController();
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::showClipboardRequested,
-                         &commandWindow,
-                         [&commandWindow, commandPanel]() {
-                             Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
+                         &window,
+                         [&window, commandPanel]() {
+                             Pinloom::showCommandPanelForHotkey(window, *commandPanel);
                              commandPanel->openClipSearch();
                          });
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::settingsRequested,
                          &window,
-                         [&window, &showSettingsDialog]() {
-                             window.show();
-                             window.raise();
-                             window.activateWindow();
+                         [&showSettingsDialog]() {
                              showSettingsDialog();
                          });
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::diagnosticsRequested,
                          &window,
                          [&window]() {
-                             window.show();
-                             window.raise();
-                             window.activateWindow();
                              window.showDiagnosticsDialog();
                          });
         if (!clipHost->start()) {
@@ -1601,7 +1643,7 @@ int main(int argc, char *argv[])
         }
 
         pendingClipInsertionTarget = selection.target;
-        Pinloom::showCommandPanelForHotkey(commandWindow, *commandPanel);
+        Pinloom::showCommandPanelForHotkey(window, *commandPanel);
         commandPanel->openClipSearch();
     });
     QObject::connect(&hyperHotkeyService,
@@ -1619,12 +1661,12 @@ int main(int argc, char *argv[])
                                                       mainPanelHotkeyBackend.get(),
                                                       &app);
     Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService,
-                                                                 [&commandWindow,
+                                                                 [&window,
                                                                   commandPanel,
                                                                   &lastForegroundContext]() {
                                                                      lastForegroundContext =
                                                                          Pinloom::currentForegroundAppWindowContext();
-                                                                     Pinloom::showCommandPanelForHotkey(commandWindow,
+                                                                     Pinloom::showCommandPanelForHotkey(window,
                                                                                                         *commandPanel);
                                                                  },
                                                                  &app);
@@ -1726,7 +1768,7 @@ int main(int argc, char *argv[])
     }
     refreshResidentStatus();
     if (!startHidden) {
-        window.show();
+        Pinloom::showCommandPanelForHotkey(window, *commandPanel);
     }
 
     if (!mainPanelHotkeyService.start()) {

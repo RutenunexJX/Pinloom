@@ -30,6 +30,9 @@ class PinloomMainWindow final : public QMainWindow {
 public:
     explicit PinloomMainWindow(QWidget *parent = nullptr);
 
+    void setLauncherMode(bool enabled);
+    bool launcherMode() const;
+
     void setResidentStatus(const PinloomResidentStatus &status);
     PinloomResidentStatus residentStatus() const;
     QString residentStatusSummary() const;
@@ -57,6 +60,7 @@ private:
     PinloomResidentStatus residentStatus_;
     QString recentError_;
     QString recentErrorDetails_;
+    bool launcherMode_ = false;
 };
 
 } // namespace Pinloom

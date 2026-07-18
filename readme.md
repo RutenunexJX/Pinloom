@@ -203,7 +203,11 @@ physical shortcut is Caps Lock + S:
   available to PowerToys. Applications with custom, inaccessible editors fall
   back to the insertion path rather than risking an unintended archive.
 
-The explicit command namespaces remain available. Type `c` to see Clip commands.
+The explicit command namespaces remain available. Canonical commands use
+`domain:action` names. Each segment also accepts an ordered abbreviation, so
+`an`, `ar`, `ah`, `ancr`, and `anco` all resolve to `anchor`, while `an:li`
+resolves to `anchor:library`. Existing compact aliases such as `c s`, `k n`,
+and `i s` remain supported. Type `c` to see Clip commands.
 Type `c s` to search all insertable Clip rows (temporary history plus Saved
 Clips), or `c s <query>` to search by name, alias, tag, preview, or content;
 Enter inserts the selected row into the foreground app. Type `c n` to choose a
@@ -217,8 +221,14 @@ reloads the latest note body before pasting. In ordinary unified search, press
 Right Arrow on an Obsidian-backed Clip and choose `Open source note` to open it
 in Obsidian.
 
-Type `k` to see anchor commands. The recommended SumatraPDF flow is: open or
-focus the target PDF in SumatraPDF, press `Ctrl+Space`, type `k n`,
+Type `k` or an ordered abbreviation of `anchor` to see anchor commands. Use
+`anchor:library` (or `k l`) to open the Anchor Library, which lists every file
+with at least one active anchor and supports text, untagged, and missing-file
+filters plus direct anchor jumps. Select an anchor and use the trash button or
+press `Delete` while the anchor table is focused to move it to trash; the source
+file is never deleted, and the existing `restore` command can recover it. The
+recommended SumatraPDF flow is: open or
+focus the target PDF in SumatraPDF, press `Ctrl+Space`, type `anchor:new` or `k n`,
 drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. The dialog shows the full PDF path, page, rectangle,

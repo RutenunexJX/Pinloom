@@ -31,7 +31,6 @@ add_library(pinloom_core STATIC
     include/pinloom/core/SumatraPdfForegroundCapture.h
     include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
-    include/pinloom/core/SumatraPdfOpenProxy.h
     include/pinloom/core/TextSelectionCapture.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceUsage.h
@@ -53,7 +52,6 @@ add_library(pinloom_core STATIC
     src/core/SumatraPdfForegroundCapture.cpp
     src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
-    src/core/SumatraPdfOpenProxy.cpp
     src/core/TextSelectionCapture.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
@@ -125,6 +123,8 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
+    assets/pinloom_themes.qrc
+    include/pinloom/widgets/AnchorLibraryWindow.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipTrayPresenter.h
@@ -138,6 +138,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/ClipResidentHost.cpp
+    src/widgets/AnchorLibraryWindow.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
@@ -173,22 +174,6 @@ target_link_libraries(pinloom_app
     PRIVATE
         pinloom_widgets
         Qt6::Widgets
-)
-
-if(WIN32)
-    add_executable(pinloom_pdf_proxy WIN32
-        src/app/pdf_proxy_main.cpp
-    )
-else()
-    add_executable(pinloom_pdf_proxy
-        src/app/pdf_proxy_main.cpp
-    )
-endif()
-
-target_link_libraries(pinloom_pdf_proxy
-    PRIVATE
-        pinloom_widgets
-        Qt6::Core
 )
 
 enable_testing()

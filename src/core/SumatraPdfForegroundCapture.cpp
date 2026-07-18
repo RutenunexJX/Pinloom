@@ -800,31 +800,13 @@ SumatraPdfForegroundCaptureProvider::SumatraPdfForegroundCaptureProvider(
 {
 }
 
-SumatraPdfForegroundCaptureProvider::SumatraPdfForegroundCaptureProvider(
-    const ILibraryRepository &repository,
-    ViewStateProvider viewStateProvider,
-    TitlePathProvider titlePathProvider)
-    : repository_(repository)
-    , viewStateProvider_(std::move(viewStateProvider))
-    , titlePathProvider_(std::move(titlePathProvider))
-{
-}
-
 SumatraPdfForegroundCaptureResult SumatraPdfForegroundCaptureProvider::capture(
     const ForegroundAppWindowContext &context) const
 {
     const SumatraPdfViewState viewState = viewStateProvider_
         ? viewStateProvider_(context)
         : SumatraPdfViewState{};
-    std::optional<QString> savedDocumentPath;
-    if (titlePathProvider_) {
-        const QString documentTitle = sumatraPdfDocumentTitleFromWindowTitle(context.windowTitle);
-        const QString key = normalizedSumatraPdfDocumentTitleKey(documentTitle);
-        if (!documentTitle.trimmed().isEmpty() && !key.isEmpty()) {
-            savedDocumentPath = titlePathProvider_(documentTitle, key);
-        }
-    }
-    return captureSumatraPdfForegroundContext(repository_, context, viewState, savedDocumentPath);
+    return captureSumatraPdfForegroundContext(repository_, context, viewState);
 }
 
 SumatraPdfForegroundCaptureResult SumatraPdfForegroundCaptureProvider::captureCurrentForeground() const
@@ -1141,15 +1123,6 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     const ForegroundAppWindowContext &context,
     const SumatraPdfViewState &viewState)
 {
-    return captureSumatraPdfForegroundContext(repository, context, viewState, std::nullopt);
-}
-
-SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
-    const ILibraryRepository &repository,
-    const ForegroundAppWindowContext &context,
-    const SumatraPdfViewState &viewState,
-    const std::optional<QString> &savedDocumentPath)
-{
     SumatraPdfForegroundCaptureResult result;
     if (!context.isValid() || !isSumatraPdfForegroundWindow(context)) {
         result.status = QStringLiteral("SumatraPDF was not detected in the foreground; open or focus a SumatraPDF PDF before k n");
@@ -1180,19 +1153,6 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
     if (result.documentTitle.trimmed().isEmpty()) {
         result.status = QStringLiteral("Foreground PDF viewer window did not expose a PDF document title or file path");
         return result;
-    }
-
-    if (savedDocumentPath.has_value()) {
-        const QString mappedPath = cleanFullPdfPath(savedDocumentPath.value());
-        if (mappedPath.isEmpty()) {
-            return resultNeedsFileConfirmation(
-                result.documentTitle,
-                viewState,
-                QStringLiteral("Saved PDF mapping for document \"%1\" is not a valid full PDF path; confirm the PDF file")
-                    .arg(result.documentTitle));
-        }
-
-        return resultForResolvedFilePath(result.documentTitle, mappedPath, viewState);
     }
 
     const QList<Resource> matches = sumatraPdfTitleMatchedPdfResources(repository, result.documentTitle);

@@ -93,6 +93,18 @@ PinloomMainWindow::PinloomMainWindow(QWidget *parent)
     statusBar()->showMessage(pinloomResidentStatusSummary(residentStatus_));
 }
 
+void PinloomMainWindow::setLauncherMode(bool enabled)
+{
+    launcherMode_ = enabled;
+    menuBar()->setVisible(!launcherMode_);
+    statusBar()->setVisible(!launcherMode_);
+}
+
+bool PinloomMainWindow::launcherMode() const
+{
+    return launcherMode_;
+}
+
 void PinloomMainWindow::setResidentStatus(const PinloomResidentStatus &status)
 {
     residentStatus_ = status;
