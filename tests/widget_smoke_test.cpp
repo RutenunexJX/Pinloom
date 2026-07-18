@@ -29,7 +29,9 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QFileInfo>
 #include <QCheckBox>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -72,6 +74,7 @@ private slots:
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
+    void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchives();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
@@ -967,7 +970,7 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     PinloomResidentStatus status;
     status.running = true;
     status.mainHotkeyRegistered = true;
-    status.mainHotkeyText = QStringLiteral("Ctrl+Space");
+    status.mainHotkeyText = QStringLiteral("Shift+Space");
     status.hyperHotkeyRegistered = true;
     status.hyperHotkeyText = QStringLiteral("Hyper+S");
     status.clipCaptureActive = true;
@@ -975,12 +978,12 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     window.setResidentStatus(status);
 
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Pinloom running")));
-    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Command hotkey: registered (Ctrl+Space)")));
+    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Command hotkey: registered (Shift+Space)")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Hyper hotkey: registered (Hyper+S)")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Clip capture: active")));
 
     window.setRecentError(QStringLiteral("Hotkey conflict"),
-                          QStringLiteral("Ctrl+Space registration failed with fake error 1409"));
+                          QStringLiteral("Shift+Space registration failed with fake error 1409"));
     QCOMPARE(window.recentError(), QStringLiteral("Hotkey conflict"));
     QVERIFY(window.diagnosticsText().contains(QStringLiteral("Hotkey conflict")));
     QVERIFY(window.diagnosticsText().contains(QStringLiteral("fake error 1409")));
@@ -1032,7 +1035,7 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     QVERIFY(service.start());
     QVERIFY(hotkeyBackend.registered());
     QCOMPARE(hotkeyBackend.registeredConfig().key, Qt::Key_Space);
-    QCOMPARE(hotkeyBackend.registeredConfig().modifiers, Qt::KeyboardModifiers(Qt::ControlModifier));
+    QCOMPARE(hotkeyBackend.registeredConfig().modifiers, Qt::KeyboardModifiers(Qt::ShiftModifier));
 
     hotkeyBackend.activate();
     QApplication::processEvents();
@@ -1055,12 +1058,6 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     existingFile.write("pdf placeholder");
     existingFile.close();
 
-    AnchorLibraryFile clockFile;
-    clockFile.resource.id = QStringLiteral("clock-spec");
-    clockFile.resource.kind = ResourceKind::Pdf;
-    clockFile.resource.title = QStringLiteral("Clock Specification");
-    clockFile.resource.location = existingPath;
-    clockFile.resource.tags = {QStringLiteral("hardware")};
     Anchor jitter;
     jitter.id = QStringLiteral("clock-spec#jitter");
     jitter.name = QStringLiteral("PLL jitter budget");
@@ -1077,46 +1074,75 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     deleted.id = QStringLiteral("clock-spec#deleted");
     deleted.name = QStringLiteral("Deleted marker");
     deleted.deleted = true;
-    clockFile.anchors = {{clockFile.resource.id, jitter},
-                         {clockFile.resource.id, timing},
-                         {clockFile.resource.id, deleted}};
 
-    AnchorLibraryFile duplicateClockFile;
-    duplicateClockFile.resource.id = QStringLiteral("clock-spec-duplicate");
-    duplicateClockFile.resource.kind = ResourceKind::Pdf;
-    duplicateClockFile.resource.title = QStringLiteral("Clock Specification Duplicate");
-    duplicateClockFile.resource.location = existingPath;
+    Resource clockResource;
+    clockResource.id = QStringLiteral("clock-spec");
+    clockResource.kind = ResourceKind::Pdf;
+    clockResource.title = QStringLiteral("Clock Specification");
+    clockResource.location = existingPath;
+    clockResource.tags = {QStringLiteral("hardware")};
+    clockResource.anchors = {jitter, timing, deleted};
+
     Anchor overview;
     overview.id = QStringLiteral("clock-spec-duplicate#overview");
     overview.name = QStringLiteral("Overview");
     overview.updatedAt = jitter.updatedAt.addSecs(-30);
-    duplicateClockFile.anchors = {{duplicateClockFile.resource.id, overview}};
+    Resource duplicateClockResource;
+    duplicateClockResource.id = QStringLiteral("clock-spec-duplicate");
+    duplicateClockResource.kind = ResourceKind::Pdf;
+    duplicateClockResource.title = QStringLiteral("Clock Specification Duplicate");
+    duplicateClockResource.location = existingPath;
+    duplicateClockResource.anchors = {overview};
 
-    AnchorLibraryFile missingFile;
-    missingFile.resource.id = QStringLiteral("missing-spec");
-    missingFile.resource.kind = ResourceKind::File;
-    missingFile.resource.title = QStringLiteral("Missing Specification");
-    missingFile.resource.location = directory.filePath(QStringLiteral("missing.docx"));
     Anchor missingAnchor;
     missingAnchor.id = QStringLiteral("missing-spec#requirements");
     missingAnchor.name = QStringLiteral("Requirements");
     missingAnchor.updatedAt = jitter.updatedAt.addSecs(-120);
-    missingFile.anchors = {{missingFile.resource.id, missingAnchor}};
+    Resource missingResource;
+    missingResource.id = QStringLiteral("missing-spec");
+    missingResource.kind = ResourceKind::File;
+    missingResource.title = QStringLiteral("Missing Specification");
+    missingResource.location = directory.filePath(QStringLiteral("missing.docx"));
+    missingResource.anchors = {missingAnchor};
 
-    AnchorLibraryFile deletedOnlyFile;
-    deletedOnlyFile.resource.id = QStringLiteral("deleted-only");
-    deletedOnlyFile.resource.title = QStringLiteral("Deleted Only");
-    deletedOnlyFile.anchors = {{deletedOnlyFile.resource.id, deleted}};
+    Anchor deletedOnlyAnchor = deleted;
+    deletedOnlyAnchor.id = QStringLiteral("deleted-only#anchor");
+    Resource deletedOnlyResource;
+    deletedOnlyResource.id = QStringLiteral("deleted-only");
+    deletedOnlyResource.title = QStringLiteral("Deleted Only");
+    deletedOnlyResource.anchors = {deletedOnlyAnchor};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(clockResource));
+    QVERIFY(repository.upsertResource(duplicateClockResource));
+    QVERIFY(repository.upsertResource(missingResource));
+    QVERIFY(repository.upsertResource(deletedOnlyResource));
+    AnchorLibraryManagementService managementService(repository);
 
     QString jumpedResourceId;
     QString jumpedAnchorId;
-    QString deletedResourceId;
-    QString deletedAnchorId;
-    bool confirmDelete = false;
-    QList<AnchorLibraryFile> libraryFiles{clockFile, duplicateClockFile, missingFile, deletedOnlyFile};
+    bool confirmOperation = false;
     AnchorLibraryWindowOptions options;
-    options.filesProvider = [&libraryFiles]() {
-        return libraryFiles;
+    options.managementService = &managementService;
+    options.filesProvider = [&repository]() {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const SearchResult &result : repository.search(query)) {
+            if (result.resource.deleted) {
+                continue;
+            }
+            AnchorLibraryFile file;
+            file.resource = result.resource;
+            for (const Anchor &anchor : result.resource.anchors) {
+                file.anchors.append({result.resource.id, anchor});
+            }
+            if (!file.anchors.isEmpty()) {
+                files.append(file);
+            }
+        }
+        return files;
     };
     options.anchorJumpHandler = [&](const AnchorLibraryFile &,
                                     const AnchorLibraryAnchor &entry,
@@ -1128,31 +1154,8 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
         }
         return true;
     };
-    options.anchorDeleteConfirmationHandler = [&](const AnchorLibraryFile &,
-                                                   const AnchorLibraryAnchor &) {
-        return confirmDelete;
-    };
-    options.anchorDeleteHandler = [&](const AnchorLibraryFile &,
-                                      const AnchorLibraryAnchor &entry,
-                                      QString *status) {
-        for (AnchorLibraryFile &file : libraryFiles) {
-            if (file.resource.id != entry.resourceId) {
-                continue;
-            }
-            for (AnchorLibraryAnchor &candidate : file.anchors) {
-                if (candidate.anchor.id != entry.anchor.id) {
-                    continue;
-                }
-                candidate.anchor.deleted = true;
-                deletedResourceId = entry.resourceId;
-                deletedAnchorId = entry.anchor.id;
-                if (status) {
-                    *status = QStringLiteral("Deleted from Anchor Library");
-                }
-                return true;
-            }
-        }
-        return false;
+    options.confirmationHandler = [&](const QString &, const QString &) {
+        return confirmOperation;
     };
 
     AnchorLibraryWindow window(options);
@@ -1160,10 +1163,28 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
     auto *deleteButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDeleteButton"));
+    auto *restoreButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryRestoreButton"));
+    auto *mergeButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryMergeButton"));
+    auto *anchorNameEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorNameEdit"));
+    auto *anchorAliasesEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorAliasesEdit"));
+    auto *anchorTagsEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorTagsEdit"));
+    auto *anchorPinnedCheck = window.findChild<QCheckBox *>(QStringLiteral("anchorLibraryAnchorPinnedCheck"));
+    auto *fileTitleEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTitleEdit"));
+    auto *fileAliasesEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileAliasesEdit"));
+    auto *fileTagsEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTagsEdit"));
     QVERIFY(fileTable);
     QVERIFY(anchorTable);
     QVERIFY(scope);
     QVERIFY(deleteButton);
+    QVERIFY(restoreButton);
+    QVERIFY(mergeButton);
+    QVERIFY(anchorNameEdit);
+    QVERIFY(anchorAliasesEdit);
+    QVERIFY(anchorTagsEdit);
+    QVERIFY(anchorPinnedCheck);
+    QVERIFY(fileTitleEdit);
+    QVERIFY(fileAliasesEdit);
+    QVERIFY(fileTagsEdit);
     QCOMPARE(window.visibleFileCount(), 2);
     QVERIFY(window.statusText().contains(QStringLiteral("2 marked file(s) | 4 anchor(s)")));
 
@@ -1204,18 +1225,129 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QCOMPARE(jumpedAnchorId, QStringLiteral("clock-spec-duplicate#overview"));
     QCOMPARE(window.statusText(), QStringLiteral("Jumped from Anchor Library"));
 
+    anchorNameEdit->setText(QStringLiteral("Architecture overview"));
+    anchorAliasesEdit->setText(QStringLiteral("overview alias, system view"));
+    anchorTagsEdit->setText(QStringLiteral("architecture"));
+    anchorPinnedCheck->setChecked(true);
+    QVERIFY(window.saveSelectedAnchorMetadata());
+    std::optional<Resource> storedDuplicate = repository.findResource(duplicateClockResource.id);
+    QVERIFY(storedDuplicate.has_value());
+    QCOMPARE(storedDuplicate->anchors.first().name, QStringLiteral("Architecture overview"));
+    QVERIFY(storedDuplicate->anchors.first().pinned);
+
+    anchorTable->clearSelection();
+    anchorTable->selectionModel()->select(anchorTable->model()->index(0, 0),
+                                          QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    anchorTable->selectionModel()->select(anchorTable->model()->index(1, 0),
+                                          QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    QCOMPARE(window.selectedAnchorCount(), 2);
+    QVERIFY(window.updateSelectedAnchorTags({QStringLiteral("batch-review")}, false));
+    int taggedAnchorCount = 0;
+    for (const QString &resourceId : {clockResource.id, duplicateClockResource.id}) {
+        const std::optional<Resource> resource = repository.findResource(resourceId);
+        QVERIFY(resource.has_value());
+        for (const Anchor &anchor : resource->anchors) {
+            if (!anchor.deleted && anchor.tags.contains(QStringLiteral("batch-review"))) {
+                ++taggedAnchorCount;
+            }
+        }
+    }
+    QCOMPARE(taggedAnchorCount, 2);
+
+    int architectureRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Architecture overview")) {
+            architectureRow = row;
+            break;
+        }
+    }
+    QVERIFY(architectureRow >= 0);
+    QVERIFY(window.selectAnchorAt(architectureRow));
     QVERIFY(deleteButton->isEnabled());
     QVERIFY(!window.deleteSelectedAnchor());
     QCOMPARE(window.statusText(), QStringLiteral("Delete canceled"));
     QCOMPARE(window.visibleAnchorCount(), 3);
 
-    confirmDelete = true;
+    confirmOperation = true;
     deleteButton->click();
-    QCOMPARE(deletedResourceId, QStringLiteral("clock-spec-duplicate"));
-    QCOMPARE(deletedAnchorId, QStringLiteral("clock-spec-duplicate#overview"));
+    storedDuplicate = repository.findResource(duplicateClockResource.id);
+    QVERIFY(storedDuplicate->anchors.first().deleted);
     QCOMPARE(window.visibleFileCount(), 2);
     QCOMPARE(window.visibleAnchorCount(), 2);
-    QCOMPARE(window.statusText(), QStringLiteral("Deleted from Anchor Library"));
+    QCOMPARE(window.statusText(), QStringLiteral("Moved 1 anchor(s) to trash"));
+
+    scope->setCurrentIndex(3);
+    QCOMPARE(window.visibleFileCount(), 2);
+    int trashClockRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Clock Specification")) {
+            trashClockRow = row;
+            break;
+        }
+    }
+    QVERIFY(trashClockRow >= 0);
+    QVERIFY(window.selectFileAt(trashClockRow));
+    architectureRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Architecture overview")) {
+            architectureRow = row;
+            break;
+        }
+    }
+    QVERIFY(architectureRow >= 0);
+    QVERIFY(window.selectAnchorAt(architectureRow));
+    QVERIFY(restoreButton->isEnabled());
+    QVERIFY(window.restoreSelectedAnchors());
+    QVERIFY(!repository.findResource(duplicateClockResource.id)->anchors.first().deleted);
+    QCOMPARE(window.statusText(), QStringLiteral("Restored 1 anchor(s)"));
+
+    scope->setCurrentIndex(0);
+    int missingRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Missing Specification")) {
+            missingRow = row;
+            break;
+        }
+    }
+    QVERIFY(missingRow >= 0);
+    QVERIFY(window.selectFileAt(missingRow));
+    const QString replacementPath = directory.filePath(QStringLiteral("relinked.docx"));
+    QFile replacementFile(replacementPath);
+    QVERIFY(replacementFile.open(QIODevice::WriteOnly));
+    replacementFile.write("document");
+    replacementFile.close();
+    QVERIFY(window.relinkSelectedFile(replacementPath));
+    const QString normalizedReplacement = QDir::cleanPath(QFileInfo(replacementPath).absoluteFilePath());
+    QCOMPARE(repository.findResource(missingResource.id)->location, normalizedReplacement);
+    QCOMPARE(repository.findResource(missingResource.id)->anchors.first().targetFile,
+             normalizedReplacement);
+
+    clockRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Clock Specification")) {
+            clockRow = row;
+            break;
+        }
+    }
+    QVERIFY(clockRow >= 0);
+    QVERIFY(window.selectFileAt(clockRow));
+    QVERIFY(mergeButton->isEnabled());
+    QVERIFY(window.mergeSelectedFileDuplicates());
+    storedDuplicate = repository.findResource(duplicateClockResource.id);
+    QVERIFY(storedDuplicate.has_value());
+    QVERIFY(storedDuplicate->deleted);
+    QCOMPARE(repository.findResource(clockResource.id)->anchors.size(), 4);
+
+    fileTitleEdit->setText(QStringLiteral("Managed Clock Specification"));
+    fileAliasesEdit->setText(QStringLiteral("clock managed"));
+    fileTagsEdit->setText(QStringLiteral("managed, timing"));
+    QVERIFY(window.saveSelectedFileMetadata());
+    const std::optional<Resource> managedClock = repository.findResource(clockResource.id);
+    QVERIFY(managedClock.has_value());
+    QCOMPARE(managedClock->title, QStringLiteral("Managed Clock Specification"));
+    QCOMPARE(managedClock->aliases, QStringList{QStringLiteral("clock managed")});
+    QCOMPARE(managedClock->tags,
+             (QStringList{QStringLiteral("managed"), QStringLiteral("timing")}));
 
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     if (!snapshotDirectory.isEmpty()) {
@@ -1223,8 +1355,274 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
         window.show();
         QApplication::processEvents();
         QVERIFY(window.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library.png"))));
+        window.resize(920, 600);
+        QApplication::processEvents();
+        QVERIFY(window.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-compact.png"))));
         window.hide();
     }
+}
+
+void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchives()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pdfPath = directory.filePath(QStringLiteral("board.pdf"));
+    QFile pdf(pdfPath);
+    QVERIFY(pdf.open(QIODevice::WriteOnly));
+    pdf.write("pdf");
+    pdf.close();
+
+    Anchor region;
+    region.id = QStringLiteral("board#region");
+    region.name = QStringLiteral("Power region");
+    region.targetApp = QStringLiteral("SumatraPDF");
+    region.targetFile = pdfPath;
+    region.locatorType = QStringLiteral("sumatrapdf.rect");
+    region.locatorJson = QStringLiteral("{\"page\":4,\"rect\":[10,20,110,80],\"unit\":\"pt\"}");
+    region.tags = {QStringLiteral("power")};
+    region.updatedAt = QDateTime::currentDateTimeUtc();
+    Anchor duplicateRegion = region;
+    duplicateRegion.id = QStringLiteral("board#region-copy");
+    Resource board;
+    board.id = QStringLiteral("board");
+    board.kind = ResourceKind::Pdf;
+    board.title = QStringLiteral("Board Design");
+    board.location = pdfPath;
+    board.tags = {QStringLiteral("hardware")};
+    board.anchors = {region, duplicateRegion};
+
+    Anchor missingAnchor = testAnchor(QStringLiteral("Missing section"), QStringLiteral("manual"));
+    missingAnchor.id = QStringLiteral("missing#section");
+    Resource missing;
+    missing.id = QStringLiteral("missing");
+    missing.kind = ResourceKind::File;
+    missing.title = QStringLiteral("Missing Document");
+    missing.location = directory.filePath(QStringLiteral("missing.docx"));
+    missing.anchors = {missingAnchor};
+
+    Anchor archivedAnchor = testAnchor(QStringLiteral("Archived section"), QStringLiteral("manual"));
+    archivedAnchor.id = QStringLiteral("archived#section");
+    Resource archived;
+    archived.id = QStringLiteral("archived");
+    archived.kind = ResourceKind::Note;
+    archived.title = QStringLiteral("Archived Record");
+    archived.location = QStringLiteral("note://archived");
+    archived.deleted = true;
+    archived.anchors = {archivedAnchor};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(board));
+    QVERIFY(repository.upsertResource(missing));
+    QVERIFY(repository.upsertResource(archived));
+    QVERIFY(repository.recordResourceOpen(board.id));
+    QVERIFY(repository.recordAnchorOpen(board.id, region));
+    AnchorLibraryManagementService management(repository);
+    AnchorLibraryArchiveService archive(repository);
+    QSettings settings(directory.filePath(QStringLiteral("views.ini")), QSettings::IniFormat);
+
+    auto filesProvider = [&repository]() {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const SearchResult &result : repository.search(query)) {
+            AnchorLibraryFile file;
+            file.resource = result.resource;
+            file.usage = repository.resourceUsage(result.resource.id)
+                             .value_or(ResourceUsage{result.resource.id});
+            for (const Anchor &anchorValue : result.resource.anchors) {
+                AnchorLibraryAnchor entry;
+                entry.resourceId = result.resource.id;
+                entry.anchor = anchorValue;
+                entry.resourceDeleted = result.resource.deleted;
+                entry.usage = repository.anchorUsage(result.resource.id, anchorValue)
+                                  .value_or(AnchorUsage{result.resource.id});
+                file.anchors.append(entry);
+            }
+            if (!file.anchors.isEmpty()) files.append(file);
+        }
+        return files;
+    };
+
+    int previewCount = 0;
+    int recaptureCount = 0;
+    QString lastConfirmationMessage;
+    AnchorLibraryWindowOptions options;
+    options.managementService = &management;
+    options.archiveService = &archive;
+    options.repository = &repository;
+    options.settings = &settings;
+    options.filesProvider = filesProvider;
+    options.confirmationHandler = [&](const QString &, const QString &message) {
+        lastConfirmationMessage = message;
+        return true;
+    };
+    options.locatorPreviewHandler = [&](const AnchorLibraryFile &,
+                                        const AnchorLibraryAnchor &,
+                                        QString *status) {
+        ++previewCount;
+        QPixmap preview(120, 80);
+        preview.fill(Qt::red);
+        if (status) *status = QStringLiteral("Preview captured");
+        return preview;
+    };
+    options.locatorRecaptureHandler = [&](const AnchorLibraryFile &file,
+                                          const AnchorLibraryAnchor &,
+                                          QString *status)
+        -> std::optional<AnchorLocatorUpdate> {
+        ++recaptureCount;
+        AnchorLocatorUpdate update;
+        update.targetApp = QStringLiteral("SumatraPDF");
+        update.targetFile = file.resource.location;
+        update.locatorType = QStringLiteral("sumatrapdf.rect");
+        update.locatorJson = QStringLiteral("{\"page\":9,\"rect\":[20,30,180,120],\"unit\":\"pt\"}");
+        if (status) *status = QStringLiteral("Recaptured");
+        return update;
+    };
+
+    AnchorLibraryWindow window(options);
+    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
+    auto *tagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryTagFilterCombo"));
+    auto *kindFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryKindFilterCombo"));
+    auto *appFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAppFilterCombo"));
+    auto *usageFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryUsageFilterCombo"));
+    auto *savedViews = window.findChild<QComboBox *>(QStringLiteral("anchorLibrarySavedViewCombo"));
+    auto *locatorType = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryLocatorTypeEdit"));
+    QVERIFY(fileTable);
+    QVERIFY(anchorTable);
+    QVERIFY(scope);
+    QVERIFY(tagFilter);
+    QVERIFY(kindFilter);
+    QVERIFY(appFilter);
+    QVERIFY(usageFilter);
+    QVERIFY(savedViews);
+    QVERIFY(locatorType);
+    QCOMPARE(fileTable->selectionMode(), QAbstractItemView::ExtendedSelection);
+    QCOMPARE(window.visibleFileCount(), 2);
+
+    int boardRow = -1;
+    int missingRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Board Design")) boardRow = row;
+        if (fileTable->item(row, 0)->text() == QLatin1String("Missing Document")) missingRow = row;
+    }
+    QVERIFY(boardRow >= 0);
+    QVERIFY(missingRow >= 0);
+    fileTable->clearSelection();
+    fileTable->setCurrentCell(boardRow, 0, QItemSelectionModel::NoUpdate);
+    fileTable->selectionModel()->select(fileTable->model()->index(boardRow, 0),
+                                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    fileTable->selectionModel()->select(fileTable->model()->index(missingRow, 0),
+                                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    QCOMPARE(window.selectedFileCount(), 2);
+    QVERIFY(window.updateSelectedFileTags({QStringLiteral("batch-ui")}, false));
+    QVERIFY(window.setSelectedFilesPinned(true));
+    QVERIFY(repository.findResource(board.id)->tags.contains(QStringLiteral("batch-ui")));
+    QVERIFY(repository.findResource(missing.id)->tags.contains(QStringLiteral("batch-ui")));
+    QVERIFY(repository.resourceUsage(board.id)->pinned);
+    QVERIFY(repository.resourceUsage(missing.id)->pinned);
+    QVERIFY(window.undoLastOperation());
+    QVERIFY(!repository.resourceUsage(board.id)->pinned);
+    QVERIFY(repository.findResource(board.id)->tags.contains(QStringLiteral("batch-ui")));
+    QVERIFY(window.showOperationHistory());
+    QVERIFY(window.statusText().contains(QStringLiteral("session operation")));
+
+    window.setFilterText(QStringLiteral("Board"));
+    QVERIFY(window.saveCurrentView(QStringLiteral("Board view")));
+    window.setFilterText(QString());
+    QVERIFY(window.loadSavedView(QStringLiteral("Board view")));
+    QCOMPARE(window.filterText(), QStringLiteral("Board"));
+    QCOMPARE(window.visibleFileCount(), 1);
+    QVERIFY(window.deleteSavedView(QStringLiteral("Board view")));
+    window.setFilterText(QString());
+
+    scope->setCurrentIndex(scope->findData(2));
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(fileTable->item(0, 0)->text(), QStringLiteral("Missing Document"));
+    scope->setCurrentIndex(scope->findData(0));
+    boardRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Board Design")) boardRow = row;
+    }
+    QVERIFY(window.selectFileAt(boardRow));
+    QVERIFY(window.deduplicateSelectedFileAnchors());
+    QCOMPARE(repository.findResource(board.id)->anchors.size(), 1);
+    QVERIFY(window.selectFileAt(0) || window.visibleFileCount() > 0);
+    boardRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Board Design")) boardRow = row;
+    }
+    QVERIFY(window.selectFileAt(boardRow));
+    QVERIFY(window.selectAnchorAt(0));
+    QCOMPARE(locatorType->text(), QStringLiteral("sumatrapdf.rect"));
+    QVERIFY(window.validateSelectedAnchor());
+    QVERIFY(window.previewSelectedAnchor());
+    QCOMPARE(previewCount, 1);
+    QVERIFY(window.recaptureSelectedAnchor());
+    QCOMPARE(recaptureCount, 1);
+    QVERIFY(lastConfirmationMessage.contains(QStringLiteral("Current:")));
+    QVERIFY(lastConfirmationMessage.contains(QStringLiteral("Captured:")));
+    QVERIFY(repository.findResource(board.id)->anchors.first().locatorJson.contains(QStringLiteral("\"page\":9")));
+
+    missingRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Missing Document")) missingRow = row;
+    }
+    QVERIFY(window.selectFileAt(missingRow));
+    QVERIFY(window.archiveSelectedFiles());
+    QVERIFY(repository.findResource(missing.id)->deleted);
+    scope->setCurrentIndex(scope->findData(3));
+    int archivedMissingRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Missing Document")) archivedMissingRow = row;
+    }
+    QVERIFY(window.selectFileAt(archivedMissingRow));
+    QVERIFY(window.restoreSelectedFiles());
+    QVERIFY(!repository.findResource(missing.id)->deleted);
+
+    scope->setCurrentIndex(scope->findData(0));
+    boardRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Board Design")) boardRow = row;
+    }
+    QVERIFY(window.selectFileAt(boardRow));
+    QVERIFY(window.selectAnchorAt(0));
+    QVERIFY(window.deleteSelectedAnchors());
+    scope->setCurrentIndex(scope->findData(3));
+    boardRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->text() == QLatin1String("Board Design")) boardRow = row;
+    }
+    QVERIFY(window.selectFileAt(boardRow));
+    QVERIFY(window.selectAnchorAt(0));
+    QVERIFY(window.permanentlyDeleteSelection());
+    QVERIFY(repository.findResource(board.id)->anchors.isEmpty());
+    QVERIFY(!management.canUndo());
+
+    scope->setCurrentIndex(scope->findData(0));
+    Resource external;
+    external.id = QStringLiteral("external");
+    external.kind = ResourceKind::Note;
+    external.title = QStringLiteral("Externally Added");
+    external.location = QStringLiteral("note://external");
+    Anchor externalAnchor = testAnchor(QStringLiteral("External anchor"), QStringLiteral("manual"));
+    externalAnchor.id = QStringLiteral("external#anchor");
+    external.anchors = {externalAnchor};
+    QVERIFY(repository.upsertResource(external));
+    QTRY_COMPARE(window.visibleFileCount(), 2);
+
+    QVERIFY(window.renameTag(QStringLiteral("batch-ui"), QStringLiteral("managed-ui")));
+    QVERIFY(repository.findResource(missing.id)->tags.contains(QStringLiteral("managed-ui")));
+    QVERIFY(window.deleteTag(QStringLiteral("managed-ui")));
+    QVERIFY(repository.findResource(missing.id)->tags.isEmpty());
+    QVERIFY(!window.inspectIntegrity());
+    QVERIFY(window.statusText().contains(QStringLiteral("missing"), Qt::CaseInsensitive));
+
+    const QString exportPath = directory.filePath(QStringLiteral("window-export.json"));
+    QVERIFY(window.exportLibraryJson(exportPath));
+    QVERIFY(QFileInfo::exists(exportPath));
 }
 
 void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()

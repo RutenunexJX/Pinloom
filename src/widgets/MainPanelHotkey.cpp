@@ -14,7 +14,7 @@ ClipHotkeyConfig defaultMainPanelHotkeyConfig()
 {
     ClipHotkeyConfig config;
     config.key = Qt::Key_Space;
-    config.modifiers = Qt::ControlModifier;
+    config.modifiers = Qt::ShiftModifier;
     return config;
 }
 

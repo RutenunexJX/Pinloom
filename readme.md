@@ -67,7 +67,7 @@ surfaces unless they directly support the anchor launcher loop.
      against a foreground or selected PDF context and Pinloom stores page plus
      rectangle.
    - The Command Window capture path uses SumatraPDF 3.7 DDE. When
-     `Ctrl+Space` is pressed, Pinloom remembers the foreground SumatraPDF
+     `Shift+Space` is pressed, Pinloom remembers the foreground SumatraPDF
      window and obtains the active PDF full path, page, and zoom.
    - `k n` hides the Command Window and opens a transparent capture layer over
      SumatraPDF. Drag a rectangle inside one PDF page; right-click or press
@@ -126,12 +126,12 @@ The mismatch is intentional technical debt for the reset:
   its resource container in the current persistence contract.
 - Search still indexes resource content and broad source metadata.
 - Foreground SumatraPDF file capture is now wired into the Command Window:
-  focus an open PDF in SumatraPDF 3.7, press `Ctrl+Space`, type `k n`, drag a
+  focus an open PDF in SumatraPDF 3.7, press `Shift+Space`, type `k n`, drag a
   same-page rectangle, name the anchor, and save. Pinloom obtains the full PDF
   path and the rectangle's page coordinates through DDE, so the user does not
   need to search or re-import the PDF first.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
-  clipboard MVP with SQLite persistence, tray menu, unified `Ctrl+Space`
+  clipboard MVP with SQLite persistence, tray menu, unified `Shift+Space`
   launcher access through ordinary Command Window search plus explicit `c s`
   search/insert and `c n` save commands, automatic system clipboard text
   capture, temporary history insertion, row timestamps, and explicit Save Clip
@@ -144,9 +144,8 @@ The mismatch is intentional technical debt for the reset:
   `i n` from a recent Explorer selection saves a searchable Inbox file with
   name, alias, tag, pinned, and default-app launch behavior. Re-saving the
   same path updates the existing Inbox entry instead of creating duplicates.
-- The Command Window is the default global `Ctrl+Space` entry. It restores a
-  compact command/search window and focuses one input; on Windows this can
-  conflict with IMEs or another application that already owns `Ctrl+Space`.
+- The Command Window is the default global `Shift+Space` entry. It restores a
+  compact command/search window and focuses one input.
 
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
@@ -169,7 +168,7 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 .\build\pinloom_app.exe
 ```
 
-Pinloom starts as a resident app with one global shortcut: `Ctrl+Space` summons
+Pinloom starts as a resident app with one global shortcut: `Shift+Space` summons
 the Command Window and focuses one search/command input. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
 file/resource results. Result rows are labeled by type such as `[Anchor]`,
@@ -223,12 +222,34 @@ in Obsidian.
 
 Type `k` or an ordered abbreviation of `anchor` to see anchor commands. Use
 `anchor:library` (or `k l`) to open the Anchor Library, which lists every file
-with at least one active anchor and supports text, untagged, and missing-file
-filters plus direct anchor jumps. Select an anchor and use the trash button or
-press `Delete` while the anchor table is focused to move it to trash; the source
-file is never deleted, and the existing `restore` command can recover it. The
-recommended SumatraPDF flow is: open or
-focus the target PDF in SumatraPDF, press `Ctrl+Space`, type `anchor:new` or `k n`,
+with at least one anchor, including archived records in Trash. Search can be
+combined with scope, tag, resource type, target application, directory, time,
+and usage filters. Saved views preserve those filters. File and anchor tables
+support multi-selection, usage columns, and ordered multi-column sorting; hold
+Shift while selecting additional sort columns.
+
+The right inspector edits file and anchor metadata, Pinned state, target fields,
+locator type, and locator JSON. Locator actions validate the stored contract,
+show a PDF page/rectangle preview, or reopen SumatraPDF and recapture a rectangle
+after comparing the old and new locator. Batch actions cover tags, Pinned state,
+file-record archival and restoration, recursive missing-file discovery, manual
+relinking, duplicate Resource merging, and duplicate-anchor cleanup. The
+integrity scan reports missing targets, duplicate Resources, duplicate anchors,
+and invalid locators. The tag manager renames or removes a tag across the
+library, and Undo reverses recent session operations unless an external or
+irreversible data change invalidates that history.
+
+Moving an anchor or file record to Trash never deletes the source file. Trash
+supports restoration and explicit permanent deletion; the latter cannot be
+undone and creates an automatic SQLite safety backup when the application uses
+its normal repository. `Data` exports or imports portable JSON, creates a full
+SQLite backup, or restores one. JSON stores Resource and Anchor content but not
+usage telemetry; SQLite backups preserve the complete database. The active
+database is `pinloom.sqlite3` under Pinloom's application data directory, and
+automatic backups are retained under `backups/anchor-library`.
+
+The recommended SumatraPDF flow is: open or
+focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor:new` or `k n`,
 drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. The dialog shows the full PDF path, page, rectangle,
@@ -240,7 +261,7 @@ by this workflow.
 Type `i` to see Inbox commands. Drop a local file on the Command Window, then
 press Enter on `i n` to save it as a Link-mode Inbox file; if no file is
 pending, `i n` tries the file selection from the Explorer window that was in
-front before `Ctrl+Space` opened Pinloom. Type `i s <query>` to open the main
+front before `Shift+Space` opened Pinloom. Type `i s <query>` to open the main
 Pinloom search for archived Inbox files. Inbox is not a file manager and does
 not parse file contents, sync files, or move/copy files in this MVP.
 

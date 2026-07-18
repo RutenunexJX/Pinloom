@@ -18,6 +18,8 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
+    include/pinloom/core/AnchorLibraryArchive.h
+    include/pinloom/core/AnchorLibraryManagement.h
     include/pinloom/core/AnchorLocator.h
     include/pinloom/core/AnchorCapture.h
     include/pinloom/core/ApplicationLaunchSettings.h
@@ -41,12 +43,15 @@ add_library(pinloom_core STATIC
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
+    src/core/AnchorLibraryArchive.cpp
+    src/core/AnchorLibraryManagement.cpp
     src/core/AnchorLocator.cpp
     src/core/ApplicationLaunchSettings.cpp
     src/core/ExcelCommand.cpp
     src/core/ExplorerFileSelection.cpp
     src/core/InboxFileCapture.cpp
     src/core/InMemoryLibraryRepository.cpp
+    src/core/LibraryRepository.cpp
     src/core/ResourceNormalization.cpp
     src/core/ManualPdfAnchorCreation.cpp
     src/core/SumatraPdfForegroundCapture.cpp
@@ -124,6 +129,7 @@ endif()
 
 add_library(pinloom_widgets STATIC
     assets/pinloom_themes.qrc
+    include/pinloom/widgets/AnchorLocatorPreviewWidget.h
     include/pinloom/widgets/AnchorLibraryWindow.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
@@ -137,6 +143,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/SumatraPdfRegionCaptureOverlay.h
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
+    src/widgets/AnchorLocatorPreviewWidget.cpp
     src/widgets/ClipResidentHost.cpp
     src/widgets/AnchorLibraryWindow.cpp
     src/widgets/ClipResidentRuntime.cpp

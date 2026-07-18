@@ -1,4 +1,6 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/AnchorLibraryArchive.h"
+#include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
@@ -57,6 +59,9 @@ private slots:
     void validatesInboxFileRequests();
     void savesInboxFilesByStablePathAndSearchesMetadata();
     void softDeletesAndRestoresAnchorsInSearch();
+    void managesAnchorLibraryMetadataTagsPathsAndDuplicates();
+    void managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink();
+    void archivesAnchorLibraryJsonAndPublishesAtomicChanges();
     void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
     void recognizesExplorerForegroundWindows();
     void ranksAnchorBeforePathMatches();
@@ -1133,6 +1138,315 @@ void CoreSmokeTest::softDeletesAndRestoresAnchorsInSearch()
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("Clock anchor")}).size(), 1);
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("clock alias")}).size(), 1);
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("review")}).size(), 1);
+}
+
+void CoreSmokeTest::managesAnchorLibraryMetadataTagsPathsAndDuplicates()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString originalPath = directory.filePath(QStringLiteral("original.pdf"));
+    const QString replacementPath = directory.filePath(QStringLiteral("replacement.pdf"));
+    for (const QString &path : {originalPath, replacementPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("pdf") > 0);
+    }
+
+    Anchor overview;
+    overview.id = QStringLiteral("primary#overview");
+    overview.name = QStringLiteral("Overview");
+    overview.targetFile = originalPath;
+    overview.locatorType = QStringLiteral("sumatrapdf.page");
+    overview.locatorJson = QStringLiteral("{\"page\":2}");
+    Resource primary;
+    primary.id = QStringLiteral("primary");
+    primary.kind = ResourceKind::Pdf;
+    primary.title = QStringLiteral("Primary PDF");
+    primary.location = originalPath;
+    primary.tags = {QStringLiteral("hardware")};
+    primary.anchors = {overview};
+
+    Anchor details;
+    details.id = QStringLiteral("duplicate#details");
+    details.name = QStringLiteral("Details");
+    details.targetFile = originalPath;
+    details.locatorType = QStringLiteral("sumatrapdf.page");
+    details.locatorJson = QStringLiteral("{\"page\":5}");
+    Anchor duplicateOverview = overview;
+    duplicateOverview.name = QStringLiteral("Overview from duplicate");
+    duplicateOverview.aliases = {QStringLiteral("source overview")};
+    duplicateOverview.tags = {QStringLiteral("source-tag")};
+    duplicateOverview.deleted = true;
+    Resource duplicate;
+    duplicate.id = QStringLiteral("duplicate");
+    duplicate.kind = ResourceKind::Pdf;
+    duplicate.title = QStringLiteral("Duplicate PDF");
+    duplicate.location = originalPath;
+    duplicate.aliases = {QStringLiteral("secondary")};
+    duplicate.tags = {QStringLiteral("review")};
+    duplicate.anchors = {details, duplicateOverview};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(primary));
+    QVERIFY(repository.upsertResource(duplicate));
+    AnchorLibraryManagementService service(repository);
+
+    AnchorMetadataUpdate anchorUpdate;
+    anchorUpdate.name = QStringLiteral("System overview");
+    anchorUpdate.aliases = {QStringLiteral("architecture"), QStringLiteral("architecture")};
+    anchorUpdate.tags = {QStringLiteral("core")};
+    anchorUpdate.pinned = true;
+    AnchorLibraryOperationResult result =
+        service.updateAnchorMetadata({primary.id, overview}, anchorUpdate);
+    QVERIFY2(result.success, qPrintable(result.message));
+    std::optional<Resource> storedPrimary = repository.findResource(primary.id);
+    QVERIFY(storedPrimary.has_value());
+    QCOMPARE(storedPrimary->anchors.first().name, QStringLiteral("System overview"));
+    QCOMPARE(storedPrimary->anchors.first().aliases, QStringList{QStringLiteral("architecture")});
+    QVERIFY(storedPrimary->anchors.first().pinned);
+
+    result = service.updateAnchorTags({{primary.id, storedPrimary->anchors.first()},
+                                       {duplicate.id, details}},
+                                      {QStringLiteral("batch"), QStringLiteral("review")},
+                                      false);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(result.affectedCount, 2);
+    QVERIFY(repository.findResource(primary.id)->anchors.first().tags.contains(QStringLiteral("batch")));
+    QVERIFY(repository.findResource(duplicate.id)->anchors.first().tags.contains(QStringLiteral("batch")));
+
+    storedPrimary = repository.findResource(primary.id);
+    result = service.setAnchorsDeleted({{primary.id, storedPrimary->anchors.first()}}, true);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(repository.findResource(primary.id)->anchors.first().deleted);
+    result = service.setAnchorsDeleted({{primary.id, repository.findResource(primary.id)->anchors.first()}}, false);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(!repository.findResource(primary.id)->anchors.first().deleted);
+
+    ResourceMetadataUpdate fileUpdate;
+    fileUpdate.title = QStringLiteral("Managed PDF");
+    fileUpdate.aliases = {QStringLiteral("managed")};
+    fileUpdate.tags = {QStringLiteral("library")};
+    result = service.updateResourceMetadata({primary.id, duplicate.id}, fileUpdate);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(repository.findResource(primary.id)->title, QStringLiteral("Managed PDF"));
+    QCOMPARE(repository.findResource(duplicate.id)->tags, QStringList{QStringLiteral("library")});
+
+    result = service.relinkResources({primary.id, duplicate.id}, replacementPath);
+    QVERIFY2(result.success, qPrintable(result.message));
+    const QString normalizedReplacement = QDir::cleanPath(QFileInfo(replacementPath).absoluteFilePath());
+    QCOMPARE(repository.findResource(primary.id)->location, normalizedReplacement);
+    QCOMPARE(repository.findResource(duplicate.id)->anchors.first().targetFile, normalizedReplacement);
+
+    Resource relinkedDuplicate = repository.findResource(duplicate.id).value();
+    relinkedDuplicate.title = QStringLiteral("Alternate PDF title");
+    relinkedDuplicate.aliases = {QStringLiteral("secondary")};
+    QVERIFY(repository.upsertResource(relinkedDuplicate));
+
+    result = service.mergeResources(primary.id, {duplicate.id});
+    QVERIFY2(result.success, qPrintable(result.message));
+    storedPrimary = repository.findResource(primary.id);
+    QVERIFY(storedPrimary.has_value());
+    QCOMPARE(storedPrimary->anchors.size(), 2);
+    QVERIFY(storedPrimary->aliases.contains(QStringLiteral("managed")));
+    QVERIFY(storedPrimary->aliases.contains(QStringLiteral("secondary")));
+    QVERIFY(storedPrimary->aliases.contains(QStringLiteral("Alternate PDF title")));
+    const Anchor *mergedOverview = nullptr;
+    for (const Anchor &anchor : storedPrimary->anchors) {
+        if (anchor.id == overview.id) {
+            mergedOverview = &anchor;
+            break;
+        }
+    }
+    QVERIFY(mergedOverview != nullptr);
+    QVERIFY(mergedOverview->aliases.contains(QStringLiteral("Overview from duplicate")));
+    QVERIFY(mergedOverview->aliases.contains(QStringLiteral("source overview")));
+    QVERIFY(mergedOverview->tags.contains(QStringLiteral("source-tag")));
+    QVERIFY(mergedOverview->pinned);
+    QVERIFY(!mergedOverview->deleted);
+    const std::optional<Resource> storedDuplicate = repository.findResource(duplicate.id);
+    QVERIFY(storedDuplicate.has_value());
+    QVERIFY(storedDuplicate->deleted);
+}
+
+void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString missingPath = directory.filePath(QStringLiteral("old/design.pdf"));
+    const QString foundDirectory = directory.filePath(QStringLiteral("found/reference"));
+    QVERIFY(QDir().mkpath(foundDirectory));
+    const QString foundPath = QDir(foundDirectory).filePath(QStringLiteral("design.pdf"));
+    QFile foundFile(foundPath);
+    QVERIFY(foundFile.open(QIODevice::WriteOnly));
+    QVERIFY(foundFile.write("pdf") > 0);
+    foundFile.close();
+
+    Anchor region;
+    region.id = QStringLiteral("design#region");
+    region.name = QStringLiteral("Power stage");
+    region.targetApp = QStringLiteral("SumatraPDF");
+    region.targetFile = missingPath;
+    region.locatorType = QStringLiteral("sumatrapdf.rect");
+    region.locatorJson = QStringLiteral("{\"page\":3,\"rect\":[10,20,110,80],\"unit\":\"pt\"}");
+    region.tags = {QStringLiteral("legacy")};
+    Anchor duplicateRegion = region;
+    duplicateRegion.id = QStringLiteral("design#region-copy");
+
+    Resource design;
+    design.id = QStringLiteral("design");
+    design.kind = ResourceKind::Pdf;
+    design.title = QStringLiteral("Design PDF");
+    design.location = missingPath;
+    design.tags = {QStringLiteral("legacy")};
+    design.anchors = {region, duplicateRegion};
+    Resource duplicateDesign = design;
+    duplicateDesign.id = QStringLiteral("design-copy");
+    duplicateDesign.title = QStringLiteral("Design PDF copy");
+    duplicateDesign.anchors = {region};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(design));
+    QVERIFY(repository.upsertResource(duplicateDesign));
+    AnchorLibraryManagementService service(repository);
+
+    AnchorLibraryIntegrityReport report = service.inspectIntegrity();
+    QCOMPARE(report.missingTargetCount, 2);
+    QCOMPARE(report.duplicateResourceCount, 1);
+    QVERIFY(report.duplicateAnchorCount >= 2);
+    QVERIFY(report.invalidLocatorCount >= 2);
+
+    AnchorLibraryOperationResult result =
+        service.autoRelinkMissingResources({design.id, duplicateDesign.id}, directory.path());
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(result.affectedCount, 2);
+    QCOMPARE(result.unresolvedCount, 0);
+    const QString normalizedFoundPath = QDir::cleanPath(QFileInfo(foundPath).absoluteFilePath());
+    QCOMPARE(repository.findResource(design.id)->location, normalizedFoundPath);
+    QCOMPARE(repository.findResource(design.id)->anchors.first().targetFile, normalizedFoundPath);
+    QVERIFY(service.validateAnchor(repository.findResource(design.id).value(),
+                                   repository.findResource(design.id)->anchors.first()).valid);
+
+    result = service.deduplicateAnchors({design.id});
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(result.affectedCount, 1);
+    QCOMPARE(repository.findResource(design.id)->anchors.size(), 1);
+
+    Anchor storedAnchor = repository.findResource(design.id)->anchors.first();
+    result = service.setAnchorsPinned({{design.id, storedAnchor}}, true);
+    QVERIFY(result.success);
+    result = service.setResourcesPinned({design.id, duplicateDesign.id}, true);
+    QVERIFY(result.success);
+    QVERIFY(repository.resourceUsage(design.id)->pinned);
+
+    result = service.renameTag(QStringLiteral("legacy"), QStringLiteral("reviewed"));
+    QVERIFY(result.success);
+    QVERIFY(repository.findResource(design.id)->tags.contains(QStringLiteral("reviewed")));
+    QVERIFY(repository.findResource(design.id)->anchors.first().tags.contains(QStringLiteral("reviewed")));
+    result = service.deleteTag(QStringLiteral("reviewed"));
+    QVERIFY(result.success);
+    QVERIFY(repository.findResource(design.id)->tags.isEmpty());
+    QVERIFY(repository.findResource(design.id)->anchors.first().tags.isEmpty());
+
+    result = service.updateResourceTags({design.id}, {QStringLiteral("usage-safe-undo")}, false);
+    QVERIFY(result.success);
+    QVERIFY(repository.recordResourceOpen(design.id));
+    QVERIFY(service.undoLast().success);
+    QVERIFY(!repository.findResource(design.id)->tags.contains(QStringLiteral("usage-safe-undo")));
+    result = service.updateResourceTags({design.id}, {QStringLiteral("stale-undo")}, false);
+    QVERIFY(result.success);
+    Resource externalChange = repository.findResource(design.id).value();
+    externalChange.aliases.append(QStringLiteral("external change"));
+    QVERIFY(repository.upsertResource(externalChange));
+    QVERIFY(!service.undoLast().success);
+    QVERIFY(!service.canUndo());
+
+    storedAnchor = repository.findResource(design.id)->anchors.first();
+    result = service.setAnchorsDeleted({{design.id, storedAnchor}}, true);
+    QVERIFY(result.success);
+    QVERIFY(service.canUndo());
+    result = service.undoLast();
+    QVERIFY(result.success);
+    QVERIFY(!repository.findResource(design.id)->anchors.first().deleted);
+
+    storedAnchor = repository.findResource(design.id)->anchors.first();
+    QVERIFY(service.setAnchorsDeleted({{design.id, storedAnchor}}, true).success);
+    storedAnchor = repository.findResource(design.id)->anchors.first();
+    result = service.permanentlyDeleteAnchors({{design.id, storedAnchor}});
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(repository.findResource(design.id)->anchors.isEmpty());
+    QVERIFY(!service.canUndo());
+
+    QVERIFY(service.setResourcesDeleted({duplicateDesign.id}, true).success);
+    result = service.permanentlyDeleteResources({duplicateDesign.id});
+    QVERIFY(result.success);
+    QVERIFY(!repository.findResource(duplicateDesign.id).has_value());
+    QVERIFY(!service.canUndo());
+}
+
+void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    Resource resource;
+    resource.id = QStringLiteral("archive-note");
+    resource.kind = ResourceKind::Note;
+    resource.title = QStringLiteral("Archive note");
+    resource.location = QStringLiteral("note://archive");
+    resource.tags = {QStringLiteral("portable")};
+    Anchor anchor = testAnchor(QStringLiteral("Section"), QStringLiteral("text.heading"));
+    anchor.id = QStringLiteral("archive-note#section");
+    anchor.aliases = {QStringLiteral("part")};
+    anchor.pinned = true;
+    resource.anchors = {anchor};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(resource));
+    int notificationCount = 0;
+    LibraryChange lastChange;
+    const int listenerId = repository.addChangeListener([&](const LibraryChange &change) {
+        ++notificationCount;
+        lastChange = change;
+    });
+
+    Resource changed = resource;
+    changed.title = QStringLiteral("Should roll back");
+    Resource invalid;
+    LibraryBatchMutation invalidBatch;
+    invalidBatch.upserts = {changed, invalid};
+    QVERIFY(!repository.applyBatch(invalidBatch));
+    QCOMPARE(repository.findResource(resource.id)->title, resource.title);
+    QCOMPARE(notificationCount, 0);
+
+    AnchorLibraryArchiveService archive(repository);
+    QVERIFY(!archive.exportJson(QString()).success);
+    const QString archivePath = directory.filePath(QStringLiteral("library.json"));
+    AnchorLibraryOperationResult result = archive.exportJson(archivePath);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(QFileInfo::exists(archivePath));
+
+    QVERIFY(repository.clearResources());
+    QCOMPARE(notificationCount, 1);
+    QCOMPARE(lastChange.kind, LibraryChangeKind::Reset);
+    notificationCount = 0;
+    result = archive.importJson(archivePath, AnchorLibraryImportMode::Replace);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(notificationCount, 1);
+    QCOMPARE(lastChange.kind, LibraryChangeKind::Reset);
+    const std::optional<Resource> imported = repository.findResource(resource.id);
+    QVERIFY(imported.has_value());
+    QCOMPARE(imported->title, resource.title);
+    QCOMPARE(imported->anchors.first().aliases, anchor.aliases);
+    QVERIFY(imported->anchors.first().pinned);
+
+    const QString invalidPath = directory.filePath(QStringLiteral("invalid.json"));
+    QFile invalidArchive(invalidPath);
+    QVERIFY(invalidArchive.open(QIODevice::WriteOnly));
+    invalidArchive.write("{not-json");
+    invalidArchive.close();
+    result = archive.importJson(invalidPath, AnchorLibraryImportMode::Replace);
+    QVERIFY(!result.success);
+    QVERIFY(repository.findResource(resource.id).has_value());
+    repository.removeChangeListener(listenerId);
 }
 
 void CoreSmokeTest::softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile()

@@ -1,4 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/AnchorCapture.h"
+#include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/HyperHotkeyService.h"
 #include "pinloom/clip/ObsidianClipStore.h"
@@ -34,6 +36,7 @@
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QSettings>
+#include <QScreen>
 #include <QStandardPaths>
 #include <QThread>
 #include <QToolTip>
@@ -89,6 +92,15 @@ int main(int argc, char *argv[])
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to initialize Pinloom database:\n%1").arg(repository.lastError()));
         return 1;
+    }
+    const QString anchorLibraryBackupDirectory =
+        QDir(appDataPath).filePath(QStringLiteral("backups/anchor-library"));
+    Pinloom::AnchorLibraryArchiveService anchorLibraryArchive(repository,
+                                                               anchorLibraryBackupDirectory);
+    const Pinloom::AnchorLibraryOperationResult startupBackup =
+        anchorLibraryArchive.createAutomaticBackup(anchorLibraryBackupDirectory, 10);
+    if (!startupBackup.success) {
+        qWarning().noquote() << "Anchor Library startup backup failed:" << startupBackup.message;
     }
 
     Pinloom::ClipResidentRuntimeFactory clipFactory;
@@ -547,21 +559,31 @@ int main(int argc, char *argv[])
     auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
     panel->hide();
 
+    Pinloom::AnchorLibraryManagementService anchorLibraryManagement(repository);
     Pinloom::AnchorLibraryWindowOptions anchorLibraryOptions;
+    anchorLibraryOptions.managementService = &anchorLibraryManagement;
+    anchorLibraryOptions.archiveService = &anchorLibraryArchive;
+    anchorLibraryOptions.repository = &repository;
+    anchorLibraryOptions.settings = &appSettingsStore;
+    anchorLibraryOptions.automaticBackupDirectory = anchorLibraryBackupDirectory;
     anchorLibraryOptions.filesProvider = [&repository]() {
         QList<Pinloom::AnchorLibraryFile> files;
         Pinloom::SearchQuery query;
         query.limit = 0;
+        query.includeDeleted = true;
         for (const Pinloom::SearchResult &result : repository.search(query)) {
-            if (result.resource.deleted) {
-                continue;
-            }
             Pinloom::AnchorLibraryFile file;
             file.resource = result.resource;
+            file.usage = repository.resourceUsage(result.resource.id)
+                             .value_or(Pinloom::ResourceUsage{result.resource.id});
             for (const Pinloom::Anchor &anchor : result.resource.anchors) {
-                if (!anchor.deleted) {
-                    file.anchors.append({result.resource.id, anchor});
-                }
+                Pinloom::AnchorLibraryAnchor entry;
+                entry.resourceId = result.resource.id;
+                entry.anchor = anchor;
+                entry.resourceDeleted = result.resource.deleted;
+                entry.usage = repository.anchorUsage(result.resource.id, anchor)
+                                  .value_or(Pinloom::AnchorUsage{result.resource.id});
+                file.anchors.append(entry);
             }
             if (!file.anchors.isEmpty()) {
                 files.append(file);
@@ -585,24 +607,105 @@ int main(int argc, char *argv[])
         }
         return activated;
     };
-    anchorLibraryOptions.anchorDeleteHandler = [&repository](const Pinloom::AnchorLibraryFile &,
-                                                              const Pinloom::AnchorLibraryAnchor &entry,
-                                                              QString *status) {
-        const bool deleted = repository.softDeleteAnchor(entry.resourceId, entry.anchor);
-        if (status) {
-            if (deleted) {
-                const QString name = entry.anchor.name.trimmed().isEmpty()
-                    ? entry.anchor.id
-                    : entry.anchor.name.trimmed();
-                *status = QStringLiteral("Deleted anchor: %1").arg(name);
-            } else {
-                const QString error = repository.lastError().trimmed();
-                *status = error.isEmpty()
-                    ? QStringLiteral("Unable to delete anchor")
-                    : QStringLiteral("Unable to delete anchor: %1").arg(error);
-            }
+    anchorLibraryOptions.locatorPreviewHandler = [panel](const Pinloom::AnchorLibraryFile &file,
+                                                          const Pinloom::AnchorLibraryAnchor &entry,
+                                                          QString *status) {
+        const Pinloom::Resource resource = file.resource;
+        const Pinloom::Anchor anchor = entry.anchor;
+        const QString resourceId = entry.resourceId;
+        Pinloom::PinloomOpenTarget target;
+        target.resourceId = resourceId;
+        target.resourceKind = resource.kind;
+        target.title = anchor.name.trimmed().isEmpty() ? resource.title : anchor.name;
+        target.location = resource.location;
+        target.anchor = anchor;
+        if (!panel->activateOpenTarget(target)) {
+            if (status) *status = panel->statusText();
+            return QPixmap{};
         }
-        return deleted;
+        QApplication::processEvents();
+        QThread::msleep(120);
+        QApplication::processEvents();
+        const Pinloom::ForegroundAppWindowContext context =
+            Pinloom::currentForegroundAppWindowContext();
+        QScreen *screen = QApplication::screenAt(QCursor::pos());
+        if (!screen) screen = QApplication::primaryScreen();
+        if (!screen || !context.isValid()) {
+            if (status) *status = QStringLiteral("Opened anchor; application preview is unavailable");
+            return QPixmap{};
+        }
+        const QPixmap screenshot = screen->grabWindow(static_cast<WId>(context.windowHandle));
+        if (status) {
+            *status = screenshot.isNull()
+                ? QStringLiteral("Opened anchor; application preview is unavailable")
+                : QStringLiteral("Captured application locator preview");
+        }
+        return screenshot;
+    };
+    anchorLibraryOptions.locatorRecaptureHandler =
+        [panel, &foregroundPdfCaptureProvider](const Pinloom::AnchorLibraryFile &file,
+                                               const Pinloom::AnchorLibraryAnchor &entry,
+                                               QString *status)
+        -> std::optional<Pinloom::AnchorLocatorUpdate> {
+        const Pinloom::Resource resource = file.resource;
+        const Pinloom::Anchor anchor = entry.anchor;
+        const QString resourceId = entry.resourceId;
+        Pinloom::PinloomOpenTarget target;
+        target.resourceId = resourceId;
+        target.resourceKind = resource.kind;
+        target.title = anchor.name.trimmed().isEmpty() ? resource.title : anchor.name;
+        target.location = resource.location;
+        target.anchor = anchor;
+        if (!panel->activateOpenTarget(target)) {
+            if (status) *status = panel->statusText();
+            return std::nullopt;
+        }
+        QApplication::processEvents();
+        QThread::msleep(120);
+        QApplication::processEvents();
+        const Pinloom::ForegroundAppWindowContext context =
+            Pinloom::currentForegroundAppWindowContext();
+        const Pinloom::SumatraPdfForegroundCaptureResult foreground =
+            foregroundPdfCaptureProvider.capture(context);
+        if (!foreground.success()) {
+            if (status) *status = foreground.status;
+            return std::nullopt;
+        }
+        const Pinloom::SumatraPdfRegionCaptureResult region =
+            Pinloom::captureSumatraPdfRegion(context.windowHandle);
+        if (!region.success()) {
+            if (status) {
+                *status = region.canceled
+                    ? QStringLiteral("PDF locator recapture canceled")
+                    : (region.region.error.trimmed().isEmpty()
+                           ? QStringLiteral("Unable to capture PDF rectangle")
+                           : region.region.error.trimmed());
+            }
+            return std::nullopt;
+        }
+        Pinloom::PdfCaptureRequest request;
+        request.targetApp = QStringLiteral("SumatraPDF");
+        request.targetFile = foreground.request.file.trimmed().isEmpty()
+            ? resource.location
+            : foreground.request.file;
+        request.locatorType = QStringLiteral("sumatrapdf.rect");
+        request.page = region.region.page;
+        request.rect = region.region.rect;
+        request.zoom = foreground.viewState.zoom;
+        request.source = QStringLiteral("anchor-library-recapture");
+        request.anchorName = anchor.name;
+        const Pinloom::AnchorCaptureResult captured = Pinloom::captureManualPdfAnchor(request);
+        if (!captured.success()) {
+            if (status) *status = captured.error;
+            return std::nullopt;
+        }
+        Pinloom::AnchorLocatorUpdate update;
+        update.targetApp = captured.targetApp;
+        update.targetFile = captured.targetFile;
+        update.locatorType = captured.locatorType;
+        update.locatorJson = captured.anchor.locatorJson;
+        if (status) *status = QStringLiteral("Captured SumatraPDF page %1 rectangle").arg(captured.page);
+        return update;
     };
     std::unique_ptr<Pinloom::AnchorLibraryWindow> anchorLibraryWindow;
 
@@ -1773,7 +1876,7 @@ int main(int argc, char *argv[])
 
     if (!mainPanelHotkeyService.start()) {
         const QString error = QStringLiteral("Pinloom main hotkey %1 could not be registered:\n%2\n\n"
-                                             "Ctrl+Space may be reserved by an IME or another application.")
+                                             "Shift+Space may be reserved by another application.")
                                   .arg(mainPanelHotkeyService.displayText(), mainPanelHotkeyService.lastError());
         qWarning().noquote() << error;
         window.setRecentError(QStringLiteral("Pinloom main hotkey could not be registered"), error);

@@ -126,7 +126,8 @@ engineering drawing workflows and ranks just behind PDF and Excel.
 - Replacing Everything.
 - Becoming an Obsidian or notes system.
 - Acting as a PDF reader.
-- Managing a large three-pane content library.
+- Becoming a general-purpose file/content manager beyond explicitly marked
+  Resources and Anchors.
 - Automatically discovering anchors from screenshots, OCR, semantic embeddings,
   web history, feeds, bookmarks, or broad file content extraction.
 - Extending reader coverage unless it directly supports deterministic anchor

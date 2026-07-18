@@ -6,6 +6,7 @@
 
 #include <QDateTime>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -790,7 +791,11 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
         }
     }
 
-    return commitTransaction();
+    if (!commitTransaction()) {
+        return false;
+    }
+    notifyChange(LibraryChangeKind::Content, {storedResource.id});
+    return true;
 }
 
 std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id) const
@@ -962,6 +967,7 @@ bool SqliteLibraryRepository::softDeleteResource(const QString &resourceId)
         return false;
     }
     lastError_.clear();
+    notifyChange(LibraryChangeKind::Content, {resourceId});
     return true;
 }
 
@@ -985,6 +991,7 @@ bool SqliteLibraryRepository::restoreResource(const QString &resourceId)
         return false;
     }
     lastError_.clear();
+    notifyChange(LibraryChangeKind::Content, {resourceId});
     return true;
 }
 
@@ -1045,16 +1052,76 @@ bool SqliteLibraryRepository::clearResources()
         return false;
     }
 
-    if (!execute(QStringLiteral("DELETE FROM anchor_fts;"))
-        || !execute(QStringLiteral("DELETE FROM resource_fts;"))
-        || !execute(QStringLiteral("DELETE FROM anchor_usage;"))
-        || !execute(QStringLiteral("DELETE FROM resource_usage;"))
-        || !execute(QStringLiteral("DELETE FROM resources;"))) {
+    if (!clearResourceTables()) {
         rollbackTransaction();
         return false;
     }
 
-    return commitTransaction();
+    if (!commitTransaction()) {
+        return false;
+    }
+    notifyChange(LibraryChangeKind::Reset);
+    return true;
+}
+
+bool SqliteLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    ++deferredChangeDepth_;
+    if (!beginTransaction()) {
+        --deferredChangeDepth_;
+        return false;
+    }
+
+    bool succeeded = true;
+    if (mutation.clearExistingResources && !clearResourceTables()) {
+        succeeded = false;
+    }
+    for (const QString &resourceId : mutation.permanentlyDeleteResourceIds) {
+        if (succeeded && !deleteResourcePermanently(resourceId)) {
+            succeeded = false;
+        }
+    }
+    for (const Resource &resource : mutation.upserts) {
+        if (succeeded && !upsertResource(resource)) {
+            succeeded = false;
+        }
+    }
+    for (const ResourcePinUpdate &update : mutation.resourcePinUpdates) {
+        if (succeeded && !setResourcePinned(update.resourceId, update.pinned)) {
+            succeeded = false;
+        }
+    }
+
+    if (!succeeded) {
+        rollbackTransaction();
+    } else if (!commitTransaction()) {
+        succeeded = false;
+    }
+
+    --deferredChangeDepth_;
+    if (!succeeded) {
+        if (deferredChangeDepth_ == 0) {
+            deferredResourceIds_.clear();
+            deferredChangeKind_ = LibraryChangeKind::Content;
+        }
+        return false;
+    }
+
+    if (deferredChangeDepth_ == 0) {
+        const QStringList ids = deferredResourceIds_;
+        const LibraryChangeKind kind = mutation.clearExistingResources
+            ? LibraryChangeKind::Reset
+            : deferredChangeKind_;
+        deferredResourceIds_.clear();
+        deferredChangeKind_ = LibraryChangeKind::Content;
+        notifyChange(kind, ids);
+    }
+    return true;
 }
 
 bool SqliteLibraryRepository::recordResourceOpen(const QString &resourceId)
@@ -1080,6 +1147,7 @@ bool SqliteLibraryRepository::recordResourceOpen(const QString &resourceId)
         setLastError(query.lastError().text());
         return false;
     }
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -1105,6 +1173,7 @@ bool SqliteLibraryRepository::setResourcePinned(const QString &resourceId, bool 
         setLastError(query.lastError().text());
         return false;
     }
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -1180,6 +1249,7 @@ bool SqliteLibraryRepository::recordAnchorOpen(const QString &resourceId, const 
             return false;
         }
     }
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -1217,6 +1287,212 @@ std::optional<AnchorUsage> SqliteLibraryRepository::anchorUsage(const QString &r
     }
 
     return std::nullopt;
+}
+
+quint64 SqliteLibraryRepository::changeRevision() const
+{
+    return revision_;
+}
+
+quint64 SqliteLibraryRepository::contentRevision() const
+{
+    return contentRevision_;
+}
+
+int SqliteLibraryRepository::addChangeListener(LibraryChangeListener listener)
+{
+    if (!listener) {
+        return 0;
+    }
+    const int listenerId = nextListenerId_++;
+    listeners_.insert(listenerId, std::move(listener));
+    return listenerId;
+}
+
+void SqliteLibraryRepository::removeChangeListener(int listenerId)
+{
+    listeners_.remove(listenerId);
+}
+
+QString SqliteLibraryRepository::databasePath() const
+{
+    return database_.isValid() ? QFileInfo(database_.databaseName()).absoluteFilePath() : QString();
+}
+
+bool SqliteLibraryRepository::backupDatabase(const QString &destinationPath)
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+    if (destinationPath.trimmed().isEmpty()) {
+        setLastError(QStringLiteral("Database backup path is required"));
+        return false;
+    }
+    const QString source = databasePath();
+    const QString destination = QFileInfo(destinationPath).absoluteFilePath();
+    if (source.isEmpty() || destination.isEmpty() || source.compare(destination, Qt::CaseInsensitive) == 0) {
+        setLastError(QStringLiteral("Backup destination must differ from the active database"));
+        return false;
+    }
+    QDir destinationDirectory(QFileInfo(destination).absolutePath());
+    if (!destinationDirectory.mkpath(QStringLiteral("."))) {
+        setLastError(QStringLiteral("Unable to create backup directory"));
+        return false;
+    }
+
+    QSqlQuery checkpoint(database_);
+    if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"))
+        || !checkpoint.next()
+        || checkpoint.value(0).toInt() != 0) {
+        setLastError(QStringLiteral("Unable to checkpoint the active database before backup"));
+        return false;
+    }
+
+    const QString temporary = destination
+        + QStringLiteral(".tmp-")
+        + QUuid::createUuid().toString(QUuid::Id128);
+    QFile::remove(temporary);
+    if (!QFile::copy(source, temporary)) {
+        setLastError(QStringLiteral("Unable to copy the active database to the backup"));
+        return false;
+    }
+    if (QFile::exists(destination) && !QFile::remove(destination)) {
+        QFile::remove(temporary);
+        setLastError(QStringLiteral("Unable to replace the existing backup"));
+        return false;
+    }
+    if (!QFile::rename(temporary, destination)) {
+        QFile::remove(temporary);
+        setLastError(QStringLiteral("Unable to finalize the database backup"));
+        return false;
+    }
+    lastError_.clear();
+    return true;
+}
+
+bool SqliteLibraryRepository::restoreDatabase(const QString &sourcePath)
+{
+    if (sourcePath.trimmed().isEmpty()) {
+        setLastError(QStringLiteral("Database restore path is required"));
+        return false;
+    }
+    const QString source = QFileInfo(sourcePath).absoluteFilePath();
+    const QString destination = databasePath();
+    if (!QFileInfo::exists(source) || destination.isEmpty()
+        || source.compare(destination, Qt::CaseInsensitive) == 0) {
+        setLastError(QStringLiteral("A separate SQLite backup file is required"));
+        return false;
+    }
+
+    const QString validationConnection = QStringLiteral("pinloom_restore_validation_%1")
+                                             .arg(QUuid::createUuid().toString(QUuid::Id128));
+    bool validBackup = false;
+    {
+        QSqlDatabase validation = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), validationConnection);
+        validation.setConnectOptions(QStringLiteral("QSQLITE_OPEN_READONLY"));
+        validation.setDatabaseName(source);
+        if (validation.open()) {
+            QSqlQuery query(validation);
+            validBackup = query.exec(QStringLiteral(
+                              "SELECT COUNT(*) FROM sqlite_master "
+                              "WHERE type = 'table' AND name IN ('resources', 'schema_migrations')"))
+                && query.next()
+                && query.value(0).toInt() == 2;
+        }
+        validation.close();
+    }
+    QSqlDatabase::removeDatabase(validationConnection);
+    if (!validBackup) {
+        setLastError(QStringLiteral("The selected file is not a Pinloom SQLite backup"));
+        return false;
+    }
+
+    const QString rollbackCopy = destination
+        + QStringLiteral(".restore-rollback-")
+        + QUuid::createUuid().toString(QUuid::Id128);
+    const QString replacementCopy = destination
+        + QStringLiteral(".restore-new-")
+        + QUuid::createUuid().toString(QUuid::Id128);
+    QFile::remove(replacementCopy);
+    if (!QFile::copy(source, replacementCopy)) {
+        setLastError(QStringLiteral("Unable to stage the selected database backup"));
+        return false;
+    }
+    QSqlQuery checkpoint(database_);
+    if (!checkpoint.exec(QStringLiteral("PRAGMA wal_checkpoint(TRUNCATE)"))
+        || !checkpoint.next()
+        || checkpoint.value(0).toInt() != 0) {
+        QFile::remove(replacementCopy);
+        setLastError(QStringLiteral("Unable to checkpoint the active database before restore"));
+        return false;
+    }
+    database_.close();
+    transactionDepth_ = 0;
+    const auto reopenActiveDatabase = [this]() {
+        return database_.open()
+            && execute(QStringLiteral("PRAGMA foreign_keys = ON;"));
+    };
+    const auto removeSidecars = [&destination]() {
+        bool removed = true;
+        for (const QString &suffix : {QStringLiteral("-wal"), QStringLiteral("-shm")}) {
+            const QString path = destination + suffix;
+            if (QFile::exists(path) && !QFile::remove(path)) {
+                removed = false;
+            }
+        }
+        return removed;
+    };
+
+    QFile::remove(rollbackCopy);
+    if (!QFile::copy(destination, rollbackCopy)) {
+        QFile::remove(replacementCopy);
+        reopenActiveDatabase();
+        setLastError(QStringLiteral("Unable to create a rollback copy of the active database"));
+        return false;
+    }
+    if (!removeSidecars() || !QFile::remove(destination)) {
+        QFile::remove(replacementCopy);
+        reopenActiveDatabase();
+        QFile::remove(rollbackCopy);
+        setLastError(QStringLiteral("Unable to replace the active database"));
+        return false;
+    }
+    if (!QFile::rename(replacementCopy, destination)) {
+        const bool rollbackRestored = QFile::copy(rollbackCopy, destination)
+            && reopenActiveDatabase();
+        if (rollbackRestored) {
+            QFile::remove(rollbackCopy);
+        }
+        setLastError(rollbackRestored
+                         ? QStringLiteral("Unable to move the staged backup into place")
+                         : QStringLiteral("Unable to restore the active database; rollback preserved at %1")
+                               .arg(rollbackCopy));
+        return false;
+    }
+
+    if (!database_.open() || !execute(QStringLiteral("PRAGMA foreign_keys = ON;")) || !initialize()) {
+        const QString restoreError = lastError_;
+        database_.close();
+        removeSidecars();
+        QFile::remove(destination);
+        const bool rollbackRestored = QFile::copy(rollbackCopy, destination)
+            && reopenActiveDatabase()
+            && initialize();
+        if (rollbackRestored) {
+            QFile::remove(rollbackCopy);
+        }
+        setLastError(rollbackRestored
+                         ? QStringLiteral("Unable to open the restored database: %1").arg(restoreError)
+                         : QStringLiteral("Unable to open the restored database; rollback preserved at %1")
+                               .arg(rollbackCopy));
+        return false;
+    }
+
+    QFile::remove(rollbackCopy);
+    lastError_.clear();
+    notifyChange(LibraryChangeKind::Reset);
+    return true;
 }
 
 bool SqliteLibraryRepository::execute(const QString &sql)
@@ -1644,25 +1920,116 @@ bool SqliteLibraryRepository::recordMigration(int version, const QString &name)
 
 bool SqliteLibraryRepository::beginTransaction()
 {
+    if (transactionDepth_ > 0) {
+        ++transactionDepth_;
+        return true;
+    }
     if (!database_.transaction()) {
         setLastError(database_.lastError().text());
         return false;
     }
+    transactionDepth_ = 1;
     return true;
 }
 
 bool SqliteLibraryRepository::commitTransaction()
 {
-    if (!database_.commit()) {
-        setLastError(database_.lastError().text());
+    if (transactionDepth_ > 1) {
+        --transactionDepth_;
+        return true;
+    }
+    if (transactionDepth_ <= 0) {
+        setLastError(QStringLiteral("No SQLite transaction is active"));
         return false;
     }
+    if (!database_.commit()) {
+        setLastError(database_.lastError().text());
+        transactionDepth_ = 0;
+        return false;
+    }
+    transactionDepth_ = 0;
     return true;
 }
 
 void SqliteLibraryRepository::rollbackTransaction()
 {
-    database_.rollback();
+    if (transactionDepth_ > 0) {
+        database_.rollback();
+        transactionDepth_ = 0;
+    }
+}
+
+bool SqliteLibraryRepository::deleteResourcePermanently(const QString &resourceIdValue)
+{
+    const QString resourceId = resourceIdValue.trimmed();
+    if (resourceId.isEmpty()) {
+        setLastError(QStringLiteral("Resource id is required"));
+        return false;
+    }
+    for (const QString &table : {QStringLiteral("anchor_fts"), QStringLiteral("resource_fts")}) {
+        QSqlQuery deleteIndex(database_);
+        deleteIndex.prepare(QStringLiteral("DELETE FROM %1 WHERE resource_id = ?").arg(table));
+        deleteIndex.addBindValue(resourceId);
+        if (!deleteIndex.exec()) {
+            setLastError(deleteIndex.lastError().text());
+            return false;
+        }
+    }
+    QSqlQuery query(database_);
+    query.prepare(QStringLiteral("DELETE FROM resources WHERE id = ?"));
+    query.addBindValue(resourceId);
+    if (!query.exec()) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    if (query.numRowsAffected() <= 0) {
+        setLastError(QStringLiteral("Resource not found"));
+        return false;
+    }
+    notifyChange(LibraryChangeKind::Content, {resourceId});
+    return true;
+}
+
+bool SqliteLibraryRepository::clearResourceTables()
+{
+    return execute(QStringLiteral("DELETE FROM anchor_fts;"))
+        && execute(QStringLiteral("DELETE FROM resource_fts;"))
+        && execute(QStringLiteral("DELETE FROM anchor_usage;"))
+        && execute(QStringLiteral("DELETE FROM resource_usage;"))
+        && execute(QStringLiteral("DELETE FROM resources;"));
+}
+
+void SqliteLibraryRepository::notifyChange(LibraryChangeKind kind,
+                                           const QStringList &resourceIds)
+{
+    if (deferredChangeDepth_ > 0) {
+        if (deferredResourceIds_.isEmpty()) {
+            deferredChangeKind_ = kind;
+        } else if (kind == LibraryChangeKind::Reset
+                   || (kind == LibraryChangeKind::Content
+                       && deferredChangeKind_ == LibraryChangeKind::Usage)) {
+            deferredChangeKind_ = kind;
+        }
+        for (const QString &resourceId : resourceIds) {
+            if (!resourceId.trimmed().isEmpty()
+                && !deferredResourceIds_.contains(resourceId, Qt::CaseInsensitive)) {
+                deferredResourceIds_.append(resourceId);
+            }
+        }
+        return;
+    }
+
+    ++revision_;
+    if (kind != LibraryChangeKind::Usage) {
+        ++contentRevision_;
+    }
+    const LibraryChange change{kind, resourceIds, revision_};
+    const QList<LibraryChangeListener> listeners = listeners_.values();
+    for (const LibraryChangeListener &listener : listeners) {
+        if (listener) {
+            listener(change);
+        }
+    }
 }
 
 Resource SqliteLibraryRepository::hydrateResource(const QString &id) const

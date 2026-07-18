@@ -63,6 +63,7 @@ public:
     bool softDeleteAnchor(const QString &, const Anchor &) override { return false; }
     bool restoreAnchor(const QString &, const Anchor &) override { return false; }
     bool clearResources() override { return true; }
+    bool applyBatch(const LibraryBatchMutation &) override { return false; }
     bool recordResourceOpen(const QString &) override { return false; }
     bool setResourcePinned(const QString &, bool) override { return false; }
     std::optional<ResourceUsage> resourceUsage(const QString &) const override { return std::nullopt; }

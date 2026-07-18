@@ -8,7 +8,7 @@ opened.
 
 ## User Workflows
 
-The primary entry point is `Ctrl+Space`:
+The primary entry point is `Shift+Space`:
 
 - An ordinary query searches Anchors, Saved Clips, Inbox files, and resources.
 - `c` lists Clip commands.

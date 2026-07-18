@@ -1,4 +1,6 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/AnchorLibraryArchive.h"
+#include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/Schema.h"
@@ -33,6 +35,9 @@ private slots:
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
     void softDeletesAndRestoresResourcesAndAnchors();
+    void persistsAnchorLibraryManagementOperations();
+    void appliesAtomicBatchesAndCoalescesNotifications();
+    void backsUpRestoresAndImportsAnchorLibraryData();
     void filtersByRequiredLocationPrefixes();
     void filtersByRequiredResourceKinds();
     void ranksContextSignalsWithinMatchType();
@@ -622,6 +627,206 @@ void SqliteRepositoryTest::softDeletesAndRestoresResourcesAndAnchors()
     const std::optional<Resource> restored = repository.findResource(resource.id);
     QVERIFY(restored.has_value());
     QVERIFY(!restored->deleted);
+}
+
+void SqliteRepositoryTest::persistsAnchorLibraryManagementOperations()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString originalPath = dir.filePath(QStringLiteral("original.pdf"));
+    const QString replacementPath = dir.filePath(QStringLiteral("replacement.pdf"));
+    for (const QString &path : {originalPath, replacementPath}) {
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QVERIFY(file.write("pdf") > 0);
+    }
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Anchor firstAnchor = testAnchor(QStringLiteral("First anchor"), QStringLiteral("sumatrapdf.page"));
+    firstAnchor.id = QStringLiteral("first#anchor");
+    firstAnchor.targetFile = originalPath;
+    Anchor secondAnchor = testAnchor(QStringLiteral("Second anchor"), QStringLiteral("sumatrapdf.page"));
+    secondAnchor.id = QStringLiteral("second#anchor");
+    secondAnchor.targetFile = originalPath;
+    Resource first;
+    first.id = QStringLiteral("first");
+    first.kind = ResourceKind::Pdf;
+    first.title = QStringLiteral("First");
+    first.location = originalPath;
+    first.anchors = {firstAnchor};
+    Resource second;
+    second.id = QStringLiteral("second");
+    second.kind = ResourceKind::Pdf;
+    second.title = QStringLiteral("Second");
+    second.location = originalPath;
+    second.anchors = {secondAnchor};
+    QVERIFY2(repository.upsertResource(first), qPrintable(repository.lastError()));
+    QVERIFY2(repository.upsertResource(second), qPrintable(repository.lastError()));
+
+    AnchorLibraryManagementService service(repository);
+    AnchorMetadataUpdate update;
+    update.name = QStringLiteral("Renamed anchor");
+    update.tags = {QStringLiteral("managed")};
+    AnchorLibraryOperationResult result = service.updateAnchorMetadata({first.id, firstAnchor}, update);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(repository.search(SearchQuery{QStringLiteral("Renamed anchor")}).size(), 1);
+
+    result = service.relinkResources({first.id, second.id}, replacementPath);
+    QVERIFY2(result.success, qPrintable(result.message));
+    result = service.mergeResources(first.id, {second.id});
+    QVERIFY2(result.success, qPrintable(result.message));
+    const std::optional<Resource> merged = repository.findResource(first.id);
+    QVERIFY(merged.has_value());
+    QCOMPARE(merged->anchors.size(), 2);
+    QCOMPARE(merged->location, QDir::cleanPath(QFileInfo(replacementPath).absoluteFilePath()));
+    QVERIFY(repository.findResource(second.id)->deleted);
+    QVERIFY(repository.search(SearchQuery{QStringLiteral("Second anchor")}).size() == 1);
+}
+
+void SqliteRepositoryTest::appliesAtomicBatchesAndCoalescesNotifications()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource resource;
+    resource.id = QStringLiteral("atomic");
+    resource.kind = ResourceKind::Note;
+    resource.title = QStringLiteral("Before");
+    resource.location = QStringLiteral("note://atomic");
+    resource.anchors = {testAnchor(QStringLiteral("Atomic anchor"))};
+    QVERIFY(repository.upsertResource(resource));
+
+    int notifications = 0;
+    LibraryChange lastChange;
+    const int listenerId = repository.addChangeListener([&](const LibraryChange &change) {
+        ++notifications;
+        lastChange = change;
+    });
+    const quint64 initialRevision = repository.changeRevision();
+
+    Resource changed = resource;
+    changed.title = QStringLiteral("Rolled back");
+    Resource invalid;
+    LibraryBatchMutation invalidBatch;
+    invalidBatch.upserts = {changed, invalid};
+    QVERIFY(!repository.applyBatch(invalidBatch));
+    QCOMPARE(repository.findResource(resource.id)->title, resource.title);
+    QCOMPARE(notifications, 0);
+    QCOMPARE(repository.changeRevision(), initialRevision);
+
+    changed.title = QStringLiteral("After");
+    LibraryBatchMutation validBatch;
+    validBatch.upserts = {changed};
+    validBatch.resourcePinUpdates = {{resource.id, true}};
+    QVERIFY2(repository.applyBatch(validBatch), qPrintable(repository.lastError()));
+    QCOMPARE(repository.findResource(resource.id)->title, QStringLiteral("After"));
+    QVERIFY(repository.resourceUsage(resource.id)->pinned);
+    QCOMPARE(notifications, 1);
+    QCOMPARE(lastChange.kind, LibraryChangeKind::Content);
+    QVERIFY(lastChange.resourceIds.contains(resource.id));
+    QCOMPARE(repository.changeRevision(), initialRevision + 1);
+    const quint64 contentRevision = repository.contentRevision();
+    notifications = 0;
+    QVERIFY(repository.recordResourceOpen(resource.id));
+    QCOMPARE(notifications, 1);
+    QCOMPARE(lastChange.kind, LibraryChangeKind::Usage);
+    QCOMPARE(repository.contentRevision(), contentRevision);
+    repository.removeChangeListener(listenerId);
+}
+
+void SqliteRepositoryTest::backsUpRestoresAndImportsAnchorLibraryData()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource resource;
+    resource.id = QStringLiteral("backup-resource");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Before backup");
+    resource.location = dir.filePath(QStringLiteral("reference.pdf"));
+    QFile target(resource.location);
+    QVERIFY(target.open(QIODevice::WriteOnly));
+    target.write("pdf");
+    target.close();
+    Anchor anchor;
+    anchor.id = QStringLiteral("backup-resource#page");
+    anchor.name = QStringLiteral("Page seven");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
+    anchor.locatorJson = QStringLiteral("{\"page\":7}");
+    anchor.tags = {QStringLiteral("backup")};
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+    QVERIFY(repository.recordResourceOpen(resource.id));
+    QVERIFY(repository.recordAnchorOpen(resource.id, anchor));
+
+    AnchorLibraryArchiveService archive(repository);
+    QVERIFY(!archive.backupDatabase(QString()).success);
+    QVERIFY(!archive.restoreDatabase(QString()).success);
+    const QString jsonPath = dir.filePath(QStringLiteral("portable.json"));
+    QVERIFY2(archive.exportJson(jsonPath).success, qPrintable(repository.lastError()));
+    const QString backupPath = dir.filePath(QStringLiteral("snapshot.sqlite3"));
+    AnchorLibraryOperationResult result = archive.backupDatabase(backupPath);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(QFileInfo::exists(backupPath));
+    const QString invalidBackupPath = dir.filePath(QStringLiteral("not-a-database.sqlite3"));
+    QFile invalidBackup(invalidBackupPath);
+    QVERIFY(invalidBackup.open(QIODevice::WriteOnly));
+    invalidBackup.write("not sqlite");
+    invalidBackup.close();
+    result = archive.restoreDatabase(invalidBackupPath);
+    QVERIFY(!result.success);
+    QCOMPARE(repository.findResource(resource.id)->title, QStringLiteral("Before backup"));
+
+    Resource changed = repository.findResource(resource.id).value();
+    changed.title = QStringLiteral("After backup");
+    changed.tags = {QStringLiteral("changed")};
+    QVERIFY(repository.upsertResource(changed));
+    QVERIFY(repository.recordResourceOpen(resource.id));
+    QCOMPARE(repository.resourceUsage(resource.id)->openCount, 2);
+
+    int notifications = 0;
+    const int listenerId = repository.addChangeListener([&](const LibraryChange &change) {
+        if (change.kind == LibraryChangeKind::Reset) ++notifications;
+    });
+    result = archive.restoreDatabase(backupPath);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(notifications, 1);
+    QCOMPARE(repository.findResource(resource.id)->title, QStringLiteral("Before backup"));
+    QCOMPARE(repository.resourceUsage(resource.id)->openCount, 1);
+    QCOMPARE(repository.anchorUsage(resource.id, repository.findResource(resource.id)->anchors.first())->openCount, 1);
+
+    QVERIFY(repository.clearResources());
+    QVERIFY(!repository.findResource(resource.id).has_value());
+    result = archive.importJson(jsonPath, AnchorLibraryImportMode::Replace);
+    QVERIFY2(result.success, qPrintable(result.message));
+    const std::optional<Resource> imported = repository.findResource(resource.id);
+    QVERIFY(imported.has_value());
+    QCOMPARE(imported->title, QStringLiteral("Before backup"));
+    QCOMPARE(imported->anchors.first().tags, QStringList{QStringLiteral("backup")});
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+
+    const QString automaticDirectory = dir.filePath(QStringLiteral("automatic"));
+    QVERIFY(archive.createAutomaticBackup(automaticDirectory, 2).success);
+    QTest::qWait(2);
+    QVERIFY(archive.createAutomaticBackup(automaticDirectory, 2).success);
+    QTest::qWait(2);
+    QVERIFY(archive.createAutomaticBackup(automaticDirectory, 2).success);
+    QCOMPARE(QDir(automaticDirectory).entryList({QStringLiteral("pinloom-auto-*.sqlite3")}, QDir::Files).size(), 2);
+    repository.removeChangeListener(listenerId);
 }
 
 void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()

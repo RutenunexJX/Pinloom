@@ -6,7 +6,7 @@ Saved Clip foundations are in place. Product boundaries are defined in
 
 ## Current Baseline
 
-- One resident `pinloom_app.exe` process owns the tray, `Ctrl+Space` Command
+- One resident `pinloom_app.exe` process owns the tray, `Shift+Space` Command
   Window, contextual `Hyper+S` chord, anchor repository, and Clip repository.
 - The Command Window searches and acts on Anchors, Saved Clips, Inbox files,
   and local resources through one entry/action protocol.
@@ -24,9 +24,13 @@ Saved Clip foundations are in place. Product boundaries are defined in
   capture.
 - Inbox captures local file objects in Link mode and opens them through the
   operating-system default application.
+- The Anchor Library provides advanced combined filters and saved views; usage
+  sorting; direct jumps; file, anchor, and locator editing; locator validation,
+  preview, and SumatraPDF rectangle recapture; batch tags/Pinned/lifecycle/path
+  operations; duplicate cleanup; tag and integrity management; session Undo;
+  JSON interchange; and automatic/full SQLite backup and restore.
 - Directory crawling, library-root management, relationship graphs, standalone
-  Clip picker UI, JSON Clip archive, and dormant anchor archive/health shells
-  are not part of the runtime.
+  Clip picker UI, and JSON Clip archive are not part of the runtime.
 
 ## Phase 1: Daily-Use Hardening
 

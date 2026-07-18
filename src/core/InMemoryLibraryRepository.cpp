@@ -277,6 +277,7 @@ bool InMemoryLibraryRepository::upsertResource(const Resource &resource)
     }
 
     resources_.insert(resource.id, normalizedResource(resource));
+    notifyChange(LibraryChangeKind::Content, {resource.id});
     return true;
 }
 
@@ -400,6 +401,7 @@ bool InMemoryLibraryRepository::softDeleteResource(const QString &resourceId)
 
     it->deleted = true;
     it->updatedAt = QDateTime::currentDateTimeUtc();
+    notifyChange(LibraryChangeKind::Content, {resourceId});
     return true;
 }
 
@@ -412,6 +414,7 @@ bool InMemoryLibraryRepository::restoreResource(const QString &resourceId)
 
     it->deleted = false;
     it->updatedAt = QDateTime::currentDateTimeUtc();
+    notifyChange(LibraryChangeKind::Content, {resourceId});
     return true;
 }
 
@@ -430,6 +433,7 @@ bool InMemoryLibraryRepository::softDeleteAnchor(const QString &resourceId, cons
         storedAnchor.deleted = true;
         storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
         it->updatedAt = storedAnchor.updatedAt;
+        notifyChange(LibraryChangeKind::Content, {resourceId});
         return true;
     }
     return false;
@@ -450,6 +454,7 @@ bool InMemoryLibraryRepository::restoreAnchor(const QString &resourceId, const A
         storedAnchor.deleted = false;
         storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
         it->updatedAt = storedAnchor.updatedAt;
+        notifyChange(LibraryChangeKind::Content, {resourceId});
         return true;
     }
     return false;
@@ -460,6 +465,76 @@ bool InMemoryLibraryRepository::clearResources()
     resources_.clear();
     usage_.clear();
     anchorUsage_.clear();
+    notifyChange(LibraryChangeKind::Reset);
+    return true;
+}
+
+bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
+{
+    QHash<QString, Resource> resources = mutation.clearExistingResources
+        ? QHash<QString, Resource>{}
+        : resources_;
+    QHash<QString, ResourceUsage> usage = mutation.clearExistingResources
+        ? QHash<QString, ResourceUsage>{}
+        : usage_;
+    QHash<QString, AnchorUsage> anchorUsage = mutation.clearExistingResources
+        ? QHash<QString, AnchorUsage>{}
+        : anchorUsage_;
+    QStringList changedIds;
+
+    for (const QString &resourceIdValue : mutation.permanentlyDeleteResourceIds) {
+        const QString resourceId = resourceIdValue.trimmed();
+        if (resourceId.isEmpty() || !resources.contains(resourceId)) {
+            return false;
+        }
+        resources.remove(resourceId);
+        usage.remove(resourceId);
+        const QString prefix = resourceId + QLatin1Char('|');
+        for (auto it = anchorUsage.begin(); it != anchorUsage.end();) {
+            if (it.key().startsWith(prefix)) {
+                it = anchorUsage.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        if (!changedIds.contains(resourceId)) {
+            changedIds.append(resourceId);
+        }
+    }
+
+    for (const Resource &resource : mutation.upserts) {
+        if (resource.id.trimmed().isEmpty()) {
+            return false;
+        }
+        resources.insert(resource.id, normalizedResource(resource));
+        if (!changedIds.contains(resource.id)) {
+            changedIds.append(resource.id);
+        }
+    }
+
+    for (const ResourcePinUpdate &update : mutation.resourcePinUpdates) {
+        if (!resources.contains(update.resourceId)) {
+            return false;
+        }
+        ResourceUsage value = usage.value(update.resourceId);
+        value.resourceId = update.resourceId;
+        value.pinned = update.pinned;
+        usage.insert(update.resourceId, value);
+        if (!changedIds.contains(update.resourceId)) {
+            changedIds.append(update.resourceId);
+        }
+    }
+
+    resources_ = std::move(resources);
+    usage_ = std::move(usage);
+    anchorUsage_ = std::move(anchorUsage);
+    const bool changesContent = mutation.clearExistingResources
+        || !mutation.permanentlyDeleteResourceIds.isEmpty()
+        || !mutation.upserts.isEmpty();
+    notifyChange(mutation.clearExistingResources
+                     ? LibraryChangeKind::Reset
+                     : (changesContent ? LibraryChangeKind::Content : LibraryChangeKind::Usage),
+                 changedIds);
     return true;
 }
 
@@ -474,6 +549,7 @@ bool InMemoryLibraryRepository::recordResourceOpen(const QString &resourceId)
     usage.openCount += 1;
     usage.lastOpenedAt = QDateTime::currentDateTimeUtc();
     usage_.insert(resourceId, usage);
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -487,6 +563,7 @@ bool InMemoryLibraryRepository::setResourcePinned(const QString &resourceId, boo
     usage.resourceId = resourceId;
     usage.pinned = pinned;
     usage_.insert(resourceId, usage);
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -527,6 +604,7 @@ bool InMemoryLibraryRepository::recordAnchorOpen(const QString &resourceId, cons
             break;
         }
     }
+    notifyChange(LibraryChangeKind::Usage, {resourceId});
     return true;
 }
 
@@ -550,6 +628,47 @@ std::optional<AnchorUsage> InMemoryLibraryRepository::anchorUsage(const QString 
         }
     }
     return std::nullopt;
+}
+
+quint64 InMemoryLibraryRepository::changeRevision() const
+{
+    return revision_;
+}
+
+quint64 InMemoryLibraryRepository::contentRevision() const
+{
+    return contentRevision_;
+}
+
+int InMemoryLibraryRepository::addChangeListener(LibraryChangeListener listener)
+{
+    if (!listener) {
+        return 0;
+    }
+    const int listenerId = nextListenerId_++;
+    listeners_.insert(listenerId, std::move(listener));
+    return listenerId;
+}
+
+void InMemoryLibraryRepository::removeChangeListener(int listenerId)
+{
+    listeners_.remove(listenerId);
+}
+
+void InMemoryLibraryRepository::notifyChange(LibraryChangeKind kind,
+                                             const QStringList &resourceIds)
+{
+    ++revision_;
+    if (kind != LibraryChangeKind::Usage) {
+        ++contentRevision_;
+    }
+    LibraryChange change{kind, resourceIds, revision_};
+    const QList<LibraryChangeListener> listeners = listeners_.values();
+    for (const LibraryChangeListener &listener : listeners) {
+        if (listener) {
+            listener(change);
+        }
+    }
 }
 
 
