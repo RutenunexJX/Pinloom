@@ -8,10 +8,12 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
+#include <QCursor>
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -22,26 +24,30 @@
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QItemSelectionModel>
-#include <QJsonDocument>
-#include <QJsonObject>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
+#include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRandomGenerator>
 #include <QScrollArea>
+#include <QScreen>
 #include <QSettings>
 #include <QShortcut>
 #include <QSignalBlocker>
 #include <QSplitter>
+#include <QStyledItemDelegate>
 #include <QStyle>
 #include <QTableWidget>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
+#include <QWidgetAction>
 #include <algorithm>
 #include <utility>
 
@@ -53,6 +59,39 @@ constexpr int FileKeyRole = Qt::UserRole + 1;
 constexpr int ResourceIdRole = Qt::UserRole + 2;
 constexpr int AnchorIdentityRole = Qt::UserRole + 3;
 constexpr int SortValueRole = Qt::UserRole + 4;
+constexpr int TagValuesRole = Qt::UserRole + 5;
+
+enum FileColumn {
+    FileNameColumn = 0,
+    FileAliasesColumn = 1,
+    FileLocationColumn = 2,
+    FileTypeColumn = 3,
+    FileAnchorCountColumn = 4,
+    FileTagsColumn = 5,
+    FileLastMarkedColumn = 6,
+    FileStatusColumn = 7,
+    FileOpenCountColumn = 8,
+    FileLastOpenedColumn = 9,
+    FileColumnCount = 10
+};
+
+enum AnchorColumn {
+    AnchorNameColumn = 0,
+    AnchorAliasesColumn = 1,
+    AnchorTagsColumn = 2,
+    AnchorTypeColumn = 3,
+    AnchorUpdatedColumn = 4,
+    AnchorOpenCountColumn = 5,
+    AnchorLastOpenedColumn = 6,
+    AnchorValidityColumn = 7,
+    AnchorColumnCount = 8
+};
+
+enum InlineCellState {
+    InlineCellClean = 0,
+    InlineCellDirty = 1,
+    InlineCellSaved = 2
+};
 
 enum class AnchorLibraryScope {
     All = 0,
@@ -118,20 +157,6 @@ QStringList editorValues(const QString &text)
     return values;
 }
 
-QStringList fileTags(const AnchorLibraryFile &file, const QList<AnchorLibraryAnchor> &anchors)
-{
-    QStringList tags;
-    for (const QString &tag : file.resource.tags) {
-        appendUnique(tags, tag);
-    }
-    for (const AnchorLibraryAnchor &entry : anchors) {
-        for (const QString &tag : entry.anchor.tags) {
-            appendUnique(tags, tag);
-        }
-    }
-    return tags;
-}
-
 QDateTime lastMarkedAt(const QList<AnchorLibraryAnchor> &anchors)
 {
     QDateTime latest;
@@ -177,15 +202,182 @@ bool isPinned(const AnchorLibraryFile &file)
     });
 }
 
+QString locatorTypeLabel(const QString &locatorType)
+{
+    const QString type = locatorType.trimmed().toLower();
+    if (type == QLatin1String("sumatrapdf.rect") || type == QLatin1String("pdf.region")) {
+        return QStringLiteral("矩形选区");
+    }
+    if (type == QLatin1String("sumatrapdf.search") || type.startsWith(QStringLiteral("text."))) {
+        return QStringLiteral("文字");
+    }
+    if (type == QLatin1String("sumatrapdf.page") || type == QLatin1String("pdf.page")) {
+        return QStringLiteral("页码");
+    }
+    if (type == QLatin1String("file.line")) return QStringLiteral("行号");
+    if (type.endsWith(QStringLiteral(".heading"))) return QStringLiteral("标题");
+    if (type.endsWith(QStringLiteral(".bookmark"))) return QStringLiteral("书签");
+    if (type.endsWith(QStringLiteral(".cell"))) return QStringLiteral("单元格");
+    if (type.endsWith(QStringLiteral(".range"))) return QStringLiteral("单元格区域");
+    if (type.endsWith(QStringLiteral(".slide"))) return QStringLiteral("幻灯片");
+    if (type.endsWith(QStringLiteral(".shape"))) return QStringLiteral("图形");
+    if (type == QLatin1String("url.fragment")) return QStringLiteral("网页位置");
+    return type.isEmpty() ? QStringLiteral("未知") : type;
+}
+
 QString anchorLocatorSummary(const Anchor &anchor)
 {
-    if (anchor.locatorType.trimmed().isEmpty()) {
-        return anchor.locatorJson.simplified();
+    return QStringLiteral("%1\n%2")
+        .arg(anchor.locatorType.trimmed(), anchor.locatorJson.simplified());
+}
+
+QString inlineAnchorKey(const QString &resourceId, const QString &anchorIdentity)
+{
+    return resourceId + QLatin1Char('|') + anchorIdentity;
+}
+
+QString inlineCellKey(const QString &anchorKey, int column)
+{
+    return anchorKey + (column == AnchorAliasesColumn
+                            ? QStringLiteral("|aliases")
+                            : QStringLiteral("|tags"));
+}
+
+bool isHiddenApplicationFilterValue(const QString &value)
+{
+    QString normalized;
+    for (const QChar character : value.trimmed().toLower()) {
+        if (character.isLetterOrNumber()) normalized.append(character);
     }
-    if (anchor.locatorJson.trimmed().isEmpty()) {
-        return anchor.locatorType.trimmed();
+    return normalized == QLatin1String("pdf")
+        || (normalized.contains(QStringLiteral("pdf"))
+            && normalized.contains(QStringLiteral("change")));
+}
+
+void setTargetFields(const QString &target, AnchorLocatorUpdate *update)
+{
+    if (!update) return;
+    const QString cleaned = target.trimmed();
+    const QString normalizedPath = QDir::fromNativeSeparators(cleaned);
+    if (!cleaned.isEmpty() && QDir::isAbsolutePath(normalizedPath)) {
+        update->targetFile = cleaned;
+        update->targetUri.clear();
+        return;
     }
-    return QStringLiteral("%1 %2").arg(anchor.locatorType.trimmed(), anchor.locatorJson.simplified());
+    const QUrl url(cleaned);
+    if (!cleaned.isEmpty() && url.isValid() && !url.scheme().isEmpty() && !url.isLocalFile()) {
+        update->targetFile.clear();
+        update->targetUri = cleaned;
+        return;
+    }
+    update->targetFile = url.isLocalFile() ? url.toLocalFile() : cleaned;
+    update->targetUri.clear();
+}
+
+class TagChipDelegate final : public QStyledItemDelegate {
+public:
+    explicit TagChipDelegate(std::function<QColor(const QString &)> colorProvider,
+                             QObject *parent = nullptr)
+        : QStyledItemDelegate(parent)
+        , colorProvider_(std::move(colorProvider))
+    {
+    }
+
+    void paint(QPainter *painter,
+               const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
+    {
+        QStyleOptionViewItem background(option);
+        initStyleOption(&background, index);
+        background.text.clear();
+        const QWidget *widget = option.widget;
+        QStyle *style = widget ? widget->style() : QApplication::style();
+        style->drawControl(QStyle::CE_ItemViewItem, &background, painter, widget);
+
+        const QStringList tags = index.data(TagValuesRole).toStringList();
+        if (tags.isEmpty()) return;
+        painter->save();
+        painter->setRenderHint(QPainter::Antialiasing, true);
+        const QFontMetrics metrics(option.font);
+        const int height = metrics.height() + 6;
+        const int left = option.rect.left() + 5;
+        const int right = option.rect.right() - 5;
+        int x = left;
+        int y = option.rect.top() + 4;
+        for (const QString &tag : tags) {
+            const int width = std::min(right - left + 1, metrics.horizontalAdvance(tag) + 16);
+            if (x != left && x + width > right) {
+                x = left;
+                y += height + 4;
+            }
+            const QRect chip(x, y, width, height);
+            const QColor color = colorProvider_(tag);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(color);
+            painter->drawRoundedRect(chip, 4, 4);
+            painter->setPen(color.lightness() < 145 ? Qt::white : QColor(QStringLiteral("#202124")));
+            painter->drawText(chip.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, tag);
+            x += width + 5;
+        }
+        painter->restore();
+    }
+
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
+    {
+        const QStringList tags = index.data(TagValuesRole).toStringList();
+        if (tags.isEmpty()) return QStyledItemDelegate::sizeHint(option, index);
+        const QFontMetrics metrics(option.font);
+        const int available = std::max(80, option.rect.width() - 10);
+        const int chipHeight = metrics.height() + 6;
+        int lines = 1;
+        int used = 0;
+        for (const QString &tag : tags) {
+            const int width = std::min(available, metrics.horizontalAdvance(tag) + 16);
+            if (used > 0 && used + 5 + width > available) {
+                ++lines;
+                used = width;
+            } else {
+                used += (used > 0 ? 5 : 0) + width;
+            }
+        }
+        return QSize(available + 10, lines * chipHeight + (lines - 1) * 4 + 8);
+    }
+
+private:
+    std::function<QColor(const QString &)> colorProvider_;
+};
+
+QWidgetAction *addToneMenuAction(QMenu *menu,
+                                 const QString &objectName,
+                                 const QString &text,
+                                 const QColor &color,
+                                 QObject *context,
+                                 std::function<void()> handler)
+{
+    auto *action = new QWidgetAction(menu);
+    action->setObjectName(objectName);
+    action->setText(text);
+    QFont font = action->font();
+    font.setBold(true);
+    action->setFont(font);
+    auto *button = new QToolButton(menu);
+    button->setObjectName(objectName + QStringLiteral("Button"));
+    button->setText(text);
+    button->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    button->setAutoRaise(true);
+    button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    button->setStyleSheet(QStringLiteral(
+        "QToolButton { color: %1; font-weight: 700; text-align: left; border: 0; padding: 6px 22px; }"
+        "QToolButton:hover { background: rgba(128, 128, 128, 40); }")
+                              .arg(color.name()));
+    action->setDefaultWidget(button);
+    menu->addAction(action);
+    QObject::connect(action, &QAction::triggered, context, [menu, handler = std::move(handler)]() {
+        menu->close();
+        handler();
+    });
+    QObject::connect(button, &QToolButton::clicked, action, &QAction::trigger);
+    return action;
 }
 
 QString fileDisplayName(const AnchorLibraryFile &file)
@@ -311,6 +503,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     resize(1380, 820);
 
     auto *central = new QWidget(this);
+    central->setObjectName(QStringLiteral("anchorLibraryCentral"));
     auto *layout = new QVBoxLayout(central);
     layout->setContentsMargins(10, 10, 10, 8);
     layout->setSpacing(7);
@@ -339,9 +532,18 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     refreshButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshButton_->setToolTip(tr("Refresh library"));
     refreshButton_->setAccessibleName(refreshButton_->toolTip());
+    trashButton_ = new QToolButton(central);
+    trashButton_->setObjectName(QStringLiteral("anchorLibraryTrashButton"));
+    trashButton_->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
+    trashButton_->setText(QStringLiteral("回收站"));
+    trashButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
+    trashButton_->setCheckable(true);
+    trashButton_->setToolTip(tr("Open Trash"));
+    trashButton_->setAccessibleName(trashButton_->toolTip());
     queryRow->addWidget(filterEdit_, 1);
     queryRow->addWidget(savedViewCombo_);
     queryRow->addWidget(scopeCombo_);
+    queryRow->addWidget(trashButton_);
     queryRow->addWidget(refreshButton_);
 
     auto *filterRow = new QGridLayout;
@@ -350,6 +552,9 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     tagFilterCombo_ = new QComboBox(central);
     tagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryTagFilterCombo"));
     tagFilterCombo_->setMinimumWidth(120);
+    anchorTagFilterCombo_ = new QComboBox(central);
+    anchorTagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryAnchorTagFilterCombo"));
+    anchorTagFilterCombo_->setMinimumWidth(120);
     kindFilterCombo_ = new QComboBox(central);
     kindFilterCombo_->setObjectName(QStringLiteral("anchorLibraryKindFilterCombo"));
     appFilterCombo_ = new QComboBox(central);
@@ -372,31 +577,21 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     usageFilterCombo_->addItem(tr("Recently opened"), static_cast<int>(UsageFilter::RecentlyOpened));
     usageFilterCombo_->addItem(tr("Never opened"), static_cast<int>(UsageFilter::NeverOpened));
     filterRow->addWidget(tagFilterCombo_, 0, 0);
-    filterRow->addWidget(kindFilterCombo_, 0, 1);
-    filterRow->addWidget(appFilterCombo_, 0, 2);
-    filterRow->addWidget(directoryFilterEdit_, 0, 3);
+    filterRow->addWidget(anchorTagFilterCombo_, 0, 1);
+    filterRow->addWidget(kindFilterCombo_, 0, 2);
+    filterRow->addWidget(appFilterCombo_, 0, 3);
+    filterRow->addWidget(directoryFilterEdit_, 1, 2, 1, 2);
     filterRow->addWidget(timeFilterCombo_, 1, 0);
     filterRow->addWidget(usageFilterCombo_, 1, 1);
+    filterRow->setColumnStretch(2, 1);
     filterRow->setColumnStretch(3, 1);
 
     auto *actionRow = new QHBoxLayout;
     actionRow->setSpacing(6);
-    jumpButton_ = new QToolButton(central);
-    jumpButton_->setObjectName(QStringLiteral("anchorLibraryJumpButton"));
-    jumpButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowForward));
-    jumpButton_->setToolTip(tr("Open selected anchor"));
-    deleteButton_ = new QToolButton(central);
-    deleteButton_->setObjectName(QStringLiteral("anchorLibraryDeleteButton"));
-    deleteButton_->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
-    deleteButton_->setToolTip(tr("Move selected anchors to Trash"));
     restoreButton_ = new QToolButton(central);
     restoreButton_->setObjectName(QStringLiteral("anchorLibraryRestoreButton"));
     restoreButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
     restoreButton_->setToolTip(tr("Restore selection"));
-    purgeButton_ = new QToolButton(central);
-    purgeButton_->setObjectName(QStringLiteral("anchorLibraryPurgeButton"));
-    purgeButton_->setText(tr("Purge"));
-    purgeButton_->setToolTip(tr("Permanently delete the selected Trash records"));
     tagsButton_ = new QToolButton(central);
     tagsButton_->setObjectName(QStringLiteral("anchorLibraryTagsButton"));
     tagsButton_->setText(tr("Anchors"));
@@ -438,29 +633,21 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     integrityButton_->setObjectName(QStringLiteral("anchorLibraryIntegrityButton"));
     integrityButton_->setText(tr("Inspect"));
     integrityButton_->setToolTip(tr("Scan library integrity"));
-    dataButton_ = new QToolButton(central);
-    dataButton_->setObjectName(QStringLiteral("anchorLibraryDataButton"));
-    dataButton_->setText(tr("Data"));
-    dataButton_->setPopupMode(QToolButton::InstantPopup);
-    auto *dataMenu = new QMenu(dataButton_);
-    QAction *saveView = dataMenu->addAction(tr("Save current view"));
-    QAction *deleteView = dataMenu->addAction(tr("Delete current saved view"));
-    QAction *operationHistory = dataMenu->addAction(tr("Operation history"));
-    dataMenu->addSeparator();
-    QAction *exportJson = dataMenu->addAction(tr("Export JSON"));
-    QAction *importMerge = dataMenu->addAction(tr("Import JSON and merge"));
-    QAction *importReplace = dataMenu->addAction(tr("Import JSON and replace"));
-    dataMenu->addSeparator();
-    QAction *backupDatabase = dataMenu->addAction(tr("Back up SQLite database"));
-    QAction *restoreDatabase = dataMenu->addAction(tr("Restore SQLite database"));
-    dataButton_->setMenu(dataMenu);
+    manageButton_ = new QToolButton(central);
+    manageButton_->setObjectName(QStringLiteral("anchorLibraryManageButton"));
+    manageButton_->setText(tr("Manage"));
+    manageButton_->setPopupMode(QToolButton::InstantPopup);
+    auto *manageMenu = new QMenu(manageButton_);
+    QAction *saveView = manageMenu->addAction(tr("Save current view"));
+    QAction *deleteView = manageMenu->addAction(tr("Delete current saved view"));
+    QAction *operationHistory = manageMenu->addAction(tr("Operation history"));
+    manageButton_->setMenu(manageMenu);
     undoButton_ = new QToolButton(central);
     undoButton_->setObjectName(QStringLiteral("anchorLibraryUndoButton"));
     undoButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
     undoButton_->setToolTip(tr("Undo last library operation"));
-    for (QToolButton *button : {jumpButton_, deleteButton_, restoreButton_, purgeButton_, tagsButton_,
-                                fileActionsButton_, relinkButton_, mergeButton_, integrityButton_,
-                                dataButton_, undoButton_}) {
+    for (QToolButton *button : {restoreButton_, tagsButton_, fileActionsButton_, relinkButton_,
+                                mergeButton_, integrityButton_, manageButton_, undoButton_}) {
         button->setAccessibleName(button->toolTip().isEmpty() ? button->text() : button->toolTip());
         actionRow->addWidget(button);
     }
@@ -475,44 +662,64 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     fileTable_ = new QTableWidget(tablesSplitter);
     fileTable_->setObjectName(QStringLiteral("anchorLibraryFileTable"));
-    fileTable_->setColumnCount(9);
-    fileTable_->setHorizontalHeaderLabels({tr("File"), tr("Location"), tr("Type"), tr("Anchors"),
-                                           tr("Tags"), tr("Last marked"), tr("Status"), tr("Opens"),
+    fileTable_->setColumnCount(FileColumnCount);
+    fileTable_->setHorizontalHeaderLabels({tr("File"), tr("File aliases"), tr("Location"),
+                                           tr("Type"), tr("Anchors"), tr("File tags"),
+                                           tr("Last marked"), tr("Status"), tr("Opens"),
                                            tr("Last opened")});
     fileTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     fileTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
     fileTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    fileTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     fileTable_->setAlternatingRowColors(true);
     fileTable_->setSortingEnabled(false);
     fileTable_->verticalHeader()->setVisible(false);
-    fileTable_->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
-    fileTable_->horizontalHeader()->setSectionResizeMode(1, QHeaderView::Stretch);
-    fileTable_->horizontalHeader()->setSectionResizeMode(4, QHeaderView::Stretch);
-    for (int column : {2, 3, 5, 6, 7, 8}) {
+    fileTable_->horizontalHeader()->setMinimumSectionSize(56);
+    for (int column : {FileNameColumn, FileAliasesColumn, FileLocationColumn, FileTagsColumn}) {
+        fileTable_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Interactive);
+    }
+    fileTable_->setColumnWidth(FileNameColumn, 170);
+    fileTable_->setColumnWidth(FileAliasesColumn, 150);
+    fileTable_->setColumnWidth(FileLocationColumn, 240);
+    fileTable_->setColumnWidth(FileTagsColumn, 170);
+    for (int column : {FileTypeColumn, FileAnchorCountColumn, FileLastMarkedColumn,
+                       FileStatusColumn, FileOpenCountColumn, FileLastOpenedColumn}) {
         fileTable_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     }
     fileTable_->horizontalHeader()->setSortIndicatorShown(true);
-    fileTable_->horizontalHeader()->setSortIndicator(5, Qt::DescendingOrder);
+    fileTable_->horizontalHeader()->setSortIndicator(FileLastMarkedColumn, Qt::DescendingOrder);
 
     anchorTable_ = new QTableWidget(tablesSplitter);
     anchorTable_->setObjectName(QStringLiteral("anchorLibraryAnchorTable"));
-    anchorTable_->setColumnCount(8);
-    anchorTable_->setHorizontalHeaderLabels({tr("Anchor"), tr("Aliases"), tr("Tags"), tr("Locator"),
+    anchorTable_->setColumnCount(AnchorColumnCount);
+    anchorTable_->setHorizontalHeaderLabels({tr("Anchor"), tr("Anchor aliases"), tr("Anchor tags"), tr("Type"),
                                              tr("Updated"), tr("Opens"), tr("Last opened"), tr("Validity")});
     anchorTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
     anchorTable_->setSelectionMode(QAbstractItemView::ExtendedSelection);
-    anchorTable_->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    anchorTable_->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed);
+    anchorTable_->setContextMenuPolicy(Qt::CustomContextMenu);
     anchorTable_->setAlternatingRowColors(true);
     anchorTable_->setSortingEnabled(false);
     anchorTable_->verticalHeader()->setVisible(false);
-    for (int column : {0, 1, 2, 3}) {
-        anchorTable_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Stretch);
+    anchorTable_->horizontalHeader()->setMinimumSectionSize(56);
+    for (int column : {AnchorNameColumn, AnchorAliasesColumn, AnchorTagsColumn, AnchorTypeColumn}) {
+        anchorTable_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::Interactive);
     }
+    anchorTable_->setColumnWidth(AnchorNameColumn, 150);
+    anchorTable_->setColumnWidth(AnchorAliasesColumn, 180);
+    anchorTable_->setColumnWidth(AnchorTagsColumn, 180);
+    anchorTable_->setColumnWidth(AnchorTypeColumn, 110);
     for (int column : {4, 5, 6, 7}) {
         anchorTable_->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     }
     anchorTable_->horizontalHeader()->setSortIndicatorShown(true);
     anchorTable_->horizontalHeader()->setSortIndicator(4, Qt::DescendingOrder);
+    fileTable_->setItemDelegateForColumn(
+        FileTagsColumn,
+        new TagChipDelegate([this](const QString &tag) { return colorForTag(tag); }, fileTable_));
+    anchorTable_->setItemDelegateForColumn(
+        AnchorTagsColumn,
+        new TagChipDelegate([this](const QString &tag) { return colorForTag(tag); }, anchorTable_));
     tablesSplitter->addWidget(fileTable_);
     tablesSplitter->addWidget(anchorTable_);
     tablesSplitter->setStretchFactor(0, 3);
@@ -546,8 +753,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     filePinnedCheck_ = new QCheckBox(tr("Pinned"), inspector);
     filePinnedCheck_->setObjectName(QStringLiteral("anchorLibraryFilePinnedCheck"));
     fileForm->addRow(tr("Title"), fileTitleEdit_);
-    fileForm->addRow(tr("Aliases"), fileAliasesEdit_);
-    fileForm->addRow(tr("Tags"), fileTagsEdit_);
+    fileForm->addRow(tr("File aliases"), fileAliasesEdit_);
+    fileForm->addRow(tr("File tags"), fileTagsEdit_);
     fileForm->addRow(tr("Location"), fileLocationEdit_);
     fileForm->addRow(QString(), filePinnedCheck_);
     inspectorLayout->addLayout(fileForm);
@@ -566,8 +773,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     anchorPinnedCheck_ = new QCheckBox(tr("Pinned"), inspector);
     anchorPinnedCheck_->setObjectName(QStringLiteral("anchorLibraryAnchorPinnedCheck"));
     anchorForm->addRow(tr("Name"), anchorNameEdit_);
-    anchorForm->addRow(tr("Aliases"), anchorAliasesEdit_);
-    anchorForm->addRow(tr("Tags"), anchorTagsEdit_);
+    anchorForm->addRow(tr("Anchor aliases"), anchorAliasesEdit_);
+    anchorForm->addRow(tr("Anchor tags"), anchorTagsEdit_);
     anchorForm->addRow(QString(), anchorPinnedCheck_);
     inspectorLayout->addLayout(anchorForm);
     saveAnchorButton_ = new QPushButton(style()->standardIcon(QStyle::SP_DialogSaveButton), tr("Save anchor"), inspector);
@@ -580,16 +787,13 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     targetAppEdit_->setObjectName(QStringLiteral("anchorLibraryTargetAppEdit"));
     targetFileEdit_ = new QLineEdit(inspector);
     targetFileEdit_->setObjectName(QStringLiteral("anchorLibraryTargetFileEdit"));
-    targetUriEdit_ = new QLineEdit(inspector);
-    targetUriEdit_->setObjectName(QStringLiteral("anchorLibraryTargetUriEdit"));
     locatorTypeEdit_ = new QLineEdit(inspector);
     locatorTypeEdit_->setObjectName(QStringLiteral("anchorLibraryLocatorTypeEdit"));
     locatorJsonEdit_ = new QPlainTextEdit(inspector);
     locatorJsonEdit_->setObjectName(QStringLiteral("anchorLibraryLocatorJsonEdit"));
     locatorJsonEdit_->setMaximumHeight(90);
     locatorForm->addRow(tr("Application"), targetAppEdit_);
-    locatorForm->addRow(tr("Target file"), targetFileEdit_);
-    locatorForm->addRow(tr("Target URI"), targetUriEdit_);
+    locatorForm->addRow(tr("Target"), targetFileEdit_);
     locatorForm->addRow(tr("Type"), locatorTypeEdit_);
     locatorForm->addRow(tr("JSON"), locatorJsonEdit_);
     inspectorLayout->addLayout(locatorForm);
@@ -629,8 +833,12 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     setCentralWidget(central);
 
     connect(filterEdit_, &QLineEdit::textChanged, this, &AnchorLibraryWindow::applyFilter);
-    connect(scopeCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
+    connect(scopeCombo_, &QComboBox::currentIndexChanged, this, [this]() {
+        applyFilter();
+        applyTrashTheme();
+    });
     connect(tagFilterCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
+    connect(anchorTagFilterCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
     connect(kindFilterCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
     connect(appFilterCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
     connect(timeFilterCombo_, &QComboBox::currentIndexChanged, this, &AnchorLibraryWindow::applyFilter);
@@ -641,12 +849,13 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
         if (!name.isEmpty()) loadSavedView(name);
     });
     connect(refreshButton_, &QToolButton::clicked, this, &AnchorLibraryWindow::refreshLibrary);
-    connect(jumpButton_, &QToolButton::clicked, this, &AnchorLibraryWindow::activateSelectedAnchor);
-    connect(deleteButton_, &QToolButton::clicked, this, &AnchorLibraryWindow::deleteSelectedAnchors);
+    connect(trashButton_, &QToolButton::clicked, this, [this](bool checked) {
+        if (checked) showTrash();
+        else scopeCombo_->setCurrentIndex(std::max(0, scopeCombo_->findData(static_cast<int>(AnchorLibraryScope::All))));
+    });
     connect(restoreButton_, &QToolButton::clicked, this, [this]() {
         if (!restoreSelectedFiles()) restoreSelectedAnchors();
     });
-    connect(purgeButton_, &QToolButton::clicked, this, &AnchorLibraryWindow::permanentlyDeleteSelection);
     connect(addAnchorTags, &QAction::triggered, this, [this]() { promptAnchorTagUpdate(false); });
     connect(removeAnchorTags, &QAction::triggered, this, [this]() { promptAnchorTagUpdate(true); });
     connect(pinAnchors, &QAction::triggered, this, [this]() { setSelectedAnchorsPinned(true); });
@@ -670,36 +879,25 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
         if (!name.isEmpty()) deleteSavedView(name);
     });
     connect(operationHistory, &QAction::triggered, this, &AnchorLibraryWindow::showOperationHistory);
-    connect(exportJson, &QAction::triggered, this, [this]() {
-        const QString path = QFileDialog::getSaveFileName(this, tr("Export Anchor Library"), QString(), tr("JSON files (*.json)"));
-        if (!path.isEmpty()) exportLibraryJson(path);
-    });
-    connect(importMerge, &QAction::triggered, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Import Anchor Library"), QString(), tr("JSON files (*.json)"));
-        if (!path.isEmpty()) importLibraryJson(path, AnchorLibraryImportMode::Merge);
-    });
-    connect(importReplace, &QAction::triggered, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Replace Anchor Library"), QString(), tr("JSON files (*.json)"));
-        if (!path.isEmpty() && confirmOperation(tr("Replace Anchor Library"), tr("Replace all current resources with this JSON archive?"))) {
-            importLibraryJson(path, AnchorLibraryImportMode::Replace);
-        }
-    });
-    connect(backupDatabase, &QAction::triggered, this, [this]() {
-        const QString path = QFileDialog::getSaveFileName(this, tr("Back Up Anchor Library"), QString(), tr("SQLite databases (*.sqlite3)"));
-        if (!path.isEmpty()) backupLibraryDatabase(path);
-    });
-    connect(restoreDatabase, &QAction::triggered, this, [this]() {
-        const QString path = QFileDialog::getOpenFileName(this, tr("Restore Anchor Library"), QString(), tr("SQLite databases (*.sqlite3)"));
-        if (!path.isEmpty() && confirmOperation(tr("Restore Anchor Library"), tr("Replace the active database with this backup?"))) {
-            restoreLibraryDatabase(path);
-        }
-    });
     connect(fileTable_, &QTableWidget::itemSelectionChanged, this, &AnchorLibraryWindow::populateSelectedFileAnchors);
     connect(anchorTable_, &QTableWidget::itemSelectionChanged, this, [this]() {
         populateInspector();
         updateActionButtons();
     });
-    connect(anchorTable_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *) { activateSelectedAnchor(); });
+    connect(fileTable_, &QWidget::customContextMenuRequested, this, &AnchorLibraryWindow::showFileContextMenu);
+    connect(anchorTable_, &QWidget::customContextMenuRequested, this, &AnchorLibraryWindow::showAnchorContextMenu);
+    connect(anchorTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
+        if (column == AnchorTagsColumn && !showingTrash()) openAnchorTagEditor(row);
+    });
+    connect(anchorTable_, &QTableWidget::itemChanged, this, &AnchorLibraryWindow::handleAnchorItemChanged);
+    connect(anchorTable_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+        if (!item) return;
+        if (item->column() == AnchorAliasesColumn && !showingTrash()) {
+            anchorTable_->editItem(item);
+            return;
+        }
+        if (item->column() != AnchorTagsColumn) activateSelectedAnchor();
+    });
     connect(fileTable_->horizontalHeader(), &QHeaderView::sectionClicked, this, &AnchorLibraryWindow::handleFileSortRequest);
     connect(anchorTable_->horizontalHeader(), &QHeaderView::sectionClicked, this, &AnchorLibraryWindow::handleAnchorSortRequest);
     connect(saveFileButton_, &QPushButton::clicked, this, &AnchorLibraryWindow::saveSelectedFileMetadata);
@@ -710,7 +908,20 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     connect(recaptureLocatorButton_, &QPushButton::clicked, this, &AnchorLibraryWindow::recaptureSelectedAnchor);
     auto *deleteShortcut = new QShortcut(QKeySequence::Delete, anchorTable_);
     deleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
-    connect(deleteShortcut, &QShortcut::activated, this, &AnchorLibraryWindow::deleteSelectedAnchors);
+    connect(deleteShortcut, &QShortcut::activated, this, [this]() {
+        if (qobject_cast<QLineEdit *>(QApplication::focusWidget())) return;
+        if (showingTrash()) permanentlyDeleteSelectedAnchors();
+        else deleteSelectedAnchors();
+    });
+    auto *fileDeleteShortcut = new QShortcut(QKeySequence::Delete, fileTable_);
+    fileDeleteShortcut->setContext(Qt::WidgetWithChildrenShortcut);
+    connect(fileDeleteShortcut, &QShortcut::activated, this, [this]() {
+        if (showingTrash()) showPermanentFileDeleteMenu();
+        else deleteAllAnchorsForSelectedFiles();
+    });
+    auto *saveInlineShortcut = new QShortcut(QKeySequence::Save, this);
+    saveInlineShortcut->setContext(Qt::WindowShortcut);
+    connect(saveInlineShortcut, &QShortcut::activated, this, &AnchorLibraryWindow::savePendingInlineEdits);
 
     if (options_.repository) {
         repositoryListenerId_ = options_.repository->addChangeListener([this](const LibraryChange &change) {
@@ -722,6 +933,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     }
     refreshSavedViews();
     refreshLibrary();
+    applyTrashTheme();
 }
 
 AnchorLibraryWindow::~AnchorLibraryWindow()
@@ -786,6 +998,17 @@ bool AnchorLibraryWindow::selectAnchorAt(int row)
 int AnchorLibraryWindow::selectedFileCount() const { return selectedFiles().size(); }
 int AnchorLibraryWindow::selectedAnchorCount() const { return selectedAnchors().size(); }
 
+void AnchorLibraryWindow::showTrash()
+{
+    const int index = scopeCombo_->findData(static_cast<int>(AnchorLibraryScope::Trash));
+    if (index >= 0) scopeCombo_->setCurrentIndex(index);
+}
+
+bool AnchorLibraryWindow::isTrashVisible() const
+{
+    return showingTrash();
+}
+
 bool AnchorLibraryWindow::activateSelectedAnchor()
 {
     const AnchorLibraryFile *file = selectedFile();
@@ -840,6 +1063,30 @@ bool AnchorLibraryWindow::deleteSelectedAnchors()
     return result.success;
 }
 
+bool AnchorLibraryWindow::deleteAllAnchorsForSelectedFiles()
+{
+    if (!options_.managementService || showingTrash()) return false;
+    const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(false);
+    if (references.isEmpty()) {
+        statusText_ = tr("The selected files have no active anchors");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    if (!confirmOperation(tr("Delete All Anchors"),
+                          tr("Move all %1 anchors in the selected files to Trash?\n\nThe files will not be deleted.")
+                              .arg(references.size()))) {
+        statusText_ = tr("Delete canceled");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, true);
+    setOperationResult(result);
+    if (result.success) {
+        for (const AnchorReference &reference : references) emit anchorDeleted(reference.resourceId, reference.anchor.id);
+    }
+    return result.success;
+}
+
 bool AnchorLibraryWindow::restoreSelectedAnchors()
 {
     const QList<AnchorLibraryAnchor> entries = selectedAnchors();
@@ -848,11 +1095,27 @@ bool AnchorLibraryWindow::restoreSelectedAnchors()
         statusLabel_->setText(statusText_);
         return false;
     }
-    if (entries.first().resourceDeleted) return false;
     const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(selectedAnchorReferences(), false);
     setOperationResult(result);
     if (result.success) {
         for (const AnchorLibraryAnchor &entry : entries) emit anchorRestored(entry.resourceId, entry.anchor.id);
+    }
+    return result.success;
+}
+
+bool AnchorLibraryWindow::restoreAllAnchorsForSelectedFiles()
+{
+    if (!options_.managementService || !showingTrash()) return false;
+    const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(true);
+    if (references.isEmpty()) {
+        statusText_ = tr("The selected files have no anchors in Trash");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, false);
+    setOperationResult(result);
+    if (result.success) {
+        for (const AnchorReference &reference : references) emit anchorRestored(reference.resourceId, reference.anchor.id);
     }
     return result.success;
 }
@@ -889,35 +1152,75 @@ bool AnchorLibraryWindow::restoreSelectedFiles()
 
 bool AnchorLibraryWindow::permanentlyDeleteSelection()
 {
-    if (!options_.managementService || !showingTrash()) {
-        statusText_ = tr("Permanent deletion is available only in Trash");
+    return permanentlyDeleteSelectedAnchors();
+}
+
+bool AnchorLibraryWindow::permanentlyDeleteSelectedAnchors()
+{
+    if (!options_.managementService || !showingTrash()) return false;
+    const QList<AnchorReference> references = selectedAnchorReferences();
+    if (references.isEmpty()) {
+        statusText_ = tr("Select anchors in Trash to delete permanently");
         statusLabel_->setText(statusText_);
         return false;
     }
-    QStringList archivedIds;
-    QList<AnchorReference> anchorReferences;
-    const QList<const AnchorLibraryFile *> files = selectedFiles();
-    for (const AnchorLibraryFile *file : files) {
-        if (file->resource.deleted) {
-            for (const QString &id : resourceIdsForFile(*file)) appendUnique(archivedIds, id);
-        } else {
-            const QList<AnchorLibraryAnchor> scoped = scopedAnchors(*file);
-            for (const AnchorLibraryAnchor &entry : scoped) anchorReferences.append({entry.resourceId, entry.anchor});
-        }
-    }
-    if (archivedIds.isEmpty() && anchorReferences.isEmpty()) return false;
-    const int count = archivedIds.size() + anchorReferences.size();
-    if (!confirmOperation(tr("Permanently Delete"), tr("Permanently delete %1 selected Trash item(s)?\n\nThis cannot be undone.").arg(count))) {
+    if (!confirmOperation(tr("Permanently Delete Anchors"),
+                          tr("Permanently delete %1 selected anchor(s)?\n\nThis cannot be undone.")
+                              .arg(references.size()))) {
         statusText_ = tr("Permanent deletion canceled");
         statusLabel_->setText(statusText_);
         return false;
     }
-    if (!createSafetyBackup(QStringLiteral("permanent deletion"))) return false;
-    AnchorLibraryOperationResult result;
-    if (!archivedIds.isEmpty()) result = options_.managementService->permanentlyDeleteResources(archivedIds);
-    if (result.success || archivedIds.isEmpty()) {
-        if (!anchorReferences.isEmpty()) result = options_.managementService->permanentlyDeleteAnchors(anchorReferences);
+    if (!createSafetyBackup(QStringLiteral("permanent anchor deletion"))) return false;
+    const AnchorLibraryOperationResult result = options_.managementService->permanentlyDeleteAnchors(references);
+    setOperationResult(result);
+    return result.success;
+}
+
+bool AnchorLibraryWindow::permanentlyClearSelectedFileMetadata()
+{
+    if (!options_.managementService || !showingTrash()) return false;
+    QStringList ids;
+    for (const AnchorLibraryFile *file : selectedFiles()) {
+        if (!file->resource.deleted) continue;
+        for (const QString &id : resourceIdsForFile(*file)) appendUnique(ids, id);
     }
+    if (ids.isEmpty()) {
+        statusText_ = tr("Select file Alias and Tag metadata in Trash");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    if (!confirmOperation(tr("Permanently Delete File Metadata"),
+                          tr("Permanently delete Alias and Tag metadata for %1 file(s)?\n\nThe files and anchors will not be deleted.")
+                              .arg(ids.size()))) {
+        statusText_ = tr("Permanent deletion canceled");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    if (!createSafetyBackup(QStringLiteral("permanent file metadata deletion"))) return false;
+    const AnchorLibraryOperationResult result = options_.managementService->permanentlyClearResourceMetadata(ids);
+    setOperationResult(result);
+    return result.success;
+}
+
+bool AnchorLibraryWindow::permanentlyDeleteAllAnchorsForSelectedFiles()
+{
+    if (!options_.managementService || !showingTrash()) return false;
+    const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(true);
+    if (references.isEmpty()) {
+        statusText_ = tr("The selected files have no anchors in Trash");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    if (!confirmOperation(tr("Permanently Delete All Anchors"),
+                          tr("Permanently delete all %1 anchors in the selected files?\n\nThis cannot be undone.")
+                              .arg(references.size()))) {
+        statusText_ = tr("Permanent deletion canceled");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    if (!createSafetyBackup(QStringLiteral("permanent anchor deletion"))) return false;
+    const AnchorLibraryOperationResult result = options_.managementService->permanentlyDeleteAnchors(references);
     setOperationResult(result);
     return result.success;
 }
@@ -942,8 +1245,7 @@ bool AnchorLibraryWindow::saveSelectedAnchorLocator()
     if (!entry || selectedAnchors().size() != 1 || showingTrash() || !options_.managementService) return false;
     AnchorLocatorUpdate update;
     update.targetApp = targetAppEdit_->text();
-    update.targetFile = targetFileEdit_->text();
-    update.targetUri = targetUriEdit_->text();
+    setTargetFields(targetFileEdit_->text(), &update);
     update.locatorType = locatorTypeEdit_->text();
     update.locatorJson = locatorJsonEdit_->toPlainText();
     const AnchorLibraryOperationResult result = options_.managementService->updateAnchorLocator({entry->resourceId, entry->anchor}, update);
@@ -1064,8 +1366,10 @@ bool AnchorLibraryWindow::validateSelectedAnchor()
     if (!file || !entry || !options_.managementService) return false;
     Anchor edited = entry->anchor;
     edited.targetApp = targetAppEdit_->text();
-    edited.targetFile = targetFileEdit_->text();
-    edited.targetUri = targetUriEdit_->text();
+    AnchorLocatorUpdate target;
+    setTargetFields(targetFileEdit_->text(), &target);
+    edited.targetFile = target.targetFile;
+    edited.targetUri = target.targetUri;
     edited.locatorType = locatorTypeEdit_->text();
     edited.locatorJson = locatorJsonEdit_->toPlainText();
     const AnchorValidationResult validation = options_.managementService->validateAnchor(file->resource, edited);
@@ -1248,40 +1552,6 @@ bool AnchorLibraryWindow::undoLastOperation()
     return result.success;
 }
 
-bool AnchorLibraryWindow::exportLibraryJson(const QString &filePath)
-{
-    if (!options_.archiveService) return false;
-    const auto result = options_.archiveService->exportJson(filePath);
-    setOperationResult(result, false);
-    return result.success;
-}
-
-bool AnchorLibraryWindow::importLibraryJson(const QString &filePath, AnchorLibraryImportMode mode)
-{
-    if (!options_.archiveService) return false;
-    const auto result = options_.archiveService->importJson(filePath, mode);
-    if (result.success && options_.managementService) options_.managementService->clearHistory();
-    setOperationResult(result);
-    return result.success;
-}
-
-bool AnchorLibraryWindow::backupLibraryDatabase(const QString &filePath)
-{
-    if (!options_.archiveService) return false;
-    const auto result = options_.archiveService->backupDatabase(filePath);
-    setOperationResult(result, false);
-    return result.success;
-}
-
-bool AnchorLibraryWindow::restoreLibraryDatabase(const QString &filePath)
-{
-    if (!options_.archiveService) return false;
-    const auto result = options_.archiveService->restoreDatabase(filePath);
-    if (result.success && options_.managementService) options_.managementService->clearHistory();
-    setOperationResult(result);
-    return result.success;
-}
-
 bool AnchorLibraryWindow::saveCurrentView(const QString &name)
 {
     if (!options_.settings || name.trimmed().isEmpty()) return false;
@@ -1290,7 +1560,9 @@ bool AnchorLibraryWindow::saveCurrentView(const QString &name)
     options_.settings->setValue(QStringLiteral("name"), name.trimmed());
     options_.settings->setValue(QStringLiteral("query"), filterEdit_->text());
     options_.settings->setValue(QStringLiteral("scope"), scopeCombo_->currentData());
-    options_.settings->setValue(QStringLiteral("tag"), tagFilterCombo_->currentData());
+    options_.settings->setValue(QStringLiteral("fileTag"), tagFilterCombo_->currentData());
+    options_.settings->setValue(QStringLiteral("anchorTag"), anchorTagFilterCombo_->currentData());
+    options_.settings->remove(QStringLiteral("tag"));
     options_.settings->setValue(QStringLiteral("kind"), kindFilterCombo_->currentData());
     options_.settings->setValue(QStringLiteral("app"), appFilterCombo_->currentData());
     options_.settings->setValue(QStringLiteral("directory"), directoryFilterEdit_->text());
@@ -1317,7 +1589,9 @@ bool AnchorLibraryWindow::loadSavedView(const QString &name)
     }
     const QString query = options_.settings->value(QStringLiteral("query")).toString();
     const QVariant scope = options_.settings->value(QStringLiteral("scope"), 0);
-    const QVariant tag = options_.settings->value(QStringLiteral("tag"));
+    const QVariant legacyTag = options_.settings->value(QStringLiteral("tag"));
+    const QVariant fileTag = options_.settings->value(QStringLiteral("fileTag"), legacyTag);
+    const QVariant anchorTag = options_.settings->value(QStringLiteral("anchorTag"));
     const QVariant kind = options_.settings->value(QStringLiteral("kind"), -1);
     const QVariant app = options_.settings->value(QStringLiteral("app"));
     const QString directory = options_.settings->value(QStringLiteral("directory")).toString();
@@ -1327,6 +1601,7 @@ bool AnchorLibraryWindow::loadSavedView(const QString &name)
     const QSignalBlocker queryBlocker(filterEdit_);
     const QSignalBlocker scopeBlocker(scopeCombo_);
     const QSignalBlocker tagBlocker(tagFilterCombo_);
+    const QSignalBlocker anchorTagBlocker(anchorTagFilterCombo_);
     const QSignalBlocker kindBlocker(kindFilterCombo_);
     const QSignalBlocker appBlocker(appFilterCombo_);
     const QSignalBlocker directoryBlocker(directoryFilterEdit_);
@@ -1334,7 +1609,8 @@ bool AnchorLibraryWindow::loadSavedView(const QString &name)
     const QSignalBlocker usageBlocker(usageFilterCombo_);
     filterEdit_->setText(query);
     scopeCombo_->setCurrentIndex(std::max(0, scopeCombo_->findData(scope)));
-    tagFilterCombo_->setCurrentIndex(std::max(0, tagFilterCombo_->findData(tag)));
+    tagFilterCombo_->setCurrentIndex(std::max(0, tagFilterCombo_->findData(fileTag)));
+    anchorTagFilterCombo_->setCurrentIndex(std::max(0, anchorTagFilterCombo_->findData(anchorTag)));
     kindFilterCombo_->setCurrentIndex(std::max(0, kindFilterCombo_->findData(kind)));
     appFilterCombo_->setCurrentIndex(std::max(0, appFilterCombo_->findData(app)));
     directoryFilterEdit_->setText(directory);
@@ -1362,7 +1638,7 @@ void AnchorLibraryWindow::applyFilter()
     QStringList selectedKeys;
     if (fileTable_->selectionModel()) {
         for (const QModelIndex &index : fileTable_->selectionModel()->selectedRows(0)) {
-            appendUnique(selectedKeys, fileTable_->item(index.row(), 0)->data(FileKeyRole).toString());
+            appendUnique(selectedKeys, fileTable_->item(index.row(), FileNameColumn)->data(FileKeyRole).toString());
         }
     }
     fileTable_->setRowCount(0);
@@ -1375,19 +1651,23 @@ void AnchorLibraryWindow::applyFilter()
         name->setData(FileKeyRole, fileGroupingKey(file->resource));
         name->setToolTip(file->resource.location);
         if (file->resource.deleted) name->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
-        fileTable_->setItem(row, 0, name);
+        fileTable_->setItem(row, FileNameColumn, name);
+        fileTable_->setItem(row, FileAliasesColumn,
+                            new QTableWidgetItem(file->resource.aliases.join(QStringLiteral(", "))));
         auto *location = new QTableWidgetItem(fileLocationLabel(*file));
         location->setToolTip(file->resource.location);
-        fileTable_->setItem(row, 1, location);
-        fileTable_->setItem(row, 2, new QTableWidgetItem(resourceKindLabel(file->resource.kind)));
+        fileTable_->setItem(row, FileLocationColumn, location);
+        fileTable_->setItem(row, FileTypeColumn, new QTableWidgetItem(resourceKindLabel(file->resource.kind)));
         auto *count = new QTableWidgetItem;
         count->setData(Qt::DisplayRole, anchors.size());
-        fileTable_->setItem(row, 3, count);
-        fileTable_->setItem(row, 4, new QTableWidgetItem(fileTags(*file, anchors).join(QStringLiteral(", "))));
+        fileTable_->setItem(row, FileAnchorCountColumn, count);
+        auto *tags = new QTableWidgetItem(file->resource.tags.join(QStringLiteral(", ")));
+        tags->setData(TagValuesRole, file->resource.tags);
+        fileTable_->setItem(row, FileTagsColumn, tags);
         const QDateTime marked = lastMarkedAt(anchors);
         auto *markedItem = new QTableWidgetItem(marked.isValid() ? QLocale().toString(marked.toLocalTime(), QLocale::ShortFormat) : QString());
         markedItem->setData(SortValueRole, marked);
-        fileTable_->setItem(row, 5, markedItem);
+        fileTable_->setItem(row, FileLastMarkedColumn, markedItem);
         QStringList states;
         if (file->resource.deleted) states.append(tr("Archived"));
         else states.append(localTargetExists(file->resource) ? tr("Ready") : tr("Missing"));
@@ -1396,20 +1676,20 @@ void AnchorLibraryWindow::applyFilter()
         if (localTargetExists(file->resource) && fileHasInvalidLocator(*file)) {
             states.append(tr("Invalid locator"));
         }
-        fileTable_->setItem(row, 6, new QTableWidgetItem(states.join(QStringLiteral(" | "))));
+        fileTable_->setItem(row, FileStatusColumn, new QTableWidgetItem(states.join(QStringLiteral(" | "))));
         auto *opens = new QTableWidgetItem;
         opens->setData(Qt::DisplayRole, totalOpenCount(*file));
-        fileTable_->setItem(row, 7, opens);
+        fileTable_->setItem(row, FileOpenCountColumn, opens);
         const QDateTime opened = lastOpenedAt(*file);
         auto *openedItem = new QTableWidgetItem(opened.isValid() ? QLocale().toString(opened.toLocalTime(), QLocale::ShortFormat) : QString());
         openedItem->setData(SortValueRole, opened);
-        fileTable_->setItem(row, 8, openedItem);
+        fileTable_->setItem(row, FileLastOpenedColumn, openedItem);
     }
     bool restored = false;
     for (int row = 0; row < fileTable_->rowCount(); ++row) {
-        if (selectedKeys.contains(fileTable_->item(row, 0)->data(FileKeyRole).toString())) {
-            fileTable_->selectionModel()->select(fileTable_->model()->index(row, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
-            if (!restored) fileTable_->setCurrentCell(row, 0);
+        if (selectedKeys.contains(fileTable_->item(row, FileNameColumn)->data(FileKeyRole).toString())) {
+            fileTable_->selectionModel()->select(fileTable_->model()->index(row, FileNameColumn), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            if (!restored) fileTable_->setCurrentCell(row, FileNameColumn);
             restored = true;
         }
     }
@@ -1420,15 +1700,17 @@ void AnchorLibraryWindow::applyFilter()
     } else {
         populateSelectedFileAnchors();
     }
+    fileTable_->resizeRowsToContents();
     updateStatus();
 }
 
 void AnchorLibraryWindow::populateSelectedFileAnchors()
 {
+    populatingAnchorTable_ = true;
     QStringList selectedIds;
     if (anchorTable_->selectionModel()) {
         for (const QModelIndex &index : anchorTable_->selectionModel()->selectedRows(0)) {
-            const auto *item = anchorTable_->item(index.row(), 0);
+            const auto *item = anchorTable_->item(index.row(), AnchorNameColumn);
             selectedIds.append(item->data(ResourceIdRole).toString() + QLatin1Char('|') + item->data(AnchorIdentityRole).toString());
         }
     }
@@ -1441,39 +1723,67 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
             auto *name = new QTableWidgetItem(anchorDisplayName(entry.anchor));
             name->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
             name->setData(ResourceIdRole, entry.resourceId);
-            anchorTable_->setItem(row, 0, name);
-            anchorTable_->setItem(row, 1, new QTableWidgetItem(entry.anchor.aliases.join(QStringLiteral(", "))));
-            anchorTable_->setItem(row, 2, new QTableWidgetItem(entry.anchor.tags.join(QStringLiteral(", "))));
-            anchorTable_->setItem(row, 3, new QTableWidgetItem(anchorLocatorSummary(entry.anchor)));
+            name->setFlags(name->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorNameColumn, name);
+            const QString key = inlineAnchorKey(entry.resourceId, anchorIdentityKey(entry.anchor));
+            const auto pending = pendingInlineEdits_.constFind(key);
+            const QStringList aliases = pending != pendingInlineEdits_.constEnd() && pending->aliasesDirty
+                ? pending->aliases
+                : entry.anchor.aliases;
+            const QStringList tags = pending != pendingInlineEdits_.constEnd() && pending->tagsDirty
+                ? pending->tags
+                : entry.anchor.tags;
+            auto *aliasesItem = new QTableWidgetItem(aliases.join(QStringLiteral(", ")));
+            aliasesItem->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
+            aliasesItem->setData(ResourceIdRole, entry.resourceId);
+            if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorAliasesColumn, aliasesItem);
+            auto *tagsItem = new QTableWidgetItem(tags.join(QStringLiteral(", ")));
+            tagsItem->setData(TagValuesRole, tags);
+            tagsItem->setFlags(tagsItem->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorTagsColumn, tagsItem);
+            auto *typeItem = new QTableWidgetItem(locatorTypeLabel(entry.anchor.locatorType));
+            typeItem->setToolTip(anchorLocatorSummary(entry.anchor));
+            typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorTypeColumn, typeItem);
             const QDateTime updated = entry.anchor.updatedAt.isValid() ? entry.anchor.updatedAt : entry.anchor.createdAt;
             auto *updatedItem = new QTableWidgetItem(updated.isValid() ? QLocale().toString(updated.toLocalTime(), QLocale::ShortFormat) : QString());
             updatedItem->setData(SortValueRole, updated);
-            anchorTable_->setItem(row, 4, updatedItem);
+            updatedItem->setFlags(updatedItem->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorUpdatedColumn, updatedItem);
             auto *opens = new QTableWidgetItem;
             opens->setData(Qt::DisplayRole, entry.usage.openCount);
-            anchorTable_->setItem(row, 5, opens);
+            opens->setFlags(opens->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorOpenCountColumn, opens);
             auto *opened = new QTableWidgetItem(entry.usage.lastOpenedAt.isValid() ? QLocale().toString(entry.usage.lastOpenedAt.toLocalTime(), QLocale::ShortFormat) : QString());
             opened->setData(SortValueRole, entry.usage.lastOpenedAt);
-            anchorTable_->setItem(row, 6, opened);
+            opened->setFlags(opened->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorLastOpenedColumn, opened);
             QString validity = tr("Unknown");
             if (options_.managementService) {
                 const AnchorValidationResult result = options_.managementService->validateAnchor(file->resource, entry.anchor);
                 validity = result.valid ? tr("Valid") : tr("Invalid");
             }
-            anchorTable_->setItem(row, 7, new QTableWidgetItem(validity));
+            auto *validityItem = new QTableWidgetItem(validity);
+            validityItem->setFlags(validityItem->flags() & ~Qt::ItemIsEditable);
+            anchorTable_->setItem(row, AnchorValidityColumn, validityItem);
+            applyInlineCellState(row, AnchorAliasesColumn, key);
+            applyInlineCellState(row, AnchorTagsColumn, key);
         }
     }
     bool restored = false;
     for (int row = 0; row < anchorTable_->rowCount(); ++row) {
-        const auto *item = anchorTable_->item(row, 0);
+        const auto *item = anchorTable_->item(row, AnchorNameColumn);
         const QString key = item->data(ResourceIdRole).toString() + QLatin1Char('|') + item->data(AnchorIdentityRole).toString();
         if (selectedIds.contains(key)) {
-            anchorTable_->selectionModel()->select(anchorTable_->model()->index(row, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
-            if (!restored) anchorTable_->setCurrentCell(row, 0);
+            anchorTable_->selectionModel()->select(anchorTable_->model()->index(row, AnchorNameColumn), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+            if (!restored) anchorTable_->setCurrentCell(row, AnchorNameColumn);
             restored = true;
         }
     }
     if (!restored && anchorTable_->rowCount() > 0) anchorTable_->selectRow(0);
+    populatingAnchorTable_ = false;
+    anchorTable_->resizeRowsToContents();
     populateInspector();
     updateActionButtons();
     updateStatus();
@@ -1500,7 +1810,7 @@ void AnchorLibraryWindow::populateInspector()
     const bool oneAnchor = entries.size() == 1;
     const bool anchorEditable = oneAnchor && options_.managementService && !showingTrash();
     for (QWidget *widget : QList<QWidget *>{anchorNameEdit_, anchorAliasesEdit_, anchorTagsEdit_, anchorPinnedCheck_,
-                                            targetAppEdit_, targetFileEdit_, targetUriEdit_, locatorTypeEdit_, locatorJsonEdit_}) {
+                                            targetAppEdit_, targetFileEdit_, locatorTypeEdit_, locatorJsonEdit_}) {
         widget->setEnabled(anchorEditable);
     }
     if (oneAnchor) {
@@ -1511,15 +1821,14 @@ void AnchorLibraryWindow::populateInspector()
         anchorTagsEdit_->setText(anchor.tags.join(QStringLiteral(", ")));
         anchorPinnedCheck_->setChecked(anchor.pinned);
         targetAppEdit_->setText(anchor.targetApp);
-        targetFileEdit_->setText(anchor.targetFile);
-        targetUriEdit_->setText(anchor.targetUri);
+        targetFileEdit_->setText(anchor.targetFile.trimmed().isEmpty() ? anchor.targetUri : anchor.targetFile);
         locatorTypeEdit_->setText(anchor.locatorType);
         locatorJsonEdit_->setPlainText(anchor.locatorJson);
         if (file) locatorPreview_->setLocator(file->resource, anchor);
     } else {
         selectionLabel_->setText(entries.isEmpty() ? tr("%1 file(s) selected").arg(selectedFiles().size()) : tr("%1 anchors selected").arg(entries.size()));
         anchorNameEdit_->clear(); anchorAliasesEdit_->clear(); anchorTagsEdit_->clear(); anchorPinnedCheck_->setChecked(false);
-        targetAppEdit_->clear(); targetFileEdit_->clear(); targetUriEdit_->clear(); locatorTypeEdit_->clear(); locatorJsonEdit_->clear();
+        targetAppEdit_->clear(); targetFileEdit_->clear(); locatorTypeEdit_->clear(); locatorJsonEdit_->clear();
         locatorPreview_->clearPreview();
     }
 }
@@ -1533,16 +1842,16 @@ const AnchorLibraryFile *AnchorLibraryWindow::fileForKey(const QString &key) con
 const AnchorLibraryFile *AnchorLibraryWindow::selectedFile() const
 {
     const int row = fileTable_->currentRow();
-    if (row < 0 || !fileTable_->item(row, 0)) return nullptr;
-    return fileForKey(fileTable_->item(row, 0)->data(FileKeyRole).toString());
+    if (row < 0 || !fileTable_->item(row, FileNameColumn)) return nullptr;
+    return fileForKey(fileTable_->item(row, FileNameColumn)->data(FileKeyRole).toString());
 }
 
 QList<const AnchorLibraryFile *> AnchorLibraryWindow::selectedFiles() const
 {
     QList<const AnchorLibraryFile *> selected;
     if (!fileTable_->selectionModel()) return selected;
-    for (const QModelIndex &index : fileTable_->selectionModel()->selectedRows(0)) {
-        const AnchorLibraryFile *file = fileForKey(fileTable_->item(index.row(), 0)->data(FileKeyRole).toString());
+    for (const QModelIndex &index : fileTable_->selectionModel()->selectedRows(FileNameColumn)) {
+        const AnchorLibraryFile *file = fileForKey(fileTable_->item(index.row(), FileNameColumn)->data(FileKeyRole).toString());
         if (file && !selected.contains(file)) selected.append(file);
     }
     return selected;
@@ -1552,9 +1861,9 @@ std::optional<AnchorLibraryAnchor> AnchorLibraryWindow::selectedAnchor() const
 {
     const AnchorLibraryFile *file = selectedFile();
     const int row = anchorTable_->currentRow();
-    if (!file || row < 0 || !anchorTable_->item(row, 0)) return std::nullopt;
-    const QString identity = anchorTable_->item(row, 0)->data(AnchorIdentityRole).toString();
-    const QString resourceId = anchorTable_->item(row, 0)->data(ResourceIdRole).toString();
+    if (!file || row < 0 || !anchorTable_->item(row, AnchorNameColumn)) return std::nullopt;
+    const QString identity = anchorTable_->item(row, AnchorNameColumn)->data(AnchorIdentityRole).toString();
+    const QString resourceId = anchorTable_->item(row, AnchorNameColumn)->data(ResourceIdRole).toString();
     for (const AnchorLibraryAnchor &entry : file->anchors) {
         if (entry.resourceId == resourceId && anchorIdentityKey(entry.anchor) == identity) return entry;
     }
@@ -1566,8 +1875,8 @@ QList<AnchorLibraryAnchor> AnchorLibraryWindow::selectedAnchors() const
     QList<AnchorLibraryAnchor> selected;
     const AnchorLibraryFile *file = selectedFile();
     if (!file || !anchorTable_->selectionModel()) return selected;
-    for (const QModelIndex &index : anchorTable_->selectionModel()->selectedRows(0)) {
-        const auto *item = anchorTable_->item(index.row(), 0);
+    for (const QModelIndex &index : anchorTable_->selectionModel()->selectedRows(AnchorNameColumn)) {
+        const auto *item = anchorTable_->item(index.row(), AnchorNameColumn);
         const QString identity = item->data(AnchorIdentityRole).toString();
         const QString resourceId = item->data(ResourceIdRole).toString();
         for (const AnchorLibraryAnchor &entry : file->anchors) {
@@ -1584,7 +1893,6 @@ QList<AnchorLibraryAnchor> AnchorLibraryWindow::scopedAnchors(const AnchorLibrar
 {
     QList<AnchorLibraryAnchor> anchors;
     const bool trash = showingTrash();
-    if (trash && file.resource.deleted) return file.anchors;
     if (!trash && file.resource.deleted) return anchors;
     for (const AnchorLibraryAnchor &entry : file.anchors) {
         if (entry.anchor.deleted == trash) anchors.append(entry);
@@ -1625,9 +1933,14 @@ bool AnchorLibraryWindow::showingTrash() const
 bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
 {
     const QList<AnchorLibraryAnchor> anchors = scopedAnchors(file);
-    if (anchors.isEmpty()) return false;
     const auto scope = static_cast<AnchorLibraryScope>(scopeCombo_->currentData().toInt());
-    if (scope == AnchorLibraryScope::Untagged && !fileTags(file, anchors).isEmpty()) return false;
+    if (anchors.isEmpty() && !(showingTrash() && file.resource.deleted)) return false;
+    if (scope == AnchorLibraryScope::Untagged) {
+        const bool hasAnchorTag = std::any_of(anchors.cbegin(), anchors.cend(), [](const AnchorLibraryAnchor &entry) {
+            return !entry.anchor.tags.isEmpty();
+        });
+        if (!file.resource.tags.isEmpty() || hasAnchorTag) return false;
+    }
     if (scope == AnchorLibraryScope::Missing && localTargetExists(file.resource)) return false;
     if (scope == AnchorLibraryScope::Duplicates && resourceIdsForFile(file).size() < 2) return false;
     if (scope == AnchorLibraryScope::InvalidLocator && !fileHasInvalidLocator(file)) return false;
@@ -1635,8 +1948,16 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
     if ((scope == AnchorLibraryScope::RecentlyModified || scope == AnchorLibraryScope::RecentlyDeleted)
         && (!modified.isValid() || modified < QDateTime::currentDateTimeUtc().addDays(-30))) return false;
 
-    const QString selectedTag = tagFilterCombo_->currentData().toString();
-    if (!selectedTag.isEmpty() && !fileTags(file, anchors).contains(selectedTag, Qt::CaseInsensitive)) return false;
+    const QString selectedFileTag = tagFilterCombo_->currentData().toString();
+    if (!selectedFileTag.isEmpty()
+        && !file.resource.tags.contains(selectedFileTag, Qt::CaseInsensitive)) return false;
+    const QString selectedAnchorTag = anchorTagFilterCombo_->currentData().toString();
+    if (!selectedAnchorTag.isEmpty()) {
+        const bool matched = std::any_of(anchors.cbegin(), anchors.cend(), [&](const AnchorLibraryAnchor &entry) {
+            return entry.anchor.tags.contains(selectedAnchorTag, Qt::CaseInsensitive);
+        });
+        if (!matched) return false;
+    }
     const int kind = kindFilterCombo_->currentData().toInt();
     if (kind >= 0 && static_cast<int>(file.resource.kind) != kind) return false;
     const QString app = appFilterCombo_->currentData().toString();
@@ -1662,7 +1983,7 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
     if (containsText(fileDisplayName(file), needle)
         || containsText(file.resource.location, needle)
         || containsText(file.resource.aliases.join(QLatin1Char('\n')), needle)
-        || containsText(fileTags(file, anchors).join(QLatin1Char('\n')), needle)) return true;
+        || containsText(file.resource.tags.join(QLatin1Char('\n')), needle)) return true;
     for (const AnchorLibraryAnchor &entry : anchors) {
         const Anchor &anchor = entry.anchor;
         if (containsText(anchor.name, needle)
@@ -1697,6 +2018,449 @@ bool AnchorLibraryWindow::createSafetyBackup(const QString &operation)
     statusText_ = tr("Canceled %1 because the safety backup failed: %2").arg(operation, result.message);
     statusLabel_->setText(statusText_);
     return false;
+}
+
+QList<AnchorReference> AnchorLibraryWindow::allAnchorReferencesForSelectedFiles(bool deletedOnly) const
+{
+    QList<AnchorReference> references;
+    QStringList keys;
+    for (const AnchorLibraryFile *file : selectedFiles()) {
+        for (const AnchorLibraryAnchor &entry : file->anchors) {
+            if (entry.anchor.deleted != deletedOnly) continue;
+            const QString key = inlineAnchorKey(entry.resourceId, anchorIdentityKey(entry.anchor));
+            if (keys.contains(key)) continue;
+            keys.append(key);
+            references.append({entry.resourceId, entry.anchor});
+        }
+    }
+    return references;
+}
+
+const AnchorLibraryAnchor *AnchorLibraryWindow::anchorForInlineKey(const QString &key) const
+{
+    for (const AnchorLibraryFile &file : files_) {
+        for (const AnchorLibraryAnchor &entry : file.anchors) {
+            if (inlineAnchorKey(entry.resourceId, anchorIdentityKey(entry.anchor)) == key) return &entry;
+        }
+    }
+    return nullptr;
+}
+
+QStringList AnchorLibraryWindow::availableAnchorTags() const
+{
+    QStringList tags;
+    for (const AnchorLibraryFile &file : files_) {
+        for (const AnchorLibraryAnchor &entry : file.anchors) {
+            for (const QString &tag : entry.anchor.tags) appendUnique(tags, tag);
+        }
+    }
+    for (const InlineAnchorEdit &edit : pendingInlineEdits_) {
+        for (const QString &tag : edit.tags) appendUnique(tags, tag);
+    }
+    tags.sort(Qt::CaseInsensitive);
+    return tags;
+}
+
+QColor AnchorLibraryWindow::colorForTag(const QString &tag)
+{
+    const QString key = tag.trimmed().toCaseFolded();
+    const auto existing = tagColors_.constFind(key);
+    if (existing != tagColors_.constEnd()) return existing.value();
+    auto isDuplicate = [this](const QColor &candidate) {
+        for (const QColor &used : tagColors_) {
+            if (used.rgba() == candidate.rgba()) return true;
+        }
+        return false;
+    };
+    QColor color;
+    for (int attempt = 0; attempt < 32; ++attempt) {
+        color = QColor::fromHsl(QRandomGenerator::global()->bounded(360),
+                                125 + QRandomGenerator::global()->bounded(75),
+                                125 + QRandomGenerator::global()->bounded(55));
+        if (!isDuplicate(color)) break;
+    }
+    int fallbackHue = (tagColors_.size() * 137) % 360;
+    while (!color.isValid() || isDuplicate(color)) {
+        color = QColor::fromHsl(fallbackHue, 165, 145);
+        fallbackHue = (fallbackHue + 1) % 360;
+    }
+    tagColors_.insert(key, color);
+    return color;
+}
+
+void AnchorLibraryWindow::applyInlineCellState(int row, int column, const QString &key)
+{
+    QTableWidgetItem *item = anchorTable_->item(row, column);
+    if (!item) return;
+    const int state = inlineCellStates_.value(inlineCellKey(key, column), InlineCellClean);
+    if (state == InlineCellDirty) item->setBackground(QColor(QStringLiteral("#fff2a8")));
+    else if (state == InlineCellSaved) item->setBackground(QColor(QStringLiteral("#bfe8c6")));
+    else item->setBackground(QBrush());
+}
+
+void AnchorLibraryWindow::handleAnchorItemChanged(QTableWidgetItem *item)
+{
+    if (populatingAnchorTable_ || !item || item->column() != AnchorAliasesColumn || showingTrash()) return;
+    const QTableWidgetItem *name = anchorTable_->item(item->row(), AnchorNameColumn);
+    if (!name) return;
+    const QString key = inlineAnchorKey(name->data(ResourceIdRole).toString(),
+                                        name->data(AnchorIdentityRole).toString());
+    const AnchorLibraryAnchor *entry = anchorForInlineKey(key);
+    if (!entry) return;
+    InlineAnchorEdit edit = pendingInlineEdits_.value(key);
+    edit.resourceId = entry->resourceId;
+    edit.anchorIdentity = anchorIdentityKey(entry->anchor);
+    edit.aliases = editorValues(item->text());
+    edit.aliasesDirty = edit.aliases != entry->anchor.aliases;
+    if (edit.tags.isEmpty() && !edit.tagsDirty) edit.tags = entry->anchor.tags;
+    if (edit.aliasesDirty) {
+        pendingInlineEdits_.insert(key, edit);
+        inlineCellStates_.insert(inlineCellKey(key, AnchorAliasesColumn), InlineCellDirty);
+    } else {
+        edit.aliasesDirty = false;
+        if (edit.tagsDirty) pendingInlineEdits_.insert(key, edit);
+        else pendingInlineEdits_.remove(key);
+        if (inlineCellStates_.value(inlineCellKey(key, AnchorAliasesColumn)) != InlineCellSaved) {
+            inlineCellStates_.remove(inlineCellKey(key, AnchorAliasesColumn));
+        }
+    }
+    applyInlineCellState(item->row(), AnchorAliasesColumn, key);
+    statusText_ = pendingInlineEdits_.isEmpty()
+        ? tr("No unsaved inline edits")
+        : tr("%1 anchor(s) have unsaved Alias or Tag changes; press Ctrl+S to save")
+              .arg(pendingInlineEdits_.size());
+    statusLabel_->setText(statusText_);
+}
+
+void AnchorLibraryWindow::updatePendingAnchorTags(const QString &key, const QStringList &tags)
+{
+    const AnchorLibraryAnchor *entry = anchorForInlineKey(key);
+    if (!entry) return;
+    InlineAnchorEdit edit = pendingInlineEdits_.value(key);
+    edit.resourceId = entry->resourceId;
+    edit.anchorIdentity = anchorIdentityKey(entry->anchor);
+    if (edit.aliases.isEmpty() && !edit.aliasesDirty) edit.aliases = entry->anchor.aliases;
+    edit.tags = tags;
+    edit.tagsDirty = edit.tags != entry->anchor.tags;
+    if (edit.tagsDirty) {
+        pendingInlineEdits_.insert(key, edit);
+        inlineCellStates_.insert(inlineCellKey(key, AnchorTagsColumn), InlineCellDirty);
+    } else {
+        edit.tagsDirty = false;
+        if (edit.aliasesDirty) pendingInlineEdits_.insert(key, edit);
+        else pendingInlineEdits_.remove(key);
+        if (inlineCellStates_.value(inlineCellKey(key, AnchorTagsColumn)) != InlineCellSaved) {
+            inlineCellStates_.remove(inlineCellKey(key, AnchorTagsColumn));
+        }
+    }
+    for (int row = 0; row < anchorTable_->rowCount(); ++row) {
+        const QTableWidgetItem *name = anchorTable_->item(row, AnchorNameColumn);
+        if (!name || inlineAnchorKey(name->data(ResourceIdRole).toString(),
+                                     name->data(AnchorIdentityRole).toString()) != key) continue;
+        QTableWidgetItem *tagItem = anchorTable_->item(row, AnchorTagsColumn);
+        if (tagItem) {
+            const bool wasPopulating = populatingAnchorTable_;
+            populatingAnchorTable_ = true;
+            tagItem->setText(tags.join(QStringLiteral(", ")));
+            tagItem->setData(TagValuesRole, tags);
+            populatingAnchorTable_ = wasPopulating;
+            applyInlineCellState(row, AnchorTagsColumn, key);
+            anchorTable_->resizeRowToContents(row);
+        }
+        break;
+    }
+    statusText_ = pendingInlineEdits_.isEmpty()
+        ? tr("No unsaved inline edits")
+        : tr("%1 anchor(s) have unsaved Alias or Tag changes; press Ctrl+S to save")
+              .arg(pendingInlineEdits_.size());
+    statusLabel_->setText(statusText_);
+}
+
+void AnchorLibraryWindow::openAnchorTagEditor(int row)
+{
+    if (row < 0 || row >= anchorTable_->rowCount() || showingTrash()) return;
+    if (tagEditorPopup_) tagEditorPopup_->close();
+    const QTableWidgetItem *name = anchorTable_->item(row, AnchorNameColumn);
+    if (!name) return;
+    const QString key = inlineAnchorKey(name->data(ResourceIdRole).toString(),
+                                        name->data(AnchorIdentityRole).toString());
+    const AnchorLibraryAnchor *entry = anchorForInlineKey(key);
+    if (!entry) return;
+    const auto pending = pendingInlineEdits_.constFind(key);
+    const QStringList selectedTags = pending != pendingInlineEdits_.constEnd() && pending->tagsDirty
+        ? pending->tags
+        : entry->anchor.tags;
+
+    auto *popup = new QFrame(this, Qt::Popup);
+    popup->setObjectName(QStringLiteral("anchorLibraryTagEditorPopup"));
+    popup->setAttribute(Qt::WA_DeleteOnClose);
+    popup->setFrameShape(QFrame::StyledPanel);
+    auto *layout = new QVBoxLayout(popup);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(6);
+    auto *queryRow = new QHBoxLayout;
+    auto *query = new QLineEdit(popup);
+    query->setObjectName(QStringLiteral("anchorLibraryTagEditorFilter"));
+    query->setPlaceholderText(tr("Filter or create an anchor tag"));
+    query->setClearButtonEnabled(true);
+    auto *create = new QToolButton(popup);
+    create->setObjectName(QStringLiteral("anchorLibraryCreateTagButton"));
+    create->setText(QStringLiteral("+"));
+    create->setToolTip(tr("Create and select this new anchor tag"));
+    create->setAccessibleName(create->toolTip());
+    queryRow->addWidget(query, 1);
+    queryRow->addWidget(create);
+    auto *list = new QListWidget(popup);
+    list->setObjectName(QStringLiteral("anchorLibraryTagEditorList"));
+    list->setSelectionMode(QAbstractItemView::NoSelection);
+    QStringList allTags = availableAnchorTags();
+    for (const QString &tag : selectedTags) appendUnique(allTags, tag);
+    allTags.sort(Qt::CaseInsensitive);
+    for (const QString &tag : allTags) {
+        auto *item = new QListWidgetItem(tag, list);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setCheckState(selectedTags.contains(tag, Qt::CaseInsensitive) ? Qt::Checked : Qt::Unchecked);
+        item->setBackground(colorForTag(tag).lighter(145));
+    }
+    layout->addLayout(queryRow);
+    layout->addWidget(list, 1);
+
+    auto updateCreateState = [query, create, list]() {
+        const QString candidate = query->text().trimmed();
+        bool duplicate = false;
+        for (int index = 0; index < list->count(); ++index) {
+            if (list->item(index)->text().compare(candidate, Qt::CaseInsensitive) == 0) {
+                duplicate = true;
+                break;
+            }
+        }
+        create->setEnabled(!candidate.isEmpty() && !duplicate);
+    };
+    connect(query, &QLineEdit::textChanged, popup, [list, updateCreateState](const QString &text) {
+        const QString needle = text.trimmed();
+        for (int index = 0; index < list->count(); ++index) {
+            list->item(index)->setHidden(!needle.isEmpty()
+                                        && !list->item(index)->text().contains(needle, Qt::CaseInsensitive));
+        }
+        updateCreateState();
+    });
+    connect(list, &QListWidget::itemChanged, popup, [this, key, list](QListWidgetItem *) {
+        QStringList tags;
+        for (int index = 0; index < list->count(); ++index) {
+            if (list->item(index)->checkState() == Qt::Checked) appendUnique(tags, list->item(index)->text());
+        }
+        updatePendingAnchorTags(key, tags);
+    });
+    connect(create, &QToolButton::clicked, popup, [this, key, query, list, updateCreateState]() {
+        const QString tag = query->text().trimmed();
+        if (tag.isEmpty()) return;
+        for (int index = 0; index < list->count(); ++index) {
+            if (list->item(index)->text().compare(tag, Qt::CaseInsensitive) == 0) return;
+        }
+        auto *item = new QListWidgetItem(tag, list);
+        item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
+        item->setBackground(colorForTag(tag).lighter(145));
+        item->setCheckState(Qt::Checked);
+        QStringList tags;
+        for (int index = 0; index < list->count(); ++index) {
+            if (list->item(index)->checkState() == Qt::Checked) appendUnique(tags, list->item(index)->text());
+        }
+        updatePendingAnchorTags(key, tags);
+        query->clear();
+        updateCreateState();
+    });
+    updateCreateState();
+    tagEditorPopup_ = popup;
+    connect(popup, &QObject::destroyed, this, [this]() { tagEditorPopup_ = nullptr; });
+    const QRect cell = anchorTable_->visualItemRect(anchorTable_->item(row, AnchorTagsColumn));
+    QPoint position = anchorTable_->viewport()->mapToGlobal(cell.bottomLeft());
+    popup->resize(std::max(300, cell.width()), 280);
+    if (QScreen *screen = QApplication::screenAt(position)) {
+        const QRect available = screen->availableGeometry();
+        if (position.x() + popup->width() > available.right()) position.setX(available.right() - popup->width());
+        if (position.y() + popup->height() > available.bottom()) position.setY(position.y() - popup->height() - cell.height());
+    }
+    popup->move(position);
+    popup->show();
+    query->setFocus();
+}
+
+bool AnchorLibraryWindow::savePendingInlineEdits()
+{
+    if (auto *editor = qobject_cast<QLineEdit *>(QApplication::focusWidget());
+        editor && anchorTable_->isAncestorOf(editor)) {
+        anchorTable_->setFocus(Qt::OtherFocusReason);
+        QApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+    }
+    if (!options_.managementService || pendingInlineEdits_.isEmpty() || showingTrash()) {
+        statusText_ = pendingInlineEdits_.isEmpty() ? tr("No inline Alias or Tag changes to save")
+                                                   : tr("Inline edits cannot be saved from Trash");
+        statusLabel_->setText(statusText_);
+        return false;
+    }
+    int savedCells = 0;
+    const QStringList keys = pendingInlineEdits_.keys();
+    for (const QString &key : keys) {
+        const AnchorLibraryAnchor *entry = anchorForInlineKey(key);
+        if (!entry) {
+            statusText_ = tr("An edited anchor no longer exists");
+            statusLabel_->setText(statusText_);
+            return false;
+        }
+        const InlineAnchorEdit edit = pendingInlineEdits_.value(key);
+        AnchorMetadataUpdate update;
+        update.name = entry->anchor.name;
+        update.aliases = edit.aliasesDirty ? edit.aliases : entry->anchor.aliases;
+        update.tags = edit.tagsDirty ? edit.tags : entry->anchor.tags;
+        update.pinned = entry->anchor.pinned;
+        const AnchorLibraryOperationResult result = options_.managementService->updateAnchorMetadata(
+            {entry->resourceId, entry->anchor}, update);
+        if (!result.success) {
+            setOperationResult(result, false);
+            return false;
+        }
+        if (edit.aliasesDirty) {
+            inlineCellStates_.insert(inlineCellKey(key, AnchorAliasesColumn), InlineCellSaved);
+            ++savedCells;
+        }
+        if (edit.tagsDirty) {
+            inlineCellStates_.insert(inlineCellKey(key, AnchorTagsColumn), InlineCellSaved);
+            ++savedCells;
+        }
+    }
+    pendingInlineEdits_.clear();
+    refreshLibrary();
+    statusText_ = tr("Saved %1 inline Alias/Tag cell(s)").arg(savedCells);
+    statusLabel_->setText(statusText_);
+    return true;
+}
+
+void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
+{
+    const QModelIndex index = fileTable_->indexAt(position);
+    if (!index.isValid()) return;
+    if (!fileTable_->selectionModel()->isRowSelected(index.row(), QModelIndex())) fileTable_->selectRow(index.row());
+    QMenu menu(this);
+    if (showingTrash()) {
+        auto *restoreMetadata = addToneMenuAction(&menu,
+                                                  QStringLiteral("anchorLibraryRestoreFileMetadataAction"),
+                                                  QStringLiteral("恢复该文件的 Alias 和 Tag"),
+                                                  QColor(QStringLiteral("#2e7d32")),
+                                                  this,
+                                                  [this]() { restoreSelectedFiles(); });
+        restoreMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
+        auto *restoreAnchors = addToneMenuAction(&menu,
+                                                 QStringLiteral("anchorLibraryRestoreAllFileAnchorsAction"),
+                                                 QStringLiteral("恢复该文件中的所有 Anchor"),
+                                                 QColor(QStringLiteral("#2e7d32")),
+                                                 this,
+                                                 [this]() { restoreAllAnchorsForSelectedFiles(); });
+        restoreAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
+        menu.addSeparator();
+        auto *deleteMetadata = addToneMenuAction(&menu,
+                                                 QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
+                                                 QStringLiteral("永久删除该文件的 Alias 和 Tag"),
+                                                 QColor(QStringLiteral("#c62828")),
+                                                 this,
+                                                 [this]() { permanentlyClearSelectedFileMetadata(); });
+        deleteMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
+        auto *deleteAnchors = addToneMenuAction(&menu,
+                                                QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction"),
+                                                QStringLiteral("永久删除该文件的所有 Anchor"),
+                                                QColor(QStringLiteral("#c62828")),
+                                                this,
+                                                [this]() { permanentlyDeleteAllAnchorsForSelectedFiles(); });
+        deleteAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
+    } else {
+        addToneMenuAction(&menu,
+                          QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"),
+                          QStringLiteral("删除所有 Anchor"),
+                          QColor(QStringLiteral("#c62828")),
+                          this,
+                          [this]() { deleteAllAnchorsForSelectedFiles(); });
+    }
+    menu.exec(fileTable_->viewport()->mapToGlobal(position));
+}
+
+void AnchorLibraryWindow::showAnchorContextMenu(const QPoint &position)
+{
+    const QModelIndex index = anchorTable_->indexAt(position);
+    if (!index.isValid()) return;
+    if (!anchorTable_->selectionModel()->isRowSelected(index.row(), QModelIndex())) anchorTable_->selectRow(index.row());
+    QMenu menu(this);
+    if (showingTrash()) {
+        addToneMenuAction(&menu,
+                          QStringLiteral("anchorLibraryRestoreAnchorAction"),
+                          QStringLiteral("恢复"),
+                          QColor(QStringLiteral("#2e7d32")),
+                          this,
+                          [this]() { restoreSelectedAnchors(); });
+        addToneMenuAction(&menu,
+                          QStringLiteral("anchorLibraryDeleteAnchorPermanentlyAction"),
+                          QStringLiteral("永久删除"),
+                          QColor(QStringLiteral("#c62828")),
+                          this,
+                          [this]() { permanentlyDeleteSelectedAnchors(); });
+    } else {
+        addToneMenuAction(&menu,
+                          QStringLiteral("anchorLibraryDeleteAnchorAction"),
+                          QStringLiteral("删除"),
+                          QColor(QStringLiteral("#c62828")),
+                          this,
+                          [this]() { deleteSelectedAnchors(); });
+        addToneMenuAction(&menu,
+                          QStringLiteral("anchorLibraryDeleteAllAnchorsAction"),
+                          QStringLiteral("删除所有"),
+                          QColor(QStringLiteral("#c62828")),
+                          this,
+                          [this]() { deleteAllAnchorsForSelectedFiles(); });
+    }
+    menu.exec(anchorTable_->viewport()->mapToGlobal(position));
+}
+
+void AnchorLibraryWindow::showPermanentFileDeleteMenu()
+{
+    if (!showingTrash() || selectedFiles().isEmpty()) return;
+    QMenu menu(this);
+    auto *deleteMetadata = addToneMenuAction(&menu,
+                                             QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
+                                             QStringLiteral("永久删除该文件的 Alias 和 Tag"),
+                                             QColor(QStringLiteral("#c62828")),
+                                             this,
+                                             [this]() { permanentlyClearSelectedFileMetadata(); });
+    deleteMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
+    auto *deleteAnchors = addToneMenuAction(&menu,
+                                            QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction"),
+                                            QStringLiteral("永久删除该文件的所有 Anchor"),
+                                            QColor(QStringLiteral("#c62828")),
+                                            this,
+                                            [this]() { permanentlyDeleteAllAnchorsForSelectedFiles(); });
+    deleteAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
+    menu.exec(QCursor::pos());
+}
+
+void AnchorLibraryWindow::applyTrashTheme()
+{
+    const bool trash = showingTrash();
+    const QSignalBlocker blocker(trashButton_);
+    trashButton_->setChecked(trash);
+    trashButton_->setToolTip(trash ? tr("Return to All marked files") : tr("Open Trash"));
+    trashButton_->setAccessibleName(trashButton_->toolTip());
+    setProperty("trashMode", trash);
+    if (!trash) {
+        setStyleSheet(QString());
+        return;
+    }
+    setStyleSheet(QStringLiteral(
+        "QMainWindow#anchorLibraryWindow, QWidget#anchorLibraryCentral { background: #24282c; color: #f2f3f4; }"
+        "QWidget#anchorLibraryInspector, QScrollArea#anchorLibraryInspectorScroll { background: #2b3035; color: #f2f3f4; border: 0; }"
+        "QTableWidget { background: #30353a; alternate-background-color: #292e33; color: #f2f3f4; gridline-color: #4a5056; selection-background-color: #7b3038; selection-color: white; }"
+        "QHeaderView::section { background: #3a4046; color: #f2f3f4; border: 0; border-right: 1px solid #515860; padding: 5px; }"
+        "QLineEdit, QComboBox, QPlainTextEdit { background: #f5f6f7; color: #202124; border: 1px solid #697078; padding: 3px; }"
+        "QToolButton, QPushButton { background: #3b4147; color: #f2f3f4; border: 1px solid #596169; padding: 4px 7px; }"
+        "QToolButton:hover, QPushButton:hover { background: #4a5158; }"
+        "QToolButton#anchorLibraryTrashButton { background: #8f3440; border-color: #b65360; font-weight: 700; }"
+        "QLabel, QCheckBox { color: #f2f3f4; }"));
 }
 
 void AnchorLibraryWindow::promptAnchorTagUpdate(bool remove)
@@ -1778,36 +2542,46 @@ void AnchorLibraryWindow::setOperationResult(const AnchorLibraryOperationResult 
 
 void AnchorLibraryWindow::refreshFilterChoices()
 {
-    const QString tag = tagFilterCombo_->currentData().toString();
+    const QString fileTag = tagFilterCombo_->currentData().toString();
+    const QString anchorTag = anchorTagFilterCombo_->currentData().toString();
     const int kind = kindFilterCombo_->count() > 0 ? kindFilterCombo_->currentData().toInt() : -1;
     const QString app = appFilterCombo_->currentData().toString();
-    QStringList tags;
+    QStringList fileTags;
+    QStringList anchorTags;
     QStringList apps;
     QList<int> kinds;
     for (const AnchorLibraryFile &file : files_) {
         if (!kinds.contains(static_cast<int>(file.resource.kind))) kinds.append(static_cast<int>(file.resource.kind));
-        for (const QString &value : file.resource.tags) appendUnique(tags, value);
+        for (const QString &value : file.resource.tags) appendUnique(fileTags, value);
         for (const AnchorLibraryAnchor &entry : file.anchors) {
-            for (const QString &value : entry.anchor.tags) appendUnique(tags, value);
-            appendUnique(apps, entry.anchor.targetApp);
+            for (const QString &value : entry.anchor.tags) appendUnique(anchorTags, value);
+            if (!isHiddenApplicationFilterValue(entry.anchor.targetApp)) {
+                appendUnique(apps, entry.anchor.targetApp);
+            }
         }
     }
-    tags.sort(Qt::CaseInsensitive);
+    fileTags.sort(Qt::CaseInsensitive);
+    anchorTags.sort(Qt::CaseInsensitive);
     apps.sort(Qt::CaseInsensitive);
     std::sort(kinds.begin(), kinds.end());
     const QSignalBlocker tagBlocker(tagFilterCombo_);
+    const QSignalBlocker anchorTagBlocker(anchorTagFilterCombo_);
     const QSignalBlocker kindBlocker(kindFilterCombo_);
     const QSignalBlocker appBlocker(appFilterCombo_);
     tagFilterCombo_->clear();
-    tagFilterCombo_->addItem(tr("All tags"), QString());
-    for (const QString &value : tags) tagFilterCombo_->addItem(value, value);
+    tagFilterCombo_->addItem(tr("All file tags"), QString());
+    for (const QString &value : fileTags) tagFilterCombo_->addItem(value, value);
+    anchorTagFilterCombo_->clear();
+    anchorTagFilterCombo_->addItem(tr("All anchor tags"), QString());
+    for (const QString &value : anchorTags) anchorTagFilterCombo_->addItem(value, value);
     kindFilterCombo_->clear();
     kindFilterCombo_->addItem(tr("All types"), -1);
     for (int value : kinds) kindFilterCombo_->addItem(resourceKindLabel(static_cast<ResourceKind>(value)), value);
     appFilterCombo_->clear();
     appFilterCombo_->addItem(tr("All applications"), QString());
     for (const QString &value : apps) appFilterCombo_->addItem(value, value);
-    tagFilterCombo_->setCurrentIndex(std::max(0, tagFilterCombo_->findData(tag)));
+    tagFilterCombo_->setCurrentIndex(std::max(0, tagFilterCombo_->findData(fileTag)));
+    anchorTagFilterCombo_->setCurrentIndex(std::max(0, anchorTagFilterCombo_->findData(anchorTag)));
     kindFilterCombo_->setCurrentIndex(std::max(0, kindFilterCombo_->findData(kind)));
     appFilterCombo_->setCurrentIndex(std::max(0, appFilterCombo_->findData(app)));
 }
@@ -1849,16 +2623,13 @@ void AnchorLibraryWindow::updateActionButtons()
         && (file->resource.kind == ResourceKind::Pdf
             || selectedLocatorType.startsWith(QStringLiteral("sumatrapdf."))
             || selectedLocatorType.startsWith(QStringLiteral("pdf.")));
-    jumpButton_->setEnabled(oneAnchor && !trash && static_cast<bool>(options_.anchorJumpHandler));
-    deleteButton_->setEnabled(!anchors.isEmpty() && !trash && manager);
     restoreButton_->setEnabled(trash && manager && (!anchors.isEmpty() || !selectedFiles().isEmpty()));
-    purgeButton_->setEnabled(trash && manager && !selectedFiles().isEmpty());
     tagsButton_->setEnabled(manager && (!anchors.isEmpty() || !files_.isEmpty()));
     fileActionsButton_->setEnabled(manager && !selectedFiles().isEmpty());
     relinkButton_->setEnabled(manager && oneFile && file && file->resource.kind != ResourceKind::Url);
     mergeButton_->setEnabled(manager && oneFile && file && !trash && resourceIdsForFile(*file).size() > 1);
     integrityButton_->setEnabled(manager);
-    dataButton_->setEnabled(options_.archiveService || options_.settings);
+    manageButton_->setEnabled(options_.settings || manager);
     undoButton_->setEnabled(manager && options_.managementService->canUndo());
     saveFileButton_->setEnabled(manager && oneFile && !trash);
     saveAnchorButton_->setEnabled(manager && oneAnchor && !trash);
@@ -1871,7 +2642,9 @@ void AnchorLibraryWindow::updateActionButtons()
 void AnchorLibraryWindow::updateStatus()
 {
     int anchors = 0;
-    for (int row = 0; row < fileTable_->rowCount(); ++row) anchors += fileTable_->item(row, 3)->data(Qt::DisplayRole).toInt();
+    for (int row = 0; row < fileTable_->rowCount(); ++row) {
+        anchors += fileTable_->item(row, FileAnchorCountColumn)->data(Qt::DisplayRole).toInt();
+    }
     statusText_ = showingTrash()
         ? tr("%1 file(s) | %2 Trash item(s)").arg(fileTable_->rowCount()).arg(anchors)
         : tr("%1 marked file(s) | %2 anchor(s)").arg(fileTable_->rowCount()).arg(anchors);
@@ -1924,15 +2697,16 @@ QList<const AnchorLibraryFile *> AnchorLibraryWindow::sortedVisibleFiles() const
         for (const SortKey &key : fileSortKeys_) {
             int comparison = 0;
             switch (key.column) {
-            case 0: comparison = textCompare(fileDisplayName(*left), fileDisplayName(*right)); break;
-            case 1: comparison = textCompare(left->resource.location, right->resource.location); break;
-            case 2: comparison = textCompare(resourceKindLabel(left->resource.kind), resourceKindLabel(right->resource.kind)); break;
-            case 3: comparison = scopedAnchors(*left).size() - scopedAnchors(*right).size(); break;
-            case 4: comparison = textCompare(fileTags(*left, scopedAnchors(*left)).join(QLatin1Char(',')), fileTags(*right, scopedAnchors(*right)).join(QLatin1Char(','))); break;
-            case 5: comparison = lastMarkedAt(scopedAnchors(*left)) < lastMarkedAt(scopedAnchors(*right)) ? -1 : (lastMarkedAt(scopedAnchors(*left)) > lastMarkedAt(scopedAnchors(*right)) ? 1 : 0); break;
-            case 6: comparison = static_cast<int>(localTargetExists(left->resource)) - static_cast<int>(localTargetExists(right->resource)); break;
-            case 7: comparison = totalOpenCount(*left) - totalOpenCount(*right); break;
-            case 8: comparison = lastOpenedAt(*left) < lastOpenedAt(*right) ? -1 : (lastOpenedAt(*left) > lastOpenedAt(*right) ? 1 : 0); break;
+            case FileNameColumn: comparison = textCompare(fileDisplayName(*left), fileDisplayName(*right)); break;
+            case FileAliasesColumn: comparison = textCompare(left->resource.aliases.join(QLatin1Char(',')), right->resource.aliases.join(QLatin1Char(','))); break;
+            case FileLocationColumn: comparison = textCompare(left->resource.location, right->resource.location); break;
+            case FileTypeColumn: comparison = textCompare(resourceKindLabel(left->resource.kind), resourceKindLabel(right->resource.kind)); break;
+            case FileAnchorCountColumn: comparison = scopedAnchors(*left).size() - scopedAnchors(*right).size(); break;
+            case FileTagsColumn: comparison = textCompare(left->resource.tags.join(QLatin1Char(',')), right->resource.tags.join(QLatin1Char(','))); break;
+            case FileLastMarkedColumn: comparison = lastMarkedAt(scopedAnchors(*left)) < lastMarkedAt(scopedAnchors(*right)) ? -1 : (lastMarkedAt(scopedAnchors(*left)) > lastMarkedAt(scopedAnchors(*right)) ? 1 : 0); break;
+            case FileStatusColumn: comparison = static_cast<int>(localTargetExists(left->resource)) - static_cast<int>(localTargetExists(right->resource)); break;
+            case FileOpenCountColumn: comparison = totalOpenCount(*left) - totalOpenCount(*right); break;
+            case FileLastOpenedColumn: comparison = lastOpenedAt(*left) < lastOpenedAt(*right) ? -1 : (lastOpenedAt(*left) > lastOpenedAt(*right) ? 1 : 0); break;
             default: break;
             }
             if (comparison != 0) return key.order == Qt::AscendingOrder ? comparison < 0 : comparison > 0;
@@ -1955,7 +2729,7 @@ QList<AnchorLibraryAnchor> AnchorLibraryWindow::sortedAnchors(const QList<Anchor
             case 0: comparison = textCompare(anchorDisplayName(left.anchor), anchorDisplayName(right.anchor)); break;
             case 1: comparison = textCompare(left.anchor.aliases.join(QLatin1Char(',')), right.anchor.aliases.join(QLatin1Char(','))); break;
             case 2: comparison = textCompare(left.anchor.tags.join(QLatin1Char(',')), right.anchor.tags.join(QLatin1Char(','))); break;
-            case 3: comparison = textCompare(anchorLocatorSummary(left.anchor), anchorLocatorSummary(right.anchor)); break;
+            case AnchorTypeColumn: comparison = textCompare(locatorTypeLabel(left.anchor.locatorType), locatorTypeLabel(right.anchor.locatorType)); break;
             case 4: comparison = leftUpdated < rightUpdated ? -1 : (leftUpdated > rightUpdated ? 1 : 0); break;
             case 5: comparison = left.usage.openCount - right.usage.openCount; break;
             case 6: comparison = left.usage.lastOpenedAt < right.usage.lastOpenedAt ? -1 : (left.usage.lastOpenedAt > right.usage.lastOpenedAt ? 1 : 0); break;

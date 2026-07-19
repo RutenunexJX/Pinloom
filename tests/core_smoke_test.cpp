@@ -1205,6 +1205,29 @@ void CoreSmokeTest::managesAnchorLibraryMetadataTagsPathsAndDuplicates()
     QCOMPARE(storedPrimary->anchors.first().aliases, QStringList{QStringLiteral("architecture")});
     QVERIFY(storedPrimary->anchors.first().pinned);
 
+    AnchorLocatorUpdate uriLocator;
+    uriLocator.targetApp = QStringLiteral("Browser");
+    uriLocator.targetUri = QStringLiteral("https://example.com/spec#clock");
+    uriLocator.locatorType = QStringLiteral("url.fragment");
+    uriLocator.locatorJson = QStringLiteral("{\"fragment\":\"clock\"}");
+    result = service.updateAnchorLocator({primary.id, storedPrimary->anchors.first()}, uriLocator);
+    QVERIFY2(result.success, qPrintable(result.message));
+    storedPrimary = repository.findResource(primary.id);
+    QVERIFY(storedPrimary->anchors.first().targetFile.isEmpty());
+    QCOMPARE(storedPrimary->anchors.first().targetUri, uriLocator.targetUri);
+
+    AnchorLocatorUpdate fileLocator;
+    fileLocator.targetApp = QStringLiteral("SumatraPDF");
+    fileLocator.targetFile = originalPath;
+    fileLocator.locatorType = QStringLiteral("sumatrapdf.page");
+    fileLocator.locatorJson = QStringLiteral("{\"page\":2}");
+    result = service.updateAnchorLocator({primary.id, storedPrimary->anchors.first()}, fileLocator);
+    QVERIFY2(result.success, qPrintable(result.message));
+    storedPrimary = repository.findResource(primary.id);
+    QCOMPARE(storedPrimary->anchors.first().targetFile,
+             QDir::cleanPath(QFileInfo(originalPath).absoluteFilePath()));
+    QVERIFY(storedPrimary->anchors.first().targetUri.isEmpty());
+
     result = service.updateAnchorTags({{primary.id, storedPrimary->anchors.first()},
                                        {duplicate.id, details}},
                                       {QStringLiteral("batch"), QStringLiteral("review")},
@@ -1374,6 +1397,21 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     result = service.permanentlyDeleteAnchors({{design.id, storedAnchor}});
     QVERIFY2(result.success, qPrintable(result.message));
     QVERIFY(repository.findResource(design.id)->anchors.isEmpty());
+    QVERIFY(!service.canUndo());
+
+    Resource metadataTrash = repository.findResource(duplicateDesign.id).value();
+    metadataTrash.aliases = {QStringLiteral("archived alias")};
+    metadataTrash.tags = {QStringLiteral("archived tag")};
+    QVERIFY(repository.upsertResource(metadataTrash));
+    QVERIFY(service.setResourcesDeleted({duplicateDesign.id}, true).success);
+    result = service.permanentlyClearResourceMetadata({duplicateDesign.id});
+    QVERIFY2(result.success, qPrintable(result.message));
+    const std::optional<Resource> clearedMetadata = repository.findResource(duplicateDesign.id);
+    QVERIFY(clearedMetadata.has_value());
+    QVERIFY(!clearedMetadata->deleted);
+    QVERIFY(clearedMetadata->aliases.isEmpty());
+    QVERIFY(clearedMetadata->tags.isEmpty());
+    QVERIFY(!clearedMetadata->anchors.isEmpty());
     QVERIFY(!service.canUndo());
 
     QVERIFY(service.setResourcesDeleted({duplicateDesign.id}, true).success);

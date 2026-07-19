@@ -319,15 +319,11 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchorLocator
     if (!anchor) {
         return failedResult(QStringLiteral("Anchor was not found"));
     }
-    if (!update.targetApp.trimmed().isEmpty()) {
-        anchor->targetApp = update.targetApp.trimmed();
-    }
-    if (!update.targetFile.trimmed().isEmpty()) {
-        anchor->targetFile = normalizedPath(update.targetFile);
-    }
-    if (!update.targetUri.trimmed().isEmpty()) {
-        anchor->targetUri = update.targetUri.trimmed();
-    }
+    anchor->targetApp = update.targetApp.trimmed();
+    anchor->targetFile = update.targetFile.trimmed().isEmpty()
+        ? QString()
+        : normalizedPath(update.targetFile);
+    anchor->targetUri = update.targetUri.trimmed();
     anchor->locatorType = locatorType;
     anchor->locatorJson = QString::fromUtf8(locatorDocument.toJson(QJsonDocument::Compact));
     anchor->updatedAt = QDateTime::currentDateTimeUtc();
@@ -512,6 +508,39 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::permanentlyDeleteRe
                                 {},
                                 ids.size(),
                                 QStringLiteral("Permanently deleted %1 file record(s)").arg(ids.size()),
+                                false);
+}
+
+AnchorLibraryOperationResult AnchorLibraryManagementService::permanentlyClearResourceMetadata(
+    const QStringList &resourceIds)
+{
+    const QStringList ids = cleanedResourceIds(resourceIds);
+    if (ids.isEmpty()) {
+        return failedResult(QStringLiteral("Select archived file metadata to delete permanently"));
+    }
+    std::optional<ResourceBatch> batch = loadResourceBatch(repository_, ids);
+    if (!batch.has_value()) {
+        return failedResult(QStringLiteral("A file resource was not found"));
+    }
+    const QDateTime updatedAt = QDateTime::currentDateTimeUtc();
+    int affected = 0;
+    for (Resource &resource : batch->updates) {
+        if (!resource.deleted) {
+            return failedResult(QStringLiteral("Only file metadata in Trash can be permanently deleted"));
+        }
+        if (!resource.aliases.isEmpty() || !resource.tags.isEmpty() || resource.deleted) {
+            resource.aliases.clear();
+            resource.tags.clear();
+            resource.deleted = false;
+            resource.updatedAt = updatedAt;
+            ++affected;
+        }
+    }
+    return applyManagedMutation({batch->updates},
+                                {},
+                                affected,
+                                QStringLiteral("Permanently deleted Alias and Tag metadata for %1 file(s)")
+                                    .arg(affected),
                                 false);
 }
 

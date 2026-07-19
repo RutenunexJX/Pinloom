@@ -4,6 +4,8 @@
 #include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/ResourceUsage.h"
 
+#include <QColor>
+#include <QHash>
 #include <QMainWindow>
 #include <QPixmap>
 #include <functional>
@@ -14,10 +16,13 @@ class QComboBox;
 class QLabel;
 class QLineEdit;
 class QPlainTextEdit;
+class QPoint;
 class QPushButton;
 class QSettings;
 class QTableWidget;
+class QTableWidgetItem;
 class QToolButton;
+class QWidget;
 
 namespace Pinloom {
 
@@ -77,9 +82,17 @@ public:
     bool deleteSelectedAnchor();
     bool deleteSelectedAnchors();
     bool restoreSelectedAnchors();
+    bool deleteAllAnchorsForSelectedFiles();
+    bool restoreAllAnchorsForSelectedFiles();
     bool archiveSelectedFiles();
     bool restoreSelectedFiles();
     bool permanentlyDeleteSelection();
+    bool permanentlyDeleteSelectedAnchors();
+    bool permanentlyClearSelectedFileMetadata();
+    bool permanentlyDeleteAllAnchorsForSelectedFiles();
+    bool savePendingInlineEdits();
+    void showTrash();
+    bool isTrashVisible() const;
     bool saveSelectedAnchorMetadata();
     bool saveSelectedAnchorLocator();
     bool saveSelectedFileMetadata();
@@ -99,10 +112,6 @@ public:
     bool deleteTag(const QString &tag);
     bool showOperationHistory();
     bool undoLastOperation();
-    bool exportLibraryJson(const QString &filePath);
-    bool importLibraryJson(const QString &filePath, AnchorLibraryImportMode mode);
-    bool backupLibraryDatabase(const QString &filePath);
-    bool restoreLibraryDatabase(const QString &filePath);
     bool saveCurrentView(const QString &name);
     bool loadSavedView(const QString &name);
     bool deleteSavedView(const QString &name);
@@ -121,6 +130,15 @@ private:
     struct SortKey {
         int column = 0;
         Qt::SortOrder order = Qt::AscendingOrder;
+    };
+
+    struct InlineAnchorEdit {
+        QString resourceId;
+        QString anchorIdentity;
+        QStringList aliases;
+        QStringList tags;
+        bool aliasesDirty = false;
+        bool tagsDirty = false;
     };
 
     const AnchorLibraryFile *fileForKey(const QString &fileKey) const;
@@ -150,6 +168,18 @@ private:
     void handleFileSortRequest(int column);
     void handleAnchorSortRequest(int column);
     void scheduleRepositoryRefresh();
+    void showFileContextMenu(const QPoint &position);
+    void showAnchorContextMenu(const QPoint &position);
+    void showPermanentFileDeleteMenu();
+    void openAnchorTagEditor(int row);
+    void handleAnchorItemChanged(QTableWidgetItem *item);
+    void updatePendingAnchorTags(const QString &key, const QStringList &tags);
+    void applyInlineCellState(int row, int column, const QString &key);
+    void applyTrashTheme();
+    QStringList availableAnchorTags() const;
+    QColor colorForTag(const QString &tag);
+    QList<AnchorReference> allAnchorReferencesForSelectedFiles(bool deletedOnly) const;
+    const AnchorLibraryAnchor *anchorForInlineKey(const QString &key) const;
     QList<const AnchorLibraryFile *> sortedVisibleFiles() const;
     QList<AnchorLibraryAnchor> sortedAnchors(const QList<AnchorLibraryAnchor> &anchors) const;
 
@@ -159,22 +189,21 @@ private:
     QComboBox *savedViewCombo_ = nullptr;
     QComboBox *scopeCombo_ = nullptr;
     QComboBox *tagFilterCombo_ = nullptr;
+    QComboBox *anchorTagFilterCombo_ = nullptr;
     QComboBox *kindFilterCombo_ = nullptr;
     QComboBox *appFilterCombo_ = nullptr;
     QComboBox *timeFilterCombo_ = nullptr;
     QComboBox *usageFilterCombo_ = nullptr;
     QLineEdit *directoryFilterEdit_ = nullptr;
     QToolButton *refreshButton_ = nullptr;
-    QToolButton *jumpButton_ = nullptr;
-    QToolButton *deleteButton_ = nullptr;
+    QToolButton *trashButton_ = nullptr;
     QToolButton *restoreButton_ = nullptr;
-    QToolButton *purgeButton_ = nullptr;
     QToolButton *tagsButton_ = nullptr;
     QToolButton *fileActionsButton_ = nullptr;
     QToolButton *relinkButton_ = nullptr;
     QToolButton *mergeButton_ = nullptr;
     QToolButton *integrityButton_ = nullptr;
-    QToolButton *dataButton_ = nullptr;
+    QToolButton *manageButton_ = nullptr;
     QToolButton *undoButton_ = nullptr;
     QTableWidget *fileTable_ = nullptr;
     QTableWidget *anchorTable_ = nullptr;
@@ -192,7 +221,6 @@ private:
     QPushButton *saveAnchorButton_ = nullptr;
     QLineEdit *targetAppEdit_ = nullptr;
     QLineEdit *targetFileEdit_ = nullptr;
-    QLineEdit *targetUriEdit_ = nullptr;
     QLineEdit *locatorTypeEdit_ = nullptr;
     QPlainTextEdit *locatorJsonEdit_ = nullptr;
     QPushButton *saveLocatorButton_ = nullptr;
@@ -202,8 +230,13 @@ private:
     AnchorLocatorPreviewWidget *locatorPreview_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;
-    QList<SortKey> fileSortKeys_{{5, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
+    QList<SortKey> fileSortKeys_{{6, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
     QList<SortKey> anchorSortKeys_{{4, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
+    QHash<QString, InlineAnchorEdit> pendingInlineEdits_;
+    QHash<QString, int> inlineCellStates_;
+    QHash<QString, QColor> tagColors_;
+    QWidget *tagEditorPopup_ = nullptr;
+    bool populatingAnchorTable_ = false;
     int repositoryListenerId_ = -1;
     quint64 loadedRepositoryRevision_ = 0;
     bool repositoryRefreshPending_ = false;

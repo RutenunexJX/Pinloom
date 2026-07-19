@@ -25,10 +25,11 @@ Saved Clip foundations are in place. Product boundaries are defined in
 - Inbox captures local file objects in Link mode and opens them through the
   operating-system default application.
 - The Anchor Library provides advanced combined filters and saved views; usage
-  sorting; direct jumps; file, anchor, and locator editing; locator validation,
-  preview, and SumatraPDF rectangle recapture; batch tags/Pinned/lifecycle/path
-  operations; duplicate cleanup; tag and integrity management; session Undo;
-  JSON interchange; and automatic/full SQLite backup and restore.
+  sorting; direct jumps; separate file/Anchor metadata; inline Alias/Tag editing;
+  locator validation, preview, and SumatraPDF rectangle recapture; batch
+  tags/Pinned/lifecycle/path operations; duplicate cleanup; tag and integrity
+  management; session Undo; a dedicated Trash workflow; and automatic SQLite
+  safety backups without user-facing archive controls.
 - Directory crawling, library-root management, relationship graphs, standalone
   Clip picker UI, and JSON Clip archive are not part of the runtime.
 

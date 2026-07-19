@@ -25,12 +25,15 @@
 #include <QApplication>
 #include <QCloseEvent>
 #include <QComboBox>
+#include <QContextMenuEvent>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
 #include <QFileInfo>
+#include <QFrame>
 #include <QCheckBox>
+#include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -38,6 +41,7 @@
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMainWindow>
+#include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
@@ -51,6 +55,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
+#include <QWidgetAction>
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -74,7 +79,8 @@ private slots:
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
-    void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchives();
+    void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
+    void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
@@ -1159,10 +1165,10 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     };
 
     AnchorLibraryWindow window(options);
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
     auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
-    auto *deleteButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDeleteButton"));
     auto *restoreButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryRestoreButton"));
     auto *mergeButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryMergeButton"));
     auto *anchorNameEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorNameEdit"));
@@ -1175,7 +1181,6 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QVERIFY(fileTable);
     QVERIFY(anchorTable);
     QVERIFY(scope);
-    QVERIFY(deleteButton);
     QVERIFY(restoreButton);
     QVERIFY(mergeButton);
     QVERIFY(anchorNameEdit);
@@ -1199,7 +1204,7 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QVERIFY(fileTable->item(0, 0)->text().contains(QStringLiteral("Missing")));
     scope->setCurrentIndex(2);
     QCOMPARE(window.visibleFileCount(), 1);
-    QCOMPARE(fileTable->item(0, 6)->text(), QStringLiteral("Missing"));
+    QCOMPARE(fileTable->item(0, 7)->text(), QStringLiteral("Missing"));
     scope->setCurrentIndex(0);
 
     int clockRow = -1;
@@ -1263,13 +1268,12 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     }
     QVERIFY(architectureRow >= 0);
     QVERIFY(window.selectAnchorAt(architectureRow));
-    QVERIFY(deleteButton->isEnabled());
     QVERIFY(!window.deleteSelectedAnchor());
     QCOMPARE(window.statusText(), QStringLiteral("Delete canceled"));
     QCOMPARE(window.visibleAnchorCount(), 3);
 
     confirmOperation = true;
-    deleteButton->click();
+    QVERIFY(window.deleteSelectedAnchor());
     storedDuplicate = repository.findResource(duplicateClockResource.id);
     QVERIFY(storedDuplicate->anchors.first().deleted);
     QCOMPARE(window.visibleFileCount(), 2);
@@ -1349,7 +1353,6 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QCOMPARE(managedClock->tags,
              (QStringList{QStringLiteral("managed"), QStringLiteral("timing")}));
 
-    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     if (!snapshotDirectory.isEmpty()) {
         QVERIFY(QDir().mkpath(snapshotDirectory));
         window.show();
@@ -1362,7 +1365,7 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     }
 }
 
-void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchives()
+void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement()
 {
     QTemporaryDir directory;
     QVERIFY(directory.isValid());
@@ -1417,7 +1420,6 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchi
     QVERIFY(repository.recordResourceOpen(board.id));
     QVERIFY(repository.recordAnchorOpen(board.id, region));
     AnchorLibraryManagementService management(repository);
-    AnchorLibraryArchiveService archive(repository);
     QSettings settings(directory.filePath(QStringLiteral("views.ini")), QSettings::IniFormat);
 
     auto filesProvider = [&repository]() {
@@ -1449,7 +1451,6 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchi
     QString lastConfirmationMessage;
     AnchorLibraryWindowOptions options;
     options.managementService = &management;
-    options.archiveService = &archive;
     options.repository = &repository;
     options.settings = &settings;
     options.filesProvider = filesProvider;
@@ -1620,9 +1621,356 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndArchi
     QVERIFY(!window.inspectIntegrity());
     QVERIFY(window.statusText().contains(QStringLiteral("missing"), Qt::CaseInsensitive));
 
-    const QString exportPath = directory.filePath(QStringLiteral("window-export.json"));
-    QVERIFY(window.exportLibraryJson(exportPath));
-    QVERIFY(QFileInfo::exists(exportPath));
+    QVERIFY(!window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDataButton")));
+    QVERIFY(window.findChild<QToolButton *>(QStringLiteral("anchorLibraryManageButton")));
+}
+
+void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycle()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pdfPath = directory.filePath(QStringLiteral("inline.pdf"));
+    QFile pdf(pdfPath);
+    QVERIFY(pdf.open(QIODevice::WriteOnly));
+    pdf.write("pdf");
+    pdf.close();
+
+    Anchor region;
+    region.id = QStringLiteral("inline#region");
+    region.name = QStringLiteral("Region");
+    region.targetApp = QStringLiteral("SumatraPDF");
+    region.targetFile = pdfPath;
+    region.targetUri = QUrl::fromLocalFile(pdfPath).toString();
+    region.locatorType = QStringLiteral("sumatrapdf.rect");
+    region.locatorJson = QStringLiteral("{\"page\":2,\"rect\":[10,20,100,80],\"unit\":\"pt\"}");
+    region.aliases = {QStringLiteral("old alias")};
+    region.tags = {QStringLiteral("alpha"), QStringLiteral("beta")};
+
+    Anchor page;
+    page.id = QStringLiteral("inline#page");
+    page.name = QStringLiteral("Page");
+    page.targetApp = QStringLiteral("PDF");
+    page.targetFile = pdfPath;
+    page.locatorType = QStringLiteral("sumatrapdf.page");
+    page.locatorJson = QStringLiteral("{\"page\":5}");
+    page.tags = {QStringLiteral("gamma")};
+
+    Resource resource;
+    resource.id = QStringLiteral("inline");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Inline PDF");
+    resource.location = pdfPath;
+    resource.aliases = {QStringLiteral("file alias")};
+    resource.tags = {QStringLiteral("file-only")};
+    resource.anchors = {region, page};
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertResource(resource));
+    AnchorLibraryManagementService management(repository);
+    QSettings settings(directory.filePath(QStringLiteral("inline.ini")), QSettings::IniFormat);
+    AnchorLibraryWindowOptions options;
+    options.managementService = &management;
+    options.repository = &repository;
+    options.settings = &settings;
+    options.confirmationHandler = [](const QString &, const QString &) { return true; };
+    options.filesProvider = [&repository]() {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const SearchResult &result : repository.search(query)) {
+            AnchorLibraryFile file;
+            file.resource = result.resource;
+            for (const Anchor &anchor : result.resource.anchors) {
+                file.anchors.append({result.resource.id, anchor, result.resource.deleted});
+            }
+            if (!file.anchors.isEmpty()) files.append(file);
+        }
+        return files;
+    };
+
+    AnchorLibraryWindow window(options);
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *fileTagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryTagFilterCombo"));
+    auto *anchorTagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAnchorTagFilterCombo"));
+    auto *appFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAppFilterCombo"));
+    auto *trashButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryTrashButton"));
+    auto *manageButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryManageButton"));
+    auto *target = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryTargetFileEdit"));
+    QVERIFY(fileTable);
+    QVERIFY(anchorTable);
+    QVERIFY(fileTagFilter);
+    QVERIFY(anchorTagFilter);
+    QVERIFY(appFilter);
+    QVERIFY(trashButton);
+    QVERIFY(manageButton);
+    QVERIFY(target);
+    QVERIFY(!window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryTargetUriEdit")));
+    QVERIFY(!window.findChild<QToolButton *>(QStringLiteral("anchorLibraryJumpButton")));
+    QVERIFY(!window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDeleteButton")));
+    QCOMPARE(fileTable->columnCount(), 10);
+    QCOMPARE(fileTable->horizontalHeaderItem(1)->text(), QStringLiteral("File aliases"));
+    QCOMPARE(anchorTable->horizontalHeaderItem(3)->text(), QStringLiteral("Type"));
+    QCOMPARE(fileTable->item(0, 1)->text(), QStringLiteral("file alias"));
+    QCOMPARE(fileTable->item(0, 5)->data(Qt::UserRole + 5).toStringList(),
+             QStringList{QStringLiteral("file-only")});
+    QVERIFY(fileTagFilter->findText(QStringLiteral("file-only")) >= 0);
+    QCOMPARE(fileTagFilter->findText(QStringLiteral("alpha")), -1);
+    QVERIFY(anchorTagFilter->findText(QStringLiteral("alpha")) >= 0);
+    QCOMPARE(anchorTagFilter->findText(QStringLiteral("file-only")), -1);
+    QCOMPARE(appFilter->findText(QStringLiteral("PDF")), -1);
+    QVERIFY(appFilter->findText(QStringLiteral("SumatraPDF")) >= 0);
+    QCOMPARE(target->text(), pdfPath);
+
+    int regionRow = -1;
+    int pageRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Region")) regionRow = row;
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Page")) pageRow = row;
+    }
+    QVERIFY(regionRow >= 0);
+    QVERIFY(pageRow >= 0);
+    QCOMPARE(anchorTable->item(regionRow, 3)->text(), QStringLiteral("矩形选区"));
+    QCOMPARE(anchorTable->item(pageRow, 3)->text(), QStringLiteral("页码"));
+    QVERIFY(anchorTable->item(regionRow, 3)->toolTip().contains(QStringLiteral("sumatrapdf.rect")));
+    QVERIFY(anchorTable->item(regionRow, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(!anchorTable->item(regionRow, 0)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(window.selectAnchorAt(regionRow));
+    target->setText(QDir::toNativeSeparators(pdfPath));
+    QVERIFY(window.saveSelectedAnchorLocator());
+    QCOMPARE(repository.findResource(resource.id)->anchors.first().targetFile,
+             QDir::cleanPath(QFileInfo(pdfPath).absoluteFilePath()));
+    QVERIFY(repository.findResource(resource.id)->anchors.first().targetUri.isEmpty());
+    regionRow = -1;
+    pageRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Region")) regionRow = row;
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Page")) pageRow = row;
+    }
+    QVERIFY(regionRow >= 0);
+    QVERIFY(pageRow >= 0);
+
+    window.show();
+    window.activateWindow();
+    QApplication::processEvents();
+    bool fileMenuVerified = false;
+    QTimer::singleShot(25, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) return;
+        auto *action = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"));
+        auto *button = action ? qobject_cast<QToolButton *>(action->defaultWidget()) : nullptr;
+        fileMenuVerified = action && action->font().bold() && button
+            && button->styleSheet().contains(QStringLiteral("#c62828"));
+        if (!snapshotDirectory.isEmpty()) {
+            QDir().mkpath(snapshotDirectory);
+            menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-file-menu.png")));
+        }
+        menu->close();
+    });
+    const QPoint fileMenuPoint = fileTable->visualItemRect(fileTable->item(0, 0)).center();
+    QContextMenuEvent fileMenuEvent(QContextMenuEvent::Mouse,
+                                    fileMenuPoint,
+                                    fileTable->viewport()->mapToGlobal(fileMenuPoint));
+    QApplication::sendEvent(fileTable->viewport(), &fileMenuEvent);
+    QVERIFY(fileMenuVerified);
+
+    bool anchorMenuVerified = false;
+    QTimer::singleShot(25, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) return;
+        auto *remove = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAnchorAction"));
+        auto *removeAll = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAllAnchorsAction"));
+        auto *button = remove ? qobject_cast<QToolButton *>(remove->defaultWidget()) : nullptr;
+        anchorMenuVerified = remove && removeAll && remove->font().bold() && removeAll->font().bold()
+            && button && button->styleSheet().contains(QStringLiteral("#c62828"));
+        if (!snapshotDirectory.isEmpty()) {
+            menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-anchor-menu.png")));
+        }
+        menu->close();
+    });
+    const QPoint anchorMenuPoint = anchorTable->visualItemRect(anchorTable->item(regionRow, 0)).center();
+    QContextMenuEvent anchorMenuEvent(QContextMenuEvent::Mouse,
+                                      anchorMenuPoint,
+                                      anchorTable->viewport()->mapToGlobal(anchorMenuPoint));
+    QApplication::sendEvent(anchorTable->viewport(), &anchorMenuEvent);
+    QVERIFY(anchorMenuVerified);
+
+    QVERIFY(window.selectAnchorAt(regionRow));
+    QTableWidgetItem *aliasItem = anchorTable->item(regionRow, 1);
+    aliasItem->setText(QStringLiteral("inline alias, second alias"));
+    QCOMPARE(aliasItem->background().color(), QColor(QStringLiteral("#fff2a8")));
+
+    const QRect tagCell = anchorTable->visualItemRect(anchorTable->item(regionRow, 2));
+    QTest::mouseClick(anchorTable->viewport(), Qt::LeftButton, Qt::NoModifier, tagCell.center());
+    QTRY_VERIFY(window.findChild<QFrame *>(QStringLiteral("anchorLibraryTagEditorPopup")));
+    auto *popup = window.findChild<QFrame *>(QStringLiteral("anchorLibraryTagEditorPopup"));
+    auto *tagQuery = popup->findChild<QLineEdit *>(QStringLiteral("anchorLibraryTagEditorFilter"));
+    auto *createTag = popup->findChild<QToolButton *>(QStringLiteral("anchorLibraryCreateTagButton"));
+    auto *tagList = popup->findChild<QListWidget *>(QStringLiteral("anchorLibraryTagEditorList"));
+    QVERIFY(tagQuery);
+    QVERIFY(createTag);
+    QVERIFY(tagList);
+    QVERIFY(tagList->count() >= 3);
+    QVERIFY(tagList->item(0)->background().color() != tagList->item(1)->background().color());
+    tagQuery->setText(QStringLiteral("delta"));
+    QVERIFY(createTag->isEnabled());
+    createTag->click();
+    QTRY_VERIFY(anchorTable->item(regionRow, 2)->data(Qt::UserRole + 5).toStringList()
+                    .contains(QStringLiteral("delta")));
+    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    popup->close();
+    QApplication::processEvents();
+
+    anchorTable->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Fixed);
+    anchorTable->setColumnWidth(2, 105);
+    anchorTable->resizeRowsToContents();
+    QVERIFY(anchorTable->rowHeight(regionRow) > anchorTable->fontMetrics().height() + 14);
+
+    anchorTable->setFocus();
+    QTest::keyClick(anchorTable, Qt::Key_S, Qt::ControlModifier);
+    QTRY_COMPARE(repository.findResource(resource.id)->anchors.first().aliases,
+                 (QStringList{QStringLiteral("inline alias"), QStringLiteral("second alias")}));
+    QVERIFY(repository.findResource(resource.id)->anchors.first().tags.contains(QStringLiteral("delta")));
+    regionRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Region")) regionRow = row;
+    }
+    QVERIFY(regionRow >= 0);
+    QCOMPARE(anchorTable->item(regionRow, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+
+    anchorTable->setCurrentItem(anchorTable->item(regionRow, 1));
+    anchorTable->editItem(anchorTable->item(regionRow, 1));
+    QLineEdit *activeAliasEditor = nullptr;
+    QTRY_VERIFY_WITH_TIMEOUT(([&]() {
+        for (QLineEdit *candidate : anchorTable->findChildren<QLineEdit *>()) {
+            if (candidate->isVisible()) {
+                activeAliasEditor = candidate;
+                return true;
+            }
+        }
+        return false;
+    })(), 1000);
+    activeAliasEditor->setText(QStringLiteral("saved from active editor"));
+    QTest::keyClick(activeAliasEditor, Qt::Key_S, Qt::ControlModifier);
+    QTRY_COMPARE(repository.findResource(resource.id)->anchors.first().aliases,
+                 QStringList{QStringLiteral("saved from active editor")});
+
+    anchorTable->setFocus();
+    QTest::keyClick(anchorTable, Qt::Key_A, Qt::ControlModifier);
+    QCOMPARE(window.selectedAnchorCount(), 2);
+    QTest::keyClick(anchorTable, Qt::Key_Delete);
+    QTRY_VERIFY(repository.findResource(resource.id)->anchors.at(0).deleted);
+    QTRY_VERIFY(repository.findResource(resource.id)->anchors.at(1).deleted);
+
+    trashButton->click();
+    QVERIFY(window.isTrashVisible());
+    QVERIFY(window.property("trashMode").toBool());
+    QVERIFY(!window.styleSheet().isEmpty());
+    QCOMPARE(window.visibleAnchorCount(), 2);
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QApplication::processEvents();
+        QVERIFY(window.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-trash.png"))));
+    }
+    QVERIFY(window.selectAnchorAt(0));
+
+    bool trashAnchorMenuVerified = false;
+    QTimer::singleShot(25, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) return;
+        auto *restore = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryRestoreAnchorAction"));
+        auto *remove = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAnchorPermanentlyAction"));
+        auto *restoreButtonWidget = restore ? qobject_cast<QToolButton *>(restore->defaultWidget()) : nullptr;
+        auto *removeButtonWidget = remove ? qobject_cast<QToolButton *>(remove->defaultWidget()) : nullptr;
+        trashAnchorMenuVerified = restore && remove && restore->font().bold() && remove->font().bold()
+            && restoreButtonWidget && removeButtonWidget
+            && restoreButtonWidget->styleSheet().contains(QStringLiteral("#2e7d32"))
+            && removeButtonWidget->styleSheet().contains(QStringLiteral("#c62828"));
+        if (!snapshotDirectory.isEmpty()) {
+            menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-trash-anchor-menu.png")));
+        }
+        menu->close();
+    });
+    const QPoint trashAnchorMenuPoint = anchorTable->visualItemRect(anchorTable->item(0, 0)).center();
+    QContextMenuEvent trashAnchorMenuEvent(QContextMenuEvent::Mouse,
+                                           trashAnchorMenuPoint,
+                                           anchorTable->viewport()->mapToGlobal(trashAnchorMenuPoint));
+    QApplication::sendEvent(anchorTable->viewport(), &trashAnchorMenuEvent);
+    QVERIFY(trashAnchorMenuVerified);
+    QVERIFY(window.restoreSelectedAnchors());
+    QCOMPARE(window.visibleAnchorCount(), 1);
+    QVERIFY(window.selectAnchorAt(0));
+    QVERIFY(window.permanentlyDeleteSelectedAnchors());
+    QCOMPARE(repository.findResource(resource.id)->anchors.size(), 1);
+
+    trashButton->click();
+    QVERIFY(!window.isTrashVisible());
+    QVERIFY(window.styleSheet().isEmpty());
+    QVERIFY(window.selectFileAt(0));
+    QVERIFY(window.archiveSelectedFiles());
+    trashButton->click();
+    QVERIFY(window.isTrashVisible());
+    QCOMPARE(window.visibleAnchorCount(), 0);
+    QVERIFY(window.selectFileAt(0));
+
+    bool trashFileMenuVerified = false;
+    QTimer::singleShot(25, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) return;
+        const QStringList names{
+            QStringLiteral("anchorLibraryRestoreFileMetadataAction"),
+            QStringLiteral("anchorLibraryRestoreAllFileAnchorsAction"),
+            QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
+            QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction")};
+        trashFileMenuVerified = std::all_of(names.cbegin(), names.cend(), [menu](const QString &name) {
+            auto *action = menu->findChild<QWidgetAction *>(name);
+            return action && action->font().bold();
+        });
+        if (!snapshotDirectory.isEmpty()) {
+            menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-trash-file-menu.png")));
+        }
+        menu->close();
+    });
+    const QPoint trashFileMenuPoint = fileTable->visualItemRect(fileTable->item(0, 0)).center();
+    QContextMenuEvent trashFileMenuEvent(QContextMenuEvent::Mouse,
+                                         trashFileMenuPoint,
+                                         fileTable->viewport()->mapToGlobal(trashFileMenuPoint));
+    QApplication::sendEvent(fileTable->viewport(), &trashFileMenuEvent);
+    QVERIFY(trashFileMenuVerified);
+
+    bool deleteKeyMenuVerified = false;
+    fileTable->setFocus();
+    QTimer::singleShot(25, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        if (!menu) return;
+        deleteKeyMenuVerified = menu->findChildren<QWidgetAction *>().size() == 2
+            && menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteFileMetadataAction"))
+            && menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction"));
+        menu->close();
+    });
+    QTest::keyClick(fileTable, Qt::Key_Delete);
+    QVERIFY(deleteKeyMenuVerified);
+    QVERIFY(window.permanentlyClearSelectedFileMetadata());
+    const std::optional<Resource> cleared = repository.findResource(resource.id);
+    QVERIFY(cleared.has_value());
+    QVERIFY(!cleared->deleted);
+    QVERIFY(cleared->aliases.isEmpty());
+    QVERIFY(cleared->tags.isEmpty());
+    QCOMPARE(cleared->anchors.size(), 1);
+
+    const QStringList managementActions = [&]() {
+        QStringList texts;
+        for (QAction *action : manageButton->menu()->actions()) texts.append(action->text());
+        return texts;
+    }();
+    QVERIFY(std::none_of(managementActions.cbegin(), managementActions.cend(), [](const QString &text) {
+        return text.contains(QStringLiteral("JSON"), Qt::CaseInsensitive)
+            || text.contains(QStringLiteral("SQLite"), Qt::CaseInsensitive);
+    }));
+    window.close();
 }
 
 void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()

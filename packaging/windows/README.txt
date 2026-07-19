@@ -22,17 +22,18 @@ Anchor Library test steps
 1. Press Shift+Space, type a:l, and press Enter.
 2. Combine the scope, tag, type, application, directory, time, and usage
    filters; save the combination as a Saved view and load it again.
-3. Edit file, anchor, and locator metadata in the right inspector. Validate and
-   preview a PDF locator, then use Recapture to replace its rectangle.
+3. Double-click an Anchor Alias cell and click an Anchor Tag cell. Confirm the
+   yellow unsaved state, press Ctrl+S, and confirm the green saved state.
 4. Select multiple files or anchors and batch-update tags or Pinned state.
-5. Move an anchor and a file record to Trash, restore both, then permanently
-   delete a disposable Trash item and confirm a safety backup was created.
+5. Use the file and Anchor right-click menus plus Delete. Open the Trash button,
+   verify the themed view, restore metadata/Anchors independently, then
+   permanently delete a disposable item and confirm a safety backup was created.
 6. Use Relink or Auto-find for a missing local file. Use Merge for duplicate
    file records and Merge duplicate anchors for repeated locators.
 7. Run Inspect and verify missing, duplicate, and invalid locator counts. Use
    the tag manager to rename and remove a test tag, then verify Undo.
-8. Export JSON, import it in merge mode, create a SQLite backup, and restore the
-   backup. JSON omits usage telemetry; SQLite backups preserve it.
+8. Validate and preview a PDF locator, then use Recapture to replace its
+   rectangle. Confirm Type shows a user-facing value rather than raw locator JSON.
 
 Contextual Saved Clip test steps
 --------------------------------

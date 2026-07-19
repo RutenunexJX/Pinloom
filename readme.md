@@ -228,7 +228,14 @@ and usage filters. Saved views preserve those filters. File and anchor tables
 support multi-selection, usage columns, and ordered multi-column sorting; hold
 Shift while selecting additional sort columns.
 
-The right inspector edits file and anchor metadata, Pinned state, target fields,
+File aliases/tags and Anchor aliases/tags are separate fields. File rows show
+only file metadata; Anchor rows show only Anchor metadata. Double-click an
+Anchor alias cell to edit it. Click an Anchor tag cell to filter, select, or
+create tags. Unsaved cells are yellow; `Ctrl+S` saves every pending inline edit
+and turns the affected cells green until the Anchor Library closes. Tags are
+rendered as distinct color chips and wrap onto additional lines when needed.
+
+The right inspector edits file and anchor metadata, Pinned state, one Target field,
 locator type, and locator JSON. Locator actions validate the stored contract,
 show a PDF page/rectangle preview, or reopen SumatraPDF and recapture a rectangle
 after comparing the old and new locator. Batch actions cover tags, Pinned state,
@@ -239,14 +246,17 @@ and invalid locators. The tag manager renames or removes a tag across the
 library, and Undo reverses recent session operations unless an external or
 irreversible data change invalidates that history.
 
-Moving an anchor or file record to Trash never deletes the source file. Trash
-supports restoration and explicit permanent deletion; the latter cannot be
-undone and creates an automatic SQLite safety backup when the application uses
-its normal repository. `Data` exports or imports portable JSON, creates a full
-SQLite backup, or restores one. JSON stores Resource and Anchor content but not
-usage telemetry; SQLite backups preserve the complete database. The active
-database is `pinloom.sqlite3` under Pinloom's application data directory, and
-automatic backups are retained under `backups/anchor-library`.
+Right-click file rows to delete all contained Anchors, or right-click Anchor
+rows to delete the selection or every Anchor in the current file. `Ctrl+A`
+selects all Anchor rows and Delete executes the applicable delete action. The
+Trash button opens a dedicated themed view. Its file and Anchor context menus
+restore or permanently delete file Alias/Tag metadata and Anchors independently.
+Moving records to Trash never deletes the source file. Permanent deletion cannot
+be undone and creates an automatic SQLite safety backup when the application
+uses its normal repository. Manual archive controls are not exposed. The active
+database is `pinloom.sqlite3` under Pinloom's application
+data directory, and automatic backups are retained under
+`backups/anchor-library`.
 
 The recommended SumatraPDF flow is: open or
 focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor:new` or `k n`,

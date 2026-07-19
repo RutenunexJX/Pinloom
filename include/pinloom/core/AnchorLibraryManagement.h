@@ -103,6 +103,8 @@ public:
                                                       bool deleted);
     AnchorLibraryOperationResult permanentlyDeleteAnchors(
         const QList<AnchorReference> &references);
+    AnchorLibraryOperationResult permanentlyClearResourceMetadata(
+        const QStringList &resourceIds);
     AnchorLibraryOperationResult permanentlyDeleteResources(const QStringList &resourceIds);
     AnchorLibraryOperationResult setAnchorsPinned(const QList<AnchorReference> &references,
                                                    bool pinned);
