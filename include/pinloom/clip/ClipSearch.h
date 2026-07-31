@@ -11,12 +11,18 @@
 
 namespace Pinloom {
 
+enum class ClipSearchMode {
+    AllFields,
+    Identity
+};
+
 struct ClipSearchOptions {
     bool includeSaved = true;
     bool includeTemporary = false;
     bool includeDeleted = false;
     bool emptyQueryReturnsPinnedAndRecent = true;
     int limit = 20;
+    ClipSearchMode mode = ClipSearchMode::AllFields;
 };
 
 struct ClipSearchResult {
@@ -30,11 +36,22 @@ struct ClipSearchResult {
     ClipState state = ClipState::Temporary;
     QStringList tags;
     QStringList aliases;
+    ClipActionType actionType = ClipActionType::InsertText;
     bool pinned = false;
     QDateTime createdAt;
     QDateTime updatedAt;
     QDateTime usedAt;
 };
+
+struct ClipIdentityQuery {
+    QString requiredTag;
+    QString nameOrAlias;
+    bool hasTagQualifier = false;
+
+    bool isEmpty() const;
+};
+
+ClipIdentityQuery parseClipIdentityQuery(const QString &query);
 
 QList<ClipSearchResult> searchClips(const QList<Clip> &clips,
                                     const QString &query,
@@ -52,6 +69,8 @@ public:
                                                 const QDateTime &now)>;
     using ClipStateMutationCallback = std::function<bool(const QString &clipId, const QDateTime &now)>;
     using LastErrorCallback = std::function<QString()>;
+    using CandidateClipsCallback =
+        std::function<QList<Clip>(const QString &query, const ClipSearchOptions &options)>;
 
     explicit ClipSearchService(InMemoryClipRepository &repository);
     explicit ClipSearchService(SqliteClipRepository &repository);
@@ -61,7 +80,8 @@ public:
                       SaveClipCallback saveClip = {},
                       ClipStateMutationCallback softDeleteClip = {},
                       ClipStateMutationCallback restoreClip = {},
-                      LastErrorCallback lastError = {});
+                      LastErrorCallback lastError = {},
+                      CandidateClipsCallback candidateClips = {});
 
     QList<ClipSearchResult> search(const QString &query, const ClipSearchOptions &options = {}) const;
     std::optional<Clip> findClip(const QString &clipId) const;
@@ -83,6 +103,7 @@ private:
     ClipStateMutationCallback softDeleteClip_;
     ClipStateMutationCallback restoreClip_;
     LastErrorCallback lastError_;
+    CandidateClipsCallback candidateClips_;
 };
 
 } // namespace Pinloom

@@ -7,7 +7,7 @@ Saved Clip foundations are in place. Product boundaries are defined in
 ## Current Baseline
 
 - One resident `pinloom_app.exe` process owns the tray, `Shift+Space` Command
-  Window, contextual `Hyper+S` chord, anchor repository, and Clip repository.
+  Window, dedicated `F24+S`/`F24+V` Clip chords, anchor repository, and Clip repository.
 - The Command Window searches and acts on Anchors, Saved Clips, Inbox files,
   and local resources through one entry/action protocol.
 - Anchors use one canonical model: target application, target file or URI,
@@ -20,16 +20,21 @@ Saved Clip foundations are in place. Product boundaries are defined in
 - Excel, Word, PowerPoint, and Visio have structured jump executors for existing
   anchors. Unsupported or malformed locators fail explicitly.
 - Saved Clips support temporary clipboard history, named persistence, search,
-  insertion, Obsidian-backed Markdown storage, and contextual selected-text
-  capture.
+  indexed insertion lookup, local or Obsidian-backed Markdown storage,
+  explicit actions/provenance, coordinated Trash state, and contextual
+  selected-text capture.
 - Inbox captures local file objects in Link mode and opens them through the
   operating-system default application.
 - The Anchor Library provides advanced combined filters and saved views; usage
   sorting; direct jumps; separate file/Anchor metadata; inline Alias/Tag editing;
-  locator validation, preview, and SumatraPDF rectangle recapture; batch
+  cached automatic PDF region preview and context-menu SumatraPDF rectangle
+  recapture; batch
   tags/Pinned/lifecycle/path operations; duplicate cleanup; tag and integrity
   management; session Undo; a dedicated Trash workflow; and automatic SQLite
   safety backups without user-facing archive controls.
+- Both databases share one configurable data root. Directory changes are
+  staged and copied before database startup, and automatic backups cover both
+  Anchor and Clip repositories.
 - Directory crawling, library-root management, relationship graphs, standalone
   Clip picker UI, and JSON Clip archive are not part of the runtime.
 
@@ -67,6 +72,10 @@ Exit criteria:
 
 ## Phase 3: Clip Reliability
 
+- Keep the direct Clip Picker distinct from command syntax and provide a
+  separate Clip Library for Saved, History, and Trash management.
+- Use semicolon-separated canonical commands while retaining colon parsing as
+  transition compatibility.
 - Improve UI Automation selection coverage without synthesizing `Ctrl+C`.
 - Preserve Obsidian note identity across edits and renames.
 - Keep clipboard restoration race-safe and observable through diagnostics.
@@ -74,8 +83,9 @@ Exit criteria:
 
 Exit criteria:
 
-- `Hyper+S` consistently distinguishes accessible selection from caret-only or
-  unknown state.
+- `F24+S` consistently captures accessible selected text and requests Clip
+  name/tags; `F24+V` consistently opens Saved Clip retrieval at the insertion
+  target.
 - Saved Clip insertion reads the latest external Markdown body.
 - Temporary history remains bounded by policy and excluded applications.
 

@@ -18,6 +18,24 @@ namespace Pinloom {
 HyperHotkeyMatchResult HyperHotkeyStateMachine::process(HyperKeyRole role, bool pressed)
 {
     HyperHotkeyMatchResult result;
+    const auto processTrigger = [this, pressed, &result](bool &triggerPressed,
+                                                         HyperHotkeyAction action) {
+        if (pressed && armed()) {
+            result.consume = true;
+            if (!triggerPressed) {
+                triggerPressed = true;
+                if (!activatedInChord_) {
+                    activatedInChord_ = true;
+                    result.activated = true;
+                    result.action = action;
+                }
+            }
+        } else if (!pressed && triggerPressed) {
+            result.consume = true;
+            triggerPressed = false;
+        }
+    };
+
     switch (role) {
     case HyperKeyRole::Control:
         controlPressed_ = pressed;
@@ -35,18 +53,18 @@ HyperHotkeyMatchResult HyperHotkeyStateMachine::process(HyperKeyRole role, bool 
         }
         layerPressed_ = pressed;
         break;
-    case HyperKeyRole::Trigger:
-        if (pressed && armed()) {
-            result.consume = true;
-            if (!triggerPressed_) {
-                triggerPressed_ = true;
-                activatedInChord_ = true;
-                result.activated = true;
-            }
-        } else if (!pressed && triggerPressed_) {
-            result.consume = true;
-            triggerPressed_ = false;
+    case HyperKeyRole::F24:
+        if (!pressed && f24Pressed_ && activatedInChord_) {
+            result.chordReleased = true;
+            activatedInChord_ = false;
         }
+        f24Pressed_ = pressed;
+        break;
+    case HyperKeyRole::SaveTrigger:
+        processTrigger(saveTriggerPressed_, HyperHotkeyAction::Save);
+        break;
+    case HyperKeyRole::InsertTrigger:
+        processTrigger(insertTriggerPressed_, HyperHotkeyAction::Insert);
         break;
     case HyperKeyRole::Other:
         break;
@@ -61,13 +79,16 @@ void HyperHotkeyStateMachine::reset()
     altPressed_ = false;
     shiftPressed_ = false;
     layerPressed_ = false;
-    triggerPressed_ = false;
+    f24Pressed_ = false;
+    saveTriggerPressed_ = false;
+    insertTriggerPressed_ = false;
     activatedInChord_ = false;
 }
 
 bool HyperHotkeyStateMachine::armed() const
 {
-    return controlPressed_ && altPressed_ && shiftPressed_ && layerPressed_;
+    return f24Pressed_
+        || (controlPressed_ && altPressed_ && shiftPressed_ && layerPressed_);
 }
 
 HyperHotkeyBackend::HyperHotkeyBackend(QObject *parent)
@@ -106,8 +127,12 @@ HyperKeyRole roleForVirtualKey(DWORD virtualKey)
         return HyperKeyRole::Shift;
     case VK_OEM_3:
         return HyperKeyRole::Layer;
+    case VK_F24:
+        return HyperKeyRole::F24;
     case 'S':
-        return HyperKeyRole::Trigger;
+        return HyperKeyRole::SaveTrigger;
+    case 'V':
+        return HyperKeyRole::InsertTrigger;
     default:
         return HyperKeyRole::Other;
     }
@@ -187,9 +212,9 @@ private:
         const HyperHotkeyMatchResult result =
             activeBackend_->matcher_.process(roleForVirtualKey(event->vkCode), pressed);
         if (result.activated) {
-            QMetaObject::invokeMethod(activeBackend_, [backend = activeBackend_]() {
+            QMetaObject::invokeMethod(activeBackend_, [backend = activeBackend_, action = result.action]() {
                 if (backend == activeBackend_) {
-                    emit backend->activated();
+                    emit backend->activated(action);
                 }
             }, Qt::QueuedConnection);
         }
@@ -309,7 +334,7 @@ bool HyperHotkeyService::isRegistered() const
 
 QString HyperHotkeyService::displayText() const
 {
-    return QStringLiteral("Hyper+S");
+    return QStringLiteral("F24+S / F24+V");
 }
 
 QString HyperHotkeyService::lastError() const
@@ -317,15 +342,15 @@ QString HyperHotkeyService::lastError() const
     return lastError_;
 }
 
-void HyperHotkeyService::handleActivated()
+void HyperHotkeyService::handleActivated(HyperHotkeyAction action)
 {
     if (!registered_) {
         return;
     }
     if (activationHandler_) {
-        activationHandler_();
+        activationHandler_(action);
     }
-    emit activated();
+    emit activated(action);
 }
 
 void HyperHotkeyService::setLastError(const QString &error)

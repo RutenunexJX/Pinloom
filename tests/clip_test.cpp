@@ -1,23 +1,41 @@
 #include "pinloom/clip/ClipboardCaptureService.h"
+#include "pinloom/clip/ClipAction.h"
 #include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/HyperHotkeyService.h"
 #include "pinloom/clip/ClipInsertionService.h"
 #include "pinloom/clip/ObsidianClipStore.h"
+#include "pinloom/clip/PersistentClipService.h"
 #include "pinloom/clip/ClipRepository.h"
+#include "pinloom/clip/ClipRepositoryBackup.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
 #include "pinloom/core/TextSelectionCapture.h"
 
 #include <QFile>
+#include <QCryptographicHash>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QUuid>
 #include <algorithm>
+#include <cstring>
 #include <optional>
+
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 using namespace Pinloom;
 
@@ -284,6 +302,49 @@ QByteArray readClipTestFile(const QString &path)
     return file.readAll();
 }
 
+#ifdef Q_OS_WIN
+
+constexpr UINT TestSciGetCurrentPos = 2008;
+constexpr UINT TestSciGetCodePage = 2137;
+constexpr UINT TestSciGetSelectionStart = 2143;
+constexpr UINT TestSciGetSelectionEnd = 2145;
+constexpr UINT TestSciGetSelectedText = 2161;
+constexpr UINT TestSciPointXFromPosition = 2164;
+constexpr UINT TestSciPointYFromPosition = 2165;
+constexpr char TestScintillaSelection[] = "keyboard-selected text";
+
+LRESULT CALLBACK testScintillaWindowProcedure(HWND window,
+                                              UINT message,
+                                              WPARAM wordParameter,
+                                              LPARAM longParameter)
+{
+    switch (message) {
+    case TestSciGetCurrentPos:
+    case TestSciGetSelectionEnd:
+        return static_cast<LRESULT>(std::strlen(TestScintillaSelection));
+    case TestSciGetSelectionStart:
+        return 0;
+    case TestSciGetCodePage:
+        return 65001;
+    case TestSciPointXFromPosition:
+        return 24;
+    case TestSciPointYFromPosition:
+        return 36;
+    case TestSciGetSelectedText:
+        if (longParameter == 0) {
+            return static_cast<LRESULT>(std::strlen(TestScintillaSelection));
+        }
+        std::memcpy(reinterpret_cast<void *>(longParameter),
+                    TestScintillaSelection,
+                    sizeof(TestScintillaSelection));
+        return static_cast<LRESULT>(std::strlen(TestScintillaSelection));
+    default:
+        return DefWindowProcW(window, message, wordParameter, longParameter);
+    }
+}
+
+#endif
+
 class ClipTest : public QObject {
     Q_OBJECT
 
@@ -301,10 +362,16 @@ private slots:
     void sqlitePersistsCapturedTextAcrossRepositoryRestart();
     void sqliteAppliesCapturePolicies();
     void sqlitePersistsSavedClipMetadataAcrossRepositoryRestart();
+    void sqliteMigratesLegacyPersistentClipSchema();
+    void sqliteBacksUpDatabaseAndRetainsNewestCopies();
     void sqlitePrunesTemporaryHistoryPersistently();
     void sqliteCreatesSavedClipLocatorAnchorAfterRestart();
     void clipSearchRanksExactSavedNameFirst();
     void clipSearchFindsAliasTagHashTagPreviewAndText();
+    void clipIdentitySearchUsesTagSemicolonAndNameAliasOnly();
+    void sqliteIndexedSearchMatchesReferenceSearch();
+    void rejectsDuplicateSavedClipNamesAndAliases();
+    void wbTagResolvesDefaultBrowserUrl();
     void clipSearchUsesPinnedAndRecentForStableOrdering();
     void clipSearchDefaultsToSavedOnlyAndCanIncludeTemporary();
     void softDeletesSavedClipsAndRestoresSearch();
@@ -315,9 +382,12 @@ private slots:
     void obsidianStoreRoundTripsManagedMarkdown();
     void obsidianSyncImportsExternalEditsAndTracksRename();
     void obsidianSyncSoftDeletesMissingNotes();
+    void obsidianStateAndForgetTombstoneRoundTrip();
+    void persistentClipServiceCoordinatesRepositoryAndObsidian();
     void obsidianWatcherSynchronizesNewNotes();
     void obsidianRealVaultRoundTrip();
     void clipboardServiceCapturesTextIntoRepository();
+    void clipboardServiceUsesDynamicForegroundSource();
     void clipboardServicePauseAndResumeCapture();
     void clipboardServiceUsesRepositoryPolicyForIgnoredText();
     void clipboardServiceSuppressesNextChange();
@@ -328,8 +398,14 @@ private slots:
     void hotkeyServiceReportsRegisterFailure();
     void hotkeyServiceDuplicateStartStopIsStable();
     void hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger();
+    void hyperHotkeyStateMachineAcceptsF24AsCarrier();
+    void hyperHotkeyStateMachineEmitsInsertAction();
     void hyperHotkeyStateMachineRejectsIncompleteChord();
-    void contextualClipIntentUsesThreeStateSelectionContract();
+    void textSelectionCaptureServiceUsesProvider();
+    void foregroundTextTargetExpiresAfterConfiguredAge();
+#ifdef Q_OS_WIN
+    void capturesKeyboardSelectionFromScintillaControl();
+#endif
     void trayControllerStartsAndStops();
     void trayControllerShowClipboardActionEmitsSignal();
     void trayControllerPauseResumeToggleUpdatesActionsAndSignals();
@@ -676,6 +752,112 @@ void ClipTest::sqlitePersistsSavedClipMetadataAcrossRepositoryRestart()
     QCOMPARE(restarted.savedClips().size(), 1);
 }
 
+void ClipTest::sqliteMigratesLegacyPersistentClipSchema()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("legacy.sqlite3"));
+    const QString connectionName = QStringLiteral("legacy_clip_test_%1")
+                                       .arg(QUuid::createUuid().toString(QUuid::Id128));
+    const QString text = QStringLiteral("https://example.com/legacy");
+    const QString hash = QString::fromLatin1(
+        QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+    {
+        QSqlDatabase database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        database.setDatabaseName(databasePath);
+        QVERIFY(database.open());
+        QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE clip_schema_migrations ("
+            "version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at TEXT NOT NULL)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "CREATE TABLE clips ("
+            "id TEXT PRIMARY KEY, kind TEXT NOT NULL, state TEXT NOT NULL, text TEXT NOT NULL, "
+            "preview TEXT NOT NULL, content_hash TEXT NOT NULL UNIQUE, name TEXT, aliases TEXT, "
+            "tags TEXT, pinned INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, "
+            "updated_at TEXT NOT NULL, used_at TEXT, expires_at TEXT, source_app TEXT, "
+            "size_bytes INTEGER NOT NULL DEFAULT 0)")));
+        QVERIFY(query.exec(QStringLiteral(
+            "INSERT INTO clip_schema_migrations(version, name, applied_at) "
+            "VALUES (1, 'initial_clip_text_schema', '2026-01-01T00:00:00.000Z')")));
+        query.prepare(QStringLiteral(
+            "INSERT INTO clips(id, kind, state, text, preview, content_hash, name, aliases, tags, "
+            "pinned, created_at, updated_at, used_at, expires_at, source_app, size_bytes) "
+            "VALUES (?, 'text', 'saved', ?, ?, ?, ?, ?, ?, 0, ?, ?, NULL, NULL, ?, ?)"));
+        query.addBindValue(QStringLiteral("legacy-web"));
+        query.addBindValue(text);
+        query.addBindValue(text);
+        query.addBindValue(hash);
+        query.addBindValue(QStringLiteral("Legacy web"));
+        query.addBindValue(QStringLiteral("old alias"));
+        query.addBindValue(QStringLiteral("wb\nreference"));
+        query.addBindValue(QStringLiteral("2026-01-01T00:00:00.000Z"));
+        query.addBindValue(QStringLiteral("2026-01-01T00:00:01.000Z"));
+        query.addBindValue(QStringLiteral("Obsidian"));
+        query.addBindValue(text.toUtf8().size());
+        QVERIFY2(query.exec(), qPrintable(query.lastError().text()));
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+
+    SqliteClipRepository repository;
+    QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+    const std::optional<Clip> migrated = repository.findClip(QStringLiteral("legacy-web"));
+    QVERIFY(migrated.has_value());
+    QCOMPARE(migrated->actionType, ClipActionType::OpenWebUrl);
+    QCOMPARE(migrated->storageBackend, ClipStorageBackend::Obsidian);
+    QVERIFY(migrated->sourceApp.isEmpty());
+
+    Clip sameContent = migrated.value();
+    sameContent.id = QStringLiteral("same-content-second-identity");
+    sameContent.name = QStringLiteral("Second identity");
+    sameContent.aliases = {QStringLiteral("second alias")};
+    sameContent.storageBackend = ClipStorageBackend::Local;
+    QVERIFY2(repository.upsertPersistentClip(sameContent), qPrintable(repository.lastError()));
+    QCOMPARE(repository.savedClips().size(), 2);
+    QCOMPARE(repository.findClip(sameContent.id)->contentHash, hash);
+
+    Clip conflictingIdentity = sameContent;
+    conflictingIdentity.id = QStringLiteral("identity-conflict");
+    conflictingIdentity.name = QStringLiteral("old alias");
+    conflictingIdentity.aliases.clear();
+    QVERIFY(!repository.upsertPersistentClip(conflictingIdentity));
+    QVERIFY(repository.lastError().contains(QStringLiteral("already exists"), Qt::CaseInsensitive));
+    QVERIFY(!repository.findClip(conflictingIdentity.id).has_value());
+}
+
+void ClipTest::sqliteBacksUpDatabaseAndRetainsNewestCopies()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("clip.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("backup content"));
+    QVERIFY(captured.captured());
+    QVERIFY(repository.saveClip(captured.clip->id, QStringLiteral("Backup clip")));
+
+    const QString backupDirectory = dir.filePath(QStringLiteral("backups"));
+    ClipRepositoryBackupResult latest;
+    for (int index = 0; index < 3; ++index) {
+        latest = createAutomaticClipRepositoryBackup(repository, backupDirectory, 2);
+        QVERIFY2(latest.success, qPrintable(latest.error));
+        QTest::qWait(2);
+    }
+    const QFileInfoList backups = QDir(backupDirectory).entryInfoList(
+        {QStringLiteral("pinloom-clip-auto-*.sqlite3")}, QDir::Files, QDir::Time);
+    QCOMPARE(backups.size(), 2);
+
+    SqliteClipRepository restored;
+    QVERIFY2(restored.open(backups.first().absoluteFilePath()), qPrintable(restored.lastError()));
+    QVERIFY2(restored.initialize(), qPrintable(restored.lastError()));
+    const std::optional<Clip> restoredClip = restored.findClip(captured.clip->id);
+    QVERIFY(restoredClip.has_value());
+    QCOMPARE(restoredClip->name, QStringLiteral("Backup clip"));
+}
+
 void ClipTest::sqlitePrunesTemporaryHistoryPersistently()
 {
     QTemporaryDir dir;
@@ -783,7 +965,7 @@ void ClipTest::clipSearchRanksExactSavedNameFirst()
     const QString aliasId = saveInMemoryClip(repository,
                                              QStringLiteral("Alias body for deploy snippet"),
                                              QStringLiteral("Alias holder"),
-                                             {QStringLiteral("Deploy snippet")},
+                                             {QStringLiteral("Deploy snippet alternate")},
                                              {},
                                              false,
                                              base.addSecs(2),
@@ -816,10 +998,10 @@ void ClipTest::clipSearchRanksExactSavedNameFirst()
     QCOMPARE(results.first().matchedField, QStringLiteral("name"));
     QCOMPARE(results.first().rank, 1);
     QVERIFY(results.first().score > results.at(1).score);
-    QCOMPARE(results.at(1).clipId, aliasId);
-    QCOMPARE(results.at(1).matchedField, QStringLiteral("alias"));
-    QCOMPARE(results.at(2).clipId, tagId);
-    QCOMPARE(results.at(2).matchedField, QStringLiteral("tag"));
+    QCOMPARE(results.at(1).clipId, tagId);
+    QCOMPARE(results.at(1).matchedField, QStringLiteral("tag"));
+    QCOMPARE(results.at(2).clipId, aliasId);
+    QCOMPARE(results.at(2).matchedField, QStringLiteral("alias"));
 }
 
 void ClipTest::clipSearchFindsAliasTagHashTagPreviewAndText()
@@ -883,6 +1065,187 @@ void ClipTest::clipSearchFindsAliasTagHashTagPreviewAndText()
     QCOMPARE(results.size(), 1);
     QCOMPARE(results.first().clipId, textId);
     QCOMPARE(results.first().matchedField, QStringLiteral("text"));
+}
+
+void ClipTest::clipIdentitySearchUsesTagSemicolonAndNameAliasOnly()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const QString firstId = saveInMemoryClip(repository,
+                                             QStringLiteral("body-only needle"),
+                                             QStringLiteral("Alpha Clip"),
+                                             {QStringLiteral("first alias")},
+                                             {QStringLiteral("xx")},
+                                             false,
+                                             base,
+                                             base.addSecs(1));
+    const QString secondId = saveInMemoryClip(repository,
+                                              QStringLiteral("second body"),
+                                              QStringLiteral("Alpha Other"),
+                                              {QStringLiteral("second alias")},
+                                              {QStringLiteral("yy")},
+                                              false,
+                                              base.addSecs(2),
+                                              base.addSecs(3));
+    QVERIFY(!firstId.isEmpty());
+    QVERIFY(!secondId.isEmpty());
+
+    ClipSearchOptions options;
+    options.mode = ClipSearchMode::Identity;
+    options.limit = -1;
+    const ClipSearchService search(repository);
+
+    QCOMPARE(search.search(QStringLiteral("Alpha"), options).size(), 2);
+    QList<ClipSearchResult> results = search.search(QStringLiteral("xx;Alpha"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, firstId);
+    results = search.search(QStringLiteral("xx;first"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().matchedField, QStringLiteral("alias"));
+    results = search.search(QStringLiteral("xx;"), options);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, firstId);
+    QVERIFY(search.search(QStringLiteral("xx;Other"), options).isEmpty());
+    QVERIFY(search.search(QStringLiteral("body-only"), options).isEmpty());
+    QVERIFY(search.search(QStringLiteral("#xx"), options).isEmpty());
+}
+
+void ClipTest::sqliteIndexedSearchMatchesReferenceSearch()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("indexed-search.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    struct Seed {
+        QString text;
+        QString name;
+        QStringList aliases;
+        QStringList tags;
+    };
+    const QList<Seed> seeds{
+        {QStringLiteral("deployment body needle"),
+         QStringLiteral("Alpha Deployment"),
+         {QStringLiteral("launch alias")},
+         {QStringLiteral("xx"), QStringLiteral("ops")}},
+        {QStringLiteral("second reference body"),
+         QStringLiteral("Beta Reference"),
+         {QStringLiteral("alternate needle")},
+         {QStringLiteral("yy")}},
+        {QStringLiteral("中文正文检索"),
+         QStringLiteral("中文归档"),
+         {QStringLiteral("中文别名")},
+         {QStringLiteral("资料")}}
+    };
+    for (const Seed &seed : seeds) {
+        const ClipCaptureResult captured = repository.captureText(seed.text);
+        QVERIFY(captured.captured());
+        QVERIFY2(repository.saveClip(captured.clip->id,
+                                     seed.name,
+                                     seed.aliases,
+                                     seed.tags),
+                 qPrintable(repository.lastError()));
+    }
+
+    const ClipSearchService indexed(repository);
+    const auto ids = [](const QList<ClipSearchResult> &results) {
+        QStringList values;
+        for (const ClipSearchResult &result : results) values.append(result.clipId);
+        return values;
+    };
+    for (const QString &query : {QStringLiteral("needle"),
+                                 QStringLiteral("deployment body"),
+                                 QStringLiteral("#op"),
+                                 QStringLiteral("中文"),
+                                 QStringLiteral("中文正文")}) {
+        QCOMPARE(ids(indexed.search(query)), ids(searchClips(repository.clips(), query)));
+    }
+
+    ClipSearchOptions identityOptions;
+    identityOptions.mode = ClipSearchMode::Identity;
+    identityOptions.limit = -1;
+    for (const QString &query : {QStringLiteral("Alpha"),
+                                 QStringLiteral("xx;Alpha"),
+                                 QStringLiteral("xx;launch"),
+                                 QStringLiteral("xx;"),
+                                 QStringLiteral("资料;中文")}) {
+        QCOMPARE(ids(indexed.search(query, identityOptions)),
+                 ids(searchClips(repository.clips(), query, identityOptions)));
+    }
+
+    const ClipIdentityQuery parsed = parseClipIdentityQuery(QStringLiteral(" #xx ; launch "));
+    QVERIFY(parsed.hasTagQualifier);
+    QCOMPARE(parsed.requiredTag, QStringLiteral("xx"));
+    QCOMPARE(parsed.nameOrAlias, QStringLiteral("launch"));
+}
+
+void ClipTest::rejectsDuplicateSavedClipNamesAndAliases()
+{
+    InMemoryClipRepository memory;
+    const QString firstId = saveInMemoryClip(memory,
+                                             QStringLiteral("first unique body"),
+                                             QStringLiteral("Unique Name"),
+                                             {QStringLiteral("unique alias")},
+                                             {},
+                                             false,
+                                             QDateTime::currentDateTimeUtc(),
+                                             QDateTime::currentDateTimeUtc());
+    QVERIFY(!firstId.isEmpty());
+
+    const ClipCaptureResult second = memory.captureText(QStringLiteral("second unique body"));
+    QVERIFY(second.captured());
+    QVERIFY(!memory.saveClip(second.clip->id, QStringLiteral("unique name")));
+    QVERIFY(!memory.saveClip(second.clip->id,
+                             QStringLiteral("Second Name"),
+                             {QStringLiteral("UNIQUE ALIAS")}));
+    QVERIFY(!memory.saveClip(second.clip->id,
+                             QStringLiteral("Second Name"),
+                             {QStringLiteral("second name")}));
+    QVERIFY(memory.saveClip(second.clip->id,
+                            QStringLiteral("Second Name"),
+                            {QStringLiteral("second alias")}));
+
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository sqlite;
+    QVERIFY2(sqlite.open(dir.filePath(QStringLiteral("clip.sqlite3"))), qPrintable(sqlite.lastError()));
+    QVERIFY2(sqlite.initialize(), qPrintable(sqlite.lastError()));
+    const ClipCaptureResult sqliteFirst = sqlite.captureText(QStringLiteral("sqlite first"));
+    const ClipCaptureResult sqliteSecond = sqlite.captureText(QStringLiteral("sqlite second"));
+    QVERIFY(sqliteFirst.captured());
+    QVERIFY(sqliteSecond.captured());
+    QVERIFY2(sqlite.saveClip(sqliteFirst.clip->id,
+                             QStringLiteral("SQLite Name"),
+                             {QStringLiteral("SQLite Alias")}),
+             qPrintable(sqlite.lastError()));
+    QVERIFY(!sqlite.saveClip(sqliteSecond.clip->id,
+                             QStringLiteral("Other SQLite Name"),
+                             {QStringLiteral("sqlite name")}));
+    QVERIFY(sqlite.lastError().contains(QStringLiteral("already exists"), Qt::CaseInsensitive));
+}
+
+void ClipTest::wbTagResolvesDefaultBrowserUrl()
+{
+    Clip clip;
+    clip.text = QStringLiteral("https://example.com/reference?q=pinloom");
+    clip.tags = {QStringLiteral("WB")};
+    QCOMPARE(taggedActionForTags(clip.tags), ClipActionType::OpenWebUrl);
+    clip.actionType = ClipActionType::OpenWebUrl;
+    QCOMPARE(actionForClip(clip), ClipActionType::OpenWebUrl);
+    QString error;
+    const std::optional<QUrl> url = webUrlForClip(clip, &error);
+    QVERIFY2(url.has_value(), qPrintable(error));
+    QCOMPARE(url->scheme(), QStringLiteral("https"));
+    QCOMPARE(url->host(), QStringLiteral("example.com"));
+
+    clip.text = QStringLiteral("not a single URL");
+    QVERIFY(!webUrlForClip(clip, &error).has_value());
+    QVERIFY(!error.isEmpty());
+    clip.tags.clear();
+    QCOMPARE(taggedActionForTags(clip.tags), ClipActionType::InsertText);
+    QCOMPARE(actionForClip(clip), ClipActionType::OpenWebUrl);
 }
 
 void ClipTest::clipSearchUsesPinnedAndRecentForStableOrdering()
@@ -1264,6 +1627,9 @@ void ClipTest::obsidianStoreRoundTripsManagedMarkdown()
     QVERIFY2(written.succeeded(), qPrintable(written.error));
     QVERIFY(QFileInfo::exists(written.filePath));
     QVERIFY(written.relativePath.startsWith(QStringLiteral("Pinloom Clips/")));
+    QCOMPARE(QFileInfo(written.filePath).fileName(),
+             QStringLiteral("Reusable_ snippet _ example.md"));
+    QVERIFY(!QFileInfo(written.filePath).fileName().contains(clipId));
 
     const QByteArray markdown = readClipTestFile(written.filePath);
     QVERIFY(markdown.startsWith("---\npinloom_id:"));
@@ -1280,13 +1646,34 @@ void ClipTest::obsidianStoreRoundTripsManagedMarkdown()
     QCOMPARE(loaded->clip.aliases, clip->aliases);
     QCOMPARE(loaded->clip.tags, clip->tags);
     QCOMPARE(loaded->clip.pinned, clip->pinned);
-    QCOMPARE(loaded->clip.sourceApp, obsidianClipSourceApp());
+    QCOMPARE(loaded->clip.storageBackend, ClipStorageBackend::Obsidian);
+    QCOMPARE(loaded->clip.sourceApp, clip->sourceApp);
 
     const QUrl openUrl = store.openUrlForClip(clipId, &error);
     QVERIFY2(openUrl.isValid(), qPrintable(error));
     QCOMPARE(openUrl.scheme(), QStringLiteral("obsidian"));
     QCOMPARE(openUrl.host(), QStringLiteral("open"));
     QVERIFY(openUrl.toString().contains(QStringLiteral("path=")));
+
+    const QString legacyPath = QDir(QFileInfo(written.filePath).absolutePath())
+                                   .filePath(QStringLiteral("Reusable_ snippet _ example--%1.md")
+                                                 .arg(clipId));
+    QVERIFY(QFile::rename(written.filePath, legacyPath));
+    const ObsidianClipWriteResult migrated = store.writeClip(clip.value());
+    QVERIFY2(migrated.succeeded(), qPrintable(migrated.error));
+    QCOMPARE(QFileInfo(migrated.filePath).fileName(),
+             QStringLiteral("Reusable_ snippet _ example.md"));
+    QVERIFY(!QFileInfo::exists(legacyPath));
+
+    const QString duplicateNameId = saveInMemoryClip(repository,
+                                                      QStringLiteral("different body"),
+                                                      clip->name,
+                                                      {},
+                                                      {},
+                                                      false,
+                                                      savedAt.addSecs(1),
+                                                      savedAt.addSecs(2));
+    QVERIFY(duplicateNameId.isEmpty());
 }
 
 void ClipTest::obsidianSyncImportsExternalEditsAndTracksRename()
@@ -1334,7 +1721,8 @@ void ClipTest::obsidianSyncImportsExternalEditsAndTracksRename()
     const std::optional<Clip> synchronized = index.findClip(clipId);
     QVERIFY(synchronized.has_value());
     QCOMPARE(synchronized->text, QStringLiteral("edited in Obsidian"));
-    QCOMPARE(synchronized->sourceApp, obsidianClipSourceApp());
+    QCOMPARE(synchronized->storageBackend, ClipStorageBackend::Obsidian);
+    QCOMPARE(synchronized->sourceApp, sourceClip->sourceApp);
 
     QString error;
     const std::optional<ObsidianClipDocument> renamed = store.findClip(clipId, &error);
@@ -1374,6 +1762,124 @@ void ClipTest::obsidianSyncSoftDeletesMissingNotes()
     const std::optional<Clip> deleted = index.findClip(clipId);
     QVERIFY(deleted.has_value());
     QCOMPARE(deleted->state, ClipState::Deleted);
+}
+
+void ClipTest::obsidianStateAndForgetTombstoneRoundTrip()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral(".obsidian")));
+
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    config.archiveDirectory = QStringLiteral("Pinloom Clips");
+    ObsidianClipStore store(config);
+
+    Clip clip;
+    clip.id = QStringLiteral("stateful-clip");
+    clip.state = ClipState::Saved;
+    clip.text = QStringLiteral("https://example.com/stateful");
+    clip.name = QStringLiteral("Stateful web clip");
+    clip.aliases = {QStringLiteral("stateful alias")};
+    clip.tags = {QStringLiteral("wb"), QStringLiteral("reference")};
+    clip.actionType = ClipActionType::OpenWebUrl;
+    clip.storageBackend = ClipStorageBackend::Obsidian;
+    clip.sourceApp = QStringLiteral("notepad++.exe");
+    clip.sourceWindowTitle = QStringLiteral("Source document");
+    clip.sourceUri = QStringLiteral("file:///E:/notes/source.txt");
+    clip.createdAt = QDateTime::fromString(QStringLiteral("2026-07-20T10:00:00Z"), Qt::ISODate);
+    clip.updatedAt = clip.createdAt.addSecs(1);
+
+    const ObsidianClipWriteResult saved = store.writeClip(clip);
+    QVERIFY2(saved.succeeded(), qPrintable(saved.error));
+    QString error;
+    std::optional<ObsidianClipDocument> document = store.readClipFile(saved.filePath, &error);
+    QVERIFY2(document.has_value(), qPrintable(error));
+    QVERIFY(document->stateExplicit);
+    QVERIFY(!document->forgotten);
+    QCOMPARE(document->clip.state, ClipState::Saved);
+    QCOMPARE(document->clip.actionType, ClipActionType::OpenWebUrl);
+    QCOMPARE(document->clip.storageBackend, ClipStorageBackend::Obsidian);
+    QCOMPARE(document->clip.sourceApp, clip.sourceApp);
+    QCOMPARE(document->clip.sourceWindowTitle, clip.sourceWindowTitle);
+    QCOMPARE(document->clip.sourceUri, clip.sourceUri);
+
+    clip.state = ClipState::Deleted;
+    clip.updatedAt = clip.updatedAt.addSecs(1);
+    const ObsidianClipWriteResult deleted = store.writeClip(clip);
+    QVERIFY2(deleted.succeeded(), qPrintable(deleted.error));
+    document = store.readClipFile(deleted.filePath, &error);
+    QVERIFY2(document.has_value(), qPrintable(error));
+    QCOMPARE(document->clip.state, ClipState::Deleted);
+
+    QByteArray markdown = readClipTestFile(deleted.filePath);
+    const int closingMarker = markdown.indexOf("---\n", 4);
+    QVERIFY(closingMarker >= 0);
+    markdown = markdown.left(closingMarker + 4) + QByteArrayLiteral("edited while deleted");
+    QVERIFY(writeClipTestFile(deleted.filePath, markdown));
+
+    InMemoryClipRepository index;
+    QVERIFY(index.upsertPersistentClip(clip));
+    const ObsidianClipSyncResult editedSync = store.synchronize(index);
+    QVERIFY2(editedSync.succeeded(), qPrintable(editedSync.fatalError));
+    const std::optional<Clip> synchronized = index.findClip(clip.id);
+    QVERIFY(synchronized.has_value());
+    QCOMPARE(synchronized->state, ClipState::Deleted);
+    QCOMPARE(synchronized->text, QStringLiteral("edited while deleted"));
+
+    QVERIFY2(store.forgetClip(clip.id, &error), qPrintable(error));
+    QVERIFY(QFileInfo::exists(deleted.filePath));
+    document = store.readClipFile(deleted.filePath, &error);
+    QVERIFY2(document.has_value(), qPrintable(error));
+    QVERIFY(document->forgotten);
+    QVERIFY(readClipTestFile(deleted.filePath).contains("pinloom_state: \"forgotten\""));
+    QVERIFY(readClipTestFile(deleted.filePath).endsWith("edited while deleted"));
+
+    const ObsidianClipSyncResult forgottenSync = store.synchronize(index);
+    QVERIFY2(forgottenSync.succeeded(), qPrintable(forgottenSync.fatalError));
+    QVERIFY(!index.findClip(clip.id).has_value());
+}
+
+void ClipTest::persistentClipServiceCoordinatesRepositoryAndObsidian()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral(".obsidian")));
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    ObsidianClipStore store(config);
+    InMemoryClipRepository repository;
+    PersistentClipService service(repository, store);
+
+    const ClipCaptureResult captured = repository.captureText(QStringLiteral("https://example.com/coordinated"));
+    QVERIFY(captured.captured());
+    Clip clip = captured.clip.value();
+    clip.name = QStringLiteral("Coordinated URL");
+    clip.tags = {QStringLiteral("wb"), QStringLiteral("reference")};
+    clip.sourceApp = QStringLiteral("editor.exe");
+    QString error;
+    QVERIFY2(service.saveClip(clip, &error), qPrintable(error));
+    std::optional<Clip> stored = service.findClip(clip.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->state, ClipState::Saved);
+    QCOMPARE(stored->actionType, ClipActionType::OpenWebUrl);
+    QCOMPARE(stored->storageBackend, ClipStorageBackend::Obsidian);
+    QCOMPARE(stored->sourceApp, QStringLiteral("editor.exe"));
+
+    QVERIFY2(service.changeState(clip.id, ClipState::Deleted, &error), qPrintable(error));
+    QCOMPARE(service.findClip(clip.id)->state, ClipState::Deleted);
+    const std::optional<ObsidianClipDocument> deletedNote = store.findClip(clip.id, &error);
+    QVERIFY2(deletedNote.has_value(), qPrintable(error));
+    QCOMPARE(deletedNote->clip.state, ClipState::Deleted);
+
+    QVERIFY2(service.changeState(clip.id, ClipState::Saved, &error), qPrintable(error));
+    QCOMPARE(service.findClip(clip.id)->state, ClipState::Saved);
+    QVERIFY2(service.changeState(clip.id, ClipState::Deleted, &error), qPrintable(error));
+    QVERIFY2(service.permanentlyRemove(clip.id, &error), qPrintable(error));
+    QVERIFY(!service.findClip(clip.id).has_value());
+    const std::optional<ObsidianClipDocument> forgotten = store.readClipFile(deletedNote->filePath, &error);
+    QVERIFY2(forgotten.has_value(), qPrintable(error));
+    QVERIFY(forgotten->forgotten);
 }
 
 void ClipTest::obsidianWatcherSynchronizesNewNotes()
@@ -1477,6 +1983,31 @@ void ClipTest::clipboardServiceCapturesTextIntoRepository()
     QVERIFY(service.lastCapturedClip().has_value());
     QVERIFY(service.lastStatus() == ClipCaptureStatus::Captured);
     QVERIFY(service.lastError().isEmpty());
+}
+
+void ClipTest::clipboardServiceUsesDynamicForegroundSource()
+{
+    FakeClipboardTextSource clipboard;
+    InMemoryClipRepository repository;
+    ClipboardCaptureService service(&clipboard, repository);
+    QString foregroundApp = QStringLiteral("secret.exe");
+    service.setSourceAppProvider([&foregroundApp]() {
+        return foregroundApp;
+    });
+    ClipCapturePolicy policy;
+    policy.excludedSourceApps = {QStringLiteral("secret.exe")};
+    service.setPolicy(policy);
+    QVERIFY(service.start());
+
+    clipboard.setText(QStringLiteral("excluded foreground content"));
+    QCOMPARE(service.lastStatus(), ClipCaptureStatus::IgnoredExcludedSource);
+    QVERIFY(repository.clips().isEmpty());
+
+    foregroundApp = QStringLiteral("editor.exe");
+    clipboard.setText(QStringLiteral("allowed foreground content"));
+    QCOMPARE(service.lastStatus(), ClipCaptureStatus::Captured);
+    QCOMPARE(repository.clips().size(), 1);
+    QCOMPARE(repository.clips().first().sourceApp, QStringLiteral("editor.exe"));
 }
 
 void ClipTest::clipboardServicePauseAndResumeCapture()
@@ -1702,15 +2233,17 @@ void ClipTest::hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger()
     QVERIFY(!layerDown.activated);
     QVERIFY(matcher.armed());
 
-    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::Trigger, true);
+    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::SaveTrigger, true);
     QVERIFY(triggerDown.consume);
     QVERIFY(triggerDown.activated);
+    QCOMPARE(triggerDown.action, HyperHotkeyAction::Save);
 
-    const HyperHotkeyMatchResult repeated = matcher.process(HyperKeyRole::Trigger, true);
+    const HyperHotkeyMatchResult repeated = matcher.process(HyperKeyRole::SaveTrigger, true);
     QVERIFY(repeated.consume);
     QVERIFY(!repeated.activated);
+    QCOMPARE(repeated.action, HyperHotkeyAction::None);
 
-    const HyperHotkeyMatchResult triggerUp = matcher.process(HyperKeyRole::Trigger, false);
+    const HyperHotkeyMatchResult triggerUp = matcher.process(HyperKeyRole::SaveTrigger, false);
     QVERIFY(triggerUp.consume);
     QVERIFY(!triggerUp.activated);
 
@@ -1723,6 +2256,59 @@ void ClipTest::hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger()
     matcher.process(HyperKeyRole::Control, false);
 }
 
+void ClipTest::hyperHotkeyStateMachineAcceptsF24AsCarrier()
+{
+    HyperHotkeyStateMachine matcher;
+
+    const HyperHotkeyMatchResult carrierDown = matcher.process(HyperKeyRole::F24, true);
+    QVERIFY(!carrierDown.consume);
+    QVERIFY(!carrierDown.activated);
+    QVERIFY(matcher.armed());
+
+    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::SaveTrigger, true);
+    QVERIFY(triggerDown.consume);
+    QVERIFY(triggerDown.activated);
+    QCOMPARE(triggerDown.action, HyperHotkeyAction::Save);
+
+    const HyperHotkeyMatchResult repeated = matcher.process(HyperKeyRole::SaveTrigger, true);
+    QVERIFY(repeated.consume);
+    QVERIFY(!repeated.activated);
+
+    const HyperHotkeyMatchResult triggerUp = matcher.process(HyperKeyRole::SaveTrigger, false);
+    QVERIFY(triggerUp.consume);
+
+    const HyperHotkeyMatchResult carrierUp = matcher.process(HyperKeyRole::F24, false);
+    QVERIFY(!carrierUp.consume);
+    QVERIFY(carrierUp.chordReleased);
+    QVERIFY(!matcher.armed());
+}
+
+void ClipTest::hyperHotkeyStateMachineEmitsInsertAction()
+{
+    HyperHotkeyStateMachine matcher;
+    matcher.process(HyperKeyRole::F24, true);
+
+    const HyperHotkeyMatchResult insertDown = matcher.process(HyperKeyRole::InsertTrigger, true);
+    QVERIFY(insertDown.consume);
+    QVERIFY(insertDown.activated);
+    QCOMPARE(insertDown.action, HyperHotkeyAction::Insert);
+
+    const HyperHotkeyMatchResult repeated = matcher.process(HyperKeyRole::InsertTrigger, true);
+    QVERIFY(repeated.consume);
+    QVERIFY(!repeated.activated);
+    QCOMPARE(repeated.action, HyperHotkeyAction::None);
+
+    QVERIFY(matcher.process(HyperKeyRole::InsertTrigger, false).consume);
+    const HyperHotkeyMatchResult secondActionInChord =
+        matcher.process(HyperKeyRole::SaveTrigger, true);
+    QVERIFY(secondActionInChord.consume);
+    QVERIFY(!secondActionInChord.activated);
+    QCOMPARE(secondActionInChord.action, HyperHotkeyAction::None);
+    QVERIFY(matcher.process(HyperKeyRole::SaveTrigger, false).consume);
+    QVERIFY(!matcher.process(HyperKeyRole::F24, false).consume);
+    QVERIFY(!matcher.armed());
+}
+
 void ClipTest::hyperHotkeyStateMachineRejectsIncompleteChord()
 {
     HyperHotkeyStateMachine matcher;
@@ -1733,7 +2319,7 @@ void ClipTest::hyperHotkeyStateMachineRejectsIncompleteChord()
     QVERIFY(!layerDown.consume);
     QVERIFY(!matcher.armed());
 
-    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::Trigger, true);
+    const HyperHotkeyMatchResult triggerDown = matcher.process(HyperKeyRole::SaveTrigger, true);
     QVERIFY(!triggerDown.consume);
     QVERIFY(!triggerDown.activated);
 
@@ -1741,36 +2327,80 @@ void ClipTest::hyperHotkeyStateMachineRejectsIncompleteChord()
     matcher.process(HyperKeyRole::Control, true);
     matcher.process(HyperKeyRole::Alt, true);
     matcher.process(HyperKeyRole::Shift, true);
-    const HyperHotkeyMatchResult plainS = matcher.process(HyperKeyRole::Trigger, true);
+    const HyperHotkeyMatchResult plainS = matcher.process(HyperKeyRole::SaveTrigger, true);
     QVERIFY(!plainS.consume);
     QVERIFY(!plainS.activated);
 }
 
-void ClipTest::contextualClipIntentUsesThreeStateSelectionContract()
+void ClipTest::textSelectionCaptureServiceUsesProvider()
 {
     TextSelectionCaptureResult selected;
     selected.state = TextSelectionState::TextSelected;
     selected.text = QStringLiteral("selected text");
-    QCOMPARE(contextualClipIntent(selected), ContextualClipIntent::ArchiveSelection);
-
-    TextSelectionCaptureResult emptySelection;
-    emptySelection.state = TextSelectionState::TextSelected;
-    emptySelection.text = QStringLiteral("  \n");
-    QCOMPARE(contextualClipIntent(emptySelection), ContextualClipIntent::OpenInsertionPicker);
-
-    TextSelectionCaptureResult caret;
-    caret.state = TextSelectionState::CaretOnly;
-    QCOMPARE(contextualClipIntent(caret), ContextualClipIntent::OpenInsertionPicker);
-
-    TextSelectionCaptureResult unknown;
-    unknown.state = TextSelectionState::Unknown;
-    QCOMPARE(contextualClipIntent(unknown), ContextualClipIntent::OpenInsertionPicker);
 
     TextSelectionCaptureService service([selected]() {
         return selected;
     });
     QCOMPARE(service.capture().text, QStringLiteral("selected text"));
 }
+
+void ClipTest::foregroundTextTargetExpiresAfterConfiguredAge()
+{
+    ForegroundTextTarget target;
+    target.windowHandle = 1;
+    target.capturedAt = QDateTime::fromString(QStringLiteral("2026-07-20T10:00:00Z"), Qt::ISODate);
+    QVERIFY(target.isValid());
+    QVERIFY(!target.isExpired(600, target.capturedAt.addSecs(600)));
+    QVERIFY(target.isExpired(600, target.capturedAt.addSecs(601)));
+    QVERIFY(!target.isExpired(-1, target.capturedAt.addDays(1)));
+}
+
+#ifdef Q_OS_WIN
+
+void ClipTest::capturesKeyboardSelectionFromScintillaControl()
+{
+    const HINSTANCE instance = GetModuleHandleW(nullptr);
+    WNDCLASSW windowClass{};
+    windowClass.lpfnWndProc = testScintillaWindowProcedure;
+    windowClass.hInstance = instance;
+    windowClass.lpszClassName = L"Scintilla";
+    const ATOM registered = RegisterClassW(&windowClass);
+    QVERIFY2(registered != 0, "Unable to register the test Scintilla window class");
+
+    HWND control = CreateWindowExW(0,
+                                   windowClass.lpszClassName,
+                                   L"",
+                                   0,
+                                   0,
+                                   0,
+                                   320,
+                                   200,
+                                   HWND_MESSAGE,
+                                   nullptr,
+                                   instance,
+                                   nullptr);
+    QVERIFY2(control != nullptr, "Unable to create the test Scintilla window");
+
+    ForegroundAppWindowContext context;
+    context.windowHandle = reinterpret_cast<quintptr>(control);
+    context.processId = GetCurrentProcessId();
+    ForegroundTextTarget target;
+    target.windowHandle = reinterpret_cast<quintptr>(control);
+    target.focusHandle = reinterpret_cast<quintptr>(control);
+    target.processId = GetCurrentProcessId();
+    target.threadId = GetCurrentThreadId();
+
+    const TextSelectionCaptureResult result = captureTextSelectionFromTarget(context, target);
+    QCOMPARE(result.state, TextSelectionState::TextSelected);
+    QCOMPARE(result.text, QStringLiteral("keyboard-selected text"));
+    QCOMPARE(result.source, QStringLiteral("scintilla"));
+    QVERIFY(result.diagnostics.isEmpty());
+
+    DestroyWindow(control);
+    UnregisterClassW(windowClass.lpszClassName, instance);
+}
+
+#endif
 
 void ClipTest::trayControllerStartsAndStops()
 {

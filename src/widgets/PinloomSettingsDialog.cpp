@@ -2,6 +2,7 @@
 
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -54,7 +55,12 @@ QString sumatraPdfStatusText(const QString &configuredPath)
 
     const QFileInfo executable(resolved);
     if (executable.exists() && executable.isFile()) {
-        return QStringLiteral("Ready: %1").arg(QDir::toNativeSeparators(executable.filePath()));
+        const QString previewRenderer = resolvePdfLocatorPreviewRendererPath(executable.filePath());
+        return previewRenderer.isEmpty()
+            ? QStringLiteral("Reader ready; rectangle preview unavailable because sumatrapdf-tool.exe is missing: %1")
+                  .arg(QDir::toNativeSeparators(executable.filePath()))
+            : QStringLiteral("Reader and rectangle preview ready: %1")
+                  .arg(QDir::toNativeSeparators(executable.filePath()));
     }
 
     return QStringLiteral("Missing configured executable: %1").arg(QDir::toNativeSeparators(resolved));
@@ -88,6 +94,16 @@ QString obsidianStatusText(const QString &vaultPath, const QString &archiveDirec
               .arg(QDir::toNativeSeparators(vault.absoluteFilePath()));
 }
 
+QString clipPrivacyStatusText(bool sensitiveFilter,
+                              const QStringList &excludedApps,
+                              const QStringList &customMarkers)
+{
+    return QStringLiteral("Sensitive-pattern filter: %1; excluded apps: %2; custom markers: %3")
+        .arg(sensitiveFilter ? QStringLiteral("on") : QStringLiteral("off"),
+             QString::number(cleanedValues(excludedApps).size()),
+             QString::number(cleanedValues(customMarkers).size()));
+}
+
 } // namespace
 
 ClipCapturePolicy PinloomAppSettings::clipCapturePolicy() const
@@ -106,6 +122,12 @@ PinloomAppSettings pinloomDefaultAppSettings(const QString &dataDirectory)
 {
     PinloomAppSettings settings;
     settings.dataDirectory = dataDirectory.trimmed();
+    settings.clipExcludedSourceApps = {
+        QStringLiteral("1Password.exe"),
+        QStringLiteral("Bitwarden.exe"),
+        QStringLiteral("KeePass.exe"),
+        QStringLiteral("KeePassXC.exe")
+    };
     return settings;
 }
 
@@ -132,7 +154,8 @@ PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &da
         settings.value(QStringLiteral("clip/restoreOriginalClipboardOnInsert"),
                        loaded.clipRestoreOriginalClipboardOnInsert).toBool();
     loaded.clipExcludedSourceApps =
-        cleanedValues(settings.value(QStringLiteral("clip/excludedSourceApps")).toStringList());
+        cleanedValues(settings.value(QStringLiteral("clip/excludedSourceApps"),
+                                     loaded.clipExcludedSourceApps).toStringList());
     loaded.clipSensitiveTextMarkers =
         cleanedValues(settings.value(QStringLiteral("clip/sensitiveTextMarkers")).toStringList());
     return loaded;
@@ -197,9 +220,20 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     obsidianStatusLabel_->setObjectName(QStringLiteral("obsidianStatusLabel"));
     obsidianStatusLabel_->setWordWrap(true);
 
-    dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, this);
+    auto *dataDirectoryRow = new QWidget(this);
+    auto *dataDirectoryLayout = new QHBoxLayout(dataDirectoryRow);
+    dataDirectoryLayout->setContentsMargins(0, 0, 0, 0);
+    dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, dataDirectoryRow);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
-    dataDirectoryEdit_->setReadOnly(true);
+    auto *browseDataDirectoryButton = new QPushButton(tr("Browse"), dataDirectoryRow);
+    browseDataDirectoryButton->setObjectName(QStringLiteral("browseDataDirectoryButton"));
+    dataDirectoryLayout->addWidget(dataDirectoryEdit_, 1);
+    dataDirectoryLayout->addWidget(browseDataDirectoryButton);
+    dataDirectoryStatusLabel_ = new QLabel(
+        tr("A changed directory is copied and activated on the next Pinloom start; the old copy is retained."),
+        this);
+    dataDirectoryStatusLabel_->setObjectName(QStringLiteral("dataDirectoryStatusLabel"));
+    dataDirectoryStatusLabel_->setWordWrap(true);
 
     clipMaxTemporaryClipsSpin_ = new QSpinBox(this);
     clipMaxTemporaryClipsSpin_->setObjectName(QStringLiteral("clipMaxTemporaryClipsSpin"));
@@ -229,6 +263,13 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 
     clipSensitiveTextMarkersEdit_ = new QLineEdit(commaSeparatedText(settings.clipSensitiveTextMarkers), this);
     clipSensitiveTextMarkersEdit_->setObjectName(QStringLiteral("clipSensitiveTextMarkersEdit"));
+    clipPrivacyStatusLabel_ = new QLabel(
+        clipPrivacyStatusText(settings.clipExcludeSensitiveText,
+                              settings.clipExcludedSourceApps,
+                              settings.clipSensitiveTextMarkers),
+        this);
+    clipPrivacyStatusLabel_->setObjectName(QStringLiteral("clipPrivacyStatusLabel"));
+    clipPrivacyStatusLabel_->setWordWrap(true);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("settingsButtons"));
@@ -238,7 +279,8 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     form->addRow(tr("Obsidian Vault"), obsidianVaultRow);
     form->addRow(tr("Obsidian archive directory"), obsidianArchiveDirectoryEdit_);
     form->addRow(tr("Obsidian status"), obsidianStatusLabel_);
-    form->addRow(tr("Data directory"), dataDirectoryEdit_);
+    form->addRow(tr("Data directory"), dataDirectoryRow);
+    form->addRow(tr("Data migration"), dataDirectoryStatusLabel_);
     form->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
     form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
     form->addRow(tr("Clip history TTL (seconds)"), clipTemporaryTtlSecondsSpin_);
@@ -246,6 +288,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     form->addRow(QString(), clipRestoreOriginalClipboardCheck_);
     form->addRow(tr("Clip app blacklist"), clipExcludedSourceAppsEdit_);
     form->addRow(tr("Sensitive markers"), clipSensitiveTextMarkersEdit_);
+    form->addRow(tr("Clip privacy"), clipPrivacyStatusLabel_);
     form->addWidget(buttons);
 
     connect(browsePdfButton, &QPushButton::clicked, this, [this]() {
@@ -273,6 +316,23 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     };
     connect(obsidianVaultPathEdit_, &QLineEdit::textChanged, this, refreshObsidianStatus);
     connect(obsidianArchiveDirectoryEdit_, &QLineEdit::textChanged, this, refreshObsidianStatus);
+    connect(browseDataDirectoryButton, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getExistingDirectory(this,
+                                                               tr("Pinloom Data Directory"),
+                                                               dataDirectoryEdit_->text());
+        if (!path.trimmed().isEmpty()) {
+            dataDirectoryEdit_->setText(path.trimmed());
+        }
+    });
+    const auto refreshClipPrivacyStatus = [this]() {
+        clipPrivacyStatusLabel_->setText(
+            clipPrivacyStatusText(clipExcludeSensitiveTextCheck_->isChecked(),
+                                  commaSeparatedValues(clipExcludedSourceAppsEdit_->text()),
+                                  commaSeparatedValues(clipSensitiveTextMarkersEdit_->text())));
+    };
+    connect(clipExcludeSensitiveTextCheck_, &QCheckBox::toggled, this, refreshClipPrivacyStatus);
+    connect(clipExcludedSourceAppsEdit_, &QLineEdit::textChanged, this, refreshClipPrivacyStatus);
+    connect(clipSensitiveTextMarkersEdit_, &QLineEdit::textChanged, this, refreshClipPrivacyStatus);
     connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }

@@ -225,6 +225,11 @@ QString ClipboardCaptureService::sourceApp() const
     return sourceApp_;
 }
 
+void ClipboardCaptureService::setSourceAppProvider(SourceAppProvider provider)
+{
+    sourceAppProvider_ = std::move(provider);
+}
+
 void ClipboardCaptureService::suppressNextChange()
 {
     suppressNextChange_ = true;
@@ -286,7 +291,10 @@ void ClipboardCaptureService::handleClipboardTextChanged()
 
 void ClipboardCaptureService::recordCaptureText(const QString &text)
 {
-    const ClipCaptureResult result = captureText_(text, policy_, sourceApp_, {});
+    const QString sourceApp = sourceAppProvider_
+        ? sourceAppProvider_().trimmed()
+        : sourceApp_;
+    const ClipCaptureResult result = captureText_(text, policy_, sourceApp, {});
     lastStatus_ = result.status;
 
     const QString repositoryError = repositoryError_ ? repositoryError_() : QString();

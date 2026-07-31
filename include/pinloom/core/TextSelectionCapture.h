@@ -2,6 +2,8 @@
 
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 
+#include <QPoint>
+#include <QDateTime>
 #include <QString>
 #include <functional>
 
@@ -13,18 +15,18 @@ enum class TextSelectionState {
     Unknown
 };
 
-enum class ContextualClipIntent {
-    ArchiveSelection,
-    OpenInsertionPicker
-};
-
 struct ForegroundTextTarget {
     quintptr windowHandle = 0;
     quintptr focusHandle = 0;
     quint32 processId = 0;
     quint32 threadId = 0;
+    QPoint insertionPoint;
+    bool hasInsertionPoint = false;
+    QDateTime capturedAt;
 
     bool isValid() const;
+    bool isExpired(qint64 maximumAgeSeconds = 10 * 60,
+                   const QDateTime &now = {}) const;
 };
 
 struct TextSelectionCaptureResult {
@@ -39,6 +41,8 @@ struct TextSelectionCaptureResult {
 };
 
 TextSelectionCaptureResult captureForegroundTextSelection();
+TextSelectionCaptureResult captureTextSelectionFromTarget(const ForegroundAppWindowContext &context,
+                                                           const ForegroundTextTarget &target);
 
 class TextSelectionCaptureService {
 public:
@@ -53,7 +57,6 @@ private:
 };
 
 QString textSelectionStateText(TextSelectionState state);
-ContextualClipIntent contextualClipIntent(const TextSelectionCaptureResult &selection);
 bool restoreForegroundTextTarget(const ForegroundTextTarget &target, QString *error = nullptr);
 
 } // namespace Pinloom

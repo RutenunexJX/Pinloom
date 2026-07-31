@@ -6,6 +6,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include <QPixmap>
+#include <QPoint>
 #include <QWidget>
 #include <functional>
 #include <optional>
@@ -19,6 +20,7 @@ class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QPaintEvent;
+class QToolButton;
 
 namespace Pinloom {
 
@@ -59,6 +61,7 @@ struct PinloomCommandPanelOptions {
         QWidget *parent,
         const ClipSearchResult &result)> clipSaveRequestProvider;
     std::function<bool(const PinloomClipSaveRequest &request, QString *error)> clipSaveHandler;
+    std::function<bool(QString *status)> clipLibraryHandler;
     std::function<bool(QString *status)> anchorCaptureHandler;
     std::function<bool(QString *status)> anchorLibraryHandler;
     std::function<QStringList(QString *status)> inboxSelectionProvider;
@@ -78,6 +81,7 @@ public:
 
     void setCommandText(const QString &text);
     QString commandText() const;
+    void openCommandSearch(const QString &query = QString());
     void openClipSearch(const QString &query = QString());
     void setPendingInboxFiles(const QStringList &filePaths);
     QStringList pendingInboxFiles() const;
@@ -97,6 +101,7 @@ public:
     bool showActionsForCurrentResult();
     bool returnToResultList();
     bool isShowingResultActions() const;
+    bool isClipPicker() const;
     PinloomCommandTheme theme() const;
     bool isCompact() const;
     int preferredWindowHeight() const;
@@ -105,6 +110,7 @@ signals:
     void statusChanged(const QString &status);
     void clipInserted(const QString &clipId);
     void clipSaved(const QString &clipId);
+    void clipLibraryRequested();
     void anchorCaptureRequested();
     void anchorJumped(const QString &resourceId);
     void resourceOpened(const QString &resourceId);
@@ -128,6 +134,7 @@ private:
     bool insertClipFromItem(const QListWidgetItem *item);
     bool activateUnifiedTargetFromItem(const QListWidgetItem *item);
     bool saveClipFromItem(const QListWidgetItem *item);
+    bool openClipLibrary();
     bool captureAnchor();
     bool openAnchorLibrary();
     bool saveInboxFromCommand();
@@ -145,6 +152,7 @@ private:
 
     PinloomCommandPanelOptions options_;
     QLineEdit *commandEdit_ = nullptr;
+    QToolButton *clipLibraryButton_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;
@@ -155,10 +163,14 @@ private:
     PinloomCommandTheme theme_ = PinloomCommandTheme::Neutral;
     QPixmap backgroundPixmap_;
     bool compact_ = true;
+    bool clipPickerMode_ = false;
     int preferredWindowHeight_ = 62;
 };
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel);
+void showCommandPanelForHotkeyAt(QWidget &commandWindow,
+                                 PinloomCommandPanel &panel,
+                                 const QPoint &anchorPoint);
 PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
                                            const std::optional<Clip> &clip = std::nullopt,
                                            const std::optional<Resource> &resource = std::nullopt,

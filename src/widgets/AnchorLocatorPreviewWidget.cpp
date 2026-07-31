@@ -3,8 +3,15 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
+#include <QDialog>
+#include <QKeyEvent>
+#include <QLabel>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QPaintEvent>
+#include <QScrollArea>
+#include <QVBoxLayout>
+#include <algorithm>
 
 namespace Pinloom {
 
@@ -48,35 +55,123 @@ AnchorLocatorPreviewWidget::AnchorLocatorPreviewWidget(QWidget *parent)
     : QWidget(parent)
 {
     setObjectName(QStringLiteral("anchorLibraryLocatorPreview"));
-    setMinimumHeight(150);
-    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    setMinimumHeight(220);
+    setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+    setFocusPolicy(Qt::StrongFocus);
 }
 
 void AnchorLocatorPreviewWidget::setLocator(const Resource &resource, const Anchor &anchor)
 {
+    closeExpandedPreview();
     resource_ = resource;
     anchor_ = anchor;
     screenshot_ = {};
+    errorMessage_.clear();
+    unsetCursor();
+    setToolTip({});
     update();
 }
 
 void AnchorLocatorPreviewWidget::setScreenshot(const QPixmap &screenshot)
 {
     screenshot_ = screenshot;
+    if (!screenshot_.isNull()) errorMessage_.clear();
+    if (screenshot_.isNull()) {
+        unsetCursor();
+        setToolTip({});
+    } else {
+        setCursor(Qt::PointingHandCursor);
+        setToolTip(tr("Open enlarged preview"));
+    }
+    updateExpandedPreview();
+    update();
+}
+
+void AnchorLocatorPreviewWidget::setError(const QString &message)
+{
+    closeExpandedPreview();
+    screenshot_ = {};
+    errorMessage_ = message.trimmed();
+    unsetCursor();
+    setToolTip(errorMessage_);
     update();
 }
 
 void AnchorLocatorPreviewWidget::clearPreview()
 {
+    closeExpandedPreview();
     resource_ = {};
     anchor_ = {};
     screenshot_ = {};
+    errorMessage_.clear();
+    unsetCursor();
+    setToolTip({});
     update();
+}
+
+bool AnchorLocatorPreviewWidget::hasScreenshot() const
+{
+    return !screenshot_.isNull();
+}
+
+bool AnchorLocatorPreviewWidget::showExpandedPreview()
+{
+    if (screenshot_.isNull()) return false;
+    if (!expandedPreviewDialog_) {
+        auto *dialog = new QDialog(window());
+        dialog->setObjectName(QStringLiteral("anchorLocatorExpandedPreview"));
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->setWindowTitle(anchor_.name.trimmed().isEmpty()
+                                   ? tr("Anchor preview")
+                                   : tr("Anchor preview - %1").arg(anchor_.name.trimmed()));
+        dialog->resize(960, 640);
+
+        auto *layout = new QVBoxLayout(dialog);
+        layout->setContentsMargins(8, 8, 8, 8);
+        auto *scrollArea = new QScrollArea(dialog);
+        scrollArea->setObjectName(QStringLiteral("anchorLocatorExpandedPreviewScroll"));
+        scrollArea->setAlignment(Qt::AlignCenter);
+        scrollArea->setWidgetResizable(false);
+        auto *label = new QLabel(scrollArea);
+        label->setObjectName(QStringLiteral("anchorLocatorExpandedPreviewImage"));
+        label->setAlignment(Qt::AlignCenter);
+        scrollArea->setWidget(label);
+        layout->addWidget(scrollArea);
+
+        expandedPreviewDialog_ = dialog;
+        expandedPreviewLabel_ = label;
+        updateExpandedPreview();
+    }
+    expandedPreviewDialog_->show();
+    expandedPreviewDialog_->raise();
+    expandedPreviewDialog_->activateWindow();
+    return true;
 }
 
 QSize AnchorLocatorPreviewWidget::sizeHint() const
 {
-    return {320, 180};
+    return {320, 240};
+}
+
+void AnchorLocatorPreviewWidget::keyPressEvent(QKeyEvent *event)
+{
+    if ((event->key() == Qt::Key_Return || event->key() == Qt::Key_Enter
+         || event->key() == Qt::Key_Space)
+        && showExpandedPreview()) {
+        event->accept();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void AnchorLocatorPreviewWidget::mouseReleaseEvent(QMouseEvent *event)
+{
+    if (event->button() == Qt::LeftButton && rect().contains(event->position().toPoint())
+        && showExpandedPreview()) {
+        event->accept();
+        return;
+    }
+    QWidget::mouseReleaseEvent(event);
 }
 
 void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
@@ -96,6 +191,13 @@ void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
         painter.drawPixmap(origin, scaled);
         painter.setPen(palette().color(QPalette::Mid));
         painter.drawRect(QRect(origin, scaled.size()).adjusted(0, 0, -1, -1));
+        return;
+    }
+    if (!errorMessage_.isEmpty()) {
+        painter.setPen(QColor(QStringLiteral("#9d3340")));
+        painter.drawText(content.adjusted(14, 14, -14, -14),
+                         Qt::AlignCenter | Qt::TextWordWrap,
+                         errorMessage_);
         return;
     }
 
@@ -134,6 +236,31 @@ void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
         painter.setPen(palette().color(QPalette::PlaceholderText));
         painter.drawText(pageRect, Qt::AlignCenter, tr("No locator selected"));
     }
+}
+
+void AnchorLocatorPreviewWidget::closeExpandedPreview()
+{
+    if (expandedPreviewDialog_) expandedPreviewDialog_->close();
+    expandedPreviewDialog_.clear();
+    expandedPreviewLabel_.clear();
+}
+
+void AnchorLocatorPreviewWidget::updateExpandedPreview()
+{
+    if (!expandedPreviewLabel_ || screenshot_.isNull()) return;
+
+    const QSize maximumSize = expandedPreviewDialog_
+        ? expandedPreviewDialog_->size() - QSize(40, 60)
+        : QSize(920, 580);
+    qreal scale = std::min(static_cast<qreal>(maximumSize.width()) / screenshot_.width(),
+                           static_cast<qreal>(maximumSize.height()) / screenshot_.height());
+    scale = std::clamp(scale, 0.05, 2.0);
+    const QSize displaySize(qRound(screenshot_.width() * scale),
+                            qRound(screenshot_.height() * scale));
+    expandedPreviewLabel_->setPixmap(screenshot_.scaled(displaySize,
+                                                         Qt::KeepAspectRatio,
+                                                         Qt::SmoothTransformation));
+    expandedPreviewLabel_->adjustSize();
 }
 
 } // namespace Pinloom

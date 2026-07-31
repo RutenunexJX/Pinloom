@@ -24,6 +24,16 @@ enum class ClipState {
     Deleted
 };
 
+enum class ClipActionType {
+    InsertText,
+    OpenWebUrl
+};
+
+enum class ClipStorageBackend {
+    Local,
+    Obsidian
+};
+
 enum class ClipCaptureStatus {
     Captured,
     IgnoredPaused,
@@ -48,12 +58,16 @@ struct Clip {
     QString name;
     QStringList aliases;
     QStringList tags;
+    ClipActionType actionType = ClipActionType::InsertText;
+    ClipStorageBackend storageBackend = ClipStorageBackend::Local;
     bool pinned = false;
     QDateTime createdAt;
     QDateTime updatedAt;
     QDateTime usedAt;
     QDateTime expiresAt;
     QString sourceApp;
+    QString sourceWindowTitle;
+    QString sourceUri;
     qsizetype sizeBytes = 0;
 };
 
@@ -74,6 +88,30 @@ struct ClipCaptureResult {
     bool captured() const;
 };
 
+struct ClipCandidateQuery {
+    QString text;
+    QString requiredTag;
+    bool identityOnly = false;
+    bool tagOnly = false;
+    bool includeSaved = true;
+    bool includeTemporary = false;
+    bool includeDeleted = false;
+    bool emptyQuery = false;
+    int limit = -1;
+};
+
+struct ClipIdentityValidationResult {
+    bool valid = true;
+    QString conflictingClipId;
+    QString conflictingValue;
+    QString error;
+};
+
+ClipIdentityValidationResult validateClipIdentity(const QList<Clip> &clips,
+                                                  const QString &clipId,
+                                                  const QString &name,
+                                                  const QStringList &aliases);
+
 class InMemoryClipRepository {
 public:
     ClipCaptureResult captureText(const QString &text,
@@ -89,8 +127,10 @@ public:
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
     bool upsertSavedClip(const Clip &clip);
+    bool upsertPersistentClip(const Clip &clip);
     bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
     bool restoreClip(const QString &id, const QDateTime &now = {});
+    bool permanentlyDeleteClip(const QString &id);
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 
@@ -126,19 +166,29 @@ public:
                   const QDateTime &now = {});
     bool importSavedClip(const Clip &clip);
     bool upsertSavedClip(const Clip &clip);
+    bool upsertPersistentClip(const Clip &clip);
     bool softDeleteSavedClip(const QString &id, const QDateTime &now = {});
     bool restoreClip(const QString &id, const QDateTime &now = {});
+    bool permanentlyDeleteClip(const QString &id);
     bool markClipUsed(const QString &id, const QDateTime &now = {});
     void pruneTemporaryHistory(const ClipCapturePolicy &policy, const QDateTime &now = {});
 
     QList<Clip> clips() const;
     QList<Clip> temporaryClips() const;
     QList<Clip> savedClips() const;
+    QList<Clip> searchCandidates(const ClipCandidateQuery &query) const;
     std::optional<Clip> findClip(const QString &id) const;
+    QString databasePath() const;
+    bool backupDatabase(const QString &destinationPath);
 
 private:
     bool execute(const QString &sql);
     bool recordMigration(int version, const QString &name);
+    int schemaVersion() const;
+    bool migrateToVersion2();
+    bool ensureSearchSchema();
+    bool rebuildMetadataIndex(const Clip &clip);
+    bool rebuildAllMetadataIndexes();
     bool hasContentHash(const QString &contentHash) const;
     bool pruneTemporaryHistoryInternal(const ClipCapturePolicy &policy, const QDateTime &now);
     QList<Clip> readClips(const QString &whereClause = {}) const;

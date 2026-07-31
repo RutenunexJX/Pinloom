@@ -127,6 +127,44 @@ FieldMatch bestMatchForClip(const Clip &clip, const QString &query, bool tagQuer
     return best;
 }
 
+bool hasExactTag(const Clip &clip, const QString &requiredTag)
+{
+    return requiredTag.isEmpty()
+        || std::any_of(clip.tags.cbegin(), clip.tags.cend(), [&requiredTag](const QString &tag) {
+               return normalizedSearchText(tag) == requiredTag;
+           });
+}
+
+FieldMatch bestIdentityMatchForClip(const Clip &clip, const ClipIdentityQuery &query)
+{
+    if (query.hasTagQualifier && !hasExactTag(clip, query.requiredTag)) {
+        return {};
+    }
+
+    if (query.nameOrAlias.isEmpty()) {
+        return query.requiredTag.isEmpty()
+            ? FieldMatch{}
+            : FieldMatch{QStringLiteral("tag"), query.requiredTag, 800, true};
+    }
+
+    FieldMatch best;
+    considerMatch(best,
+                  matchValue(QStringLiteral("name"),
+                             clip.name,
+                             query.nameOrAlias,
+                             1000,
+                             700,
+                             600));
+    considerListMatch(best,
+                      QStringLiteral("alias"),
+                      clip.aliases,
+                      query.nameOrAlias,
+                      900,
+                      690,
+                      590);
+    return best;
+}
+
 ClipSearchResult resultForClip(const Clip &clip, const FieldMatch &match, int priority)
 {
     ClipSearchResult result;
@@ -139,6 +177,7 @@ ClipSearchResult resultForClip(const Clip &clip, const FieldMatch &match, int pr
     result.state = clip.state;
     result.tags = clip.tags;
     result.aliases = clip.aliases;
+    result.actionType = clip.actionType;
     result.pinned = clip.pinned;
     result.createdAt = clip.createdAt;
     result.updatedAt = clip.updatedAt;
@@ -186,14 +225,43 @@ bool candidatesLessThan(const Candidate &left, const Candidate &right)
 
 } // namespace
 
+bool ClipIdentityQuery::isEmpty() const
+{
+    return requiredTag.isEmpty() && nameOrAlias.isEmpty();
+}
+
+ClipIdentityQuery parseClipIdentityQuery(const QString &query)
+{
+    ClipIdentityQuery parsed;
+    const qsizetype separator = query.indexOf(QLatin1Char(';'));
+    if (separator < 0) {
+        parsed.nameOrAlias = normalizedSearchText(query);
+        return parsed;
+    }
+
+    parsed.hasTagQualifier = true;
+    QString tag = query.left(separator).trimmed();
+    while (tag.startsWith(QLatin1Char('#'))) {
+        tag.remove(0, 1);
+        tag = tag.trimmed();
+    }
+    parsed.requiredTag = normalizedSearchText(tag);
+    parsed.nameOrAlias = normalizedSearchText(query.mid(separator + 1));
+    return parsed;
+}
+
 QList<ClipSearchResult> searchClips(const QList<Clip> &clips,
                                     const QString &query,
                                     const ClipSearchOptions &options)
 {
-    const QString normalizedQuery = normalizedSearchText(query);
-    const bool tagQuery = normalizedQuery.startsWith(QLatin1Char('#'));
+    const bool identityMode = options.mode == ClipSearchMode::Identity;
+    const ClipIdentityQuery identityQuery = identityMode ? parseClipIdentityQuery(query) : ClipIdentityQuery{};
+    const QString normalizedQuery = identityMode ? QString() : normalizedSearchText(query);
+    const bool tagQuery = !identityMode && normalizedQuery.startsWith(QLatin1Char('#'));
     const QString effectiveQuery = tagQuery ? normalizedSearchText(normalizedQuery.mid(1)) : normalizedQuery;
-    const bool emptyQuery = !tagQuery && effectiveQuery.isEmpty();
+    const bool emptyQuery = identityMode
+        ? identityQuery.isEmpty()
+        : !tagQuery && effectiveQuery.isEmpty();
 
     if ((emptyQuery && !options.emptyQueryReturnsPinnedAndRecent) || (tagQuery && effectiveQuery.isEmpty())
         || (!options.includeSaved && !options.includeTemporary && !options.includeDeleted) || options.limit == 0) {
@@ -223,7 +291,9 @@ QList<ClipSearchResult> searchClips(const QList<Clip> &clips,
             continue;
         }
 
-        const FieldMatch match = bestMatchForClip(clip, effectiveQuery, tagQuery);
+        const FieldMatch match = identityMode
+            ? bestIdentityMatchForClip(clip, identityQuery)
+            : bestMatchForClip(clip, effectiveQuery, tagQuery);
         if (match.matched) {
             candidates.append({resultForClip(clip, match, match.priority), match.priority});
         }
@@ -296,6 +366,33 @@ ClipSearchService::ClipSearchService(SqliteClipRepository &repository)
                         },
                         [&repository]() {
                             return repository.lastError();
+                        },
+                        [&repository](const QString &query, const ClipSearchOptions &options) {
+                            ClipCandidateQuery candidate;
+                            candidate.identityOnly = options.mode == ClipSearchMode::Identity;
+                            candidate.includeSaved = options.includeSaved;
+                            candidate.includeTemporary = options.includeTemporary;
+                            candidate.includeDeleted = options.includeDeleted;
+                            if (candidate.identityOnly) {
+                                const ClipIdentityQuery parsed = parseClipIdentityQuery(query);
+                                candidate.text = parsed.nameOrAlias;
+                                candidate.requiredTag = parsed.requiredTag;
+                                candidate.emptyQuery = parsed.isEmpty();
+                            } else {
+                                QString normalized = normalizedSearchText(query);
+                                candidate.tagOnly = normalized.startsWith(QLatin1Char('#'));
+                                if (candidate.tagOnly) {
+                                    normalized = normalizedSearchText(normalized.mid(1));
+                                }
+                                candidate.text = normalized;
+                                candidate.emptyQuery = !candidate.tagOnly && normalized.isEmpty();
+                            }
+                            if (candidate.emptyQuery && options.includeTemporary) {
+                                candidate.includeSaved = false;
+                            }
+                            candidate.limit = candidate.emptyQuery ? options.limit : -1;
+                            const QList<Clip> matches = repository.searchCandidates(candidate);
+                            return repository.lastError().isEmpty() ? matches : repository.clips();
                         })
 {
 }
@@ -306,7 +403,8 @@ ClipSearchService::ClipSearchService(ListClipsCallback listClips,
                                      SaveClipCallback saveClip,
                                      ClipStateMutationCallback softDeleteClip,
                                      ClipStateMutationCallback restoreClip,
-                                     LastErrorCallback lastError)
+                                     LastErrorCallback lastError,
+                                     CandidateClipsCallback candidateClips)
     : listClips_(std::move(listClips))
     , listSavedClips_(std::move(listSavedClips))
     , findClip_(std::move(findClip))
@@ -314,11 +412,16 @@ ClipSearchService::ClipSearchService(ListClipsCallback listClips,
     , softDeleteClip_(std::move(softDeleteClip))
     , restoreClip_(std::move(restoreClip))
     , lastError_(std::move(lastError))
+    , candidateClips_(std::move(candidateClips))
 {
 }
 
 QList<ClipSearchResult> ClipSearchService::search(const QString &query, const ClipSearchOptions &options) const
 {
+    if (candidateClips_) {
+        return searchClips(candidateClips_(query, options), query, options);
+    }
+
     if (options.includeSaved && !options.includeTemporary && !options.includeDeleted && listSavedClips_) {
         return searchClips(listSavedClips_(), query, options);
     }

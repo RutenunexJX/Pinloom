@@ -12,14 +12,23 @@ enum class HyperKeyRole {
     Alt,
     Shift,
     Layer,
-    Trigger,
+    F24,
+    SaveTrigger,
+    InsertTrigger,
     Other
+};
+
+enum class HyperHotkeyAction {
+    None,
+    Save,
+    Insert
 };
 
 struct HyperHotkeyMatchResult {
     bool consume = false;
     bool activated = false;
     bool chordReleased = false;
+    HyperHotkeyAction action = HyperHotkeyAction::None;
 };
 
 class HyperHotkeyStateMachine {
@@ -33,7 +42,9 @@ private:
     bool altPressed_ = false;
     bool shiftPressed_ = false;
     bool layerPressed_ = false;
-    bool triggerPressed_ = false;
+    bool f24Pressed_ = false;
+    bool saveTriggerPressed_ = false;
+    bool insertTriggerPressed_ = false;
     bool activatedInChord_ = false;
 };
 
@@ -49,7 +60,7 @@ public:
     virtual void stop() = 0;
 
 signals:
-    void activated();
+    void activated(Pinloom::HyperHotkeyAction action);
     void chordReleased();
 };
 
@@ -57,7 +68,7 @@ class HyperHotkeyService final : public QObject {
     Q_OBJECT
 
 public:
-    using ActivationHandler = std::function<void()>;
+    using ActivationHandler = std::function<void(HyperHotkeyAction action)>;
 
     explicit HyperHotkeyService(HyperHotkeyBackend *backend, QObject *parent = nullptr);
     ~HyperHotkeyService() override;
@@ -70,13 +81,13 @@ public:
     QString lastError() const;
 
 signals:
-    void activated();
+    void activated(Pinloom::HyperHotkeyAction action);
     void chordReleased();
     void registeredChanged(bool registered);
     void errorChanged(const QString &error);
 
 private:
-    void handleActivated();
+    void handleActivated(HyperHotkeyAction action);
     void setLastError(const QString &error);
 
     HyperHotkeyBackend *backend_ = nullptr;

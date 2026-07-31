@@ -52,6 +52,7 @@ private:
     QLineEdit *obsidianVaultPathEdit_ = nullptr;
     QLineEdit *obsidianArchiveDirectoryEdit_ = nullptr;
     QLineEdit *dataDirectoryEdit_ = nullptr;
+    QLabel *dataDirectoryStatusLabel_ = nullptr;
     QSpinBox *clipMaxTemporaryClipsSpin_ = nullptr;
     QSpinBox *clipMaxTextBytesSpin_ = nullptr;
     QSpinBox *clipTemporaryTtlSecondsSpin_ = nullptr;
@@ -59,6 +60,7 @@ private:
     QCheckBox *clipRestoreOriginalClipboardCheck_ = nullptr;
     QLineEdit *clipExcludedSourceAppsEdit_ = nullptr;
     QLineEdit *clipSensitiveTextMarkersEdit_ = nullptr;
+    QLabel *clipPrivacyStatusLabel_ = nullptr;
 };
 
 } // namespace Pinloom

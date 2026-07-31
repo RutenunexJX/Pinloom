@@ -2050,13 +2050,17 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
             return false;
         }
 
-        QString error;
-        if (!options_.clipInsertionHandler(target.clipId, &error)) {
-            updateStatus(error.trimmed().isEmpty() ? tr("Clip insertion failed") : error.trimmed());
+        QString operationStatus;
+        if (!options_.clipInsertionHandler(target.clipId, &operationStatus)) {
+            updateStatus(operationStatus.trimmed().isEmpty()
+                             ? tr("Clip insertion failed")
+                             : operationStatus.trimmed());
             return false;
         }
 
-        updateStatus(tr("Inserted clip"));
+        updateStatus(operationStatus.trimmed().isEmpty()
+                         ? tr("Inserted clip")
+                         : operationStatus.trimmed());
         return true;
     }
 

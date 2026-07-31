@@ -18,6 +18,7 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Network Sql Widgets Test)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
+    include/pinloom/core/AppDataDirectory.h
     include/pinloom/core/AnchorLibraryArchive.h
     include/pinloom/core/AnchorLibraryManagement.h
     include/pinloom/core/AnchorLocator.h
@@ -43,6 +44,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
+    src/core/AppDataDirectory.cpp
     src/core/AnchorLibraryArchive.cpp
     src/core/AnchorLibraryManagement.cpp
     src/core/AnchorLocator.cpp
@@ -87,20 +89,26 @@ endif()
 
 add_library(pinloom_clip_core STATIC
     include/pinloom/clip/ClipboardCaptureService.h
+    include/pinloom/clip/ClipAction.h
     include/pinloom/clip/ClipHotkeyService.h
     include/pinloom/clip/HyperHotkeyService.h
     include/pinloom/clip/ClipInsertionService.h
     include/pinloom/clip/ObsidianClipStore.h
+    include/pinloom/clip/PersistentClipService.h
     include/pinloom/clip/ClipRepository.h
+    include/pinloom/clip/ClipRepositoryBackup.h
     include/pinloom/clip/ClipSearch.h
     include/pinloom/clip/ClipTrayController.h
     include/pinloom/clip/PlatformPasteInvoker.h
     src/clip/ClipboardCaptureService.cpp
+    src/clip/ClipAction.cpp
     src/clip/ClipHotkeyService.cpp
     src/clip/HyperHotkeyService.cpp
     src/clip/ClipInsertionService.cpp
     src/clip/ObsidianClipStore.cpp
+    src/clip/PersistentClipService.cpp
     src/clip/ClipRepository.cpp
+    src/clip/ClipRepositoryBackup.cpp
     src/clip/ClipSearch.cpp
     src/clip/ClipTrayController.cpp
     src/clip/PlatformPasteInvoker.cpp
@@ -131,9 +139,12 @@ add_library(pinloom_widgets STATIC
     assets/pinloom_themes.qrc
     include/pinloom/widgets/AnchorLocatorPreviewWidget.h
     include/pinloom/widgets/AnchorLibraryWindow.h
+    include/pinloom/widgets/PdfLocatorPreviewRenderer.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipTrayPresenter.h
+    include/pinloom/widgets/ClipCaptureDialog.h
+    include/pinloom/widgets/ClipLibraryWindow.h
     include/pinloom/widgets/MainPanelHotkey.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
     include/pinloom/widgets/PinloomCommandPanel.h
@@ -144,8 +155,11 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/AnchorLocatorPreviewWidget.cpp
+    src/widgets/ClipCaptureDialog.cpp
     src/widgets/ClipResidentHost.cpp
+    src/widgets/ClipLibraryWindow.cpp
     src/widgets/AnchorLibraryWindow.cpp
+    src/widgets/PdfLocatorPreviewRenderer.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
@@ -173,7 +187,7 @@ target_link_libraries(pinloom_widgets
         Qt6::Network
 )
 
-add_executable(pinloom_app
+add_executable(pinloom_app WIN32
     src/app/main.cpp
 )
 

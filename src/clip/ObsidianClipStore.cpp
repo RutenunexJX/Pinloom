@@ -19,7 +19,7 @@ namespace Pinloom {
 
 namespace {
 
-constexpr int FrontmatterVersion = 1;
+constexpr int FrontmatterVersion = 2;
 
 struct ParsedFrontmatter {
     bool managed = false;
@@ -103,6 +103,8 @@ QStringList listFromYamlValue(const QString &value)
     return values;
 }
 
+QString yamlScalar(const QString &value);
+
 ParsedFrontmatter parseFrontmatter(const QString &contents)
 {
     ParsedFrontmatter parsed;
@@ -181,6 +183,39 @@ ParsedFrontmatter parseFrontmatter(const QString &contents)
     return parsed;
 }
 
+QString withFrontmatterScalar(QString contents, const QString &key, const QString &value)
+{
+    const int firstLineEnd = contents.indexOf(QLatin1Char('\n'));
+    if (firstLineEnd < 0 || contents.left(firstLineEnd).trimmed() != QLatin1String("---")) {
+        return {};
+    }
+    int closingStart = contents.indexOf(QStringLiteral("\n---"), firstLineEnd);
+    if (closingStart < 0) {
+        return {};
+    }
+
+    const QString prefix = key.trimmed() + QLatin1Char(':');
+    int lineStart = firstLineEnd + 1;
+    while (lineStart < closingStart) {
+        int lineEnd = contents.indexOf(QLatin1Char('\n'), lineStart);
+        if (lineEnd < 0 || lineEnd > closingStart) {
+            lineEnd = closingStart;
+        }
+        const QString line = contents.mid(lineStart, lineEnd - lineStart).trimmed();
+        if (line.startsWith(prefix, Qt::CaseInsensitive)) {
+            contents.replace(lineStart,
+                             lineEnd - lineStart,
+                             QStringLiteral("%1: %2").arg(key.trimmed(), yamlScalar(value)));
+            return contents;
+        }
+        lineStart = lineEnd + 1;
+    }
+
+    contents.insert(closingStart + 1,
+                    QStringLiteral("%1: %2\n").arg(key.trimmed(), yamlScalar(value)));
+    return contents;
+}
+
 QString yamlScalar(const QString &value)
 {
     const QJsonArray array{value};
@@ -212,6 +247,18 @@ QString previewForText(const QString &text)
 QString contentHashForText(const QString &text)
 {
     return QString::fromLatin1(QCryptographicHash::hash(text.toUtf8(), QCryptographicHash::Sha256).toHex());
+}
+
+QString persistentStateText(ClipState state)
+{
+    return state == ClipState::Deleted ? QStringLiteral("deleted") : QStringLiteral("saved");
+}
+
+QString actionTypeText(ClipActionType actionType)
+{
+    return actionType == ClipActionType::OpenWebUrl
+        ? QStringLiteral("open_web_url")
+        : QStringLiteral("insert_text");
 }
 
 QDateTime dateTimeValue(const QString &value)
@@ -267,6 +314,25 @@ QString safeIdForFileName(QString id)
     return id.left(64);
 }
 
+QString availableClipFilePath(const QString &directory,
+                              const QString &displayName,
+                              const QString &currentPath = {})
+{
+    const QString stem = sanitizedFileStem(displayName);
+    const QString normalizedCurrent = QDir::cleanPath(currentPath);
+    for (int suffix = 1; ; ++suffix) {
+        const QString fileName = suffix == 1
+            ? QStringLiteral("%1.md").arg(stem)
+            : QStringLiteral("%1 (%2).md").arg(stem).arg(suffix);
+        const QString candidate = QDir(directory).filePath(fileName);
+        if ((!normalizedCurrent.isEmpty()
+             && QDir::cleanPath(candidate).compare(normalizedCurrent, Qt::CaseInsensitive) == 0)
+            || !QFileInfo::exists(candidate)) {
+            return candidate;
+        }
+    }
+}
+
 bool clipsEquivalent(const Clip &left, const Clip &right)
 {
     return left.id == right.id
@@ -275,8 +341,12 @@ bool clipsEquivalent(const Clip &left, const Clip &right)
         && left.name == right.name
         && left.aliases == right.aliases
         && left.tags == right.tags
+        && left.actionType == right.actionType
+        && left.storageBackend == right.storageBackend
         && left.pinned == right.pinned
         && left.sourceApp == right.sourceApp
+        && left.sourceWindowTitle == right.sourceWindowTitle
+        && left.sourceUri == right.sourceUri
         && left.createdAt.toUTC() == right.createdAt.toUTC()
         && left.updatedAt.toUTC() == right.updatedAt.toUTC();
 }
@@ -311,15 +381,34 @@ ObsidianClipSyncResult synchronizeRepository(const ObsidianClipStore &store, Rep
 
     for (const ObsidianClipDocument &document : scan.documents) {
         discoveredIds.insert(document.clip.id);
+        const std::optional<Clip> existing = repository.findClip(document.clip.id);
+        if (document.forgotten) {
+            if (existing.has_value()) {
+                if (existing->state == ClipState::Saved
+                    && !repository.softDeleteSavedClip(existing->id)) {
+                    result.errors.append(QStringLiteral("%1: %2")
+                                             .arg(document.relativePath, repositoryError(repository)));
+                    ++result.skipped;
+                    continue;
+                }
+                if (!repository.permanentlyDeleteClip(existing->id)) {
+                    result.errors.append(QStringLiteral("%1: %2")
+                                             .arg(document.relativePath, repositoryError(repository)));
+                    ++result.skipped;
+                    continue;
+                }
+                ++result.deleted;
+            } else {
+                ++result.unchanged;
+            }
+            continue;
+        }
+
         Clip synchronizedClip = document.clip;
-        const std::optional<Clip> existing = repository.findClip(synchronizedClip.id);
         if (existing.has_value()) {
             synchronizedClip.usedAt = existing->usedAt;
-            if (existing->state == ClipState::Deleted
-                && (!synchronizedClip.updatedAt.isValid()
-                    || synchronizedClip.updatedAt <= existing->updatedAt)) {
-                ++result.unchanged;
-                continue;
+            if (existing->state == ClipState::Deleted && !document.stateExplicit) {
+                synchronizedClip.state = ClipState::Deleted;
             }
             if (clipsEquivalent(existing.value(), synchronizedClip)) {
                 ++result.unchanged;
@@ -327,7 +416,7 @@ ObsidianClipSyncResult synchronizeRepository(const ObsidianClipStore &store, Rep
             }
         }
 
-        if (!repository.upsertSavedClip(synchronizedClip)) {
+        if (!repository.upsertPersistentClip(synchronizedClip)) {
             result.errors.append(QStringLiteral("%1: %2")
                                      .arg(document.relativePath, repositoryError(repository)));
             ++result.skipped;
@@ -344,7 +433,7 @@ ObsidianClipSyncResult synchronizeRepository(const ObsidianClipStore &store, Rep
         const QList<Clip> storedClips = repository.clips();
         for (const Clip &stored : storedClips) {
             if (stored.state != ClipState::Saved
-                || stored.sourceApp != obsidianClipSourceApp()
+                || !isObsidianBackedClip(stored)
                 || discoveredIds.contains(stored.id)) {
                 continue;
             }
@@ -466,32 +555,47 @@ ObsidianClipWriteResult ObsidianClipStore::writeClip(const Clip &clip) const
         return result;
     }
 
+    const QString displayName = clip.name.trimmed().isEmpty() ? previewForText(clip.text) : clip.name.trimmed();
     QString filePath;
     const std::optional<ObsidianClipDocument> existing = findClip(clip.id, &error);
     if (existing.has_value()) {
         filePath = existing->filePath;
+        const QString legacySuffix = QStringLiteral("--%1.md").arg(safeIdForFileName(clip.id));
+        if (QFileInfo(filePath).fileName().endsWith(legacySuffix, Qt::CaseInsensitive)) {
+            const QString migratedPath = availableClipFilePath(archivePath(), displayName, filePath);
+            if (QDir::cleanPath(migratedPath).compare(QDir::cleanPath(filePath), Qt::CaseInsensitive) != 0) {
+                if (!QFile::rename(filePath, migratedPath)) {
+                    result.error = QStringLiteral("Unable to rename legacy Obsidian Clip note: %1")
+                                       .arg(QFileInfo(filePath).fileName());
+                    return result;
+                }
+                filePath = migratedPath;
+            }
+        }
     } else {
-        const QString displayName = clip.name.trimmed().isEmpty() ? previewForText(clip.text) : clip.name.trimmed();
-        const QString fileName = QStringLiteral("%1--%2.md")
-                                     .arg(sanitizedFileStem(displayName), safeIdForFileName(clip.id));
-        filePath = QDir(archivePath()).filePath(fileName);
+        filePath = availableClipFilePath(archivePath(), displayName);
     }
 
     const QDateTime now = QDateTime::currentDateTimeUtc();
     const QDateTime createdAt = clip.createdAt.isValid() ? clip.createdAt.toUTC() : now;
     const QDateTime updatedAt = clip.updatedAt.isValid() ? clip.updatedAt.toUTC() : now;
-    const QString displayName = clip.name.trimmed().isEmpty() ? previewForText(clip.text) : clip.name.trimmed();
     QString contents;
     contents += QStringLiteral("---\n");
     contents += QStringLiteral("pinloom_id: %1\n").arg(yamlScalar(clip.id.trimmed()));
     contents += QStringLiteral("pinloom_type: %1\n").arg(yamlScalar(QStringLiteral("clip")));
     contents += QStringLiteral("pinloom_version: %1\n").arg(FrontmatterVersion);
+    contents += QStringLiteral("pinloom_state: %1\n").arg(yamlScalar(persistentStateText(clip.state)));
+    contents += QStringLiteral("action_type: %1\n").arg(yamlScalar(actionTypeText(clip.actionType)));
     contents += QStringLiteral("name: %1\n").arg(yamlScalar(displayName));
     contents += QStringLiteral("aliases: %1\n").arg(yamlStringList(clip.aliases));
     contents += QStringLiteral("tags: %1\n").arg(yamlStringList(clip.tags));
     contents += QStringLiteral("pinned: %1\n").arg(clip.pinned ? QStringLiteral("true") : QStringLiteral("false"));
     contents += QStringLiteral("created: %1\n").arg(yamlScalar(createdAt.toString(Qt::ISODateWithMs)));
     contents += QStringLiteral("updated: %1\n").arg(yamlScalar(updatedAt.toString(Qt::ISODateWithMs)));
+    contents += QStringLiteral("source_app: %1\n").arg(yamlScalar(clip.sourceApp.trimmed()));
+    contents += QStringLiteral("source_window_title: %1\n")
+                    .arg(yamlScalar(clip.sourceWindowTitle.trimmed()));
+    contents += QStringLiteral("source_uri: %1\n").arg(yamlScalar(clip.sourceUri.trimmed()));
     contents += QStringLiteral("---\n");
     contents += clip.text;
 
@@ -540,7 +644,7 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
 
     bool versionOk = false;
     const int version = parsed.values.value(QStringLiteral("pinloom_version")).toInt(&versionOk);
-    if (!versionOk || version != FrontmatterVersion) {
+    if (!versionOk || version < 1 || version > FrontmatterVersion) {
         if (error) {
             *error = QStringLiteral("Unsupported Pinloom Clip frontmatter version");
         }
@@ -554,7 +658,11 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
         }
         return std::nullopt;
     }
-    if (parsed.body.trimmed().isEmpty()) {
+    const QString persistentState = parsed.values.value(QStringLiteral("pinloom_state"))
+                                        .trimmed()
+                                        .toLower();
+    const bool forgotten = persistentState == QLatin1String("forgotten");
+    if (!forgotten && parsed.body.trimmed().isEmpty()) {
         if (error) {
             *error = QStringLiteral("Managed Obsidian Clip has an empty body");
         }
@@ -565,7 +673,9 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
     Clip clip;
     clip.id = id;
     clip.kind = ClipKind::Text;
-    clip.state = ClipState::Saved;
+    clip.state = persistentState == QLatin1String("deleted")
+        ? ClipState::Deleted
+        : ClipState::Saved;
     clip.text = parsed.body;
     clip.preview = previewForText(clip.text);
     clip.contentHash = contentHashForText(clip.text);
@@ -575,6 +685,13 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
     }
     clip.aliases = parsed.lists.value(QStringLiteral("aliases"));
     clip.tags = parsed.lists.value(QStringLiteral("tags"));
+    const QString actionType = parsed.values.value(QStringLiteral("action_type"));
+    clip.actionType = actionType.compare(QStringLiteral("open_web_url"), Qt::CaseInsensitive) == 0
+            || (actionType.trimmed().isEmpty()
+                && clip.tags.contains(QStringLiteral("wb"), Qt::CaseInsensitive))
+        ? ClipActionType::OpenWebUrl
+        : ClipActionType::InsertText;
+    clip.storageBackend = ClipStorageBackend::Obsidian;
     clip.pinned = parsed.values.value(QStringLiteral("pinned")).compare(QStringLiteral("true"),
                                                                         Qt::CaseInsensitive) == 0;
     clip.createdAt = dateTimeValue(parsed.values.value(QStringLiteral("created")));
@@ -586,13 +703,17 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
     if (!clip.updatedAt.isValid() || fileModifiedAt > clip.updatedAt) {
         clip.updatedAt = fileModifiedAt;
     }
-    clip.sourceApp = obsidianClipSourceApp();
+    clip.sourceApp = parsed.values.value(QStringLiteral("source_app")).trimmed();
+    clip.sourceWindowTitle = parsed.values.value(QStringLiteral("source_window_title")).trimmed();
+    clip.sourceUri = parsed.values.value(QStringLiteral("source_uri")).trimmed();
     clip.sizeBytes = clip.text.toUtf8().size();
 
     ObsidianClipDocument document;
     document.clip = clip;
     document.filePath = QDir::cleanPath(fileInfo.absoluteFilePath());
     document.relativePath = QDir(vaultPath()).relativeFilePath(document.filePath);
+    document.stateExplicit = parsed.values.contains(QStringLiteral("pinloom_state"));
+    document.forgotten = forgotten;
     if (error) {
         error->clear();
     }
@@ -677,7 +798,7 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::findClip(const QString &c
         return std::nullopt;
     }
     for (const ObsidianClipDocument &document : result.documents) {
-        if (document.clip.id == normalizedId) {
+        if (document.clip.id == normalizedId && !document.forgotten) {
             if (error) {
                 error->clear();
             }
@@ -688,6 +809,76 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::findClip(const QString &c
         error->clear();
     }
     return std::nullopt;
+}
+
+bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error) const
+{
+    const QString normalizedId = clipId.trimmed();
+    if (normalizedId.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("Clip id is required");
+        }
+        return false;
+    }
+    const ObsidianClipScanResult result = scan();
+    if (!result.succeeded()) {
+        if (error) {
+            *error = result.fatalError;
+        }
+        return false;
+    }
+
+    for (const ObsidianClipDocument &document : result.documents) {
+        if (document.clip.id != normalizedId) {
+            continue;
+        }
+        if (document.forgotten) {
+            if (error) {
+                error->clear();
+            }
+            return true;
+        }
+        QFile source(document.filePath);
+        if (!source.open(QIODevice::ReadOnly)) {
+            if (error) {
+                *error = source.errorString();
+            }
+            return false;
+        }
+        QString contents = QString::fromUtf8(source.readAll());
+        source.close();
+        contents = withFrontmatterScalar(contents,
+                                         QStringLiteral("pinloom_state"),
+                                         QStringLiteral("forgotten"));
+        contents = withFrontmatterScalar(contents,
+                                         QStringLiteral("updated"),
+                                         QDateTime::currentDateTimeUtc().toString(Qt::ISODateWithMs));
+        if (contents.isEmpty()) {
+            if (error) {
+                *error = QStringLiteral("Unable to update Obsidian Clip frontmatter");
+            }
+            return false;
+        }
+        QSaveFile destination(document.filePath);
+        if (!destination.open(QIODevice::WriteOnly)
+            || destination.write(contents.toUtf8()) < 0
+            || !destination.commit()) {
+            if (error) {
+                *error = destination.errorString().trimmed().isEmpty()
+                    ? QStringLiteral("Unable to commit forgotten Clip state")
+                    : destination.errorString();
+            }
+            return false;
+        }
+        if (error) {
+            error->clear();
+        }
+        return true;
+    }
+    if (error) {
+        error->clear();
+    }
+    return true;
 }
 
 QUrl ObsidianClipStore::openUrlForClip(const QString &clipId, QString *error) const
@@ -903,9 +1094,9 @@ void ObsidianClipSyncService::setLastError(const QString &error)
     emit errorChanged(lastError_);
 }
 
-QString obsidianClipSourceApp()
+bool isObsidianBackedClip(const Clip &clip)
 {
-    return QStringLiteral("Obsidian");
+    return clip.storageBackend == ClipStorageBackend::Obsidian;
 }
 
 } // namespace Pinloom

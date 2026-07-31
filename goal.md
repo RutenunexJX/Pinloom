@@ -54,11 +54,10 @@ This is a deterministic launcher, not a general content discovery system.
   Markdown is the source of truth and SQLite is a rebuildable search and usage
   cache. Pinloom remains the capture, retrieval, and insertion surface rather
   than becoming a note editor.
-- Contextual Hyper layer: the PowerToys Caps Lock remap emits
-  `Ctrl+Alt+Shift+backtick`; `Hyper+S` archives an accessible text selection
-  without clipboard access, while caret-only or unknown selection state opens
-  Saved Clip retrieval and returns insertion to the original foreground
-  control.
+- Hyper Clip layer: the PowerToys Caps Lock remap emits `F24` as a private
+  carrier. `F24+S` captures an accessible text selection without clipboard
+  access and opens name/tag confirmation; `F24+V` opens Saved Clip retrieval
+  near the text caret and returns insertion to the original foreground control.
 - Freeze non-mainline expansion: source readers, content scanners, web/feed
   importers, screenshot search, OCR search, and relationship graphs are not v1
   headline work.

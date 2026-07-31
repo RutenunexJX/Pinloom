@@ -1,14 +1,19 @@
 #include "pinloom/clip/ClipHotkeyService.h"
+#include "pinloom/clip/ClipAction.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
+#include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
+#include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
@@ -16,6 +21,7 @@
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
+#include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
@@ -26,6 +32,7 @@
 #include <QCloseEvent>
 #include <QComboBox>
 #include <QContextMenuEvent>
+#include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
@@ -45,7 +52,11 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QPainter>
 #include <QPushButton>
+#include <QPlainTextEdit>
+#include <QScrollArea>
+#include <QScrollBar>
 #include <QSettings>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -78,11 +89,14 @@ private slots:
     void mainWindowCloseHidesToTray();
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
+    void pdfLocatorPreviewCropsRenderedPageToAnchorRegion();
+    void pdfLocatorPreviewRendersConfiguredRealPdf();
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
     void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
     void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
+    void dataDirectoryChangeMigratesOnNextStartup();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
     void sumatraPdfRegionOverlayRejectsCrossPageAndCancels();
     void panelUsesInjectedRepository();
@@ -90,8 +104,11 @@ private slots:
     void panelSearchesSavedClipsAndEnterInserts();
     void panelTreatsCommandPrefixesAsPlainSearchText();
     void commandPanelClipRootCommandShowsCandidates();
+    void commandPanelDirectClipPickerOpensWithoutCommandPrefix();
+    void clipCaptureDialogReturnsNameAndNormalizedTags();
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
+    void clipLibraryWindowBrowsesSavedHistoryAndTrash();
     void commandPanelAnchorCaptureCommandCallsHandler();
     void commandPanelAnchorLibraryUsesOrderedSubsequenceCommands();
     void commandPanelInboxRootCommandShowsCandidates();
@@ -395,6 +412,15 @@ static QString saveWidgetClip(InMemoryClipRepository &repository,
     }
 
     if (!repository.saveClip(captured.clip->id, name, aliases, tags, pinned, savedAt)) {
+        return {};
+    }
+
+    std::optional<Clip> saved = repository.findClip(captured.clip->id);
+    if (!saved.has_value()) {
+        return {};
+    }
+    saved->actionType = taggedActionForTags(tags);
+    if (!repository.upsertPersistentClip(saved.value())) {
         return {};
     }
 
@@ -978,14 +1004,15 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     status.mainHotkeyRegistered = true;
     status.mainHotkeyText = QStringLiteral("Shift+Space");
     status.hyperHotkeyRegistered = true;
-    status.hyperHotkeyText = QStringLiteral("Hyper+S");
+    status.hyperHotkeyText = QStringLiteral("F24+S / F24+V");
     status.clipCaptureActive = true;
     status.clipStatus = QStringLiteral("Running");
     window.setResidentStatus(status);
 
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Pinloom running")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Command hotkey: registered (Shift+Space)")));
-    QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Hyper hotkey: registered (Hyper+S)")));
+    QVERIFY(window.residentStatusSummary().contains(
+        QStringLiteral("Hyper hotkey: registered (F24+S / F24+V)")));
     QVERIFY(window.residentStatusSummary().contains(QStringLiteral("Clip capture: active")));
 
     window.setRecentError(QStringLiteral("Hotkey conflict"),
@@ -1052,6 +1079,125 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     QCOMPARE(commandPanel->focusWidget(), static_cast<QWidget *>(commandEdit));
     QCOMPARE(commandEdit->selectedText(), QStringLiteral("c"));
     QVERIFY(!searchEdit->hasFocus());
+}
+
+void WidgetSmokeTest::pdfLocatorPreviewCropsRenderedPageToAnchorRegion()
+{
+    QImage page(1200, 1600, QImage::Format_ARGB32_Premultiplied);
+    page.fill(Qt::white);
+    {
+        QPainter painter(&page);
+        painter.fillRect(QRect(200, 400, 400, 160), QColor(QStringLiteral("#ef6c00")));
+        painter.fillRect(QRect(850, 1100, 180, 120), QColor(QStringLiteral("#1565c0")));
+    }
+
+    const QImage cropped = cropPdfLocatorPreviewImage(
+        page, QRectF(100.0, 200.0, 200.0, 80.0), 144, 18.0, true);
+    QCOMPARE(cropped.size(), QSize(472, 232));
+    QCOMPARE(cropped.pixelColor(cropped.width() / 2, cropped.height() / 2),
+             QColor(QStringLiteral("#ef6c00")));
+    QCOMPARE(cropped.pixelColor(5, 5), QColor(Qt::white));
+
+    const QImage pagePreview = cropPdfLocatorPreviewImage(page, QRectF(), 144);
+    QCOMPARE(pagePreview.size(), page.size());
+    QVERIFY(cropPdfLocatorPreviewImage(page, QRectF(900.0, 900.0, 20.0, 20.0), 144).isNull());
+}
+
+void WidgetSmokeTest::pdfLocatorPreviewRendersConfiguredRealPdf()
+{
+    const QString pdfPath = qEnvironmentVariable("PINLOOM_REAL_PDF_PREVIEW_FILE").trimmed();
+    if (pdfPath.isEmpty()) QSKIP("Real PDF preview file is not configured");
+    QString locatorJson = qEnvironmentVariable("PINLOOM_REAL_PDF_PREVIEW_LOCATOR_JSON").trimmed();
+    if (locatorJson.isEmpty()) {
+        locatorJson = QStringLiteral(
+            "{\"page\":28,\"rect\":[190,177,405,222],\"unit\":\"pt\"}");
+    }
+    const QString rendererPath = resolvePdfLocatorPreviewRendererPath();
+    QVERIFY(QFileInfo::exists(pdfPath));
+    QVERIFY(QFileInfo::exists(rendererPath));
+
+    Resource resource;
+    resource.id = QStringLiteral("real-pdf-preview");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Real PDF preview");
+    resource.location = pdfPath;
+    Anchor anchor;
+    anchor.id = QStringLiteral("real-pdf-preview#region");
+    anchor.name = QStringLiteral("Real PDF rectangle");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = pdfPath;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = locatorJson;
+    resource.anchors = {anchor};
+
+    QTemporaryDir previewCache;
+    QVERIFY(previewCache.isValid());
+    PdfLocatorPreviewRenderOptions options;
+    options.rendererExecutablePath = rendererPath;
+    options.cacheDirectory = previewCache.path();
+    const PdfLocatorPreviewRenderResult result = renderPdfLocatorPreview(resource, anchor, options);
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QVERIFY(!result.fromCache);
+    QVERIFY(result.cropped);
+    QVERIFY(result.page > 0);
+    QVERIFY(result.image.width() >= 100);
+    QVERIFY(result.image.height() >= 80);
+
+    PdfLocatorPreviewRenderOptions cachedOptions = options;
+    cachedOptions.rendererExecutablePath = previewCache.filePath(QStringLiteral("missing-renderer.exe"));
+    const PdfLocatorPreviewRenderResult cached = renderPdfLocatorPreview(resource, anchor, cachedOptions);
+    QVERIFY2(cached.success(), qPrintable(cached.error));
+    QVERIFY(cached.fromCache);
+    QCOMPARE(cached.image.size(), result.image.size());
+
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QVERIFY(result.image.save(
+            QDir(snapshotDirectory).filePath(QStringLiteral("pdf-region-preview-real.png"))));
+
+        AnchorLibraryWindowOptions windowOptions;
+        windowOptions.filesProvider = [resource, anchor]() {
+            AnchorLibraryFile file;
+            file.resource = resource;
+            file.anchors.append({resource.id, anchor, false});
+            return QList<AnchorLibraryFile>{file};
+        };
+        windowOptions.locatorPreviewHandler = [image = result.image](const AnchorLibraryFile &,
+                                                                     const AnchorLibraryAnchor &,
+                                                                     QString *status) {
+            if (status) *status = QStringLiteral("Showing PDF anchor region");
+            return QPixmap::fromImage(image);
+        };
+        AnchorLibraryWindow previewWindow(windowOptions);
+        previewWindow.resize(1200, 820);
+        previewWindow.show();
+        QApplication::processEvents();
+        auto *previewWidget = previewWindow.findChild<AnchorLocatorPreviewWidget *>(
+            QStringLiteral("anchorLibraryLocatorPreview"));
+        auto *inspectorScroll = previewWindow.findChild<QScrollArea *>(
+            QStringLiteral("anchorLibraryInspectorScroll"));
+        QVERIFY(previewWidget);
+        QVERIFY(inspectorScroll);
+        QVERIFY(previewWidget->minimumHeight() >= 220);
+        QTRY_VERIFY_WITH_TIMEOUT(previewWidget->hasScreenshot(), 2000);
+        QVERIFY(!previewWindow.findChild<QDialog *>(QStringLiteral("anchorLocatorExpandedPreview")));
+        QVERIFY(previewWindow.previewSelectedAnchor());
+        auto *expandedPreview = previewWindow.findChild<QDialog *>(
+            QStringLiteral("anchorLocatorExpandedPreview"));
+        QVERIFY(expandedPreview);
+        QVERIFY(expandedPreview->isVisible());
+        QVERIFY(expandedPreview->findChild<QLabel *>(
+            QStringLiteral("anchorLocatorExpandedPreviewImage")));
+        QVERIFY(expandedPreview->grab().save(
+            QDir(snapshotDirectory).filePath(QStringLiteral("anchor-preview-expanded.png"))));
+        inspectorScroll->verticalScrollBar()->setValue(inspectorScroll->verticalScrollBar()->maximum());
+        QApplication::processEvents();
+        QVERIFY(previewWindow.grab().save(
+            QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-real-pdf-preview.png"))));
+        expandedPreview->close();
+        previewWindow.close();
+    }
 }
 
 void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
@@ -1171,25 +1317,12 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
     auto *restoreButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryRestoreButton"));
     auto *mergeButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryMergeButton"));
-    auto *anchorNameEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorNameEdit"));
-    auto *anchorAliasesEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorAliasesEdit"));
-    auto *anchorTagsEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryAnchorTagsEdit"));
-    auto *anchorPinnedCheck = window.findChild<QCheckBox *>(QStringLiteral("anchorLibraryAnchorPinnedCheck"));
-    auto *fileTitleEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTitleEdit"));
-    auto *fileAliasesEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileAliasesEdit"));
-    auto *fileTagsEdit = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTagsEdit"));
     QVERIFY(fileTable);
     QVERIFY(anchorTable);
     QVERIFY(scope);
     QVERIFY(restoreButton);
     QVERIFY(mergeButton);
-    QVERIFY(anchorNameEdit);
-    QVERIFY(anchorAliasesEdit);
-    QVERIFY(anchorTagsEdit);
-    QVERIFY(anchorPinnedCheck);
-    QVERIFY(fileTitleEdit);
-    QVERIFY(fileAliasesEdit);
-    QVERIFY(fileTagsEdit);
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("anchorLibraryHiddenInspectorState")));
     QCOMPARE(window.visibleFileCount(), 2);
     QVERIFY(window.statusText().contains(QStringLiteral("2 marked file(s) | 4 anchor(s)")));
 
@@ -1230,15 +1363,7 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QCOMPARE(jumpedAnchorId, QStringLiteral("clock-spec-duplicate#overview"));
     QCOMPARE(window.statusText(), QStringLiteral("Jumped from Anchor Library"));
 
-    anchorNameEdit->setText(QStringLiteral("Architecture overview"));
-    anchorAliasesEdit->setText(QStringLiteral("overview alias, system view"));
-    anchorTagsEdit->setText(QStringLiteral("architecture"));
-    anchorPinnedCheck->setChecked(true);
-    QVERIFY(window.saveSelectedAnchorMetadata());
-    std::optional<Resource> storedDuplicate = repository.findResource(duplicateClockResource.id);
-    QVERIFY(storedDuplicate.has_value());
-    QCOMPARE(storedDuplicate->anchors.first().name, QStringLiteral("Architecture overview"));
-    QVERIFY(storedDuplicate->anchors.first().pinned);
+    std::optional<Resource> storedDuplicate;
 
     anchorTable->clearSelection();
     anchorTable->selectionModel()->select(anchorTable->model()->index(0, 0),
@@ -1261,7 +1386,7 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
 
     int architectureRow = -1;
     for (int row = 0; row < anchorTable->rowCount(); ++row) {
-        if (anchorTable->item(row, 0)->text() == QLatin1String("Architecture overview")) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Overview")) {
             architectureRow = row;
             break;
         }
@@ -1293,7 +1418,7 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QVERIFY(window.selectFileAt(trashClockRow));
     architectureRow = -1;
     for (int row = 0; row < anchorTable->rowCount(); ++row) {
-        if (anchorTable->item(row, 0)->text() == QLatin1String("Architecture overview")) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Overview")) {
             architectureRow = row;
             break;
         }
@@ -1341,17 +1466,6 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
     QVERIFY(storedDuplicate.has_value());
     QVERIFY(storedDuplicate->deleted);
     QCOMPARE(repository.findResource(clockResource.id)->anchors.size(), 4);
-
-    fileTitleEdit->setText(QStringLiteral("Managed Clock Specification"));
-    fileAliasesEdit->setText(QStringLiteral("clock managed"));
-    fileTagsEdit->setText(QStringLiteral("managed, timing"));
-    QVERIFY(window.saveSelectedFileMetadata());
-    const std::optional<Resource> managedClock = repository.findResource(clockResource.id);
-    QVERIFY(managedClock.has_value());
-    QCOMPARE(managedClock->title, QStringLiteral("Managed Clock Specification"));
-    QCOMPARE(managedClock->aliases, QStringList{QStringLiteral("clock managed")});
-    QCOMPARE(managedClock->tags,
-             (QStringList{QStringLiteral("managed"), QStringLiteral("timing")}));
 
     if (!snapshotDirectory.isEmpty()) {
         QVERIFY(QDir().mkpath(snapshotDirectory));
@@ -1490,7 +1604,6 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     auto *appFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAppFilterCombo"));
     auto *usageFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryUsageFilterCombo"));
     auto *savedViews = window.findChild<QComboBox *>(QStringLiteral("anchorLibrarySavedViewCombo"));
-    auto *locatorType = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryLocatorTypeEdit"));
     QVERIFY(fileTable);
     QVERIFY(anchorTable);
     QVERIFY(scope);
@@ -1499,7 +1612,6 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     QVERIFY(appFilter);
     QVERIFY(usageFilter);
     QVERIFY(savedViews);
-    QVERIFY(locatorType);
     QCOMPARE(fileTable->selectionMode(), QAbstractItemView::ExtendedSelection);
     QCOMPARE(window.visibleFileCount(), 2);
 
@@ -1557,10 +1669,10 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     }
     QVERIFY(window.selectFileAt(boardRow));
     QVERIFY(window.selectAnchorAt(0));
-    QCOMPARE(locatorType->text(), QStringLiteral("sumatrapdf.rect"));
-    QVERIFY(window.validateSelectedAnchor());
+    QTRY_VERIFY_WITH_TIMEOUT(previewCount >= 1, 1000);
+    const int previewsBeforeExplicitRequest = previewCount;
     QVERIFY(window.previewSelectedAnchor());
-    QCOMPARE(previewCount, 1);
+    QCOMPARE(previewCount, previewsBeforeExplicitRequest + 1);
     QVERIFY(window.recaptureSelectedAnchor());
     QCOMPARE(recaptureCount, 1);
     QVERIFY(lastConfirmationMessage.contains(QStringLiteral("Current:")));
@@ -1668,11 +1780,28 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(repository.upsertResource(resource));
     AnchorLibraryManagementService management(repository);
     QSettings settings(directory.filePath(QStringLiteral("inline.ini")), QSettings::IniFormat);
+    int locatorPreviewRenderCount = 0;
     AnchorLibraryWindowOptions options;
     options.managementService = &management;
     options.repository = &repository;
     options.settings = &settings;
     options.confirmationHandler = [](const QString &, const QString &) { return true; };
+    options.locatorPreviewHandler = [&locatorPreviewRenderCount](const AnchorLibraryFile &,
+                                                                 const AnchorLibraryAnchor &,
+                                                                 QString *status) {
+        ++locatorPreviewRenderCount;
+        QPixmap preview(180, 100);
+        preview.fill(QColor(QStringLiteral("#5b8c85")));
+        if (status) *status = QStringLiteral("Rendered preview");
+        return preview;
+    };
+    options.locatorRecaptureHandler = [](const AnchorLibraryFile &,
+                                         const AnchorLibraryAnchor &,
+                                         QString *status)
+        -> std::optional<AnchorLocatorUpdate> {
+        if (status) *status = QStringLiteral("Recapture canceled in smoke test");
+        return std::nullopt;
+    };
     options.filesProvider = [&repository]() {
         QList<AnchorLibraryFile> files;
         SearchQuery query;
@@ -1698,7 +1827,6 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     auto *appFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAppFilterCombo"));
     auto *trashButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryTrashButton"));
     auto *manageButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryManageButton"));
-    auto *target = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryTargetFileEdit"));
     QVERIFY(fileTable);
     QVERIFY(anchorTable);
     QVERIFY(fileTagFilter);
@@ -1706,7 +1834,18 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(appFilter);
     QVERIFY(trashButton);
     QVERIFY(manageButton);
-    QVERIFY(target);
+    auto *inspector = window.findChild<QWidget *>(QStringLiteral("anchorLibraryInspector"));
+    auto *previewWidget = window.findChild<AnchorLocatorPreviewWidget *>(
+        QStringLiteral("anchorLibraryLocatorPreview"));
+    QVERIFY(inspector);
+    QVERIFY(previewWidget);
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("anchorLibraryHiddenInspectorState")));
+    for (QWidget *child : inspector->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
+        if (!child->isHidden()) QCOMPARE(child, static_cast<QWidget *>(previewWidget));
+    }
+    QCOMPARE(fileTable->horizontalHeader()->sectionResizeMode(2), QHeaderView::Stretch);
+    QCOMPARE(anchorTable->horizontalHeader()->sectionResizeMode(1), QHeaderView::Stretch);
+    QCOMPARE(anchorTable->horizontalHeader()->sectionResizeMode(2), QHeaderView::Stretch);
     QVERIFY(!window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryTargetUriEdit")));
     QVERIFY(!window.findChild<QToolButton *>(QStringLiteral("anchorLibraryJumpButton")));
     QVERIFY(!window.findChild<QToolButton *>(QStringLiteral("anchorLibraryDeleteButton")));
@@ -1714,6 +1853,9 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QCOMPARE(fileTable->horizontalHeaderItem(1)->text(), QStringLiteral("File aliases"));
     QCOMPARE(anchorTable->horizontalHeaderItem(3)->text(), QStringLiteral("Type"));
     QCOMPARE(fileTable->item(0, 1)->text(), QStringLiteral("file alias"));
+    QVERIFY(fileTable->item(0, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(!fileTable->item(0, 0)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(!fileTable->item(0, 5)->flags().testFlag(Qt::ItemIsEditable));
     QCOMPARE(fileTable->item(0, 5)->data(Qt::UserRole + 5).toStringList(),
              QStringList{QStringLiteral("file-only")});
     QVERIFY(fileTagFilter->findText(QStringLiteral("file-only")) >= 0);
@@ -1722,7 +1864,9 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QCOMPARE(anchorTagFilter->findText(QStringLiteral("file-only")), -1);
     QCOMPARE(appFilter->findText(QStringLiteral("PDF")), -1);
     QVERIFY(appFilter->findText(QStringLiteral("SumatraPDF")) >= 0);
-    QCOMPARE(target->text(), pdfPath);
+    const QString libraryTheme = window.styleSheet();
+    QVERIFY(libraryTheme.contains(QStringLiteral("#edf2f3")));
+    QVERIFY(!libraryTheme.contains(QStringLiteral("#24282c")));
 
     int regionRow = -1;
     int pageRow = -1;
@@ -1738,11 +1882,6 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(anchorTable->item(regionRow, 1)->flags().testFlag(Qt::ItemIsEditable));
     QVERIFY(!anchorTable->item(regionRow, 0)->flags().testFlag(Qt::ItemIsEditable));
     QVERIFY(window.selectAnchorAt(regionRow));
-    target->setText(QDir::toNativeSeparators(pdfPath));
-    QVERIFY(window.saveSelectedAnchorLocator());
-    QCOMPARE(repository.findResource(resource.id)->anchors.first().targetFile,
-             QDir::cleanPath(QFileInfo(pdfPath).absoluteFilePath()));
-    QVERIFY(repository.findResource(resource.id)->anchors.first().targetUri.isEmpty());
     regionRow = -1;
     pageRow = -1;
     for (int row = 0; row < anchorTable->rowCount(); ++row) {
@@ -1754,7 +1893,93 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
 
     window.show();
     window.activateWindow();
+    window.resize(1800, 900);
     QApplication::processEvents();
+    QCOMPARE(fileTable->horizontalHeader()->length(), fileTable->viewport()->width());
+    QCOMPARE(anchorTable->horizontalHeader()->length(), anchorTable->viewport()->width());
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(window.grab().save(
+            QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-preview-only-wide.png"))));
+    }
+
+    QVERIFY(window.selectAnchorAt(regionRow));
+    QTRY_VERIFY_WITH_TIMEOUT(locatorPreviewRenderCount >= 1, 1000);
+    const int afterRegionPreview = locatorPreviewRenderCount;
+    QVERIFY(window.selectAnchorAt(pageRow));
+    QTRY_VERIFY_WITH_TIMEOUT(locatorPreviewRenderCount > afterRegionPreview, 1000);
+    const int afterPagePreview = locatorPreviewRenderCount;
+    QVERIFY(window.selectAnchorAt(regionRow));
+    QApplication::processEvents();
+    QCOMPARE(locatorPreviewRenderCount, afterPagePreview);
+
+    QTableWidgetItem *fileAliasItem = fileTable->item(0, 1);
+    fileAliasItem->setText(QStringLiteral("edited file alias, filing alias"));
+    QCOMPARE(fileAliasItem->background().color(), QColor(QStringLiteral("#fff2a8")));
+
+    const QRect fileTagCell = fileTable->visualItemRect(fileTable->item(0, 5));
+    QTest::mouseClick(fileTable->viewport(), Qt::LeftButton, Qt::NoModifier, fileTagCell.center());
+    QTRY_VERIFY(window.findChild<QFrame *>(QStringLiteral("anchorLibraryFileTagEditorPopup")));
+    auto *fileTagPopup = window.findChild<QFrame *>(QStringLiteral("anchorLibraryFileTagEditorPopup"));
+    auto *fileTagQuery = fileTagPopup->findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTagEditorFilter"));
+    auto *createFileTag = fileTagPopup->findChild<QToolButton *>(QStringLiteral("anchorLibraryCreateFileTagButton"));
+    auto *fileTagList = fileTagPopup->findChild<QListWidget *>(QStringLiteral("anchorLibraryFileTagEditorList"));
+    QVERIFY(fileTagQuery);
+    QVERIFY(createFileTag);
+    QVERIFY(fileTagList);
+    QVERIFY(fileTagList->findItems(QStringLiteral("file-only"), Qt::MatchExactly).size() == 1);
+    QVERIFY(fileTagList->findItems(QStringLiteral("alpha"), Qt::MatchExactly).isEmpty());
+    fileTagQuery->setText(QStringLiteral("filing"));
+    QVERIFY(createFileTag->isEnabled());
+    createFileTag->click();
+    QTRY_VERIFY(fileTable->item(0, 5)->data(Qt::UserRole + 5).toStringList()
+                    .contains(QStringLiteral("filing")));
+    QCOMPARE(fileTable->item(0, 5)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    fileTagPopup->close();
+    QApplication::processEvents();
+
+    window.activateWindow();
+    fileTable->setFocus();
+    QApplication::processEvents();
+    QVERIFY(fileTable->hasFocus());
+    QTest::keyClick(fileTable, Qt::Key_S, Qt::ControlModifier);
+    QVERIFY2(window.statusText().contains(QStringLiteral("Saved")), qPrintable(window.statusText()));
+    QTRY_COMPARE(repository.findResource(resource.id)->aliases,
+                 (QStringList{QStringLiteral("edited file alias"), QStringLiteral("filing alias")}));
+    QVERIFY(repository.findResource(resource.id)->tags.contains(QStringLiteral("filing")));
+    QCOMPARE(fileTable->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QCOMPARE(fileTable->item(0, 5)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+
+    fileTable->setCurrentItem(fileTable->item(0, 1));
+    fileTable->editItem(fileTable->item(0, 1));
+    QLineEdit *activeFileAliasEditor = nullptr;
+    QTRY_VERIFY_WITH_TIMEOUT(([&]() {
+        for (QLineEdit *candidate : fileTable->findChildren<QLineEdit *>()) {
+            if (candidate->isVisible()) {
+                activeFileAliasEditor = candidate;
+                return true;
+            }
+        }
+        return false;
+    })(), 1000);
+    activeFileAliasEditor->setText(QStringLiteral("file saved from active editor"));
+    QTest::keyClick(activeFileAliasEditor, Qt::Key_S, Qt::ControlModifier);
+    QTRY_COMPARE(repository.findResource(resource.id)->aliases,
+                 QStringList{QStringLiteral("file saved from active editor")});
+    regionRow = -1;
+    pageRow = -1;
+    for (int row = 0; row < anchorTable->rowCount(); ++row) {
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Region")) regionRow = row;
+        if (anchorTable->item(row, 0)->text() == QLatin1String("Page")) pageRow = row;
+    }
+    QVERIFY(regionRow >= 0);
+    QVERIFY(pageRow >= 0);
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QApplication::processEvents();
+        QVERIFY(window.grab().save(
+            QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-file-inline.png"))));
+    }
+
     bool fileMenuVerified = false;
     QTimer::singleShot(25, &window, [&]() {
         auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
@@ -1782,8 +2007,10 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         if (!menu) return;
         auto *remove = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAnchorAction"));
         auto *removeAll = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAllAnchorsAction"));
+        auto *recapture = menu->findChild<QAction *>(QStringLiteral("anchorLibraryRecaptureAnchorAction"));
         auto *button = remove ? qobject_cast<QToolButton *>(remove->defaultWidget()) : nullptr;
-        anchorMenuVerified = remove && removeAll && remove->font().bold() && removeAll->font().bold()
+        anchorMenuVerified = recapture && recapture->isEnabled()
+            && remove && removeAll && remove->font().bold() && removeAll->font().bold()
             && button && button->styleSheet().contains(QStringLiteral("#c62828"));
         if (!snapshotDirectory.isEmpty()) {
             menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-anchor-menu.png")));
@@ -1868,7 +2095,10 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     trashButton->click();
     QVERIFY(window.isTrashVisible());
     QVERIFY(window.property("trashMode").toBool());
-    QVERIFY(!window.styleSheet().isEmpty());
+    const QString trashTheme = window.styleSheet();
+    QVERIFY(trashTheme.contains(QStringLiteral("#24282c")));
+    QVERIFY(trashTheme.contains(QStringLiteral("#8f3440")));
+    QVERIFY(trashTheme != libraryTheme);
     QCOMPARE(window.visibleAnchorCount(), 2);
     if (!snapshotDirectory.isEmpty()) {
         QVERIFY(QDir().mkpath(snapshotDirectory));
@@ -1908,7 +2138,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
 
     trashButton->click();
     QVERIFY(!window.isTrashVisible());
-    QVERIFY(window.styleSheet().isEmpty());
+    QCOMPARE(window.styleSheet(), libraryTheme);
+    QVERIFY(!window.property("trashMode").toBool());
     QVERIFY(window.selectFileAt(0));
     QVERIFY(window.archiveSelectedFiles());
     trashButton->click();
@@ -2054,6 +2285,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *obsidianArchiveEdit = dialog.findChild<QLineEdit *>(QStringLiteral("obsidianArchiveDirectoryEdit"));
     auto *obsidianStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("obsidianStatusLabel"));
     auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
+    auto *dataDirStatus = dialog.findChild<QLabel *>(QStringLiteral("dataDirectoryStatusLabel"));
     auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
     auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
     auto *ttlSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipTemporaryTtlSecondsSpin"));
@@ -2061,12 +2293,14 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *restoreClipboardCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
     auto *markersEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipSensitiveTextMarkersEdit"));
+    auto *privacyStatus = dialog.findChild<QLabel *>(QStringLiteral("clipPrivacyStatusLabel"));
     QVERIFY(sumatraPdfStatusLabel);
     QVERIFY(pdfPathEdit);
     QVERIFY(obsidianVaultEdit);
     QVERIFY(obsidianArchiveEdit);
     QVERIFY(obsidianStatusLabel);
     QVERIFY(dataDirEdit);
+    QVERIFY(dataDirStatus);
     QVERIFY(historySpin);
     QVERIFY(sizeSpin);
     QVERIFY(ttlSpin);
@@ -2074,8 +2308,12 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(restoreClipboardCheck);
     QVERIFY(blacklistEdit);
     QVERIFY(markersEdit);
+    QVERIFY(privacyStatus);
     QVERIFY(!sumatraPdfStatusLabel->text().trimmed().isEmpty());
     QVERIFY(!obsidianStatusLabel->text().trimmed().isEmpty());
+    QVERIFY(privacyStatus->text().contains(QStringLiteral("excluded apps")));
+    QVERIFY(!dataDirEdit->isReadOnly());
+    QVERIFY(dataDirStatus->text().contains(QStringLiteral("next Pinloom start")));
 
     pdfPathEdit->setText(QStringLiteral("D:/Portable/SumatraPDF.exe"));
     QVERIFY(sumatraPdfStatusLabel->text().contains(QStringLiteral("SumatraPDF.exe")));
@@ -2101,6 +2339,54 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(edited.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(edited.clipExcludedSourceApps, (QStringList{QStringLiteral("secret.exe"), QStringLiteral("cad.exe")}));
     QCOMPARE(edited.clipSensitiveTextMarkers, (QStringList{QStringLiteral("TOKEN="), QStringLiteral("PRIVATE")}));
+}
+
+void WidgetSmokeTest::dataDirectoryChangeMigratesOnNextStartup()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString source = QDir(dir.path()).filePath(QStringLiteral("source"));
+    const QString target = QDir(dir.path()).filePath(QStringLiteral("target"));
+    QVERIFY(QDir().mkpath(QDir(source).filePath(QStringLiteral("backups/clip-library"))));
+
+    QFile anchorDatabase(QDir(source).filePath(QStringLiteral("pinloom.sqlite3")));
+    QVERIFY(anchorDatabase.open(QIODevice::WriteOnly));
+    QCOMPARE(anchorDatabase.write("anchor-db"), static_cast<qint64>(9));
+    anchorDatabase.close();
+    QFile clipBackup(QDir(source).filePath(QStringLiteral("backups/clip-library/clip.sqlite3")));
+    QVERIFY(clipBackup.open(QIODevice::WriteOnly));
+    QCOMPARE(clipBackup.write("clip-backup"), static_cast<qint64>(11));
+    clipBackup.close();
+
+    QSettings settings(QDir(dir.path()).filePath(QStringLiteral("pinloom.ini")), QSettings::IniFormat);
+    const AppDataDirectoryResult initial = prepareAppDataDirectory(settings, source);
+    QVERIFY2(initial.succeeded(), qPrintable(initial.error));
+    QCOMPARE(QDir::cleanPath(initial.directory), QDir::cleanPath(source));
+
+    QString error;
+    QVERIFY2(stageAppDataDirectoryChange(settings, source, target, &error), qPrintable(error));
+    QVERIFY(!QFileInfo::exists(target));
+
+    const AppDataDirectoryResult migrated = prepareAppDataDirectory(settings, source);
+    QVERIFY2(migrated.succeeded(), qPrintable(migrated.error));
+    QVERIFY(migrated.migrated);
+    QCOMPARE(QDir::cleanPath(migrated.directory), QDir::cleanPath(target));
+    QVERIFY(QFileInfo::exists(QDir(target).filePath(QStringLiteral("pinloom.sqlite3"))));
+    QVERIFY(QFileInfo::exists(QDir(target).filePath(QStringLiteral("backups/clip-library/clip.sqlite3"))));
+    QVERIFY(QFileInfo::exists(QDir(source).filePath(QStringLiteral("pinloom.sqlite3"))));
+
+    const QString conflict = QDir(dir.path()).filePath(QStringLiteral("conflict"));
+    QVERIFY(QDir().mkpath(conflict));
+    QFile conflictFile(QDir(conflict).filePath(QStringLiteral("existing.txt")));
+    QVERIFY(conflictFile.open(QIODevice::WriteOnly));
+    conflictFile.write("do-not-overwrite");
+    conflictFile.close();
+    QVERIFY(stageAppDataDirectoryChange(settings, target, conflict, &error));
+    const AppDataDirectoryResult rejected = prepareAppDataDirectory(settings, source);
+    QVERIFY(!rejected.succeeded());
+    QCOMPARE(QDir::cleanPath(rejected.directory), QDir::cleanPath(target));
+    QVERIFY(rejected.error.contains(QStringLiteral("not empty")));
+    QVERIFY(QFileInfo::exists(conflictFile.fileName()));
 }
 
 void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
@@ -2391,12 +2677,18 @@ void WidgetSmokeTest::panelTreatsCommandPrefixesAsPlainSearchText()
 void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
 {
     int clipSearchCalls = 0;
+    int clipLibraryOpenCalls = 0;
     PinloomCommandPanelOptions options;
     options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
         Q_UNUSED(query);
         Q_UNUSED(searchOptions);
         ++clipSearchCalls;
         return QList<ClipSearchResult>{};
+    };
+    options.clipLibraryHandler = [&](QString *status) {
+        ++clipLibraryOpenCalls;
+        if (status) *status = QStringLiteral("Opened test Clip Library");
+        return true;
     };
 
     PinloomCommandPanel panel(options);
@@ -2408,15 +2700,17 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
     panel.setCommandText(QStringLiteral("c"));
 
     QCOMPARE(clipSearchCalls, 0);
-    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->count(), 3);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("c s <query>")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("clip;search <query>")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] New Saved Clip -> Open")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("c n")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("clip;new")));
+    QVERIFY(results->item(2)->text().contains(QStringLiteral("[Command] Clip Library -> Open")));
+    QVERIFY(results->item(2)->text().contains(QStringLiteral("clip;library")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(panel.commandText(), QStringLiteral("c s"));
+    QCOMPARE(panel.commandText(), QStringLiteral("clip;search"));
 
     panel.setCommandText(QStringLiteral("c"));
     QTest::keyClick(commandEdit, Qt::Key_Down);
@@ -2425,7 +2719,183 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
                                       "itemActivated",
                                       Qt::DirectConnection,
                                       Q_ARG(QListWidgetItem *, results->currentItem())));
-    QCOMPARE(panel.commandText(), QStringLiteral("c n"));
+    QCOMPARE(panel.commandText(), QStringLiteral("clip;new"));
+
+    panel.setCommandText(QStringLiteral("clip;library"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(clipLibraryOpenCalls, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened test Clip Library"));
+}
+
+void WidgetSmokeTest::commandPanelDirectClipPickerOpensWithoutCommandPrefix()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary picker body"),
+                                                               {},
+                                                               QStringLiteral("Editor"),
+                                                               base);
+    QVERIFY(temporary.captured());
+    const QString savedId = saveWidgetClip(repository,
+                                           QStringLiteral("saved picker full body"),
+                                           QStringLiteral("Saved Picker Clip"),
+                                           {QStringLiteral("picker alias")},
+                                           {QStringLiteral("picker"), QStringLiteral("shared")},
+                                           true,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    QVERIFY(!savedId.isEmpty());
+    const QString otherSavedId = saveWidgetClip(repository,
+                                                QStringLiteral("other saved body"),
+                                                QStringLiteral("Other Saved Clip"),
+                                                {QStringLiteral("other alias")},
+                                                {QStringLiteral("other"), QStringLiteral("shared")},
+                                                false,
+                                                base.addSecs(3),
+                                                base.addSecs(4));
+    QVERIFY(!otherSavedId.isEmpty());
+    const QString webSavedId = saveWidgetClip(repository,
+                                              QStringLiteral("https://example.com/pinloom"),
+                                              QStringLiteral("Web Reference"),
+                                              {QStringLiteral("browser reference")},
+                                              {QStringLiteral("wb")},
+                                              false,
+                                              base.addSecs(5),
+                                              base.addSecs(6));
+    QVERIFY(!webSavedId.isEmpty());
+
+    ClipSearchService search(repository);
+    QStringList queries;
+    QString insertedId;
+    PinloomCommandPanelOptions options;
+    options.clipSearchHandler = [&](const QString &query, const ClipSearchOptions &searchOptions) {
+        queries.append(query);
+        return search.search(query, searchOptions);
+    };
+    options.clipInsertionHandler = [&](const QString &clipId, QString *error) {
+        insertedId = clipId;
+        if (error) error->clear();
+        return true;
+    };
+
+    PinloomCommandPanel panel(options);
+    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *libraryButton = panel.findChild<QToolButton *>(QStringLiteral("commandClipLibraryButton"));
+    QVERIFY(commandEdit);
+    QVERIFY(results);
+    QVERIFY(libraryButton);
+
+    queries.clear();
+    panel.openClipSearch();
+
+    QVERIFY(panel.isClipPicker());
+    QCOMPARE(panel.commandText(), QString());
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Clip);
+    QVERIFY(!panel.isCompact());
+    QVERIFY(!libraryButton->isHidden());
+    QVERIFY(commandEdit->placeholderText().contains(QStringLiteral("Name or alias")));
+    QCOMPARE(results->count(), 3);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Saved]")));
+    QCOMPARE(queries, QStringList{QString()});
+
+    queries.clear();
+    commandEdit->setText(QStringLiteral("picker;Saved"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentResult().clipId, savedId);
+    QCOMPARE(queries, QStringList{QStringLiteral("picker;Saved")});
+
+    commandEdit->setText(QStringLiteral("picker alias"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentResult().clipId, savedId);
+
+    commandEdit->setText(QStringLiteral("pick;Saved"));
+    QCOMPARE(results->count(), 0);
+
+    commandEdit->setText(QStringLiteral("shared;Saved"));
+    QCOMPARE(results->count(), 2);
+
+    commandEdit->setText(QStringLiteral("picker;Other"));
+    QCOMPARE(results->count(), 0);
+
+    commandEdit->setText(QStringLiteral("wb;Web"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentResult().clipId, webSavedId);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Open URL")));
+
+    commandEdit->setText(QStringLiteral("picker;Saved"));
+    QCOMPARE(results->count(), 1);
+    panel.show();
+    QApplication::processEvents();
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QVERIFY(panel.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("clip-picker.png"))));
+    }
+
+    commandEdit->setText(QStringLiteral("Saved Picker"));
+    QCOMPARE(results->count(), 1);
+    QCOMPARE(panel.currentResult().clipId, savedId);
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(insertedId, savedId);
+
+    panel.openCommandSearch();
+    QVERIFY(!panel.isClipPicker());
+    QVERIFY(libraryButton->isHidden());
+    QCOMPARE(panel.commandText(), QString());
+    panel.hide();
+}
+
+void WidgetSmokeTest::clipCaptureDialogReturnsNameAndNormalizedTags()
+{
+    ClipCaptureDialog dialog(QStringLiteral("Selected body"),
+                             QStringLiteral("Selected body"),
+                             {QStringLiteral("existing"), QStringLiteral("Review")});
+    dialog.setName(QStringLiteral("Reference excerpt"));
+    dialog.setTags({QStringLiteral("Review")});
+
+    const ClipCaptureMetadata metadata = dialog.metadata();
+    QCOMPARE(metadata.name, QStringLiteral("Reference excerpt"));
+    QCOMPARE(metadata.tags, QStringList{QStringLiteral("Review")});
+    QCOMPARE(dialog.windowModality(), Qt::ApplicationModal);
+    QVERIFY(dialog.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+    QVERIFY(dialog.findChild<QPlainTextEdit *>(QStringLiteral("clipCapturePreview")));
+
+    dialog.show();
+    QApplication::processEvents();
+    auto *tagsButton = dialog.findChild<QToolButton *>(QStringLiteral("clipCaptureTagsButton"));
+    QVERIFY(tagsButton);
+    tagsButton->click();
+    QApplication::processEvents();
+    auto *tagPopup = dialog.findChild<QFrame *>(QStringLiteral("clipCaptureTagPicker"));
+    QVERIFY(tagPopup);
+    auto *tagQuery = tagPopup->findChild<QLineEdit *>(QStringLiteral("clipCaptureTagFilter"));
+    auto *createTag = tagPopup->findChild<QToolButton *>(QStringLiteral("clipCaptureCreateTagButton"));
+    auto *tagList = tagPopup->findChild<QListWidget *>(QStringLiteral("clipCaptureTagList"));
+    QVERIFY(tagQuery);
+    QVERIFY(createTag);
+    QVERIFY(tagList);
+    QCOMPARE(tagList->count(), 2);
+    const QList<QListWidgetItem *> existingItems =
+        tagList->findItems(QStringLiteral("existing"), Qt::MatchExactly);
+    QCOMPARE(existingItems.size(), 1);
+    existingItems.first()->setCheckState(Qt::Checked);
+    tagQuery->setText(QStringLiteral("project"));
+    QVERIFY(createTag->isEnabled());
+    createTag->click();
+    QVERIFY(dialog.metadata().tags.contains(QStringLiteral("Review"), Qt::CaseInsensitive));
+    QVERIFY(dialog.metadata().tags.contains(QStringLiteral("existing"), Qt::CaseInsensitive));
+    QVERIFY(dialog.metadata().tags.contains(QStringLiteral("project"), Qt::CaseInsensitive));
+
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QVERIFY(dialog.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("clip-save-dialog.png"))));
+        QVERIFY(tagPopup->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("clip-save-tag-picker.png"))));
+    }
+    tagPopup->close();
+    dialog.hide();
 }
 
 void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts()
@@ -2475,7 +2945,7 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setCommandText(QStringLiteral("c s"));
+    panel.setCommandText(QStringLiteral("clip;search"));
 
     QCOMPARE(clipQueries, (QStringList{QString(), QString()}));
     QCOMPARE(clipOptions.size(), 2);
@@ -2486,8 +2956,8 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
     QCOMPARE(results->count(), 2);
     QCOMPARE(panel.resultAt(0).clipId, temporary.clip->id);
     QCOMPARE(panel.resultAt(1).clipId, savedId);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Clip] temporary command body -> Insert")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Clip Command Saved -> Insert")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[History] temporary command body -> Insert")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Saved] Clip Command Saved -> Insert")));
     QCOMPARE(results->currentRow(), 0);
     QCOMPARE(panel.statusText(), QStringLiteral("Clip search: 2 clip(s)"));
 
@@ -2517,7 +2987,7 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
 
     clipQueries.clear();
     clipOptions.clear();
-    panel.setCommandText(QStringLiteral("c s saved command alias"));
+    panel.setCommandText(QStringLiteral("clip;search saved command alias"));
 
     QCOMPARE(clipQueries, QStringList{QStringLiteral("saved command alias")});
     QCOMPARE(clipOptions.size(), 1);
@@ -2535,7 +3005,7 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
 
-    panel.setCommandText(QStringLiteral("c s zzzz-no-such-clip"));
+    panel.setCommandText(QStringLiteral("clip;search zzzz-no-such-clip"));
     QCOMPARE(results->count(), 0);
     QCOMPARE(panel.statusText(), QStringLiteral("No clips to insert"));
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -2618,7 +3088,8 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
     QVERIFY(saveRequestParentProvided);
     QCOMPARE(saveRequestClipIds, QStringList{temporary.clip->id});
     QCOMPARE(saveHandlerCalls, 1);
-    QCOMPARE(panel.commandText(), QStringLiteral("c s Saved From Launcher"));
+    QVERIFY(panel.isClipPicker());
+    QCOMPARE(panel.commandText(), QStringLiteral("Saved From Launcher"));
     QCOMPARE(panel.currentResult().clipId, temporary.clip->id);
     QCOMPARE(panel.statusText(), QStringLiteral("Saved clip \"Saved From Launcher\""));
 
@@ -2633,6 +3104,165 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
 
     panel.setCommandText(QStringLiteral("c n"));
     QCOMPARE(results->count(), 0);
+}
+
+void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
+{
+    InMemoryClipRepository repository;
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const ClipCaptureResult temporary = repository.captureText(QStringLiteral("temporary library full content"),
+                                                               {},
+                                                               QStringLiteral("Editor"),
+                                                               base);
+    QVERIFY(temporary.captured());
+
+    const QString savedId = saveWidgetClip(repository,
+                                           QStringLiteral("saved library full content\nsecond line"),
+                                           QStringLiteral("Saved Library Clip"),
+                                           {QStringLiteral("library alias")},
+                                           {QStringLiteral("library-tag")},
+                                           true,
+                                           base.addSecs(1),
+                                           base.addSecs(2));
+    const QString deletedId = saveWidgetClip(repository,
+                                             QStringLiteral("deleted library content"),
+                                             QStringLiteral("Deleted Library Clip"),
+                                             {},
+                                             {QStringLiteral("trash-tag")},
+                                             false,
+                                             base.addSecs(3),
+                                             base.addSecs(4));
+    QVERIFY(!savedId.isEmpty());
+    QVERIFY(!deletedId.isEmpty());
+    Clip obsidianBacked = repository.findClip(savedId).value();
+    obsidianBacked.storageBackend = ClipStorageBackend::Obsidian;
+    obsidianBacked.sourceApp = QStringLiteral("notepad++.exe");
+    obsidianBacked.sourceWindowTitle = QStringLiteral("Source document");
+    obsidianBacked.sourceUri = QStringLiteral("file:///E:/notes/source.txt");
+    QVERIFY(repository.upsertPersistentClip(obsidianBacked));
+    QVERIFY(repository.softDeleteSavedClip(deletedId, base.addSecs(5)));
+
+    int openSourceCalls = 0;
+    ClipLibraryWindowOptions options;
+    options.clipsProvider = [&repository]() {
+        return repository.clips();
+    };
+    options.saveClipHandler = [&repository](const Clip &clip, QString *error) {
+        const bool saved = repository.upsertSavedClip(clip);
+        if (error) *error = saved ? QString() : QStringLiteral("save failed");
+        return saved;
+    };
+    options.deleteClipHandler = [&repository](const QString &clipId, QString *error) {
+        const bool deleted = repository.softDeleteSavedClip(clipId);
+        if (error) *error = deleted ? QString() : QStringLiteral("delete failed");
+        return deleted;
+    };
+    options.restoreClipHandler = [&repository](const QString &clipId, QString *error) {
+        const bool restored = repository.restoreClip(clipId);
+        if (error) *error = restored ? QString() : QStringLiteral("restore failed");
+        return restored;
+    };
+    options.permanentlyDeleteClipHandler = [&repository](const QString &clipId, QString *error) {
+        const bool removed = repository.permanentlyDeleteClip(clipId);
+        if (error) *error = removed ? QString() : QStringLiteral("permanent delete failed");
+        return removed;
+    };
+    options.openSourceHandler = [&](const QString &clipId, QString *error) {
+        ++openSourceCalls;
+        if (error) error->clear();
+        return clipId == savedId;
+    };
+
+    ClipLibraryWindow window(options);
+    auto *table = window.findChild<QTableWidget *>(QStringLiteral("clipLibraryTable"));
+    auto *preview = window.findChild<QPlainTextEdit *>(QStringLiteral("clipLibraryPreview"));
+    auto *previewMetadata = window.findChild<QLabel *>(QStringLiteral("clipLibraryPreviewMetadata"));
+    auto *scope = window.findChild<QComboBox *>(QStringLiteral("clipLibraryScopeCombo"));
+    QVERIFY(table);
+    QVERIFY(preview);
+    QVERIFY(previewMetadata);
+    QVERIFY(scope);
+
+    QCOMPARE(window.scope(), ClipLibraryScope::Saved);
+    QCOMPARE(window.visibleClipCount(), 1);
+    QCOMPARE(table->columnCount(), 7);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("library alias"));
+    QCOMPARE(table->item(0, 3)->text(), QStringLiteral("Insert text"));
+    QVERIFY(window.selectClipAt(0));
+    QCOMPARE(window.selectedClip()->id, savedId);
+    QCOMPARE(preview->toPlainText(), QStringLiteral("saved library full content\nsecond line"));
+    QVERIFY(previewMetadata->text().contains(QStringLiteral("Stored in: Obsidian")));
+    QVERIFY(previewMetadata->text().contains(QStringLiteral("Source app: notepad++.exe")));
+    window.show();
+    QApplication::processEvents();
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
+    if (!snapshotDirectory.isEmpty()) {
+        QVERIFY(QDir().mkpath(snapshotDirectory));
+        QVERIFY(window.grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("clip-library-saved.png"))));
+    }
+    QVERIFY(window.openSelectedSource());
+    QCOMPARE(openSourceCalls, 1);
+
+    table->item(0, 1)->setText(QStringLiteral("library alias, updated alias"));
+    QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QVERIFY(window.savePendingEdits());
+    QVERIFY(repository.findClip(savedId)->aliases.contains(QStringLiteral("updated alias")));
+    QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+
+    QTableWidgetItem *tagCell = table->item(0, 2);
+    QVERIFY(tagCell);
+    QVERIFY(QMetaObject::invokeMethod(table,
+                                      "itemClicked",
+                                      Qt::DirectConnection,
+                                      Q_ARG(QTableWidgetItem *, tagCell)));
+    QApplication::processEvents();
+    auto *tagPopup = window.findChild<QFrame *>(QStringLiteral("clipLibraryTagEditorPopup"));
+    QVERIFY(tagPopup);
+    auto *tagQuery = tagPopup->findChild<QLineEdit *>(QStringLiteral("clipLibraryTagEditorFilter"));
+    auto *createTag = tagPopup->findChild<QToolButton *>(QStringLiteral("clipLibraryCreateTagButton"));
+    QVERIFY(tagQuery);
+    QVERIFY(createTag);
+    tagQuery->setText(QStringLiteral("new-tag"));
+    QVERIFY(createTag->isEnabled());
+    createTag->click();
+    tagPopup->close();
+    QApplication::processEvents();
+    QCOMPARE(table->item(0, 2)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QVERIFY(window.savePendingEdits());
+    QVERIFY(repository.findClip(savedId)->tags.contains(QStringLiteral("new-tag")));
+    QCOMPARE(table->item(0, 2)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+
+    window.setSearchText(QStringLiteral("new-tag;updated"));
+    QCOMPARE(window.visibleClipCount(), 1);
+    window.setSearchText(QString());
+    window.setScope(ClipLibraryScope::History);
+    QCOMPARE(window.visibleClipCount(), 1);
+    QCOMPARE(window.selectedClip()->id, temporary.clip->id);
+
+    window.setScope(ClipLibraryScope::Saved);
+    QVERIFY(window.selectClipAt(0));
+    QVERIFY(window.deleteSelectedClip(false));
+    QCOMPARE(window.visibleClipCount(), 0);
+
+    window.setScope(ClipLibraryScope::Trash);
+    QCOMPARE(window.visibleClipCount(), 2);
+    window.setSearchText(QStringLiteral("Deleted Library Clip"));
+    QCOMPARE(window.visibleClipCount(), 1);
+    QVERIFY(window.selectClipAt(0));
+    QCOMPARE(window.selectedClip()->id, deletedId);
+    QVERIFY(window.restoreSelectedClip());
+
+    window.setSearchText(QString());
+    QCOMPARE(window.visibleClipCount(), 1);
+    QVERIFY(window.selectClipAt(0));
+    QCOMPARE(window.selectedClip()->id, savedId);
+    QVERIFY(window.permanentlyDeleteSelectedClip(false));
+    QVERIFY(!repository.findClip(savedId).has_value());
+
+    window.setSearchText(QString());
+    window.setScope(ClipLibraryScope::Saved);
+    QCOMPARE(window.visibleClipCount(), 1);
+    QCOMPARE(window.selectedClip()->id, deletedId);
 }
 
 void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
@@ -2661,18 +3291,18 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 
     QCOMPARE(results->count(), 2);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("anchor:new")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("anchor;new")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Anchor Library -> Open")));
     QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(panel.commandText(), QStringLiteral("anchor:new"));
+    QCOMPARE(panel.commandText(), QStringLiteral("anchor;new"));
     QCOMPARE(results->count(), 1);
     QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
     QCOMPARE(captureCount, 1);
-    QCOMPARE(panel.commandText(), QStringLiteral("anchor:new"));
+    QCOMPARE(panel.commandText(), QStringLiteral("anchor;new"));
     QCOMPARE(panel.statusText(), QStringLiteral("Captured via test handler"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
@@ -2722,12 +3352,13 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
     }
 
     const QStringList structuredAbbreviations{
+        QStringLiteral("anchor;library"),
+        QStringLiteral("an;li"),
+        QStringLiteral("ar;lb"),
+        QStringLiteral("ah;l"),
+        QStringLiteral("ancr;li"),
+        QStringLiteral("anco;l"),
         QStringLiteral("anchor:library"),
-        QStringLiteral("an:li"),
-        QStringLiteral("ar:lb"),
-        QStringLiteral("ah:l"),
-        QStringLiteral("ancr:li"),
-        QStringLiteral("anco:l"),
         QStringLiteral("k l")
     };
     for (const QString &abbreviation : structuredAbbreviations) {
@@ -2754,13 +3385,13 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
 
     QCOMPARE(results->count(), 2);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Inbox File -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("i n")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("inbox;new")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Inbox Search -> Open")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("i s <query>")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("inbox;search <query>")));
     QCOMPARE(panel.statusText(), QStringLiteral("Inbox commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(panel.commandText(), QStringLiteral("i n"));
+    QCOMPARE(panel.commandText(), QStringLiteral("inbox;new"));
     QCOMPARE(panel.statusText(), QStringLiteral("Inbox: drop a file or use Explorer selection"));
 
     panel.setCommandText(QStringLiteral("i"));
@@ -2769,7 +3400,7 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
                                       "itemActivated",
                                       Qt::DirectConnection,
                                       Q_ARG(QListWidgetItem *, results->currentItem())));
-    QCOMPARE(panel.commandText(), QStringLiteral("i s"));
+    QCOMPARE(panel.commandText(), QStringLiteral("inbox;search"));
 }
 
 void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
@@ -2840,7 +3471,7 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
     QCOMPARE(capturedRequest.aliases, QStringList{QStringLiteral("board alias")});
     QCOMPARE(capturedRequest.tags, QStringList{QStringLiteral("hardware")});
     QVERIFY(panel.pendingInboxFiles().isEmpty());
-    QCOMPARE(panel.commandText(), QStringLiteral("i s Board Spec Inbox"));
+    QCOMPARE(panel.commandText(), QStringLiteral("inbox;search Board Spec Inbox"));
     QCOMPARE(panel.statusText(), QStringLiteral("Saved Inbox file \"Board Spec Inbox\""));
     QCOMPARE(savedResourceIds, QStringList{inboxResourceIdForPath(filePath)});
 
@@ -3032,7 +3663,7 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
 
     QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
     QCOMPARE(clipCommandSearchCalls, 0);
-    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->count(), 3);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 }
@@ -3625,7 +4256,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     QCOMPARE(defaultActionsForPinloomEntry(anchor).last().id, QStringLiteral("remove"));
     QVERIFY(defaultActionsForPinloomEntry(anchor).last().enabled);
 
-    clip.metadata.insert(QStringLiteral("clipSourceApp"), QStringLiteral("Obsidian"));
+    clip.metadata.insert(QStringLiteral("clipStorageBackend"), QStringLiteral("obsidian"));
     const QList<PinloomCommandResultAction> obsidianClipActions = defaultActionsForPinloomEntry(clip);
     QVERIFY(std::any_of(obsidianClipActions.cbegin(), obsidianClipActions.cend(), [](const auto &action) {
         return action.id == QLatin1String("open_source") && action.enabled;

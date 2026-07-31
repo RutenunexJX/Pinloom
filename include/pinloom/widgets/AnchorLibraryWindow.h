@@ -5,19 +5,17 @@
 #include "pinloom/core/ResourceUsage.h"
 
 #include <QColor>
+#include <QCache>
 #include <QHash>
 #include <QMainWindow>
 #include <QPixmap>
 #include <functional>
 #include <optional>
 
-class QCheckBox;
 class QComboBox;
 class QLabel;
 class QLineEdit;
-class QPlainTextEdit;
 class QPoint;
-class QPushButton;
 class QSettings;
 class QTableWidget;
 class QTableWidgetItem;
@@ -93,9 +91,6 @@ public:
     bool savePendingInlineEdits();
     void showTrash();
     bool isTrashVisible() const;
-    bool saveSelectedAnchorMetadata();
-    bool saveSelectedAnchorLocator();
-    bool saveSelectedFileMetadata();
     bool updateSelectedAnchorTags(const QStringList &tags, bool remove);
     bool updateSelectedFileTags(const QStringList &tags, bool remove);
     bool setSelectedAnchorsPinned(bool pinned);
@@ -104,7 +99,6 @@ public:
     bool autoRelinkSelectedFiles(const QString &searchRoot = {});
     bool mergeSelectedFileDuplicates();
     bool deduplicateSelectedFileAnchors();
-    bool validateSelectedAnchor();
     bool previewSelectedAnchor();
     bool recaptureSelectedAnchor();
     bool inspectIntegrity();
@@ -141,6 +135,19 @@ private:
         bool tagsDirty = false;
     };
 
+    struct InlineFileEdit {
+        QString fileKey;
+        QStringList aliases;
+        QStringList tags;
+        bool aliasesDirty = false;
+        bool tagsDirty = false;
+    };
+
+    struct LocatorPreviewCacheEntry {
+        QPixmap image;
+        QString status;
+    };
+
     const AnchorLibraryFile *fileForKey(const QString &fileKey) const;
     const AnchorLibraryFile *selectedFile() const;
     QList<const AnchorLibraryFile *> selectedFiles() const;
@@ -171,11 +178,26 @@ private:
     void showFileContextMenu(const QPoint &position);
     void showAnchorContextMenu(const QPoint &position);
     void showPermanentFileDeleteMenu();
+    void openFileTagEditor(int row);
     void openAnchorTagEditor(int row);
+    void openTagEditor(QTableWidget *table,
+                       int row,
+                       int column,
+                       const QStringList &selectedTags,
+                       QStringList availableTags,
+                       bool fileTags,
+                       std::function<void(const QStringList &)> updateHandler);
+    void handleFileItemChanged(QTableWidgetItem *item);
     void handleAnchorItemChanged(QTableWidgetItem *item);
+    void updatePendingFileTags(const QString &key, const QStringList &tags);
     void updatePendingAnchorTags(const QString &key, const QStringList &tags);
+    void applyFileInlineCellState(int row, int column, const QString &key);
     void applyInlineCellState(int row, int column, const QString &key);
-    void applyTrashTheme();
+    void updateInlineEditStatus();
+    void applyLibraryTheme();
+    void scheduleSelectedAnchorPreview();
+    bool renderSelectedAnchorPreview(bool showExpanded, bool forceRender);
+    QStringList availableFileTags() const;
     QStringList availableAnchorTags() const;
     QColor colorForTag(const QString &tag);
     QList<AnchorReference> allAnchorReferencesForSelectedFiles(bool deletedOnly) const;
@@ -207,35 +229,20 @@ private:
     QToolButton *undoButton_ = nullptr;
     QTableWidget *fileTable_ = nullptr;
     QTableWidget *anchorTable_ = nullptr;
-    QLabel *selectionLabel_ = nullptr;
-    QLineEdit *fileTitleEdit_ = nullptr;
-    QLineEdit *fileAliasesEdit_ = nullptr;
-    QLineEdit *fileTagsEdit_ = nullptr;
-    QLineEdit *fileLocationEdit_ = nullptr;
-    QCheckBox *filePinnedCheck_ = nullptr;
-    QPushButton *saveFileButton_ = nullptr;
-    QLineEdit *anchorNameEdit_ = nullptr;
-    QLineEdit *anchorAliasesEdit_ = nullptr;
-    QLineEdit *anchorTagsEdit_ = nullptr;
-    QCheckBox *anchorPinnedCheck_ = nullptr;
-    QPushButton *saveAnchorButton_ = nullptr;
-    QLineEdit *targetAppEdit_ = nullptr;
-    QLineEdit *targetFileEdit_ = nullptr;
-    QLineEdit *locatorTypeEdit_ = nullptr;
-    QPlainTextEdit *locatorJsonEdit_ = nullptr;
-    QPushButton *saveLocatorButton_ = nullptr;
-    QPushButton *validateLocatorButton_ = nullptr;
-    QPushButton *previewLocatorButton_ = nullptr;
-    QPushButton *recaptureLocatorButton_ = nullptr;
     AnchorLocatorPreviewWidget *locatorPreview_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;
+    QCache<QString, LocatorPreviewCacheEntry> locatorPreviewMemoryCache_{128 * 1024};
+    quint64 locatorPreviewRequestGeneration_ = 0;
     QList<SortKey> fileSortKeys_{{6, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
     QList<SortKey> anchorSortKeys_{{4, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
+    QHash<QString, InlineFileEdit> pendingFileInlineEdits_;
     QHash<QString, InlineAnchorEdit> pendingInlineEdits_;
+    QHash<QString, int> fileInlineCellStates_;
     QHash<QString, int> inlineCellStates_;
     QHash<QString, QColor> tagColors_;
     QWidget *tagEditorPopup_ = nullptr;
+    bool populatingFileTable_ = false;
     bool populatingAnchorTable_ = false;
     int repositoryListenerId_ = -1;
     quint64 loadedRepositoryRevision_ = 0;

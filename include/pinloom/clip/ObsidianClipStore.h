@@ -24,6 +24,8 @@ struct ObsidianClipDocument {
     Clip clip;
     QString filePath;
     QString relativePath;
+    bool stateExplicit = false;
+    bool forgotten = false;
 };
 
 struct ObsidianClipWriteResult {
@@ -74,6 +76,7 @@ public:
     ObsidianClipScanResult scan() const;
     std::optional<ObsidianClipDocument> findClip(const QString &clipId,
                                                  QString *error = nullptr) const;
+    bool forgetClip(const QString &clipId, QString *error = nullptr) const;
     QUrl openUrlForClip(const QString &clipId, QString *error = nullptr) const;
 
     ObsidianClipSyncResult synchronize(InMemoryClipRepository &repository) const;
@@ -127,6 +130,6 @@ private:
     bool running_ = false;
 };
 
-QString obsidianClipSourceApp();
+bool isObsidianBackedClip(const Clip &clip);
 
 } // namespace Pinloom

@@ -48,6 +48,7 @@ public:
                                                                 const QString &sourceApp,
                                                                 const QDateTime &now)>;
     using RepositoryErrorCallback = std::function<QString()>;
+    using SourceAppProvider = std::function<QString()>;
 
     explicit ClipboardCaptureService(InMemoryClipRepository &repository, QObject *parent = nullptr);
     explicit ClipboardCaptureService(SqliteClipRepository &repository, QObject *parent = nullptr);
@@ -79,6 +80,7 @@ public:
 
     void setSourceApp(const QString &sourceApp);
     QString sourceApp() const;
+    void setSourceAppProvider(SourceAppProvider provider);
 
     void suppressNextChange();
     bool suppressingNextChange() const;
@@ -110,6 +112,7 @@ private:
     RepositoryErrorCallback repositoryError_;
     ClipCapturePolicy policy_;
     QString sourceApp_;
+    SourceAppProvider sourceAppProvider_;
     QString lastCapturedId_;
     std::optional<Clip> lastCapturedClip_;
     ClipCaptureStatus lastStatus_ = ClipCaptureStatus::IgnoredBlank;
