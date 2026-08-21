@@ -1,6 +1,7 @@
 #include "pinloom/core/SumatraPdfCommand.h"
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
+#include "pinloom/core/AnchorTarget.h"
 
 #include <QDir>
 #include <QFileInfo>
@@ -228,28 +229,9 @@ QString openParameterText(QString value)
     return value;
 }
 
-QString filePathFromUri(const QString &targetUri)
-{
-    const QUrl url(targetUri.trimmed());
-    if (url.isValid() && url.isLocalFile()) {
-        return url.toLocalFile();
-    }
-    return targetUri.trimmed();
-}
-
 QString targetFilePath(const Anchor &anchor, const QString &fallbackFilePath)
 {
-    const QString targetFile = anchor.targetFile.trimmed();
-    if (!targetFile.isEmpty()) {
-        return targetFile;
-    }
-
-    const QString targetUri = anchor.targetUri.trimmed();
-    if (!targetUri.isEmpty()) {
-        return filePathFromUri(targetUri);
-    }
-
-    return fallbackFilePath.trimmed();
+    return resolveAnchorTarget(anchor, {}, fallbackFilePath).value;
 }
 
 QStringList defaultExecutablePaths()

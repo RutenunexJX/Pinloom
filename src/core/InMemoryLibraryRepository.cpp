@@ -299,9 +299,10 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
     const Qt::CaseSensitivity caseMode = Qt::CaseInsensitive;
 
     for (const Resource &resource : resources_) {
-        if (!query.includeDeleted && resource.deleted) {
+        if (!query.deletedOnly && !query.includeDeleted && resource.deleted) {
             continue;
         }
+        const bool includeResourceResult = !query.deletedOnly || resource.deleted;
 
         bool tagMatched = true;
         for (const QString &requiredTag : query.requiredTags) {
@@ -320,42 +321,42 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
             continue;
         }
 
-        if (needle.isEmpty()) {
+        if (includeResourceResult && needle.isEmpty()) {
             SearchResult result = resourceResult(resource, 100.0, QStringLiteral("all"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (resource.title.contains(needle, caseMode)) {
+        } else if (includeResourceResult && resource.title.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  10.0 + exactMatchScoreAdjustment(resource.title, needle),
                                                  QStringLiteral("title"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
+        } else if (includeResourceResult && QFileInfo(resource.location).fileName().contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  15.0 + exactMatchScoreAdjustment(QFileInfo(resource.location).fileName(), needle),
                                                  QStringLiteral("filename"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
+        } else if (includeResourceResult && resource.aliases.join(QLatin1Char('\n')).contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  20.0 + exactMatchScoreAdjustment(resource.aliases, needle),
                                                  QStringLiteral("alias"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (!tagNeedle.isEmpty()
+        } else if (includeResourceResult && !tagNeedle.isEmpty()
                    && resource.tags.join(QLatin1Char('\n')).contains(tagNeedle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  30.0 + exactMatchScoreAdjustment(resource.tags, tagNeedle),
                                                  QStringLiteral("tag"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (resource.content.contains(needle, caseMode)) {
+        } else if (includeResourceResult && resource.content.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  80.0 + exactMatchScoreAdjustment(resource.content, needle),
                                                  QStringLiteral("content"));
             applyRankingSignals(result, query, usage_, anchorUsage_);
             results.append(result);
-        } else if (resource.location.contains(needle, caseMode)) {
+        } else if (includeResourceResult && resource.location.contains(needle, caseMode)) {
             SearchResult result = resourceResult(resource,
                                                  90.0 + exactMatchScoreAdjustment(resource.location, needle),
                                                  QStringLiteral("path"));
@@ -363,9 +364,17 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
             results.append(result);
         }
 
-        if (!needle.isEmpty()) {
+        if (!needle.isEmpty() || query.deletedOnly) {
             for (const Anchor &anchor : resource.anchors) {
-                if (!query.includeDeleted && anchor.deleted) {
+                if (query.deletedOnly) {
+                    if (resource.deleted || !anchor.deleted) continue;
+                } else if (!query.includeDeleted && anchor.deleted) {
+                    continue;
+                }
+                if (needle.isEmpty()) {
+                    SearchResult result{resource, 100.0, QStringLiteral("anchor"), anchor};
+                    applyRankingSignals(result, query, usage_, anchorUsage_);
+                    results.append(result);
                     continue;
                 }
                 const AnchorMatch match = classifyAnchorMatch(anchor, needle);
@@ -535,6 +544,74 @@ bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
                      ? LibraryChangeKind::Reset
                      : (changesContent ? LibraryChangeKind::Content : LibraryChangeKind::Usage),
                  changedIds);
+    return true;
+}
+
+bool InMemoryLibraryRepository::upsertLibraryRoot(const LibraryRoot &root)
+{
+    LibraryRoot stored = root;
+    stored.path = normalizedLibraryRootPath(root.path);
+    if (stored.id.trimmed().isEmpty()) {
+        stored.id = libraryRootIdForPath(stored.path);
+    }
+    if (stored.id.isEmpty() || stored.path.isEmpty()) {
+        return false;
+    }
+    if (stored.displayName.trimmed().isEmpty()) {
+        stored.displayName = QFileInfo(stored.path).fileName();
+    }
+    if (!stored.updatedAt.isValid()) {
+        stored.updatedAt = QDateTime::currentDateTimeUtc();
+    }
+    for (auto it = libraryRoots_.begin(); it != libraryRoots_.end();) {
+        const bool sameStoredPath = normalizedLibraryRootPath(it->path).compare(
+                                        stored.path,
+#ifdef Q_OS_WIN
+                                        Qt::CaseInsensitive
+#else
+                                        Qt::CaseSensitive
+#endif
+                                        ) == 0;
+        if (it.key() != stored.id && sameStoredPath) {
+            it = libraryRoots_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+    libraryRoots_.insert(stored.id, stored);
+    notifyChange(LibraryChangeKind::Content);
+    return true;
+}
+
+QList<LibraryRoot> InMemoryLibraryRepository::libraryRoots() const
+{
+    QList<LibraryRoot> roots = libraryRoots_.values();
+    std::sort(roots.begin(), roots.end(), [](const LibraryRoot &left, const LibraryRoot &right) {
+        if (left.syncRoot != right.syncRoot) {
+            return left.syncRoot;
+        }
+        const int byName = left.displayName.compare(right.displayName, Qt::CaseInsensitive);
+        return byName == 0
+            ? left.path.compare(right.path, Qt::CaseInsensitive) < 0
+            : byName < 0;
+    });
+    return roots;
+}
+
+std::optional<LibraryRoot> InMemoryLibraryRepository::findLibraryRoot(const QString &id) const
+{
+    const auto it = libraryRoots_.constFind(id.trimmed());
+    return it == libraryRoots_.constEnd() ? std::nullopt : std::optional<LibraryRoot>(it.value());
+}
+
+bool InMemoryLibraryRepository::removeLibraryRoot(const QString &id)
+{
+    const auto it = libraryRoots_.find(id.trimmed());
+    if (it == libraryRoots_.end() || it->syncRoot) {
+        return false;
+    }
+    libraryRoots_.erase(it);
+    notifyChange(LibraryChangeKind::Content);
     return true;
 }
 

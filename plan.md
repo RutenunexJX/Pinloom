@@ -11,7 +11,7 @@ Saved Clip foundations are in place. Product boundaries are defined in
 - The Command Window searches and acts on Anchors, Saved Clips, Inbox files,
   and local resources through one entry/action protocol.
 - Anchors use one canonical model: target application, target file or URI,
-  locator type, and locator JSON. SQLite schema version 11 performs a one-time
+  locator type, and locator JSON. SQLite schema version 14 performs a one-time
   migration from older anchor columns without retaining a second runtime
   model.
 - SumatraPDF is the only PDF host. DDE supplies the active file, page, zoom,
@@ -23,8 +23,12 @@ Saved Clip foundations are in place. Product boundaries are defined in
   indexed insertion lookup, local or Obsidian-backed Markdown storage,
   explicit actions/provenance, coordinated Trash state, and contextual
   selected-text capture.
-- Inbox captures local file objects in Link mode and opens them through the
-  operating-system default application.
+- Inbox captures files and folders as metadata links, optionally copies files
+  into managed storage, and registers explicit browsable roots.
+- Root Library lazily displays registered roots and permits file/folder metadata
+  tagging without recursively indexing root contents. Its default root is
+  configurable without a fixed drive assumption, and `_PinloomData` is excluded
+  from browsing.
 - The Anchor Library provides advanced combined filters and saved views; usage
   sorting; direct jumps; separate file/Anchor metadata; inline Alias/Tag editing;
   cached automatic PDF region preview and context-menu SumatraPDF rectangle
@@ -32,11 +36,12 @@ Saved Clip foundations are in place. Product boundaries are defined in
   tags/Pinned/lifecycle/path operations; duplicate cleanup; tag and integrity
   management; session Undo; a dedicated Trash workflow; and automatic SQLite
   safety backups without user-facing archive controls.
-- Both databases share one configurable data root. Directory changes are
-  staged and copied before database startup, and automatic backups cover both
-  Anchor and Clip repositories.
-- Directory crawling, library-root management, relationship graphs, standalone
-  Clip picker UI, and JSON Clip archive are not part of the runtime.
+- Both databases share one configurable local data root. Directory changes are
+  staged and copied before database startup. Startup integrity checks protect
+  both repositories, and finalized paired snapshots retain both databases with
+  one manifest and timestamp.
+- Whole-disk crawling, eager root indexing, relationship graphs, a separate Clip
+  application process, and JSON Clip archive are not part of the runtime.
 
 ## Phase 1: Daily-Use Hardening
 
@@ -50,7 +55,7 @@ Saved Clip foundations are in place. Product boundaries are defined in
 
 Exit criteria:
 
-- Existing schema versions upgrade to version 11 without losing resources,
+- Existing schema versions upgrade to version 14 without losing resources,
   aliases, tags, anchors, or usage ranking.
 - Core, SQLite, Clip, capture, and widget suites pass from a clean build.
 - Normal launcher and Hyper workflows do not require a second picker window.

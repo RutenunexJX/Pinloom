@@ -12,19 +12,26 @@ The primary entry point is `Shift+Space`:
 
 - An ordinary query searches Anchors, Saved Clips, Inbox files, and resources.
 - `c` lists Clip commands.
-- `c s` or `c s <query>` searches temporary history and Saved Clips for
+- `clip;search` or `clip;search <query>` searches temporary history and Saved Clips for
   insertion.
-- `c n` lists temporary history items that can be promoted to Saved Clips.
-- The tray `Show Clipboard` action opens the same `c s` command surface.
+- `clip;new` lists temporary history items that can be promoted to Saved Clips.
+- `clip;library` opens Saved, History, and Trash management.
+- The tray `Show Clipboard` action opens the direct Clip Picker.
+- Dropping plain text on the Command Window opens the same Saved Clip metadata
+  flow, including name and tag selection.
 
-Pinloom also recognizes `Ctrl+Alt+Shift+backtick+S` as `Hyper+S`. The intended
-PowerToys mapping is Caps Lock to `Ctrl+Alt+Shift+backtick`, making the physical
-shortcut Caps Lock plus S.
+Semicolon-separated `domain;action` is the canonical command grammar. Colon
+and legacy space forms remain accepted only for transition compatibility.
+
+The intended PowerToys mapping is Caps Lock to `F24`. Pinloom uses `F24` as a
+private Hyper carrier; the former `Ctrl+Alt+Shift+backtick` carrier remains a
+compatibility path.
 
 - If Windows UI Automation or a standard Edit/RichEdit control exposes a
-  non-empty selection, `Hyper+S` creates a Saved Clip from that selection.
-- If there is only a caret, or the control does not expose a reliable
-  selection, `Hyper+S` opens `c s` for insertion.
+  non-empty selection, `F24+S` opens metadata confirmation and creates a Saved
+  Clip from that selection.
+- If the control does not expose a reliable selection, saving fails explicitly.
+- `F24+V` opens the lightweight Saved Clip Picker at the insertion target.
 - Selection capture does not synthesize `Ctrl+C` and does not read the system
   clipboard.
 
@@ -50,8 +57,10 @@ The active components are:
   `ClipResidentHost`: compose clipboard capture, insertion, tray state, and
   process lifetime.
 
-There is no separate Clip picker window. Search, save, insertion, metadata
-actions, and tray routing all use `PinloomCommandPanel`.
+The lightweight Clip Picker handles rapid `F24+V` retrieval. The separate Clip
+Library handles Saved, History, and Trash inspection, full-text preview,
+metadata editing, source-note opening, restore, and permanent removal. Ordinary
+queries remain available in the unified Command Window.
 
 ## Persistence
 
@@ -67,10 +76,15 @@ byte size.
 
 When an Obsidian Vault is configured, each Saved Clip is represented by one
 UTF-8 Markdown note under the configured archive directory. Managed
-frontmatter includes `pinloom_id`, `pinloom_type`, `pinloom_version`, `name`,
-`aliases`, `tags`, `pinned`, `created`, and `updated`. The body is the exact
+frontmatter includes stable identity and state, name, aliases, tags, explicit
+action, source metadata, pinned state, and timestamps. The body is the exact
 insertion payload. SQLite remains the local search and usage cache; insertion
 reloads the current Markdown body before pasting.
+
+The SQLite database is local application state. It must not be opened by two
+computers through a live synchronized folder. Multi-computer Saved Clip content
+can use a synchronized Obsidian vault while each computer maintains its own
+SQLite index. Anchor synchronization is not implemented.
 
 ## Capture Policy
 
@@ -79,7 +93,8 @@ Clipboard capture applies these constraints before persistence:
 - Blank or whitespace-only text is ignored.
 - Maximum UTF-8 byte size is enforced.
 - Exact duplicate text is ignored by content hash.
-- Capture can be paused.
+- Automatic clipboard history is disabled until the user explicitly enables
+  it, and can be paused later.
 - Applications can be excluded by policy.
 - Marker-style sensitive text is rejected by default, including common
   password, token, authorization, API key, and private-key markers.

@@ -1,11 +1,11 @@
 #include "pinloom/core/WordCommand.h"
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
+#include "pinloom/core/AnchorTarget.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
-#include <QUrl>
 
 namespace Pinloom {
 
@@ -47,15 +47,6 @@ QString effectiveLocatorType(const Anchor &anchor, const QJsonObject &locator)
     return locatorType.toLower();
 }
 
-QString filePathFromUri(const QString &targetUri)
-{
-    const QUrl url(targetUri.trimmed());
-    if (url.isValid() && url.isLocalFile()) {
-        return url.toLocalFile();
-    }
-    return targetUri.trimmed();
-}
-
 QString locatorDocumentPath(const QJsonObject &locator)
 {
     const QString document = locator.value(QStringLiteral("document")).toString().trimmed();
@@ -67,22 +58,7 @@ QString locatorDocumentPath(const QJsonObject &locator)
 
 QString targetDocumentPath(const Anchor &anchor, const QJsonObject &locator, const QString &fallbackFilePath)
 {
-    const QString targetFile = anchor.targetFile.trimmed();
-    if (!targetFile.isEmpty()) {
-        return targetFile;
-    }
-
-    const QString targetUri = anchor.targetUri.trimmed();
-    if (!targetUri.isEmpty()) {
-        return filePathFromUri(targetUri);
-    }
-
-    const QString locatorDocument = locatorDocumentPath(locator);
-    if (!locatorDocument.isEmpty()) {
-        return locatorDocument;
-    }
-
-    return fallbackFilePath.trimmed();
+    return resolveAnchorTarget(anchor, {locatorDocumentPath(locator)}, fallbackFilePath).value;
 }
 
 QString bookmarkName(const QJsonObject &locator)

@@ -3,7 +3,7 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
-#include "pinloom/widgets/PinloomPanel.h"
+#include "pinloom/widgets/PinloomEntry.h"
 
 #include <QPixmap>
 #include <QPoint>
@@ -64,11 +64,14 @@ struct PinloomCommandPanelOptions {
     std::function<bool(QString *status)> clipLibraryHandler;
     std::function<bool(QString *status)> anchorCaptureHandler;
     std::function<bool(QString *status)> anchorLibraryHandler;
+    std::function<bool(QString *status)> libraryRootHandler;
     std::function<QStringList(QString *status)> inboxSelectionProvider;
+    std::function<QStringList()> inboxTagProvider;
     std::function<std::optional<InboxFileSaveRequest>(
         QWidget *parent,
         const QString &filePath)> inboxSaveRequestProvider;
-    std::function<bool(const InboxFileSaveRequest &request, QString *status)> inboxSaveHandler;
+    std::function<InboxFileSaveResult(const InboxFileSaveRequest &request)> inboxSaveHandler;
+    std::function<bool(QWidget *parent, const QString &text, QString *status)> droppedTextSaveHandler;
     std::function<void(const QString &status)> statusChangedHandler;
 };
 
@@ -112,6 +115,7 @@ signals:
     void clipSaved(const QString &clipId);
     void clipLibraryRequested();
     void anchorCaptureRequested();
+    void libraryRootRequested();
     void anchorJumped(const QString &resourceId);
     void resourceOpened(const QString &resourceId);
     void inboxSaved(const QString &resourceId);
@@ -137,6 +141,7 @@ private:
     bool openClipLibrary();
     bool captureAnchor();
     bool openAnchorLibrary();
+    bool openLibraryRoots();
     bool saveInboxFromCommand();
     bool activateUnifiedTarget(const PinloomOpenTarget &target);
     QList<PinloomCommandResultAction> actionsForTarget(const PinloomOpenTarget &target) const;
@@ -152,6 +157,7 @@ private:
 
     PinloomCommandPanelOptions options_;
     QLineEdit *commandEdit_ = nullptr;
+    QLabel *versionLabel_ = nullptr;
     QToolButton *clipLibraryButton_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;

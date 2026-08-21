@@ -4,7 +4,10 @@ param(
     [string]$OutputRoot = "",
     [string]$QtBinDirectory = "E:\QT6\6.10.2\mingw_64\bin",
     [string]$InnoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-    [string]$PackageVersion = (Get-Date -Format "yyyyMMdd-HHmmss"),
+    [string]$PackageVersion = "",
+    [string]$PackageName = "Pinloom",
+    [string]$InstallerBaseName = "Pinloom-Setup-x64",
+    [switch]$ReplaceExisting,
     [switch]$AllowDirty
 )
 
@@ -17,6 +20,22 @@ if ([string]::IsNullOrWhiteSpace($BuildDirectory)) {
 }
 if ([string]::IsNullOrWhiteSpace($OutputRoot)) {
     $OutputRoot = Join-Path (Split-Path -Parent $repositoryRoot) "artifacts"
+}
+if ([string]::IsNullOrWhiteSpace($PackageVersion)) {
+    $cmakeContents = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot "CMakeLists.txt")
+    $versionMatch = [regex]::Match(
+        $cmakeContents,
+        'project\s*\(\s*Pinloom\s+VERSION\s+([0-9]+\.[0-9]+\.[0-9]+)',
+        [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+    if (-not $versionMatch.Success) {
+        throw "Unable to read the Pinloom version from CMakeLists.txt"
+    }
+    $PackageVersion = $versionMatch.Groups[1].Value
+}
+$PackageName = $PackageName.Trim()
+if (([string]::IsNullOrWhiteSpace($PackageName)) -or
+    ($PackageName -ne [System.IO.Path]::GetFileName($PackageName))) {
+    throw "PackageName must be a simple directory name"
 }
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
@@ -40,11 +59,25 @@ if ($dirty -and -not $AllowDirty) {
 $buildState = if ($dirty) { "$revision-dirty" } else { $revision }
 
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
-$packageName = "Pinloom-Windows-x64-$PackageVersion"
-$packageDirectory = Join-Path $OutputRoot $packageName
+$outputRootPath = (Resolve-Path -LiteralPath $OutputRoot).Path
+$packageDirectory = Join-Path $outputRootPath $PackageName
 $archivePath = "$packageDirectory.zip"
 if ((Test-Path -LiteralPath $packageDirectory) -or (Test-Path -LiteralPath $archivePath)) {
-    throw "Package output already exists: $packageName"
+    if (-not $ReplaceExisting) {
+        throw "Package output already exists: $PackageName. Pass -ReplaceExisting to replace it."
+    }
+    $resolvedPackageParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $packageDirectory))
+    if ($resolvedPackageParent -ne [System.IO.Path]::GetFullPath($outputRootPath)) {
+        throw "Refusing to replace package output outside OutputRoot"
+    }
+    if (Test-Path -LiteralPath $packageDirectory) {
+        Remove-Item -Recurse -Force -LiteralPath $packageDirectory
+    }
+    foreach ($path in @($archivePath, "$archivePath.sha256")) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -Force -LiteralPath $path
+        }
+    }
 }
 
 New-Item -ItemType Directory -Path $packageDirectory | Out-Null
@@ -52,6 +85,7 @@ Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $scriptDirectory "Start-Pinloom.cmd") -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $scriptDirectory "Start-Pinloom-Hidden.cmd") -Destination $packageDirectory
 Copy-Item -LiteralPath (Join-Path $scriptDirectory "README.txt") -Destination $packageDirectory
+Copy-Item -LiteralPath (Join-Path $repositoryRoot "assets\icons\pinloom.ico") -Destination $packageDirectory
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 & $deployTool `
@@ -66,6 +100,7 @@ if ($LASTEXITCODE -ne 0) {
 
 $requiredFiles = @(
     "pinloom_app.exe",
+    "pinloom.ico",
     "Qt6Core.dll",
     "Qt6Gui.dll",
     "Qt6Network.dll",
@@ -85,7 +120,8 @@ foreach ($relativePath in $requiredFiles) {
 }
 
 @(
-    "Package: $packageName"
+    "Package: $PackageName"
+    "Version: $PackageVersion"
     "Source revision: $buildState"
     "Built at: $((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))"
     "Architecture: Windows x64"
@@ -113,13 +149,14 @@ if (Test-Path -LiteralPath $InnoCompiler -PathType Leaf) {
     $installerScript = Join-Path $scriptDirectory "Pinloom.iss"
     & $InnoCompiler `
         "/DMyAppVersion=$PackageVersion" `
+        "/DInstallerBaseName=$InstallerBaseName" `
         "/DPackageSource=$packageDirectory" `
-        "/DPackageOutput=$OutputRoot" `
+        "/DPackageOutput=$outputRootPath" `
         $installerScript
     if ($LASTEXITCODE -ne 0) {
         throw "Inno Setup failed with exit code $LASTEXITCODE"
     }
-    $installerPath = Join-Path $OutputRoot "Pinloom-Setup-x64-$PackageVersion.exe"
+    $installerPath = Join-Path $outputRootPath "$InstallerBaseName.exe"
     if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
         throw "Installer output not found: $installerPath"
     }

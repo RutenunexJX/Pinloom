@@ -3,6 +3,7 @@
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/ResourceUsage.h"
+#include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 
 #include <QColor>
 #include <QCache>
@@ -55,6 +56,7 @@ struct AnchorLibraryWindowOptions {
     std::function<QPixmap(const AnchorLibraryFile &file,
                           const AnchorLibraryAnchor &anchor,
                           QString *status)> locatorPreviewHandler;
+    std::function<PdfLocatorPreviewRenderOptions()> pdfPreviewOptionsProvider;
     std::function<bool(const QString &title, const QString &message)> confirmationHandler;
     std::function<QString(const AnchorLibraryFile &file)> relinkPathProvider;
 };
@@ -197,6 +199,14 @@ private:
     void applyLibraryTheme();
     void scheduleSelectedAnchorPreview();
     bool renderSelectedAnchorPreview(bool showExpanded, bool forceRender);
+    bool startPdfLocatorPreview(const AnchorLibraryFile &file,
+                                const AnchorLibraryAnchor &anchor,
+                                const QString &cacheKey,
+                                bool showExpanded);
+    void applyLocatorPreviewResult(const QString &cacheKey,
+                                   const QPixmap &screenshot,
+                                   const QString &status,
+                                   bool showExpanded);
     QStringList availableFileTags() const;
     QStringList availableAnchorTags() const;
     QColor colorForTag(const QString &tag);

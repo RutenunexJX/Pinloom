@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/pinloom">
+        <file alias="icon.png">icons/pinloom-icon.png</file>
+    </qresource>
+</RCC>

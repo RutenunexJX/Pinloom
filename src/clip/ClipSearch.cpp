@@ -390,7 +390,9 @@ ClipSearchService::ClipSearchService(SqliteClipRepository &repository)
                             if (candidate.emptyQuery && options.includeTemporary) {
                                 candidate.includeSaved = false;
                             }
-                            candidate.limit = candidate.emptyQuery ? options.limit : -1;
+                            candidate.limit = options.limit > 0
+                                ? std::max(200, options.limit * 4)
+                                : options.limit;
                             const QList<Clip> matches = repository.searchCandidates(candidate);
                             return repository.lastError().isEmpty() ? matches : repository.clips();
                         })

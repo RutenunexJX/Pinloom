@@ -10,6 +10,7 @@
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 #include "pinloom/clip/ClipSearch.h"
+#include "pinloom/widgets/PinloomEntry.h"
 
 #include <QDateTime>
 #include <QList>
@@ -27,68 +28,6 @@ class QListWidgetItem;
 class QPushButton;
 
 namespace Pinloom {
-
-enum class PinloomEntryType {
-    Anchor,
-    SavedClip,
-    Inbox,
-    FileResource
-};
-
-struct PinloomEntry {
-    QString id;
-    PinloomEntryType type = PinloomEntryType::FileResource;
-    QString name;
-    QStringList aliases;
-    QStringList tags;
-    bool pinned = false;
-    bool deleted = false;
-    QDateTime usedAt;
-    int frequency = 0;
-    QString targetSummary;
-    QVariantMap metadata;
-    QString resourceId;
-    QString clipId;
-    ResourceKind resourceKind = ResourceKind::Unknown;
-    QString location;
-    QString matchedField;
-    QString matchSummary;
-    int resultRow = -1;
-    double score = 0.0;
-    std::optional<Anchor> anchor;
-};
-
-struct PinloomOpenTarget {
-    QString resourceId;
-    QString clipId;
-    ResourceKind resourceKind = ResourceKind::Unknown;
-    QString title;
-    QString location;
-    bool deleted = false;
-    QString matchedField;
-    QString matchedContextTag;
-    QString matchedContextLocationPrefix;
-    QString matchSummary;
-    int resultRow = -1;
-    double score = 0.0;
-    std::optional<Anchor> anchor;
-};
-
-QString pinloomEntryTypeLabel(PinloomEntryType type);
-int pinloomEntryMatchPriority(const PinloomEntry &entry);
-bool pinloomEntryLessThan(const PinloomEntry &left, const PinloomEntry &right);
-QList<PinloomEntry> sortedPinloomEntries(QList<PinloomEntry> entries);
-PinloomEntry entryFromOpenTarget(const PinloomOpenTarget &target);
-PinloomOpenTarget openTargetFromEntry(const PinloomEntry &entry);
-QList<PinloomEntry> entriesFromOpenTargets(const QList<PinloomOpenTarget> &targets);
-
-struct PinloomClipSaveRequest {
-    QString clipId;
-    QString name;
-    QStringList aliases;
-    QStringList tags;
-    bool pinned = false;
-};
 
 struct PinloomPanelOptions {
     std::function<bool(const PinloomOpenTarget &target)> openTargetHandler;

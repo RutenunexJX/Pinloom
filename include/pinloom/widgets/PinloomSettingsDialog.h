@@ -19,9 +19,11 @@ struct PinloomAppSettings {
     QString obsidianVaultPath;
     QString obsidianArchiveDirectory = QStringLiteral("Pinloom Clips");
     QString dataDirectory;
+    QString defaultLibraryRootPath;
     int clipMaxTemporaryClips = 100;
     int clipMaxTextBytes = 256 * 1024;
     int clipTemporaryTtlSeconds = 24 * 60 * 60;
+    bool clipAutomaticCaptureEnabled = false;
     bool clipExcludeSensitiveText = true;
     bool clipRestoreOriginalClipboardOnInsert = true;
     QStringList clipExcludedSourceApps;
@@ -53,9 +55,12 @@ private:
     QLineEdit *obsidianArchiveDirectoryEdit_ = nullptr;
     QLineEdit *dataDirectoryEdit_ = nullptr;
     QLabel *dataDirectoryStatusLabel_ = nullptr;
+    QLineEdit *defaultLibraryRootPathEdit_ = nullptr;
+    QLabel *defaultLibraryRootStatusLabel_ = nullptr;
     QSpinBox *clipMaxTemporaryClipsSpin_ = nullptr;
     QSpinBox *clipMaxTextBytesSpin_ = nullptr;
     QSpinBox *clipTemporaryTtlSecondsSpin_ = nullptr;
+    QCheckBox *clipAutomaticCaptureCheck_ = nullptr;
     QCheckBox *clipExcludeSensitiveTextCheck_ = nullptr;
     QCheckBox *clipRestoreOriginalClipboardCheck_ = nullptr;
     QLineEdit *clipExcludedSourceAppsEdit_ = nullptr;

@@ -1,9 +1,16 @@
 Pinloom Windows Release Package
 ===============================
 
+Version
+-------
+The running version is shown beside the command input and in the window title.
+The deployed directory and executable names remain fixed so existing shortcuts
+continue to point to Pinloom after an update.
+
 Contents
 --------
 - pinloom_app.exe: Pinloom resident app and command UI.
+- pinloom.ico: Multi-size Windows application icon.
 - Start-Pinloom.cmd: Starts the Pinloom UI.
 - Start-Pinloom-Hidden.cmd: Starts Pinloom in hidden resident mode.
 
@@ -16,7 +23,7 @@ PDF anchor test steps
 2. Open Pinloom settings and configure SumatraPDF if it is not detected.
    Optionally configure an Obsidian Vault and relative Saved Clip directory.
 3. Open a PDF directly in SumatraPDF.
-4. With SumatraPDF active, press Shift+Space, type k n, and press Enter.
+4. With SumatraPDF active, press Shift+Space, type anchor;new, and press Enter.
 5. Drag a rectangle inside one PDF page, name the anchor, and save it.
 6. Open the anchor to verify page/scroll restoration and temporary highlighting.
 
@@ -67,8 +74,10 @@ Contextual Saved Clip test steps
 Storage migration test steps
 ----------------------------
 1. Open Settings and choose an empty Data directory.
-2. Restart Pinloom. Confirm pinloom.sqlite3, pinloom_clip.sqlite3, and both
-   backup directories were copied and the old directory was retained.
+2. Restart Pinloom. Confirm pinloom.sqlite3, pinloom_clip.sqlite3, and the
+   backups directory were copied and the old directory was retained. Confirm
+   backups/application-data contains a finalized snapshot with both databases
+   and manifest.txt.
 3. Choose a non-empty destination and restart. Confirm Pinloom refuses to
    overwrite it and continues with the current data directory.
 
@@ -79,3 +88,6 @@ Notes
 - Right-click or press Esc to cancel the transparent rectangle capture layer.
 - Release packaging refuses a dirty Git worktree unless -AllowDirty is passed
   explicitly to Package-Release.ps1.
+- Package-Release.ps1 reads the release version from CMakeLists.txt and creates
+  fixed outputs named Pinloom, Pinloom.zip, and Pinloom-Setup-x64.exe. Use
+  -ReplaceExisting when intentionally replacing an earlier package.

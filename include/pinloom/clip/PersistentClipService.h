@@ -11,8 +11,20 @@ class ObsidianClipStore;
 
 class PersistentClipService {
 public:
+    using ListCallback = std::function<QList<Clip>()>;
+    using FindCallback = std::function<std::optional<Clip>(const QString &)>;
+    using UpsertCallback = std::function<bool(const Clip &)>;
+    using RemoveCallback = std::function<bool(const QString &)>;
+    using ErrorCallback = std::function<QString()>;
+
     PersistentClipService(InMemoryClipRepository &repository, ObsidianClipStore &obsidianStore);
     PersistentClipService(SqliteClipRepository &repository, ObsidianClipStore &obsidianStore);
+    PersistentClipService(ListCallback list,
+                          FindCallback find,
+                          UpsertCallback upsert,
+                          RemoveCallback remove,
+                          ErrorCallback repositoryError,
+                          ObsidianClipStore &obsidianStore);
 
     QList<Clip> clips() const;
     std::optional<Clip> findClip(const QString &clipId) const;
@@ -23,19 +35,10 @@ public:
     bool permanentlyRemove(const QString &clipId, QString *error = nullptr) const;
 
 private:
-    using ListCallback = std::function<QList<Clip>()>;
-    using FindCallback = std::function<std::optional<Clip>(const QString &)>;
-    using UpsertCallback = std::function<bool(const Clip &)>;
-    using RemoveCallback = std::function<bool(const QString &)>;
-    using ErrorCallback = std::function<QString()>;
-
-    PersistentClipService(ListCallback list,
-                          FindCallback find,
-                          UpsertCallback upsert,
-                          RemoveCallback remove,
-                          ErrorCallback repositoryError,
-                          ObsidianClipStore &obsidianStore);
     bool fail(QString *error, const QString &message) const;
+    bool rollbackObsidianWrite(const QString &clipId,
+                               const std::optional<Clip> &previousDocument,
+                               QString *error) const;
     QString repositoryError(const QString &fallback) const;
 
     ListCallback list_;

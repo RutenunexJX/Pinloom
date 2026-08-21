@@ -1,6 +1,7 @@
 #include "pinloom/core/AnchorLibraryManagement.h"
 
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/AnchorTarget.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SumatraPdfCommand.h"
@@ -970,9 +971,11 @@ AnchorValidationResult AnchorLibraryManagementService::validateAnchor(const Reso
                                                                        const Anchor &anchor) const
 {
     AnchorValidationResult result;
-    const QString targetFile = anchor.targetFile.trimmed().isEmpty()
-        ? resource.location.trimmed()
-        : anchor.targetFile.trimmed();
+    const ResolvedAnchorTarget target = resolveAnchorTarget(anchor, {}, resource.location);
+    const QString targetFile = target.value;
+    if (target.conflictingExplicitTargets) {
+        result.issues.append(QStringLiteral("Anchor target file and target URI disagree"));
+    }
     if (!targetFile.isEmpty() && !isRemoteLocation(targetFile) && !QFileInfo::exists(targetFile)) {
         result.issues.append(QStringLiteral("Target file is missing"));
     }

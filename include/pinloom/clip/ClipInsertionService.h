@@ -24,6 +24,7 @@ enum class ClipInsertionStatus {
 
 struct ClipInsertionOptions {
     bool restoreOriginalClipboardOnSuccess = true;
+    bool restoreOriginalClipboardOnFailure = true;
     bool markClipUsedOnSuccess = true;
     int clipboardRestoreDelayMs = 200;
 };

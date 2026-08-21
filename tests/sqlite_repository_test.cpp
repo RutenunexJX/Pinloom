@@ -3,6 +3,7 @@
 #include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/Schema.h"
 
 #include <QDir>
@@ -28,9 +29,11 @@ class SqliteRepositoryTest : public QObject {
 
 private slots:
     void initializesIdempotently();
+    void assignsStableAnchorIdsIndependentOfOrderStorage();
     void persistsAndSearchesResourceMetadata();
     void persistsAndSearchesAnchorLocatorFields();
     void persistsAndSearchesInboxFiles();
+    void persistsLibraryRootsAndProtectsSyncRoot();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
@@ -39,6 +42,7 @@ private slots:
     void appliesAtomicBatchesAndCoalescesNotifications();
     void backsUpRestoresAndImportsAnchorLibraryData();
     void filtersByRequiredLocationPrefixes();
+    void appliesSqlFiltersBeforeBoundedCandidateSelection();
     void filtersByRequiredResourceKinds();
     void ranksContextSignalsWithinMatchType();
     void tracksAnchorUsageAndRanksAnchorRecall();
@@ -202,6 +206,44 @@ void SqliteRepositoryTest::initializesIdempotently()
              qPrintable(repository.lastError()));
     QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
     QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+    QVERIFY2(repository.integrityCheck(), qPrintable(repository.lastError()));
+}
+
+void SqliteRepositoryTest::assignsStableAnchorIdsIndependentOfOrderStorage()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    Resource resource;
+    resource.id = QStringLiteral("stable-resource");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Stable anchors");
+    resource.location = QStringLiteral("stable.txt");
+    Anchor first = testAnchor(QStringLiteral("First"), QStringLiteral("file.line"), 10);
+    Anchor second = testAnchor(QStringLiteral("Second"), QStringLiteral("file.line"), 20);
+    first.id = QStringLiteral("duplicate-id");
+    second.id = QStringLiteral("duplicate-id");
+    resource.anchors = {first, second};
+
+    QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+    const std::optional<Resource> stored = repository.findResource(resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 2);
+    QCOMPARE(stored->anchors.first().id, QStringLiteral("duplicate-id"));
+    QVERIFY(!stored->anchors.last().id.isEmpty());
+    QVERIFY(stored->anchors.last().id != stored->anchors.first().id);
+
+    Resource reordered = stored.value();
+    std::reverse(reordered.anchors.begin(), reordered.anchors.end());
+    QVERIFY2(repository.upsertResource(reordered), qPrintable(repository.lastError()));
+    const std::optional<Resource> afterReorder = repository.findResource(resource.id);
+    QVERIFY(afterReorder.has_value());
+    QCOMPARE(afterReorder->anchors.first().id, stored->anchors.last().id);
+    QCOMPARE(afterReorder->anchors.last().id, stored->anchors.first().id);
 }
 
 void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
@@ -407,6 +449,52 @@ void SqliteRepositoryTest::persistsAndSearchesInboxFiles()
     QCOMPARE(tagResults.first().resource.id, resourceId);
 }
 
+void SqliteRepositoryTest::persistsLibraryRootsAndProtectsSyncRoot()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    const QString syncPath = dir.filePath(QStringLiteral("PinloomRoot"));
+    const QString customPath = dir.filePath(QStringLiteral("Reference"));
+    QVERIFY(QDir().mkpath(syncPath));
+    QVERIFY(QDir().mkpath(customPath));
+
+    const LibraryRoot syncRoot = makeLibraryRootForPath(syncPath, true);
+    LibraryRoot customRoot = makeLibraryRootForPath(customPath);
+    customRoot.displayName = QStringLiteral("Reference library");
+    customRoot.ignoredDirectoryNames = {QStringLiteral("build"), QStringLiteral("cache")};
+
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+        QVERIFY2(repository.upsertLibraryRoot(customRoot), qPrintable(repository.lastError()));
+        QVERIFY2(repository.upsertLibraryRoot(syncRoot), qPrintable(repository.lastError()));
+
+        const QList<LibraryRoot> roots = repository.libraryRoots();
+        QCOMPARE(roots.size(), 2);
+        QCOMPARE(roots.first().id, syncRoot.id);
+        QVERIFY(roots.first().syncRoot);
+        QVERIFY(!repository.removeLibraryRoot(syncRoot.id));
+        QCOMPARE(repository.lastError(), QStringLiteral("The default sync root cannot be removed"));
+    }
+
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+        const std::optional<LibraryRoot> reopened = repository.findLibraryRoot(customRoot.id);
+        QVERIFY(reopened.has_value());
+        QCOMPARE(reopened->path, normalizedLibraryRootPath(customPath));
+        QCOMPARE(reopened->displayName, QStringLiteral("Reference library"));
+        QCOMPARE(reopened->ignoredDirectoryNames,
+                 (QStringList{QStringLiteral("build"), QStringLiteral("cache")}));
+        QVERIFY(reopened->updatedAt.isValid());
+        QVERIFY(repository.removeLibraryRoot(customRoot.id));
+        QCOMPARE(repository.libraryRoots().size(), 1);
+    }
+}
+
 void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
 {
     QTemporaryDir dir;
@@ -607,6 +695,21 @@ void SqliteRepositoryTest::softDeletesAndRestoresResourcesAndAnchors()
     QVERIFY(deletedAnchorResults.first().matchedAnchor.has_value());
     QVERIFY(deletedAnchorResults.first().matchedAnchor->deleted);
 
+    SearchQuery deletedAnchorOnlyQuery{QStringLiteral("anchor alias")};
+    deletedAnchorOnlyQuery.deletedOnly = true;
+    const QList<SearchResult> deletedAnchorOnlyResults = repository.search(deletedAnchorOnlyQuery);
+    QCOMPARE(deletedAnchorOnlyResults.size(), 1);
+    QVERIFY(deletedAnchorOnlyResults.first().matchedAnchor.has_value());
+    QVERIFY(deletedAnchorOnlyResults.first().matchedAnchor->deleted);
+
+    SearchQuery allDeletedAnchorsQuery;
+    allDeletedAnchorsQuery.deletedOnly = true;
+    allDeletedAnchorsQuery.limit = 0;
+    const QList<SearchResult> allDeletedAnchorResults = repository.search(allDeletedAnchorsQuery);
+    QCOMPARE(allDeletedAnchorResults.size(), 1);
+    QVERIFY(allDeletedAnchorResults.first().matchedAnchor.has_value());
+    QVERIFY(allDeletedAnchorResults.first().matchedAnchor->deleted);
+
     QVERIFY2(repository.restoreAnchor(resource.id, anchor), qPrintable(repository.lastError()));
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("anchor alias")}).size(), 1);
 
@@ -621,6 +724,13 @@ void SqliteRepositoryTest::softDeletesAndRestoresResourcesAndAnchors()
     const QList<SearchResult> deletedResourceResults = repository.search(deletedResourceQuery);
     QCOMPARE(deletedResourceResults.size(), 1);
     QVERIFY(deletedResourceResults.first().resource.deleted);
+
+    SearchQuery deletedResourceOnlyQuery{QStringLiteral("Resource Sentinel")};
+    deletedResourceOnlyQuery.deletedOnly = true;
+    const QList<SearchResult> deletedResourceOnlyResults = repository.search(deletedResourceOnlyQuery);
+    QCOMPARE(deletedResourceOnlyResults.size(), 1);
+    QVERIFY(deletedResourceOnlyResults.first().resource.deleted);
+    QVERIFY(!deletedResourceOnlyResults.first().matchedAnchor.has_value());
 
     QVERIFY2(repository.restoreResource(resource.id), qPrintable(repository.lastError()));
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("Resource Sentinel")}).size(), 1);
@@ -878,6 +988,52 @@ void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()
     QVERIFY(repository.search(query).isEmpty());
 }
 
+void SqliteRepositoryTest::appliesSqlFiltersBeforeBoundedCandidateSelection()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    SqliteLibraryRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("pinloom.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    for (int index = 0; index < 220; ++index) {
+        Resource resource;
+        resource.id = QStringLiteral("noise-%1").arg(index, 3, 10, QLatin1Char('0'));
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Noise %1").arg(index, 3, 10, QLatin1Char('0'));
+        resource.location = QStringLiteral("E:/wantedA-noise/%1.txt").arg(index);
+        QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+    }
+    Resource matching;
+    matching.id = QStringLiteral("wanted-after-candidate-boundary");
+    matching.kind = ResourceKind::Pdf;
+    matching.title = QStringLiteral("ZZZ wanted document");
+    matching.location = QStringLiteral("E:/wanted_%/document.pdf");
+    QVERIFY2(repository.upsertResource(matching), qPrintable(repository.lastError()));
+
+    SearchQuery query;
+    query.requiredLocationPrefixes = {QStringLiteral("E:/wanted_%")};
+    query.limit = 5;
+    const QList<SearchResult> results = repository.search(query);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().resource.id, matching.id);
+
+    query.requiredLocationPrefixes.clear();
+    query.requiredKinds = {ResourceKind::Pdf};
+    const QList<SearchResult> kindResults = repository.search(query);
+    QCOMPARE(kindResults.size(), 1);
+    QCOMPARE(kindResults.first().resource.id, matching.id);
+
+    QVERIFY2(repository.setResourcePinned(matching.id, true), qPrintable(repository.lastError()));
+    query.requiredKinds.clear();
+    query.limit = 1;
+    const QList<SearchResult> pinnedResults = repository.search(query);
+    QCOMPARE(pinnedResults.size(), 1);
+    QCOMPARE(pinnedResults.first().resource.id, matching.id);
+}
+
 void SqliteRepositoryTest::filtersByRequiredResourceKinds()
 {
     QTemporaryDir dir;
@@ -1026,6 +1182,11 @@ void SqliteRepositoryTest::upgradesVersionOneDatabase()
     QVERIFY(legacy.has_value());
     QCOMPARE(legacy->title, QStringLiteral("Legacy Note"));
     QCOMPARE(legacy->kind, ResourceKind::File);
+    SearchQuery fileQuery;
+    fileQuery.requiredKinds = {ResourceKind::File};
+    const QList<SearchResult> fileResults = repository.search(fileQuery);
+    QCOMPARE(fileResults.size(), 1);
+    QCOMPARE(fileResults.first().resource.id, QStringLiteral("legacy"));
 }
 
 void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
@@ -1043,6 +1204,23 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     const std::optional<Resource> legacy = repository.findResource(QStringLiteral("legacy"));
     QVERIFY(legacy.has_value());
     QCOMPARE(legacy->kind, ResourceKind::File);
+
+    QList<LibraryRoot> roots = repository.libraryRoots();
+    QCOMPARE(roots.size(), 1);
+    QCOMPARE(roots.first().id, QStringLiteral("dir:test"));
+    QCOMPARE(roots.first().path, normalizedLibraryRootPath(QStringLiteral("E:/test")));
+    QVERIFY(!roots.first().syncRoot);
+
+    LibraryRoot upgradedRoot = makeLibraryRootForPath(QStringLiteral("E:/test"));
+    upgradedRoot.enabled = true;
+    upgradedRoot.displayName = QStringLiteral("Migrated test root");
+    upgradedRoot.ignoredDirectoryNames = {QStringLiteral("cache")};
+    QVERIFY2(repository.upsertLibraryRoot(upgradedRoot), qPrintable(repository.lastError()));
+    roots = repository.libraryRoots();
+    QCOMPARE(roots.size(), 1);
+    QCOMPARE(roots.first().id, upgradedRoot.id);
+    QCOMPARE(roots.first().displayName, QStringLiteral("Migrated test root"));
+    QCOMPARE(roots.first().ignoredDirectoryNames, QStringList{QStringLiteral("cache")});
 
     Resource resource;
     resource.id = QStringLiteral("anchored");
@@ -1067,7 +1245,13 @@ void SqliteRepositoryTest::upgradesVersionTwoDatabaseWithRoots()
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM sqlite_master "
                                          "WHERE type = 'table' AND name = 'library_roots'")));
     QVERIFY(rawQuery.next());
-    QCOMPARE(rawQuery.value(0).toInt(), 0);
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM library_roots")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 14")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
     rawQuery = QSqlQuery();
     rawDatabase.close();
     rawDatabase = QSqlDatabase();
@@ -1111,8 +1295,11 @@ void SqliteRepositoryTest::upgradesVersionSevenDatabaseWithLegacyAnchors()
     QSqlQuery rawQuery(rawDatabase);
     QVERIFY(rawQuery.exec(QStringLiteral("PRAGMA table_info(anchors)")));
     QStringList columns;
+    QHash<QString, int> primaryKeyOrder;
     while (rawQuery.next()) {
-        columns.append(rawQuery.value(1).toString());
+        const QString column = rawQuery.value(1).toString();
+        columns.append(column);
+        primaryKeyOrder.insert(column, rawQuery.value(5).toInt());
     }
     QVERIFY(columns.contains(QStringLiteral("locator_json")));
     QVERIFY(columns.contains(QStringLiteral("target_app")));
@@ -1122,6 +1309,13 @@ void SqliteRepositoryTest::upgradesVersionSevenDatabaseWithLegacyAnchors()
     QVERIFY(!columns.contains(QStringLiteral("target")));
     QVERIFY(!columns.contains(QStringLiteral("line")));
     QVERIFY(!columns.contains(QStringLiteral("page")));
+    QCOMPARE(primaryKeyOrder.value(QStringLiteral("resource_id")), 1);
+    QCOMPARE(primaryKeyOrder.value(QStringLiteral("id")), 2);
+    QVERIFY(rawQuery.exec(QStringLiteral("PRAGMA table_info(anchor_fts)")));
+    QStringList anchorFtsColumns;
+    while (rawQuery.next()) anchorFtsColumns.append(rawQuery.value(1).toString());
+    QVERIFY(anchorFtsColumns.contains(QStringLiteral("anchor_id")));
+    QVERIFY(!anchorFtsColumns.contains(QStringLiteral("anchor_order")));
     QVERIFY(rawQuery.exec(QStringLiteral("PRAGMA table_info(resources)")));
     QStringList resourceColumns;
     while (rawQuery.next()) {
@@ -1140,10 +1334,19 @@ void SqliteRepositoryTest::upgradesVersionSevenDatabaseWithLegacyAnchors()
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 11")));
     QVERIFY(rawQuery.next());
     QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 12")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 13")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
+    QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM schema_migrations WHERE version = 14")));
+    QVERIFY(rawQuery.next());
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
     QVERIFY(rawQuery.exec(QStringLiteral("SELECT COUNT(*) FROM sqlite_master "
                                          "WHERE type = 'table' AND name IN ('library_roots', 'resource_relations')")));
     QVERIFY(rawQuery.next());
-    QCOMPARE(rawQuery.value(0).toInt(), 0);
+    QCOMPARE(rawQuery.value(0).toInt(), 1);
     rawQuery = QSqlQuery();
     rawDatabase.close();
     rawDatabase = QSqlDatabase();

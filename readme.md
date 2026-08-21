@@ -53,9 +53,9 @@ Non-mainline for v1:
 - Expanding web, feed, browser-history, bookmark, archive, or generic reader
   surfaces as product headline features.
 
-Directory crawling, library-root management, and relationship-graph storage
-have been removed from the runtime. New work should not reintroduce those
-surfaces unless they directly support the anchor launcher loop.
+Pinloom does not crawl the whole disk or eagerly index every file under a root.
+Registered roots provide an explicit browsing boundary for user-authored file
+metadata; relationship-graph storage remains outside the runtime.
 
 ## Priority Executors
 
@@ -73,7 +73,7 @@ surfaces unless they directly support the anchor launcher loop.
      `sumatrapdf-tool.exe` beside `SumatraPDF.exe` to render a page directly.
      Rectangle anchors are cropped to their marked content with a small context
      margin; Preview does not open or screenshot the reader window.
-   - `k n` hides the Command Window and opens a transparent capture layer over
+   - `anchor;new` hides the Command Window and opens a transparent capture layer over
      SumatraPDF. Drag a rectangle inside one PDF page; right-click or press
      `Esc` to cancel. Pinloom stores the two DDE page coordinates directly.
    - Example locator:
@@ -130,14 +130,14 @@ The mismatch is intentional technical debt for the reset:
   its resource container in the current persistence contract.
 - Search still indexes resource content and broad source metadata.
 - Foreground SumatraPDF file capture is now wired into the Command Window:
-  focus an open PDF in SumatraPDF 3.7, press `Shift+Space`, type `k n`, drag a
+  focus an open PDF in SumatraPDF 3.7, press `Shift+Space`, type `anchor;new`, drag a
   same-page rectangle, name the anchor, and save. Pinloom obtains the full PDF
   path and the rectangle's page coordinates through DDE, so the user does not
   need to search or re-import the PDF first.
 - Pinloom Clip is now wired into `pinloom_app.exe` as a resident text
   clipboard MVP with SQLite persistence, tray menu, unified `Shift+Space`
   launcher access through ordinary Command Window search plus explicit
-  `clip;search` search/insert and `clip;new` save commands, automatic system clipboard text
+  `clip;search` search/insert and `clip;new` save commands, opt-in system clipboard text
   capture, temporary history insertion, row timestamps, and explicit Save Clip
   metadata. An optional Obsidian Vault can hold Saved Clips as one Markdown
   note per Clip; Markdown becomes the content source while SQLite remains the
@@ -146,12 +146,11 @@ The mismatch is intentional technical debt for the reset:
   source URI are persisted independently. The `wb` tag selects the explicit
   Open URL action when metadata is saved; execution no longer infers behavior
   from tags at read time.
-- Pinloom Inbox is implemented as a local file object capture MVP. It is
-  Link-only by default: Pinloom records the original file path and does not
-  move or copy user files. Dropping a file on the Command Window or using
-  `i n` from a recent Explorer selection saves a searchable Inbox file with
-  name, alias, tag, pinned, and default-app launch behavior. Re-saving the
-  same path updates the existing Inbox entry instead of creating duplicates.
+- Pinloom Inbox accepts local files and folders. A file can remain at its
+  original path or be copied into Pinloom-managed storage; a folder can be
+  tagged as one item or registered as a browsable root. Each item supports
+  name, aliases, tags, pinned state, search, and default-app launch. Re-saving
+  the same stored path updates the existing item instead of creating a duplicate.
 - The Command Window is the default global `Shift+Space` entry. It restores a
   compact command/search window and focuses one input.
 
@@ -169,6 +168,12 @@ E:\QT6\Tools\CMake_64\bin\cmake.exe -S . -B build -G Ninja -DCMAKE_PREFIX_PATH=E
 E:\QT6\Tools\CMake_64\bin\cmake.exe --build build
 E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 ```
+
+The application version is defined by `project(VERSION ...)` in
+`CMakeLists.txt`. It is shown in the Command Window and diagnostics and is also
+written to release package metadata. Windows release packaging uses fixed
+names (`Pinloom`, `Pinloom.zip`, and `Pinloom-Setup-x64.exe`) so shortcuts can
+continue to target `Pinloom\pinloom_app.exe` after an update.
 
 ## Run
 
@@ -252,9 +257,9 @@ moving the SQLite row to Trash. Restoring writes `saved`. Permanent removal
 keeps the Markdown file, marks it `forgotten`, and removes only Pinloom's local
 index row, so a later vault scan cannot recreate the Clip.
 
-Type `k` or an ordered abbreviation of `anchor` to see anchor commands. Use
-`anchor;library` (or `k l`) to open the Anchor Library, which lists every file
-with at least one anchor, including archived records in Trash. Search can be
+Type `anchor` or an ordered abbreviation such as `an` to see anchor commands. Use
+`anchor;library` to open the Anchor Library, which lists every file
+with an anchor or user-authored file metadata, including archived records in Trash. Search can be
 combined with scope, tag, resource type, target application, directory, time,
 and usage filters. Saved views preserve those filters. File and anchor tables
 support multi-selection, usage columns, and ordered multi-column sorting; hold
@@ -293,15 +298,23 @@ Moving records to Trash never deletes the source file. Permanent deletion cannot
 be undone and creates an automatic SQLite safety backup when the application
 uses its normal repository. Manual archive controls are not exposed. The active
 Anchor database is `pinloom.sqlite3` and the Clip database is
-`pinloom_clip.sqlite3` under Pinloom's application data directory. Automatic
-backups are retained under `backups/anchor-library` and
-`backups/clip-library`. Settings can stage a different data directory; Pinloom
+`pinloom_clip.sqlite3` under Pinloom's application data directory. Startup
+performs SQLite integrity checks and retains paired database snapshots under
+`backups/application-data`; each finalized snapshot contains a manifest and
+both databases when Clip is available. Destructive Anchor Library operations
+also keep operation-specific safety backups under `backups/anchor-library`.
+Settings can stage a different data directory; Pinloom
 copies the complete directory and activates it before opening either database
 on the next start. The previous directory is retained, nested paths are
-rejected, and a non-empty destination is never overwritten.
+rejected, and a non-empty destination is never overwritten. The data directory
+is local application state, not a synchronization protocol: two running
+computers must not open copies managed by a live file-sync service. For
+multi-computer Saved Clips, synchronize the configured Obsidian Markdown vault
+and let each computer keep its own local SQLite index. Anchor replication is
+not implemented.
 
 The recommended SumatraPDF flow is: open or
-focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor;new` or `k n`,
+focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor;new`,
 drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. The dialog shows the full PDF path, page, rectangle,
@@ -310,12 +323,23 @@ scroll position and briefly highlights the target rectangle. SumatraPDF 3.7 or
 newer is required for the `GetFileState()` and `GetMousePos()` DDE requests used
 by this workflow.
 
-Type `i` to see Inbox commands. Drop a local file on the Command Window, then
-press Enter on `i n` to save it as a Link-mode Inbox file; if no file is
-pending, `i n` tries the file selection from the Explorer window that was in
-front before `Shift+Space` opened Pinloom. Type `i s <query>` to open the main
-Pinloom search for archived Inbox files. Inbox is not a file manager and does
-not parse file contents, sync files, or move/copy files in this MVP.
+Type `i` to see Inbox commands. Dropping a local file or folder on the Command
+Window immediately opens its metadata dialog. For a file, choose whether it
+stays at its original path or is copied into Pinloom-managed storage. For a
+folder, choose whether to tag only that folder or register it as a root. `i n`
+uses a pending item or the selection from the Explorer window that was in front
+before `Shift+Space` opened Pinloom. Type `i s <query>` to search Inbox items.
+Dropping plain text opens the Saved Clip metadata dialog instead.
+
+Use `root;library` (or `r;l`) to open Root Library. It lists all registered
+roots and lazily browses their files and folders without eager recursive
+indexing; selecting an item allows its name, aliases, and file tags to be saved.
+Choose the default root directory in Pinloom Settings; no drive letter is
+assumed. On profiles without an explicit setting, an application data directory
+named `_PinloomData` causes its parent directory to be inferred once as the
+default root. `_PinloomData` and everything below it are excluded from Root
+Library browsing. Changing the default keeps the previous directory as an
+ordinary root, while the current default root cannot be removed.
 
 Clip rows show when each item was captured. The resident Clip command view
 shows temporary history alongside Saved Clips; once a temporary item is saved,

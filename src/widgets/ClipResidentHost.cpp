@@ -179,7 +179,12 @@ ClipResidentHostResult ClipResidentRuntimeFactory::createHost(
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to open clip SQLite database")));
         }
-        if (options.initializeSqlite && !repository->initialize()) {
+        if (!repository->integrityCheck()) {
+            return failedHostResult(
+                normalizedError(repository->lastError(), QStringLiteral("Clip SQLite integrity check failed")));
+        }
+        if (options.initializeSqlite
+            && (!repository->initialize() || !repository->integrityCheck())) {
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to initialize clip SQLite database")));
         }
@@ -247,7 +252,12 @@ ClipResidentHostResult ClipResidentRuntimeFactory::createDefaultPlatformHost(
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to open clip SQLite database")));
         }
-        if (options.initializeSqlite && !repository->initialize()) {
+        if (!repository->integrityCheck()) {
+            return failedHostResult(
+                normalizedError(repository->lastError(), QStringLiteral("Clip SQLite integrity check failed")));
+        }
+        if (options.initializeSqlite
+            && (!repository->initialize() || !repository->integrityCheck())) {
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to initialize clip SQLite database")));
         }

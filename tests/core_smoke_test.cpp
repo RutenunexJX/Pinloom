@@ -2,25 +2,31 @@
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/AnchorTarget.h"
+#include "pinloom/core/ApplicationDataBackup.h"
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/ExcelCommand.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/Schema.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
+#include "pinloom/core/Version.h"
 
 #include <QByteArray>
 #include <QDateTime>
+#include <QDir>
 #include <QFile>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimeZone>
 #include <optional>
 
 using namespace Pinloom;
@@ -29,8 +35,11 @@ class CoreSmokeTest : public QObject {
     Q_OBJECT
 
 private slots:
+    void exposesApplicationVersion();
     void searchesAliasesAndTags();
     void persistsAndSearchesAnchorLocatorFields();
+    void resolvesCanonicalAnchorTargetsAndDetectsConflicts();
+    void createsPairedApplicationDataBackupsAtomically();
     void buildsSumatraPdfRectCommand();
     void buildsSumatraPdfViewRectCommand();
     void buildsSumatraPdfTextCommand();
@@ -58,6 +67,8 @@ private slots:
     void ranksAnchorLocatorMatchesByNameAliasTagAndMetadata();
     void validatesInboxFileRequests();
     void savesInboxFilesByStablePathAndSearchesMetadata();
+    void configuresDefaultLibraryRootWithoutFixedDrive();
+    void archivesInboxFilesAndRegistersLibraryRoots();
     void softDeletesAndRestoresAnchorsInSearch();
     void managesAnchorLibraryMetadataTagsPathsAndDuplicates();
     void managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink();
@@ -74,6 +85,12 @@ private slots:
     void searchesExtractedContent();
     void exposesSqliteFts5SchemaDraft();
 };
+
+void CoreSmokeTest::exposesApplicationVersion()
+{
+    QVERIFY(!pinloomVersion().trimmed().isEmpty());
+    QCOMPARE(pinloomVersionLabel(), QStringLiteral("v%1").arg(pinloomVersion()));
+}
 
 static Anchor testAnchor(const QString &name,
                          const QString &locatorType = QStringLiteral("manual"),
@@ -114,6 +131,82 @@ void CoreSmokeTest::searchesAliasesAndTags()
     taggedQuery.requiredTags = {QStringLiteral("fpga")};
     const QList<SearchResult> tagResults = repository.search(taggedQuery);
     QCOMPARE(tagResults.size(), 1);
+}
+
+void CoreSmokeTest::resolvesCanonicalAnchorTargetsAndDetectsConflicts()
+{
+    Anchor anchor;
+    const ResolvedAnchorTarget resourceTarget =
+        resolveAnchorTarget(anchor, {}, QStringLiteral("E:/docs/spec.pdf"));
+    QCOMPARE(resourceTarget.value, QStringLiteral("E:/docs/spec.pdf"));
+    QVERIFY(resourceTarget.source == AnchorTargetSource::Resource);
+    QVERIFY(!resourceTarget.isOverride());
+
+    anchor.targetUri = QStringLiteral("file:///E:/docs/override.pdf");
+    const ResolvedAnchorTarget uriTarget =
+        resolveAnchorTarget(anchor, {}, QStringLiteral("E:/docs/spec.pdf"));
+    QCOMPARE(QDir::fromNativeSeparators(uriTarget.value), QStringLiteral("E:/docs/override.pdf"));
+    QVERIFY(uriTarget.source == AnchorTargetSource::AnchorUri);
+    QVERIFY(uriTarget.isOverride());
+
+    anchor.targetFile = QStringLiteral("E:/docs/different.pdf");
+    const ResolvedAnchorTarget conflict =
+        resolveAnchorTarget(anchor, {}, QStringLiteral("E:/docs/spec.pdf"));
+    QVERIFY(conflict.conflictingExplicitTargets);
+    QCOMPARE(conflict.value, anchor.targetFile);
+}
+
+void CoreSmokeTest::createsPairedApplicationDataBackupsAtomically()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString root = QDir(dir.path()).filePath(QStringLiteral("backups"));
+    const auto writer = [](const QByteArray &contents) {
+        return [contents](const QString &destination) {
+            QFile file(destination);
+            return file.open(QIODevice::WriteOnly)
+                && file.write(contents) == contents.size();
+        };
+    };
+    const QList<ApplicationDataBackupItem> items = {
+        {QStringLiteral("pinloom.sqlite3"), writer("anchor"), {}},
+        {QStringLiteral("pinloom_clip.sqlite3"), writer("clip"), {}}
+    };
+
+    for (int day = 1; day <= 3; ++day) {
+        const ApplicationDataBackupResult backup = createAutomaticApplicationDataBackup(
+            root,
+            items,
+            2,
+            QDateTime(QDate(2026, 1, day), QTime(12, 0), QTimeZone::UTC));
+        QVERIFY2(backup.success, qPrintable(backup.error));
+        QVERIFY(QFileInfo::exists(QDir(backup.directoryPath).filePath(QStringLiteral("pinloom.sqlite3"))));
+        QVERIFY(QFileInfo::exists(QDir(backup.directoryPath).filePath(QStringLiteral("pinloom_clip.sqlite3"))));
+        QVERIFY(QFileInfo::exists(QDir(backup.directoryPath).filePath(QStringLiteral("manifest.txt"))));
+    }
+    QCOMPARE(QDir(root).entryList({QStringLiteral("snapshot-*")}, QDir::Dirs | QDir::NoDotAndDotDot).size(), 2);
+
+    const QList<ApplicationDataBackupItem> failingItems = {
+        {QStringLiteral("pinloom.sqlite3"), writer("anchor"), {}},
+        {QStringLiteral("pinloom_clip.sqlite3"), [](const QString &) { return false; },
+         []() { return QStringLiteral("forced backup failure"); }}
+    };
+    const ApplicationDataBackupResult failed = createAutomaticApplicationDataBackup(
+        root,
+        failingItems,
+        2,
+        QDateTime(QDate(2026, 1, 4), QTime(12, 0), QTimeZone::UTC));
+    QVERIFY(!failed.success);
+    QCOMPARE(failed.error, QStringLiteral("forced backup failure"));
+    QCOMPARE(QDir(root).entryList({QStringLiteral("snapshot-*")}, QDir::Dirs | QDir::NoDotAndDotDot).size(), 2);
+    QVERIFY(QDir(root).entryList({QStringLiteral(".*-partial-*")}, QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot).isEmpty());
+
+    const ApplicationDataBackupResult reservedName = createAutomaticApplicationDataBackup(
+        root,
+        {{QStringLiteral("manifest.txt"), writer("collision"), {}}},
+        2,
+        QDateTime(QDate(2026, 1, 5), QTime(12, 0), QTimeZone::UTC));
+    QVERIFY(!reservedName.success);
 }
 
 void CoreSmokeTest::persistsAndSearchesAnchorLocatorFields()
@@ -1016,16 +1109,34 @@ void CoreSmokeTest::validatesInboxFileRequests()
     InboxFileSaveRequest emptyPath;
     QCOMPARE(inboxFileSaveRequestError(emptyPath), QStringLiteral("Inbox file path is required"));
 
-    InboxFileSaveRequest copyRequest;
-    copyRequest.filePath = QStringLiteral("E:/docs/spec.pdf");
-    copyRequest.mode = InboxFileArchiveMode::Copy;
-    QCOMPARE(inboxFileSaveRequestError(copyRequest), QStringLiteral("Inbox MVP supports Link mode only"));
-
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
+    const QString filePath = dir.filePath(QStringLiteral("spec.pdf"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("pdf") > 0);
+    file.close();
+
+    InboxFileSaveRequest copyRequest;
+    copyRequest.filePath = filePath;
+    copyRequest.mode = InboxFileArchiveMode::Copy;
+    QCOMPARE(inboxFileSaveRequestError(copyRequest),
+             QStringLiteral("A managed Pinloom library directory is required"));
+    copyRequest.managedLibraryDirectory = dir.filePath(QStringLiteral("managed"));
+    QVERIFY(inboxFileSaveRequestError(copyRequest).isEmpty());
+
     InboxFileSaveRequest folderRequest;
     folderRequest.filePath = dir.path();
-    QCOMPARE(inboxFileSaveRequestError(folderRequest), QStringLiteral("Inbox captures files only"));
+    QVERIFY(inboxFileSaveRequestError(folderRequest).isEmpty());
+    folderRequest.mode = InboxFileArchiveMode::Copy;
+    QCOMPARE(inboxFileSaveRequestError(folderRequest),
+             QStringLiteral("Folders can only remain in their original location"));
+
+    InboxFileSaveRequest fileRootRequest;
+    fileRootRequest.filePath = filePath;
+    fileRootRequest.registerAsLibraryRoot = true;
+    QCOMPARE(inboxFileSaveRequestError(fileRootRequest),
+             QStringLiteral("Only a folder can be registered as a library root"));
 }
 
 void CoreSmokeTest::savesInboxFilesByStablePathAndSearchesMetadata()
@@ -1100,6 +1211,138 @@ void CoreSmokeTest::savesInboxFilesByStablePathAndSearchesMetadata()
     QCOMPARE(matchingPathCount, 1);
 }
 
+void CoreSmokeTest::archivesInboxFilesAndRegistersLibraryRoots()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString rootPath = dir.filePath(QStringLiteral("PinloomRoot"));
+    const QString dataPath = QDir(rootPath).filePath(QStringLiteral("_PinloomData"));
+    const QString documentsPath = QDir(rootPath).filePath(QStringLiteral("Documents"));
+    QVERIFY(QDir().mkpath(dataPath));
+    QVERIFY(QDir().mkpath(documentsPath));
+
+    const QString sourcePath = QDir(documentsPath).filePath(QStringLiteral("board.pdf"));
+    QFile source(sourcePath);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    QCOMPARE(source.write("board-pdf"), qint64(9));
+    source.close();
+
+    QCOMPARE(defaultPinloomSyncRootPath(dataPath), normalizedLibraryRootPath(rootPath));
+    LibraryRoot syncRoot = makeLibraryRootForPath(rootPath, true);
+    QVERIFY(syncRoot.syncRoot);
+    QVERIFY(syncRoot.ignoredDirectoryNames.contains(QStringLiteral("_PinloomData")));
+    QVERIFY(libraryRootContainsPath(syncRoot, sourcePath));
+    QVERIFY(libraryRootIgnoresPath(syncRoot,
+                                   QDir(dataPath).filePath(QStringLiteral("pinloom.sqlite3"))));
+    QVERIFY(!libraryRootIgnoresPath(syncRoot, sourcePath));
+
+    InMemoryLibraryRepository repository;
+    QVERIFY(repository.upsertLibraryRoot(syncRoot));
+
+    InboxFileSaveRequest rootRequest;
+    rootRequest.filePath = rootPath;
+    rootRequest.name = QStringLiteral("Synchronized material");
+    rootRequest.tags = {QStringLiteral("#source")};
+    rootRequest.registerAsLibraryRoot = true;
+    rootRequest.ignoredDirectoryNames = {QStringLiteral("Cache")};
+    const InboxFileSaveResult rootResult = saveInboxFile(repository, rootRequest);
+    QVERIFY2(rootResult.success(), qPrintable(rootResult.status));
+    const std::optional<Resource> rootResource = repository.findResource(rootResult.resourceId);
+    QVERIFY(rootResource.has_value());
+    QCOMPARE(rootResource->kind, ResourceKind::Folder);
+    QCOMPARE(rootResource->tags, QStringList{QStringLiteral("source")});
+
+    const QList<LibraryRoot> roots = repository.libraryRoots();
+    QCOMPARE(roots.size(), 1);
+    QCOMPARE(roots.first().id, libraryRootIdForPath(rootPath));
+    QCOMPARE(roots.first().displayName, QStringLiteral("Synchronized material"));
+    QVERIFY(roots.first().syncRoot);
+    QVERIFY(roots.first().ignoredDirectoryNames.contains(QStringLiteral("_PinloomData")));
+    QVERIFY(roots.first().ignoredDirectoryNames.contains(QStringLiteral("Cache")));
+    QVERIFY(!repository.removeLibraryRoot(roots.first().id));
+
+    InboxFileSaveRequest copyRequest;
+    copyRequest.filePath = sourcePath;
+    copyRequest.name = QStringLiteral("Managed board PDF");
+    copyRequest.tags = {QStringLiteral("managed")};
+    copyRequest.mode = InboxFileArchiveMode::Copy;
+    copyRequest.managedLibraryDirectory = QDir(dataPath).filePath(QStringLiteral("managed-library"));
+    const InboxFileSaveResult copyResult = saveInboxFile(repository, copyRequest);
+    QVERIFY2(copyResult.success(), qPrintable(copyResult.status));
+    QVERIFY(QFileInfo::exists(sourcePath));
+    QVERIFY(QFileInfo::exists(copyResult.filePath));
+    QVERIFY(copyResult.filePath != normalizedInboxFilePath(sourcePath));
+    QCOMPARE(copyResult.filePath,
+             managedInboxFilePath(sourcePath, copyRequest.managedLibraryDirectory));
+    const std::optional<Resource> copiedResource = repository.findResource(copyResult.resourceId);
+    QVERIFY(copiedResource.has_value());
+    QCOMPARE(copiedResource->kind, ResourceKind::Pdf);
+    QCOMPARE(copiedResource->location, copyResult.filePath);
+    QCOMPARE(copiedResource->tags, QStringList{QStringLiteral("managed")});
+}
+
+void CoreSmokeTest::configuresDefaultLibraryRootWithoutFixedDrive()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+
+    const QString ordinaryDataPath = dir.filePath(QStringLiteral("PinloomData"));
+    QVERIFY(QDir().mkpath(ordinaryDataPath));
+    QVERIFY(defaultPinloomSyncRootPath(ordinaryDataPath).isEmpty());
+
+    const QString inferredRootPath = dir.filePath(QStringLiteral("PortableRoot"));
+    const QString inferredDataPath =
+        QDir(inferredRootPath).filePath(QStringLiteral("_PinloomData"));
+    QVERIFY(QDir().mkpath(inferredDataPath));
+    QCOMPARE(defaultPinloomSyncRootPath(inferredDataPath),
+             normalizedLibraryRootPath(inferredRootPath));
+
+    const QString previousRootPath = dir.filePath(QStringLiteral("PreviousRoot"));
+    const QString selectedRootPath = dir.filePath(QStringLiteral("SelectedRoot"));
+    QVERIFY(QDir().mkpath(previousRootPath));
+    QVERIFY(QDir().mkpath(selectedRootPath));
+
+    InMemoryLibraryRepository repository;
+    LibraryRoot previousRoot = makeLibraryRootForPath(previousRootPath, true);
+    previousRoot.displayName = QStringLiteral("Previous default");
+    QVERIFY(repository.upsertLibraryRoot(previousRoot));
+
+    LibraryRoot selectedRoot = makeLibraryRootForPath(selectedRootPath);
+    selectedRoot.displayName = QStringLiteral("Cloud library");
+    selectedRoot.ignoredDirectoryNames = {QStringLiteral("Cache")};
+    QVERIFY(repository.upsertLibraryRoot(selectedRoot));
+
+    QString error;
+    QVERIFY2(configureDefaultLibraryRoot(repository, selectedRootPath, &error),
+             qPrintable(error));
+    const std::optional<LibraryRoot> configured =
+        repository.findLibraryRoot(libraryRootIdForPath(selectedRootPath));
+    QVERIFY(configured.has_value());
+    QVERIFY(configured->syncRoot);
+    QVERIFY(configured->enabled);
+    QCOMPARE(configured->displayName, QStringLiteral("Cloud library"));
+    QVERIFY(configured->ignoredDirectoryNames.contains(QStringLiteral("Cache")));
+    QVERIFY(configured->ignoredDirectoryNames.contains(QStringLiteral("_PinloomData")));
+
+    const std::optional<LibraryRoot> demoted =
+        repository.findLibraryRoot(libraryRootIdForPath(previousRootPath));
+    QVERIFY(demoted.has_value());
+    QVERIFY(!demoted->syncRoot);
+    QVERIFY(repository.removeLibraryRoot(demoted->id));
+
+    QVERIFY2(configureDefaultLibraryRoot(repository, {}, &error), qPrintable(error));
+    const std::optional<LibraryRoot> cleared =
+        repository.findLibraryRoot(libraryRootIdForPath(selectedRootPath));
+    QVERIFY(cleared.has_value());
+    QVERIFY(!cleared->syncRoot);
+
+    const QString missingRootPath = dir.filePath(QStringLiteral("MissingRoot"));
+    QVERIFY(!configureDefaultLibraryRoot(repository, missingRootPath, &error));
+    QVERIFY(error.contains(QStringLiteral("does not exist")));
+    QCOMPARE(repository.libraryRoots().size(), 1);
+    QVERIFY(!repository.libraryRoots().first().syncRoot);
+}
+
 void CoreSmokeTest::softDeletesAndRestoresAnchorsInSearch()
 {
     InMemoryLibraryRepository repository;
@@ -1133,6 +1376,13 @@ void CoreSmokeTest::softDeletesAndRestoresAnchorsInSearch()
     QCOMPARE(deletedResults.size(), 1);
     QVERIFY(deletedResults.first().matchedAnchor.has_value());
     QVERIFY(deletedResults.first().matchedAnchor->deleted);
+
+    SearchQuery deletedOnlyQuery{QStringLiteral("clock alias")};
+    deletedOnlyQuery.deletedOnly = true;
+    const QList<SearchResult> deletedOnlyResults = repository.search(deletedOnlyQuery);
+    QCOMPARE(deletedOnlyResults.size(), 1);
+    QVERIFY(deletedOnlyResults.first().matchedAnchor.has_value());
+    QVERIFY(deletedOnlyResults.first().matchedAnchor->deleted);
 
     QVERIFY(repository.restoreAnchor(resource.id, anchor));
     QCOMPARE(repository.search(SearchQuery{QStringLiteral("Clock anchor")}).size(), 1);

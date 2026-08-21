@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/Resource.h"
 #include "pinloom/core/ResourceUsage.h"
 #include "pinloom/core/Search.h"
@@ -51,6 +52,11 @@ public:
     virtual bool restoreAnchor(const QString &resourceId, const Anchor &anchor) = 0;
     virtual bool clearResources() = 0;
     virtual bool applyBatch(const LibraryBatchMutation &mutation) = 0;
+
+    virtual bool upsertLibraryRoot(const LibraryRoot &root) = 0;
+    virtual QList<LibraryRoot> libraryRoots() const = 0;
+    virtual std::optional<LibraryRoot> findLibraryRoot(const QString &id) const = 0;
+    virtual bool removeLibraryRoot(const QString &id) = 0;
 
     virtual bool recordResourceOpen(const QString &resourceId) = 0;
     virtual bool setResourcePinned(const QString &resourceId, bool pinned) = 0;

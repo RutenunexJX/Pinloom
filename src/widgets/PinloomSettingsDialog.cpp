@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
 #include "pinloom/clip/ObsidianClipStore.h"
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 
@@ -94,12 +95,31 @@ QString obsidianStatusText(const QString &vaultPath, const QString &archiveDirec
               .arg(QDir::toNativeSeparators(vault.absoluteFilePath()));
 }
 
-QString clipPrivacyStatusText(bool sensitiveFilter,
+QString defaultLibraryRootStatusText(const QString &path)
+{
+    const QString normalized = normalizedLibraryRootPath(path);
+    if (normalized.isEmpty()) {
+        return QStringLiteral("Not configured. Register ordinary roots from Root Library as needed.");
+    }
+
+    const QFileInfo directory(normalized);
+    if (!directory.exists() || !directory.isDir()) {
+        return QStringLiteral("Directory not found: %1")
+            .arg(QDir::toNativeSeparators(normalized));
+    }
+
+    return QStringLiteral("Ready: %1. _PinloomData is excluded from browsing.")
+        .arg(QDir::toNativeSeparators(normalized));
+}
+
+QString clipPrivacyStatusText(bool automaticCapture,
+                              bool sensitiveFilter,
                               const QStringList &excludedApps,
                               const QStringList &customMarkers)
 {
-    return QStringLiteral("Sensitive-pattern filter: %1; excluded apps: %2; custom markers: %3")
-        .arg(sensitiveFilter ? QStringLiteral("on") : QStringLiteral("off"),
+    return QStringLiteral("Automatic clipboard history: %1; sensitive-pattern filter: %2; excluded apps: %3; custom markers: %4")
+        .arg(automaticCapture ? QStringLiteral("on") : QStringLiteral("off"),
+             sensitiveFilter ? QStringLiteral("on") : QStringLiteral("off"),
              QString::number(cleanedValues(excludedApps).size()),
              QString::number(cleanedValues(customMarkers).size()));
 }
@@ -112,6 +132,7 @@ ClipCapturePolicy PinloomAppSettings::clipCapturePolicy() const
     policy.maxTemporaryClips = clipMaxTemporaryClips;
     policy.maxTextBytes = clipMaxTextBytes;
     policy.temporaryTtlSeconds = clipTemporaryTtlSeconds;
+    policy.capturePaused = !clipAutomaticCaptureEnabled;
     policy.excludeSensitiveText = clipExcludeSensitiveText;
     policy.excludedSourceApps = cleanedValues(clipExcludedSourceApps);
     policy.sensitiveTextMarkers = cleanedValues(clipSensitiveTextMarkers);
@@ -122,6 +143,7 @@ PinloomAppSettings pinloomDefaultAppSettings(const QString &dataDirectory)
 {
     PinloomAppSettings settings;
     settings.dataDirectory = dataDirectory.trimmed();
+    settings.defaultLibraryRootPath = defaultPinloomSyncRootPath(dataDirectory);
     settings.clipExcludedSourceApps = {
         QStringLiteral("1Password.exe"),
         QStringLiteral("Bitwarden.exe"),
@@ -142,12 +164,18 @@ PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &da
         settings.value(QStringLiteral("obsidian/archiveDirectory"), loaded.obsidianArchiveDirectory)
             .toString()
             .trimmed();
+    loaded.defaultLibraryRootPath = normalizedLibraryRootPath(
+        settings.value(QStringLiteral("library/defaultRootPath"),
+                       loaded.defaultLibraryRootPath).toString());
     loaded.clipMaxTemporaryClips =
         settingsInt(settings, QStringLiteral("clip/maxTemporaryClips"), loaded.clipMaxTemporaryClips);
     loaded.clipMaxTextBytes =
         settingsInt(settings, QStringLiteral("clip/maxTextBytes"), loaded.clipMaxTextBytes);
     loaded.clipTemporaryTtlSeconds =
         settingsInt(settings, QStringLiteral("clip/temporaryTtlSeconds"), loaded.clipTemporaryTtlSeconds);
+    loaded.clipAutomaticCaptureEnabled =
+        settings.value(QStringLiteral("clip/automaticCaptureEnabled"),
+                       loaded.clipAutomaticCaptureEnabled).toBool();
     loaded.clipExcludeSensitiveText =
         settings.value(QStringLiteral("clip/excludeSensitiveText"), loaded.clipExcludeSensitiveText).toBool();
     loaded.clipRestoreOriginalClipboardOnInsert =
@@ -168,9 +196,13 @@ void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSe
     settings.setValue(QStringLiteral("obsidian/vaultPath"), appSettings.obsidianVaultPath.trimmed());
     settings.setValue(QStringLiteral("obsidian/archiveDirectory"),
                       appSettings.obsidianArchiveDirectory.trimmed());
+    settings.setValue(QStringLiteral("library/defaultRootPath"),
+                      normalizedLibraryRootPath(appSettings.defaultLibraryRootPath));
     settings.setValue(QStringLiteral("clip/maxTemporaryClips"), appSettings.clipMaxTemporaryClips);
     settings.setValue(QStringLiteral("clip/maxTextBytes"), appSettings.clipMaxTextBytes);
     settings.setValue(QStringLiteral("clip/temporaryTtlSeconds"), appSettings.clipTemporaryTtlSeconds);
+    settings.setValue(QStringLiteral("clip/automaticCaptureEnabled"),
+                      appSettings.clipAutomaticCaptureEnabled);
     settings.setValue(QStringLiteral("clip/excludeSensitiveText"), appSettings.clipExcludeSensitiveText);
     settings.setValue(QStringLiteral("clip/restoreOriginalClipboardOnInsert"),
                       appSettings.clipRestoreOriginalClipboardOnInsert);
@@ -230,10 +262,31 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     dataDirectoryLayout->addWidget(dataDirectoryEdit_, 1);
     dataDirectoryLayout->addWidget(browseDataDirectoryButton);
     dataDirectoryStatusLabel_ = new QLabel(
-        tr("A changed directory is copied and activated on the next Pinloom start; the old copy is retained."),
+        tr("A changed directory is copied and activated on the next Pinloom start; the old copy is retained. "
+           "This is a local database directory. Do not let multiple computers open a live-synchronized copy."),
         this);
     dataDirectoryStatusLabel_->setObjectName(QStringLiteral("dataDirectoryStatusLabel"));
     dataDirectoryStatusLabel_->setWordWrap(true);
+
+    auto *defaultLibraryRootRow = new QWidget(this);
+    auto *defaultLibraryRootLayout = new QHBoxLayout(defaultLibraryRootRow);
+    defaultLibraryRootLayout->setContentsMargins(0, 0, 0, 0);
+    defaultLibraryRootPathEdit_ =
+        new QLineEdit(settings.defaultLibraryRootPath, defaultLibraryRootRow);
+    defaultLibraryRootPathEdit_->setObjectName(QStringLiteral("defaultLibraryRootPathEdit"));
+    defaultLibraryRootPathEdit_->setClearButtonEnabled(true);
+    defaultLibraryRootPathEdit_->setPlaceholderText(tr("No default root"));
+    auto *browseDefaultLibraryRootButton =
+        new QPushButton(tr("Browse"), defaultLibraryRootRow);
+    browseDefaultLibraryRootButton->setObjectName(
+        QStringLiteral("browseDefaultLibraryRootButton"));
+    defaultLibraryRootLayout->addWidget(defaultLibraryRootPathEdit_, 1);
+    defaultLibraryRootLayout->addWidget(browseDefaultLibraryRootButton);
+    defaultLibraryRootStatusLabel_ =
+        new QLabel(defaultLibraryRootStatusText(settings.defaultLibraryRootPath), this);
+    defaultLibraryRootStatusLabel_->setObjectName(
+        QStringLiteral("defaultLibraryRootStatusLabel"));
+    defaultLibraryRootStatusLabel_->setWordWrap(true);
 
     clipMaxTemporaryClipsSpin_ = new QSpinBox(this);
     clipMaxTemporaryClipsSpin_->setObjectName(QStringLiteral("clipMaxTemporaryClipsSpin"));
@@ -250,6 +303,11 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     clipTemporaryTtlSecondsSpin_->setRange(0, 365 * 24 * 60 * 60);
     clipTemporaryTtlSecondsSpin_->setValue(settings.clipTemporaryTtlSeconds);
 
+    clipAutomaticCaptureCheck_ = new QCheckBox(
+        tr("Automatically keep temporary clipboard history"), this);
+    clipAutomaticCaptureCheck_->setObjectName(QStringLiteral("clipAutomaticCaptureCheck"));
+    clipAutomaticCaptureCheck_->setChecked(settings.clipAutomaticCaptureEnabled);
+
     clipExcludeSensitiveTextCheck_ = new QCheckBox(tr("Filter common secret patterns"), this);
     clipExcludeSensitiveTextCheck_->setObjectName(QStringLiteral("clipExcludeSensitiveTextCheck"));
     clipExcludeSensitiveTextCheck_->setChecked(settings.clipExcludeSensitiveText);
@@ -264,7 +322,8 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     clipSensitiveTextMarkersEdit_ = new QLineEdit(commaSeparatedText(settings.clipSensitiveTextMarkers), this);
     clipSensitiveTextMarkersEdit_->setObjectName(QStringLiteral("clipSensitiveTextMarkersEdit"));
     clipPrivacyStatusLabel_ = new QLabel(
-        clipPrivacyStatusText(settings.clipExcludeSensitiveText,
+        clipPrivacyStatusText(settings.clipAutomaticCaptureEnabled,
+                              settings.clipExcludeSensitiveText,
                               settings.clipExcludedSourceApps,
                               settings.clipSensitiveTextMarkers),
         this);
@@ -281,9 +340,12 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     form->addRow(tr("Obsidian status"), obsidianStatusLabel_);
     form->addRow(tr("Data directory"), dataDirectoryRow);
     form->addRow(tr("Data migration"), dataDirectoryStatusLabel_);
+    form->addRow(tr("Default root directory"), defaultLibraryRootRow);
+    form->addRow(tr("Default root status"), defaultLibraryRootStatusLabel_);
     form->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
     form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
     form->addRow(tr("Clip history TTL (seconds)"), clipTemporaryTtlSecondsSpin_);
+    form->addRow(QString(), clipAutomaticCaptureCheck_);
     form->addRow(QString(), clipExcludeSensitiveTextCheck_);
     form->addRow(QString(), clipRestoreOriginalClipboardCheck_);
     form->addRow(tr("Clip app blacklist"), clipExcludedSourceAppsEdit_);
@@ -324,12 +386,27 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
             dataDirectoryEdit_->setText(path.trimmed());
         }
     });
+    connect(browseDefaultLibraryRootButton, &QPushButton::clicked, this, [this]() {
+        const QString path = QFileDialog::getExistingDirectory(
+            this,
+            tr("Pinloom Default Root Directory"),
+            defaultLibraryRootPathEdit_->text());
+        if (!path.trimmed().isEmpty()) {
+            defaultLibraryRootPathEdit_->setText(path.trimmed());
+        }
+    });
+    connect(defaultLibraryRootPathEdit_, &QLineEdit::textChanged, this,
+            [this](const QString &text) {
+                defaultLibraryRootStatusLabel_->setText(defaultLibraryRootStatusText(text));
+            });
     const auto refreshClipPrivacyStatus = [this]() {
         clipPrivacyStatusLabel_->setText(
-            clipPrivacyStatusText(clipExcludeSensitiveTextCheck_->isChecked(),
+            clipPrivacyStatusText(clipAutomaticCaptureCheck_->isChecked(),
+                                  clipExcludeSensitiveTextCheck_->isChecked(),
                                   commaSeparatedValues(clipExcludedSourceAppsEdit_->text()),
                                   commaSeparatedValues(clipSensitiveTextMarkersEdit_->text())));
     };
+    connect(clipAutomaticCaptureCheck_, &QCheckBox::toggled, this, refreshClipPrivacyStatus);
     connect(clipExcludeSensitiveTextCheck_, &QCheckBox::toggled, this, refreshClipPrivacyStatus);
     connect(clipExcludedSourceAppsEdit_, &QLineEdit::textChanged, this, refreshClipPrivacyStatus);
     connect(clipSensitiveTextMarkersEdit_, &QLineEdit::textChanged, this, refreshClipPrivacyStatus);
@@ -344,9 +421,12 @@ PinloomAppSettings PinloomSettingsDialog::settings() const
     settings.obsidianVaultPath = obsidianVaultPathEdit_->text().trimmed();
     settings.obsidianArchiveDirectory = obsidianArchiveDirectoryEdit_->text().trimmed();
     settings.dataDirectory = dataDirectoryEdit_->text().trimmed();
+    settings.defaultLibraryRootPath =
+        normalizedLibraryRootPath(defaultLibraryRootPathEdit_->text());
     settings.clipMaxTemporaryClips = clipMaxTemporaryClipsSpin_->value();
     settings.clipMaxTextBytes = clipMaxTextBytesSpin_->value();
     settings.clipTemporaryTtlSeconds = clipTemporaryTtlSecondsSpin_->value();
+    settings.clipAutomaticCaptureEnabled = clipAutomaticCaptureCheck_->isChecked();
     settings.clipExcludeSensitiveText = clipExcludeSensitiveTextCheck_->isChecked();
     settings.clipRestoreOriginalClipboardOnInsert = clipRestoreOriginalClipboardCheck_->isChecked();
     settings.clipExcludedSourceApps = commaSeparatedValues(clipExcludedSourceAppsEdit_->text());

@@ -24,6 +24,7 @@ struct SearchQuery {
     QStringList contextLocationPrefixes;
     int limit = 50;
     bool includeDeleted = false;
+    bool deletedOnly = false;
 };
 
 struct SearchResult {

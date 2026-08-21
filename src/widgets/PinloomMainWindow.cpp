@@ -1,5 +1,7 @@
 #include "pinloom/widgets/PinloomMainWindow.h"
 
+#include "pinloom/core/Version.h"
+
 #include <QAction>
 #include <QApplication>
 #include <QClipboard>
@@ -51,6 +53,7 @@ QString pinloomResidentDiagnosticsText(const PinloomResidentStatus &status,
 {
     QStringList lines;
     lines.append(QStringLiteral("Pinloom diagnostics"));
+    lines.append(QStringLiteral("Version: %1").arg(pinloomVersionLabel()));
     lines.append(QStringLiteral("Status: %1").arg(status.running ? QStringLiteral("running")
                                                                  : QStringLiteral("stopped")));
     lines.append(QStringLiteral("Command hotkey: %1").arg(status.mainHotkeyRegistered

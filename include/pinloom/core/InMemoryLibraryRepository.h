@@ -18,6 +18,11 @@ public:
     bool clearResources() override;
     bool applyBatch(const LibraryBatchMutation &mutation) override;
 
+    bool upsertLibraryRoot(const LibraryRoot &root) override;
+    QList<LibraryRoot> libraryRoots() const override;
+    std::optional<LibraryRoot> findLibraryRoot(const QString &id) const override;
+    bool removeLibraryRoot(const QString &id) override;
+
     bool recordResourceOpen(const QString &resourceId) override;
     bool setResourcePinned(const QString &resourceId, bool pinned) override;
     std::optional<ResourceUsage> resourceUsage(const QString &resourceId) const override;
@@ -33,6 +38,7 @@ private:
     void notifyChange(LibraryChangeKind kind, const QStringList &resourceIds = {});
 
     QHash<QString, Resource> resources_;
+    QHash<QString, LibraryRoot> libraryRoots_;
     QHash<QString, ResourceUsage> usage_;
     QHash<QString, AnchorUsage> anchorUsage_;
     QHash<int, LibraryChangeListener> listeners_;

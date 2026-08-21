@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 11;
+    return 14;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -35,10 +35,19 @@ QStringList Schema::sqliteFts5Draft()
                        "PRIMARY KEY (resource_id, alias),"
                        "FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE"
                        ");"),
+        QStringLiteral("CREATE TABLE IF NOT EXISTS library_roots ("
+                       "id TEXT PRIMARY KEY,"
+                       "path TEXT NOT NULL UNIQUE,"
+                       "display_name TEXT NOT NULL,"
+                       "enabled INTEGER NOT NULL DEFAULT 1,"
+                       "sync_root INTEGER NOT NULL DEFAULT 0,"
+                       "ignored_directory_names TEXT,"
+                       "updated_at TEXT"
+                       ");"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS anchors ("
                        "resource_id TEXT NOT NULL,"
                        "anchor_order INTEGER NOT NULL,"
-                       "id TEXT,"
+                       "id TEXT NOT NULL,"
                        "name TEXT,"
                        "target_app TEXT,"
                        "target_file TEXT,"
@@ -52,13 +61,14 @@ QStringList Schema::sqliteFts5Draft()
                        "created_at TEXT,"
                        "updated_at TEXT,"
                        "used_at TEXT,"
-                       "PRIMARY KEY (resource_id, anchor_order),"
+                       "PRIMARY KEY (resource_id, id),"
+                       "UNIQUE (resource_id, anchor_order),"
                        "FOREIGN KEY (resource_id) REFERENCES resources(id) ON DELETE CASCADE"
                        ");"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS resource_fts "
                        "USING fts5(resource_id UNINDEXED, title, aliases, tags, location, content);"),
         QStringLiteral("CREATE VIRTUAL TABLE IF NOT EXISTS anchor_fts "
-                       "USING fts5(resource_id UNINDEXED, anchor_order UNINDEXED, locator_type, text);"),
+                       "USING fts5(resource_id UNINDEXED, anchor_id UNINDEXED, locator_type, text);"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS resource_usage ("
                        "resource_id TEXT PRIMARY KEY,"
                        "open_count INTEGER NOT NULL DEFAULT 0,"

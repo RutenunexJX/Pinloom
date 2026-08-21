@@ -999,6 +999,66 @@ QList<Clip> SqliteClipRepository::searchCandidates(const ClipCandidateQuery &can
         }
     }
 
+    if (!candidate.emptyQuery) {
+        sql += QStringLiteral(" ORDER BY ");
+        if (candidate.identityOnly && !candidate.text.isEmpty()) {
+            sql += QStringLiteral(
+                "CASE "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND i.identity_key = ?) THEN 0 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'alias' AND i.identity_key = ?) THEN 1 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) = 1) THEN 2 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'alias' AND instr(i.identity_key, ?) = 1) THEN 3 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) > 0) THEN 4 "
+                "ELSE 5 END, ");
+            for (int index = 0; index < 5; ++index) bindings.append(candidate.text);
+        } else if (candidate.tagOnly) {
+            sql += QStringLiteral(
+                "CASE "
+                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
+                "AND t.tag_key = ?) THEN 0 "
+                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
+                "AND instr(t.tag_key, ?) = 1) THEN 1 "
+                "ELSE 2 END, ");
+            bindings.append(candidate.text);
+            bindings.append(candidate.text);
+        } else if (!candidate.text.isEmpty()) {
+            sql += QStringLiteral(
+                "CASE "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND i.identity_key = ?) THEN 0 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'alias' AND i.identity_key = ?) THEN 1 "
+                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
+                "AND t.tag_key = ?) THEN 2 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) = 1) THEN 3 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'alias' AND instr(i.identity_key, ?) = 1) THEN 4 "
+                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
+                "AND instr(t.tag_key, ?) = 1) THEN 5 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) > 0) THEN 6 "
+                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
+                "AND i.identity_kind = 'alias' AND instr(i.identity_key, ?) > 0) THEN 7 "
+                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
+                "AND instr(t.tag_key, ?) > 0) THEN 8 "
+                "ELSE 9 END, ");
+            for (int index = 0; index < 9; ++index) bindings.append(candidate.text);
+        }
+        sql += QStringLiteral(
+            "c.pinned DESC, COALESCE(c.used_at, '') DESC, "
+            "COALESCE(c.updated_at, '') DESC, c.created_at DESC, c.id ASC");
+        if (candidate.limit > 0) {
+            sql += QStringLiteral(" LIMIT ?");
+            bindings.append(candidate.limit);
+        }
+    }
+
     QSqlQuery query(database_);
     query.prepare(sql);
     for (const QVariant &binding : bindings) {
@@ -1046,6 +1106,34 @@ QString SqliteClipRepository::databasePath() const
     return database_.isValid() && database_.databaseName() != QLatin1String(":memory:")
         ? QFileInfo(database_.databaseName()).absoluteFilePath()
         : QString();
+}
+
+bool SqliteClipRepository::integrityCheck()
+{
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return false;
+    }
+
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("PRAGMA quick_check"))) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    QStringList failures;
+    while (query.next()) {
+        const QString result = query.value(0).toString().trimmed();
+        if (result.compare(QStringLiteral("ok"), Qt::CaseInsensitive) != 0) {
+            failures.append(result);
+        }
+    }
+    if (!failures.isEmpty()) {
+        setLastError(QStringLiteral("SQLite integrity check failed: %1")
+                         .arg(failures.join(QStringLiteral("; "))));
+        return false;
+    }
+    lastError_.clear();
+    return true;
 }
 
 bool SqliteClipRepository::backupDatabase(const QString &destinationPath)

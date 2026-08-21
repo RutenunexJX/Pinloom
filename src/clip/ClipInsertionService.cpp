@@ -241,6 +241,14 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
     }
 
     if (!pasteInvoker_()) {
+        if (options_.restoreOriginalClipboardOnFailure
+            && !restoreClipboardIfUnchanged(originalClipboardText,
+                                            clip.text,
+                                            clipboardWriteGeneration)) {
+            return fail(ClipInsertionStatus::ClipboardRestoreFailed,
+                        clipId,
+                        QStringLiteral("Paste invocation failed and the original clipboard could not be restored"));
+        }
         return fail(ClipInsertionStatus::PasteFailed, clipId, QStringLiteral("Paste invocation failed"));
     }
 

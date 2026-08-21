@@ -6,9 +6,12 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/core/Version.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
+#include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipCaptureDialog.h"
@@ -18,6 +21,8 @@
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
+#include "pinloom/widgets/PinloomEntrySearchService.h"
+#include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
@@ -36,6 +41,8 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
+#include <QDragEnterEvent>
+#include <QDropEvent>
 #include <QFile>
 #include <QFileInfo>
 #include <QFrame>
@@ -52,6 +59,7 @@
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMetaObject>
+#include <QMimeData>
 #include <QPainter>
 #include <QPushButton>
 #include <QPlainTextEdit>
@@ -94,6 +102,8 @@ private slots:
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
     void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
     void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
+    void anchorLibraryWindowShowsMetadataOnlyInboxFiles();
+    void libraryRootWindowBrowsesTagsAndProtectsSyncRoot();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
     void dataDirectoryChangeMigratesOnNextStartup();
@@ -112,8 +122,10 @@ private slots:
     void commandPanelAnchorCaptureCommandCallsHandler();
     void commandPanelAnchorLibraryUsesOrderedSubsequenceCommands();
     void commandPanelInboxRootCommandShowsCandidates();
+    void commandPanelRootLibraryCommandCallsHandler();
     void commandPanelInboxNewCommandSavesPendingFile();
     void commandPanelInboxNewReportsMissingPendingAndExplorerSelection();
+    void commandPanelDroppedTextCallsClipSaveHandler();
     void commandPanelInboxSearchStaysInUnifiedWindow();
     void commandPanelThemesAndCompactLayout();
     void commandPanelPlainQueryShowsUnifiedMixedResults();
@@ -127,6 +139,7 @@ private slots:
     void commandPanelActionListReturnsWithEscapeOrLeft();
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void pinloomEntriesSortMixedResultsByMatchBucketAndSignals();
+    void entryServicesSearchOpenAndRecordUsageWithoutPanel();
     void commandPanelPlainQueryUsesUnifiedEntrySearchHandler();
     void entryActionProviderBuildsActionsForUnifiedTypes();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
@@ -1020,6 +1033,8 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     QCOMPARE(window.recentError(), QStringLiteral("Hotkey conflict"));
     QVERIFY(window.diagnosticsText().contains(QStringLiteral("Hotkey conflict")));
     QVERIFY(window.diagnosticsText().contains(QStringLiteral("fake error 1409")));
+    QVERIFY(window.diagnosticsText().contains(
+        QStringLiteral("Version: %1").arg(pinloomVersionLabel())));
 
     int settingsSignals = 0;
     int quitSignals = 0;
@@ -1052,8 +1067,11 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     window.hide();
 
     auto *commandEdit = commandPanel->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    auto *versionLabel = commandPanel->findChild<QLabel *>(QStringLiteral("commandVersionLabel"));
     auto *searchEdit = panel->findChild<QLineEdit *>(QStringLiteral("searchEdit"));
     QVERIFY(commandEdit);
+    QVERIFY(versionLabel);
+    QCOMPARE(versionLabel->text(), pinloomVersionLabel());
     QVERIFY(searchEdit);
     commandPanel->setCommandText(QStringLiteral("c"));
     commandEdit->clearFocus();
@@ -2204,6 +2222,143 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     window.close();
 }
 
+void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString filePath = dir.filePath(QStringLiteral("managed.txt"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("managed") > 0);
+    file.close();
+
+    InMemoryLibraryRepository repository;
+    InboxFileSaveRequest request;
+    request.filePath = filePath;
+    request.name = QStringLiteral("Managed reference");
+    request.aliases = {QStringLiteral("reference alias")};
+    request.tags = {QStringLiteral("managed")};
+    const InboxFileSaveResult saved = saveInboxFile(repository, request);
+    QVERIFY2(saved.success(), qPrintable(saved.status));
+
+    AnchorLibraryManagementService management(repository);
+    AnchorLibraryWindowOptions options;
+    options.managementService = &management;
+    options.repository = &repository;
+    options.filesProvider = [&repository]() {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const SearchResult &result : repository.search(query)) {
+            AnchorLibraryFile entry;
+            entry.resource = result.resource;
+            entry.usage = repository.resourceUsage(result.resource.id)
+                              .value_or(ResourceUsage{result.resource.id});
+            if (isInboxResourceId(result.resource.id)
+                || !result.resource.aliases.isEmpty()
+                || !result.resource.tags.isEmpty()) {
+                files.append(entry);
+            }
+        }
+        return files;
+    };
+
+    AnchorLibraryWindow window(options);
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(window.visibleAnchorCount(), 0);
+    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
+    QVERIFY(fileTable);
+    QCOMPARE(fileTable->item(0, 0)->text(), QStringLiteral("Managed reference"));
+    QCOMPARE(fileTable->item(0, 4)->text(), QStringLiteral("0"));
+    window.setFilterText(QStringLiteral("reference alias"));
+    QCOMPARE(window.visibleFileCount(), 1);
+    window.setFilterText(QStringLiteral("not-present"));
+    QCOMPARE(window.visibleFileCount(), 0);
+}
+
+void WidgetSmokeTest::libraryRootWindowBrowsesTagsAndProtectsSyncRoot()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString syncPath = dir.filePath(QStringLiteral("PinloomRoot"));
+    const QString ignoredPath = QDir(syncPath).filePath(QStringLiteral("_PinloomData"));
+    const QString visiblePath = QDir(syncPath).filePath(QStringLiteral("Reference"));
+    QVERIFY(QDir().mkpath(ignoredPath));
+    QVERIFY(QDir().mkpath(visiblePath));
+    const QString visibleFilePath = QDir(visiblePath).filePath(QStringLiteral("board.txt"));
+    QFile visibleFile(visibleFilePath);
+    QVERIFY(visibleFile.open(QIODevice::WriteOnly));
+    QVERIFY(visibleFile.write("board") > 0);
+    visibleFile.close();
+    const QString ignoredFilePath = QDir(ignoredPath).filePath(QStringLiteral("pinloom.sqlite3"));
+    QFile ignoredFile(ignoredFilePath);
+    QVERIFY(ignoredFile.open(QIODevice::WriteOnly));
+    ignoredFile.close();
+
+    InMemoryLibraryRepository repository;
+    const LibraryRoot syncRoot = makeLibraryRootForPath(syncPath, true);
+    QVERIFY(repository.upsertLibraryRoot(syncRoot));
+
+    LibraryRootWindowOptions options;
+    options.repository = &repository;
+    options.fileTagsProvider = []() {
+        return QStringList{QStringLiteral("reference"), QStringLiteral("review")};
+    };
+    LibraryRootWindow window(options);
+    window.show();
+    QCoreApplication::processEvents();
+
+    QCOMPARE(window.rootCount(), 1);
+    QCOMPARE(window.selectedPath(), normalizedLibraryRootPath(syncPath));
+    QVERIFY(!window.removeSelectedRoot(false));
+    QVERIFY(window.statusText().contains(QStringLiteral("cannot be removed")));
+
+    auto *nameEdit = window.findChild<QLineEdit *>(QStringLiteral("libraryRootNameEdit"));
+    auto *aliasesEdit = window.findChild<QLineEdit *>(QStringLiteral("libraryRootAliasesEdit"));
+    auto *tagsEdit = window.findChild<QLineEdit *>(QStringLiteral("libraryRootTagsEdit"));
+    QVERIFY(nameEdit);
+    QVERIFY(aliasesEdit);
+    QVERIFY(tagsEdit);
+    nameEdit->setText(QStringLiteral("Synchronized root"));
+    aliasesEdit->setText(QStringLiteral("sync material, nutstore"));
+    tagsEdit->setText(QStringLiteral("reference, #review"));
+    QVERIFY(window.saveSelectedMetadata());
+    const std::optional<Resource> rootResource =
+        repository.findResource(inboxResourceIdForPath(syncPath));
+    QVERIFY(rootResource.has_value());
+    QCOMPARE(rootResource->kind, ResourceKind::Folder);
+    QCOMPARE(rootResource->aliases,
+             (QStringList{QStringLiteral("sync material"), QStringLiteral("nutstore")}));
+    QCOMPARE(rootResource->tags,
+             (QStringList{QStringLiteral("reference"), QStringLiteral("review")}));
+
+    QTRY_VERIFY_WITH_TIMEOUT(window.selectPath(visibleFilePath), 2000);
+    nameEdit->setText(QStringLiteral("Board reference"));
+    aliasesEdit->setText(QStringLiteral("board source"));
+    tagsEdit->setText(QStringLiteral("reference"));
+    QVERIFY(window.saveSelectedMetadata());
+    const std::optional<Resource> fileResource =
+        repository.findResource(inboxResourceIdForPath(visibleFilePath));
+    QVERIFY(fileResource.has_value());
+    QCOMPARE(fileResource->kind, ResourceKind::File);
+    QCOMPARE(fileResource->title, QStringLiteral("Board reference"));
+    QCOMPARE(fileResource->tags, QStringList{QStringLiteral("reference")});
+    QVERIFY(!window.selectPath(ignoredFilePath));
+
+    const QString customPath = dir.filePath(QStringLiteral("CustomRoot"));
+    QVERIFY(QDir().mkpath(customPath));
+    const LibraryRoot customRoot = makeLibraryRootForPath(customPath);
+    QVERIFY(repository.upsertLibraryRoot(customRoot));
+    window.refresh();
+    QCOMPARE(window.rootCount(), 2);
+    QVERIFY(window.selectRootAt(1));
+    QVERIFY(window.removeSelectedRoot(false));
+    QCOMPARE(window.rootCount(), 1);
+    QVERIFY(!repository.findLibraryRoot(customRoot.id).has_value());
+    window.close();
+}
+
 void WidgetSmokeTest::singleInstanceGuardActivatesPrimaryFromSecondLaunch()
 {
     const QString serverName = QStringLiteral("pinloom-test-%1-%2")
@@ -2238,14 +2393,25 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
     const QString settingsPath = dir.filePath(QStringLiteral("pinloom.ini"));
+    const QString inferredRootPath = dir.filePath(QStringLiteral("PortableRoot"));
+    const QString dataDirectory =
+        QDir(inferredRootPath).filePath(QStringLiteral("_PinloomData"));
+    const QString savedRootPath = dir.filePath(QStringLiteral("SavedRoot"));
+    const QString editedRootPath = dir.filePath(QStringLiteral("EditedRoot"));
+    QVERIFY(QDir().mkpath(dataDirectory));
+    QVERIFY(QDir().mkpath(savedRootPath));
+    QVERIFY(QDir().mkpath(editedRootPath));
 
-    PinloomAppSettings saved = pinloomDefaultAppSettings(QStringLiteral("E:/PinloomData"));
+    PinloomAppSettings saved = pinloomDefaultAppSettings(dataDirectory);
+    QCOMPARE(saved.defaultLibraryRootPath, normalizedLibraryRootPath(inferredRootPath));
+    saved.defaultLibraryRootPath = normalizedLibraryRootPath(savedRootPath);
     saved.sumatraPdfExecutablePath = QStringLiteral("C:/Tools/SumatraPDF.exe");
     saved.obsidianVaultPath = QStringLiteral("E:/Notes/EngineeringVault");
     saved.obsidianArchiveDirectory = QStringLiteral("Reference/Pinloom Clips");
     saved.clipMaxTemporaryClips = 42;
     saved.clipMaxTextBytes = 4096;
     saved.clipTemporaryTtlSeconds = 3600;
+    saved.clipAutomaticCaptureEnabled = true;
     saved.clipExcludeSensitiveText = false;
     saved.clipRestoreOriginalClipboardOnInsert = false;
     saved.clipExcludedSourceApps = {QStringLiteral("secret.exe"), QStringLiteral("password-manager.exe")};
@@ -2263,9 +2429,11 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(loaded.obsidianVaultPath, saved.obsidianVaultPath);
     QCOMPARE(loaded.obsidianArchiveDirectory, saved.obsidianArchiveDirectory);
     QCOMPARE(loaded.dataDirectory, saved.dataDirectory);
+    QCOMPARE(loaded.defaultLibraryRootPath, saved.defaultLibraryRootPath);
     QCOMPARE(loaded.clipMaxTemporaryClips, 42);
     QCOMPARE(loaded.clipMaxTextBytes, 4096);
     QCOMPARE(loaded.clipTemporaryTtlSeconds, 3600);
+    QVERIFY(loaded.clipAutomaticCaptureEnabled);
     QVERIFY(!loaded.clipExcludeSensitiveText);
     QVERIFY(!loaded.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(loaded.clipExcludedSourceApps, saved.clipExcludedSourceApps);
@@ -2275,6 +2443,7 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(policy.maxTemporaryClips, 42);
     QCOMPARE(policy.maxTextBytes, static_cast<qsizetype>(4096));
     QCOMPARE(policy.temporaryTtlSeconds, static_cast<qint64>(3600));
+    QVERIFY(!policy.capturePaused);
     QVERIFY(!policy.excludeSensitiveText);
     QCOMPARE(policy.excludedSourceApps, saved.clipExcludedSourceApps);
 
@@ -2286,9 +2455,14 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     auto *obsidianStatusLabel = dialog.findChild<QLabel *>(QStringLiteral("obsidianStatusLabel"));
     auto *dataDirEdit = dialog.findChild<QLineEdit *>(QStringLiteral("dataDirectoryEdit"));
     auto *dataDirStatus = dialog.findChild<QLabel *>(QStringLiteral("dataDirectoryStatusLabel"));
+    auto *defaultRootEdit =
+        dialog.findChild<QLineEdit *>(QStringLiteral("defaultLibraryRootPathEdit"));
+    auto *defaultRootStatus =
+        dialog.findChild<QLabel *>(QStringLiteral("defaultLibraryRootStatusLabel"));
     auto *historySpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTemporaryClipsSpin"));
     auto *sizeSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipMaxTextBytesSpin"));
     auto *ttlSpin = dialog.findChild<QSpinBox *>(QStringLiteral("clipTemporaryTtlSecondsSpin"));
+    auto *automaticCaptureCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipAutomaticCaptureCheck"));
     auto *sensitiveCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipExcludeSensitiveTextCheck"));
     auto *restoreClipboardCheck = dialog.findChild<QCheckBox *>(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     auto *blacklistEdit = dialog.findChild<QLineEdit *>(QStringLiteral("clipExcludedSourceAppsEdit"));
@@ -2301,9 +2475,12 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(obsidianStatusLabel);
     QVERIFY(dataDirEdit);
     QVERIFY(dataDirStatus);
+    QVERIFY(defaultRootEdit);
+    QVERIFY(defaultRootStatus);
     QVERIFY(historySpin);
     QVERIFY(sizeSpin);
     QVERIFY(ttlSpin);
+    QVERIFY(automaticCaptureCheck);
     QVERIFY(sensitiveCheck);
     QVERIFY(restoreClipboardCheck);
     QVERIFY(blacklistEdit);
@@ -2314,11 +2491,14 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QVERIFY(privacyStatus->text().contains(QStringLiteral("excluded apps")));
     QVERIFY(!dataDirEdit->isReadOnly());
     QVERIFY(dataDirStatus->text().contains(QStringLiteral("next Pinloom start")));
+    QVERIFY(defaultRootStatus->text().contains(QStringLiteral("Ready")));
 
     pdfPathEdit->setText(QStringLiteral("D:/Portable/SumatraPDF.exe"));
     QVERIFY(sumatraPdfStatusLabel->text().contains(QStringLiteral("SumatraPDF.exe")));
     obsidianVaultEdit->setText(QStringLiteral("D:/Notes/Vault"));
     obsidianArchiveEdit->setText(QStringLiteral("Snippets/Pinloom"));
+    defaultRootEdit->setText(editedRootPath);
+    QVERIFY(defaultRootStatus->text().contains(QStringLiteral("Ready")));
     historySpin->setValue(7);
     sizeSpin->setValue(2048);
     ttlSpin->setValue(120);
@@ -2332,13 +2512,22 @@ void WidgetSmokeTest::settingsDialogRoundTripsRuntimeSettings()
     QCOMPARE(edited.obsidianVaultPath, QStringLiteral("D:/Notes/Vault"));
     QCOMPARE(edited.obsidianArchiveDirectory, QStringLiteral("Snippets/Pinloom"));
     QCOMPARE(edited.dataDirectory, saved.dataDirectory);
+    QCOMPARE(edited.defaultLibraryRootPath, normalizedLibraryRootPath(editedRootPath));
     QCOMPARE(edited.clipMaxTemporaryClips, 7);
     QCOMPARE(edited.clipMaxTextBytes, 2048);
     QCOMPARE(edited.clipTemporaryTtlSeconds, 120);
+    QVERIFY(edited.clipAutomaticCaptureEnabled);
     QVERIFY(edited.clipExcludeSensitiveText);
     QVERIFY(edited.clipRestoreOriginalClipboardOnInsert);
     QCOMPARE(edited.clipExcludedSourceApps, (QStringList{QStringLiteral("secret.exe"), QStringLiteral("cad.exe")}));
     QCOMPARE(edited.clipSensitiveTextMarkers, (QStringList{QStringLiteral("TOKEN="), QStringLiteral("PRIVATE")}));
+
+    saved.defaultLibraryRootPath.clear();
+    savePinloomAppSettings(store, saved);
+    store.sync();
+    const PinloomAppSettings explicitlyCleared =
+        loadPinloomAppSettings(store, saved.dataDirectory);
+    QVERIFY(explicitlyCleared.defaultLibraryRootPath.isEmpty());
 }
 
 void WidgetSmokeTest::dataDirectoryChangeMigratesOnNextStartup()
@@ -3384,7 +3573,7 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
     panel.setCommandText(QStringLiteral("i"));
 
     QCOMPARE(results->count(), 2);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Inbox File -> Open")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Add Inbox Item -> Open")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("inbox;new")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Inbox Search -> Open")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("inbox;search <query>")));
@@ -3392,7 +3581,7 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
     QCOMPARE(panel.commandText(), QStringLiteral("inbox;new"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Inbox: drop a file or use Explorer selection"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Inbox: drop a file or folder, or use Explorer selection"));
 
     panel.setCommandText(QStringLiteral("i"));
     QTest::keyClick(commandEdit, Qt::Key_Down);
@@ -3401,6 +3590,29 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
                                       Qt::DirectConnection,
                                       Q_ARG(QListWidgetItem *, results->currentItem())));
     QCOMPARE(panel.commandText(), QStringLiteral("inbox;search"));
+}
+
+void WidgetSmokeTest::commandPanelRootLibraryCommandCallsHandler()
+{
+    int openCount = 0;
+    PinloomCommandPanelOptions options;
+    options.libraryRootHandler = [&](QString *status) {
+        ++openCount;
+        if (status) {
+            *status = QStringLiteral("Opened test Root Library");
+        }
+        return true;
+    };
+    PinloomCommandPanel panel(options);
+    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    QVERIFY(results);
+
+    panel.setCommandText(QStringLiteral("r;l"));
+    QCOMPARE(results->count(), 1);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Root Library")));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(openCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Opened test Root Library"));
 }
 
 void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
@@ -3434,13 +3646,9 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
         request.pinned = true;
         return request;
     };
-    options.inboxSaveHandler = [&](const InboxFileSaveRequest &request, QString *status) {
+    options.inboxSaveHandler = [&](const InboxFileSaveRequest &request) {
         capturedRequest = request;
-        const InboxFileSaveResult result = saveInboxFile(repository, request);
-        if (status) {
-            *status = result.status;
-        }
-        return result.success();
+        return saveInboxFile(repository, request);
     };
 
     PinloomCommandPanel panel(options);
@@ -3457,7 +3665,7 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
 
     QCOMPARE(panel.pendingInboxFiles(), QStringList{filePath});
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("Link mode")));
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("Review storage and metadata")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("Board Spec.txt")));
     QCOMPARE(panel.statusText(), QStringLiteral("Inbox pending: Board Spec.txt"));
 
@@ -3472,7 +3680,7 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
     QCOMPARE(capturedRequest.tags, QStringList{QStringLiteral("hardware")});
     QVERIFY(panel.pendingInboxFiles().isEmpty());
     QCOMPARE(panel.commandText(), QStringLiteral("inbox;search Board Spec Inbox"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Saved Inbox file \"Board Spec Inbox\""));
+    QCOMPARE(panel.statusText(), QStringLiteral("Saved Inbox item \"Board Spec Inbox\""));
     QCOMPARE(savedResourceIds, QStringList{inboxResourceIdForPath(filePath)});
 
     const QList<SearchResult> aliasResults = repository.search(SearchQuery{QStringLiteral("board alias")});
@@ -3495,9 +3703,11 @@ void WidgetSmokeTest::commandPanelInboxNewReportsMissingPendingAndExplorerSelect
         }
         return QStringList{};
     };
-    options.inboxSaveHandler = [&](const InboxFileSaveRequest &, QString *) {
+    options.inboxSaveHandler = [&](const InboxFileSaveRequest &) {
         ++saveCalls;
-        return true;
+        InboxFileSaveResult result;
+        result.ok = true;
+        return result;
     };
 
     PinloomCommandPanel panel(options);
@@ -3507,6 +3717,47 @@ void WidgetSmokeTest::commandPanelInboxNewReportsMissingPendingAndExplorerSelect
     QCOMPARE(selectionCalls, 1);
     QCOMPARE(saveCalls, 0);
     QCOMPARE(panel.statusText(), QStringLiteral("Explorer selection did not contain files"));
+}
+
+void WidgetSmokeTest::commandPanelDroppedTextCallsClipSaveHandler()
+{
+    int saveCount = 0;
+    QString capturedText;
+    bool parentProvided = false;
+    PinloomCommandPanelOptions options;
+    options.droppedTextSaveHandler = [&](QWidget *parent, const QString &text, QString *status) {
+        ++saveCount;
+        parentProvided = parent != nullptr;
+        capturedText = text;
+        if (status) {
+            *status = QStringLiteral("Saved dropped text through test handler");
+        }
+        return true;
+    };
+    PinloomCommandPanel panel(options);
+    panel.show();
+    QMimeData mimeData;
+    mimeData.setText(QStringLiteral("A reusable paragraph"));
+    QDragEnterEvent dragEnter(QPoint(20, 20),
+                              Qt::CopyAction,
+                              &mimeData,
+                              Qt::LeftButton,
+                              Qt::NoModifier);
+    QApplication::sendEvent(&panel, &dragEnter);
+    QVERIFY(dragEnter.isAccepted());
+    QDropEvent event(QPointF(20, 20),
+                     Qt::CopyAction,
+                     &mimeData,
+                     Qt::LeftButton,
+                     Qt::NoModifier);
+    QApplication::sendEvent(&panel, &event);
+    QVERIFY(event.isAccepted());
+    QTRY_COMPARE(saveCount, 1);
+    QVERIFY(parentProvided);
+    QCOMPARE(capturedText, QStringLiteral("A reusable paragraph"));
+    QCOMPARE(panel.theme(), PinloomCommandTheme::Clip);
+    QCOMPARE(panel.statusText(), QStringLiteral("Saved dropped text through test handler"));
+    panel.close();
 }
 
 void WidgetSmokeTest::commandPanelInboxSearchStaysInUnifiedWindow()
@@ -7017,6 +7268,90 @@ void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
     const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
+}
+
+void WidgetSmokeTest::entryServicesSearchOpenAndRecordUsageWithoutPanel()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("entry-service-resource");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Entry Service Document");
+    resource.location = QStringLiteral("E:/docs/entry-service.txt");
+    resource.aliases = {QStringLiteral("service alias")};
+    QVERIFY(repository.upsertResource(resource));
+
+    Resource deletedResource = resource;
+    deletedResource.id = QStringLiteral("entry-service-deleted");
+    deletedResource.title = QStringLiteral("Deleted Entry Service Document");
+    deletedResource.deleted = true;
+    QVERIFY(repository.upsertResource(deletedResource));
+
+    int clipSearchLimit = -1;
+    bool clipSearchIncludedSaved = false;
+    bool clipSearchIncludedDeleted = false;
+    PinloomEntrySearchService searchService(
+        repository,
+        [&clipSearchLimit,
+         &clipSearchIncludedSaved,
+         &clipSearchIncludedDeleted](const QString &query, const ClipSearchOptions &options) {
+            clipSearchLimit = options.limit;
+            clipSearchIncludedSaved = options.includeSaved;
+            clipSearchIncludedDeleted = options.includeDeleted;
+            ClipSearchResult clip;
+            clip.clipId = QStringLiteral("entry-service-clip");
+            clip.displayName = QStringLiteral("Entry Service Clip");
+            clip.preview = query;
+            clip.matchedField = QStringLiteral("name");
+            clip.state = options.includeSaved ? ClipState::Saved : ClipState::Deleted;
+            return QList<ClipSearchResult>{clip};
+        });
+    PinloomEntrySearchOptions searchOptions;
+    searchOptions.limit = 3;
+    const QList<PinloomEntry> entries = searchService.search(QStringLiteral("Entry Service"),
+                                                             searchOptions);
+    QCOMPARE(clipSearchLimit, 3);
+    QCOMPARE(entries.size(), 2);
+    QVERIFY(std::any_of(entries.cbegin(), entries.cend(), [](const PinloomEntry &entry) {
+        return entry.type == PinloomEntryType::SavedClip;
+    }));
+    searchOptions.limit = 1;
+    const QList<PinloomEntry> limitedEntries = searchService.search(
+        QStringLiteral("Entry Service"), searchOptions);
+    QCOMPARE(clipSearchLimit, 1);
+    QCOMPARE(limitedEntries.size(), 1);
+    QCOMPARE(limitedEntries.first().type, PinloomEntryType::SavedClip);
+
+    PinloomEntrySearchOptions deletedSearchOptions;
+    deletedSearchOptions.deletedOnly = true;
+    deletedSearchOptions.limit = 10;
+    const QList<PinloomEntry> deletedEntries = searchService.search(
+        QStringLiteral("Deleted Entry Service"), deletedSearchOptions);
+    QVERIFY(!clipSearchIncludedSaved);
+    QVERIFY(clipSearchIncludedDeleted);
+    QCOMPARE(deletedEntries.size(), 2);
+    QVERIFY(std::all_of(deletedEntries.cbegin(), deletedEntries.cend(), [](const PinloomEntry &entry) {
+        return entry.deleted;
+    }));
+
+    bool hostOpenCalled = false;
+    PinloomOpenServiceOptions openOptions;
+    openOptions.hostOpenHandler = [&hostOpenCalled](const PinloomOpenTarget &) {
+        hostOpenCalled = true;
+        return true;
+    };
+    PinloomOpenService openService(repository, std::move(openOptions));
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    QVERIFY(openService.open(target));
+    QVERIFY(hostOpenCalled);
+    QCOMPARE(openService.statusText(), QStringLiteral("Opened target"));
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
 }
 
 void WidgetSmokeTest::textPreviewLoadsTargetFile()

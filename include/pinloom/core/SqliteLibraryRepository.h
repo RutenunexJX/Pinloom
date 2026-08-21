@@ -29,6 +29,11 @@ public:
     bool clearResources() override;
     bool applyBatch(const LibraryBatchMutation &mutation) override;
 
+    bool upsertLibraryRoot(const LibraryRoot &root) override;
+    QList<LibraryRoot> libraryRoots() const override;
+    std::optional<LibraryRoot> findLibraryRoot(const QString &id) const override;
+    bool removeLibraryRoot(const QString &id) override;
+
     bool recordResourceOpen(const QString &resourceId) override;
     bool setResourcePinned(const QString &resourceId, bool pinned) override;
     std::optional<ResourceUsage> resourceUsage(const QString &resourceId) const override;
@@ -41,6 +46,7 @@ public:
     void removeChangeListener(int listenerId) override;
 
     QString databasePath() const;
+    bool integrityCheck();
     bool backupDatabase(const QString &destinationPath);
     bool restoreDatabase(const QString &sourcePath);
 
@@ -48,7 +54,11 @@ private:
     bool execute(const QString &sql);
     bool ensureAnchorLocatorColumns();
     bool ensureSoftDeleteColumns();
+    bool ensureLibraryRootColumns();
     bool migrateCanonicalAnchorSchema();
+    bool migrateStableAnchorIdentitySchema();
+    bool migrateLifecycleSearchSchema();
+    int schemaVersion() const;
     bool recordMigration(int version, const QString &name);
     bool beginTransaction();
     bool commitTransaction();
@@ -57,6 +67,7 @@ private:
     bool clearResourceTables();
     void notifyChange(LibraryChangeKind kind, const QStringList &resourceIds = {});
     Resource hydrateResource(const QString &id) const;
+    LibraryRoot hydrateLibraryRoot(QSqlQuery &query) const;
     ResourceUsage hydrateResourceUsage(QSqlQuery &query) const;
     AnchorUsage hydrateAnchorUsage(QSqlQuery &query) const;
     void applyRankingSignals(SearchResult &result, const SearchQuery &query) const;

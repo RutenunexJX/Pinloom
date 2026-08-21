@@ -7,6 +7,9 @@
 #ifndef PackageOutput
   #error PackageOutput must point to the installer output directory
 #endif
+#ifndef InstallerBaseName
+  #define InstallerBaseName "Pinloom-Setup-x64"
+#endif
 
 [Setup]
 AppId={{0359A8C7-F68E-4BFD-AFAF-A1DE33413C5A}
@@ -20,11 +23,12 @@ PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 OutputDir={#PackageOutput}
-OutputBaseFilename=Pinloom-Setup-x64-{#MyAppVersion}
+OutputBaseFilename={#InstallerBaseName}
 Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 UninstallDisplayIcon={app}\pinloom_app.exe
+SetupIconFile={#PackageSource}\pinloom.ico
 CloseApplications=yes
 RestartApplications=no
 

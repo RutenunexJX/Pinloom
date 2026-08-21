@@ -179,6 +179,7 @@ public:
     QList<Clip> searchCandidates(const ClipCandidateQuery &query) const;
     std::optional<Clip> findClip(const QString &id) const;
     QString databasePath() const;
+    bool integrityCheck();
     bool backupDatabase(const QString &destinationPath);
 
 private:

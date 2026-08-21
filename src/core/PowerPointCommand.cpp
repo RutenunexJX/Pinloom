@@ -1,12 +1,12 @@
 #include "pinloom/core/PowerPointCommand.h"
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
+#include "pinloom/core/AnchorTarget.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QJsonValue>
-#include <QUrl>
 #include <cmath>
 #include <limits>
 
@@ -50,15 +50,6 @@ QString effectiveLocatorType(const Anchor &anchor, const QJsonObject &locator)
     return locatorType.toLower();
 }
 
-QString filePathFromUri(const QString &targetUri)
-{
-    const QUrl url(targetUri.trimmed());
-    if (url.isValid() && url.isLocalFile()) {
-        return url.toLocalFile();
-    }
-    return targetUri.trimmed();
-}
-
 QString locatorPresentationPath(const QJsonObject &locator)
 {
     const QString presentation = locator.value(QStringLiteral("presentation")).toString().trimmed();
@@ -70,22 +61,7 @@ QString locatorPresentationPath(const QJsonObject &locator)
 
 QString targetPresentationPath(const Anchor &anchor, const QJsonObject &locator, const QString &fallbackFilePath)
 {
-    const QString targetFile = anchor.targetFile.trimmed();
-    if (!targetFile.isEmpty()) {
-        return targetFile;
-    }
-
-    const QString targetUri = anchor.targetUri.trimmed();
-    if (!targetUri.isEmpty()) {
-        return filePathFromUri(targetUri);
-    }
-
-    const QString locatorPresentation = locatorPresentationPath(locator);
-    if (!locatorPresentation.isEmpty()) {
-        return locatorPresentation;
-    }
-
-    return fallbackFilePath.trimmed();
+    return resolveAnchorTarget(anchor, {locatorPresentationPath(locator)}, fallbackFilePath).value;
 }
 
 int positiveIntFromValue(const QJsonValue &value)

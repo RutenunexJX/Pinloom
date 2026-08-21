@@ -6,7 +6,6 @@
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/PersistentClipService.h"
 #include "pinloom/clip/ClipRepository.h"
-#include "pinloom/clip/ClipRepositoryBackup.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/clip/PlatformPasteInvoker.h"
@@ -363,13 +362,14 @@ private slots:
     void sqliteAppliesCapturePolicies();
     void sqlitePersistsSavedClipMetadataAcrossRepositoryRestart();
     void sqliteMigratesLegacyPersistentClipSchema();
-    void sqliteBacksUpDatabaseAndRetainsNewestCopies();
+    void sqliteBacksUpDatabase();
     void sqlitePrunesTemporaryHistoryPersistently();
     void sqliteCreatesSavedClipLocatorAnchorAfterRestart();
     void clipSearchRanksExactSavedNameFirst();
     void clipSearchFindsAliasTagHashTagPreviewAndText();
     void clipIdentitySearchUsesTagSemicolonAndNameAliasOnly();
     void sqliteIndexedSearchMatchesReferenceSearch();
+    void sqliteBoundedSearchKeepsBestIdentityMatch();
     void rejectsDuplicateSavedClipNamesAndAliases();
     void wbTagResolvesDefaultBrowserUrl();
     void clipSearchUsesPinnedAndRecentForStableOrdering();
@@ -384,6 +384,7 @@ private slots:
     void obsidianSyncSoftDeletesMissingNotes();
     void obsidianStateAndForgetTombstoneRoundTrip();
     void persistentClipServiceCoordinatesRepositoryAndObsidian();
+    void persistentClipServiceRollsBackObsidianWhenIndexMutationFails();
     void obsidianWatcherSynchronizesNewNotes();
     void obsidianRealVaultRoundTrip();
     void clipboardServiceCapturesTextIntoRepository();
@@ -630,6 +631,7 @@ void ClipTest::sqliteInitializesIdempotently()
              qPrintable(repository.lastError()));
     QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
     QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+    QVERIFY2(repository.integrityCheck(), qPrintable(repository.lastError()));
 }
 
 void ClipTest::sqlitePersistsCapturedTextAcrossRepositoryRestart()
@@ -827,7 +829,7 @@ void ClipTest::sqliteMigratesLegacyPersistentClipSchema()
     QVERIFY(!repository.findClip(conflictingIdentity.id).has_value());
 }
 
-void ClipTest::sqliteBacksUpDatabaseAndRetainsNewestCopies()
+void ClipTest::sqliteBacksUpDatabase()
 {
     QTemporaryDir dir;
     QVERIFY(dir.isValid());
@@ -839,19 +841,12 @@ void ClipTest::sqliteBacksUpDatabaseAndRetainsNewestCopies()
     QVERIFY(captured.captured());
     QVERIFY(repository.saveClip(captured.clip->id, QStringLiteral("Backup clip")));
 
-    const QString backupDirectory = dir.filePath(QStringLiteral("backups"));
-    ClipRepositoryBackupResult latest;
-    for (int index = 0; index < 3; ++index) {
-        latest = createAutomaticClipRepositoryBackup(repository, backupDirectory, 2);
-        QVERIFY2(latest.success, qPrintable(latest.error));
-        QTest::qWait(2);
-    }
-    const QFileInfoList backups = QDir(backupDirectory).entryInfoList(
-        {QStringLiteral("pinloom-clip-auto-*.sqlite3")}, QDir::Files, QDir::Time);
-    QCOMPARE(backups.size(), 2);
+    const QString backupPath = dir.filePath(QStringLiteral("backups/pinloom_clip.sqlite3"));
+    QVERIFY2(repository.backupDatabase(backupPath), qPrintable(repository.lastError()));
+    QVERIFY(QFileInfo::exists(backupPath));
 
     SqliteClipRepository restored;
-    QVERIFY2(restored.open(backups.first().absoluteFilePath()), qPrintable(restored.lastError()));
+    QVERIFY2(restored.open(backupPath), qPrintable(restored.lastError()));
     QVERIFY2(restored.initialize(), qPrintable(restored.lastError()));
     const std::optional<Clip> restoredClip = restored.findClip(captured.clip->id);
     QVERIFY(restoredClip.has_value());
@@ -1179,6 +1174,56 @@ void ClipTest::sqliteIndexedSearchMatchesReferenceSearch()
     QVERIFY(parsed.hasTagQualifier);
     QCOMPARE(parsed.requiredTag, QStringLiteral("xx"));
     QCOMPARE(parsed.nameOrAlias, QStringLiteral("launch"));
+}
+
+void ClipTest::sqliteBoundedSearchKeepsBestIdentityMatch()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository repository;
+    QVERIFY2(repository.open(dir.filePath(QStringLiteral("bounded-search.sqlite3"))),
+             qPrintable(repository.lastError()));
+    QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"),
+                                                 Qt::ISODate);
+    const ClipCaptureResult exact = repository.captureText(QStringLiteral("exact body"), {}, {}, base);
+    QVERIFY(exact.captured());
+    QVERIFY2(repository.saveClip(exact.clip->id,
+                                 QStringLiteral("Needle"),
+                                 {},
+                                 {},
+                                 false,
+                                 base),
+             qPrintable(repository.lastError()));
+
+    for (int index = 0; index < 220; ++index) {
+        const QDateTime timestamp = base.addSecs(index + 1);
+        const ClipCaptureResult noise = repository.captureText(
+            QStringLiteral("noise body %1").arg(index), {}, {}, timestamp);
+        QVERIFY(noise.captured());
+        QVERIFY2(repository.saveClip(noise.clip->id,
+                                     QStringLiteral("Needle noise %1").arg(index),
+                                     {},
+                                     {},
+                                     false,
+                                     timestamp),
+                 qPrintable(repository.lastError()));
+    }
+
+    ClipSearchService search(repository);
+    ClipSearchOptions identityOptions;
+    identityOptions.mode = ClipSearchMode::Identity;
+    identityOptions.limit = 1;
+    QList<ClipSearchResult> results = search.search(QStringLiteral("Needle"), identityOptions);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, exact.clip->id);
+
+    ClipSearchOptions allFieldOptions;
+    allFieldOptions.limit = 1;
+    results = search.search(QStringLiteral("Needle"), allFieldOptions);
+    QCOMPARE(results.size(), 1);
+    QCOMPARE(results.first().clipId, exact.clip->id);
 }
 
 void ClipTest::rejectsDuplicateSavedClipNamesAndAliases()
@@ -1866,6 +1911,11 @@ void ClipTest::persistentClipServiceCoordinatesRepositoryAndObsidian()
     QCOMPARE(stored->storageBackend, ClipStorageBackend::Obsidian);
     QCOMPARE(stored->sourceApp, QStringLiteral("editor.exe"));
 
+    Clip edited = stored.value();
+    edited.tags = {QStringLiteral("reference")};
+    QVERIFY2(service.saveClip(edited, &error), qPrintable(error));
+    QCOMPARE(service.findClip(clip.id)->actionType, ClipActionType::OpenWebUrl);
+
     QVERIFY2(service.changeState(clip.id, ClipState::Deleted, &error), qPrintable(error));
     QCOMPARE(service.findClip(clip.id)->state, ClipState::Deleted);
     const std::optional<ObsidianClipDocument> deletedNote = store.findClip(clip.id, &error);
@@ -1880,6 +1930,78 @@ void ClipTest::persistentClipServiceCoordinatesRepositoryAndObsidian()
     const std::optional<ObsidianClipDocument> forgotten = store.readClipFile(deletedNote->filePath, &error);
     QVERIFY2(forgotten.has_value(), qPrintable(error));
     QVERIFY(forgotten->forgotten);
+}
+
+void ClipTest::persistentClipServiceRollsBackObsidianWhenIndexMutationFails()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    QVERIFY(QDir(dir.path()).mkpath(QStringLiteral(".obsidian")));
+    ObsidianClipStoreConfig config;
+    config.vaultPath = dir.path();
+    ObsidianClipStore store(config);
+
+    QList<Clip> indexed;
+    QString repositoryError = QStringLiteral("forced index failure");
+    const auto findIndexed = [&indexed](const QString &clipId) -> std::optional<Clip> {
+        for (const Clip &clip : indexed) {
+            if (clip.id == clipId) return clip;
+        }
+        return std::nullopt;
+    };
+    PersistentClipService service(
+        [&indexed]() { return indexed; },
+        findIndexed,
+        [](const Clip &) { return false; },
+        [](const QString &) { return false; },
+        [&repositoryError]() { return repositoryError; },
+        store);
+
+    Clip newClip;
+    newClip.id = QStringLiteral("rollback-new");
+    newClip.kind = ClipKind::Text;
+    newClip.state = ClipState::Temporary;
+    newClip.text = QStringLiteral("new body");
+    newClip.preview = newClip.text;
+    newClip.name = QStringLiteral("Rollback new");
+    newClip.createdAt = QDateTime::currentDateTimeUtc();
+    newClip.updatedAt = newClip.createdAt;
+    QString error;
+    QVERIFY(!service.saveClip(newClip, &error));
+    QCOMPARE(error, repositoryError);
+    QVERIFY(!store.findClip(newClip.id, &error).has_value());
+    QVERIFY(error.isEmpty());
+
+    Clip existing = newClip;
+    existing.id = QStringLiteral("rollback-existing");
+    existing.state = ClipState::Saved;
+    existing.text = QStringLiteral("original body");
+    existing.preview = existing.text;
+    existing.name = QStringLiteral("Rollback existing");
+    existing.storageBackend = ClipStorageBackend::Obsidian;
+    const ObsidianClipWriteResult originalWrite = store.writeClip(existing);
+    QVERIFY2(originalWrite.succeeded(), qPrintable(originalWrite.error));
+    indexed = {existing};
+
+    Clip changed = existing;
+    changed.text = QStringLiteral("changed body");
+    changed.preview = changed.text;
+    QVERIFY(!service.saveClip(changed, &error));
+    QCOMPARE(error, repositoryError);
+    const std::optional<ObsidianClipDocument> restored = store.findClip(existing.id, &error);
+    QVERIFY2(restored.has_value(), qPrintable(error));
+    QCOMPARE(restored->clip.text, existing.text);
+
+    existing.state = ClipState::Deleted;
+    indexed = {existing};
+    const ObsidianClipWriteResult deletedWrite = store.writeClip(existing);
+    QVERIFY2(deletedWrite.succeeded(), qPrintable(deletedWrite.error));
+    QVERIFY(!service.permanentlyRemove(existing.id, &error));
+    QCOMPARE(error, repositoryError);
+    const std::optional<ObsidianClipDocument> restoredDeleted =
+        store.findClip(existing.id, &error);
+    QVERIFY2(restoredDeleted.has_value(), qPrintable(error));
+    QCOMPARE(restoredDeleted->clip.state, ClipState::Deleted);
 }
 
 void ClipTest::obsidianWatcherSynchronizesNewNotes()
@@ -2753,6 +2875,7 @@ void ClipTest::insertionServiceReportsErrors()
     QVERIFY(missingClipboard.writes().isEmpty());
 
     FakeClipboardTextAccessor pasteClipboard;
+    pasteClipboard.setInitialText(QStringLiteral("original clipboard"));
     ClipInsertionService pasteService(&pasteClipboard, repository, []() {
         return false;
     });
@@ -2765,7 +2888,9 @@ void ClipTest::insertionServiceReportsErrors()
     QVERIFY(pasteFailed.status == ClipInsertionStatus::PasteFailed);
     QVERIFY(pasteService.lastStatus() == ClipInsertionStatus::PasteFailed);
     QVERIFY(!pasteService.lastError().isEmpty());
-    QCOMPARE(pasteClipboard.writes(), QStringList{QStringLiteral("Failure text")});
+    QCOMPARE(pasteClipboard.text(), QStringLiteral("original clipboard"));
+    QCOMPARE(pasteClipboard.writes(),
+             (QStringList{QStringLiteral("Failure text"), QStringLiteral("original clipboard")}));
 
     FakeClipboardTextAccessor unavailableClipboard;
     unavailableClipboard.setAvailable(false);

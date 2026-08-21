@@ -1,28 +1,33 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorCapture.h"
+#include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
+#include "pinloom/core/ApplicationDataBackup.h"
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipAction.h"
-#include "pinloom/clip/ClipRepositoryBackup.h"
 #include "pinloom/clip/HyperHotkeyService.h"
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/PersistentClipService.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
+#include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/TextSelectionCapture.h"
+#include "pinloom/core/Version.h"
 #include "pinloom/widgets/ClipResidentHost.h"
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
+#include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
-#include "pinloom/widgets/PinloomPanel.h"
+#include "pinloom/widgets/PinloomEntrySearchService.h"
+#include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
@@ -38,8 +43,10 @@
 #include <QDialogButtonBox>
 #include <QDir>
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QFormLayout>
 #include <QInputDialog>
+#include <QIcon>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QSettings>
@@ -58,6 +65,8 @@ int main(int argc, char *argv[])
     QApplication app(argc, argv);
     QApplication::setApplicationName(QStringLiteral("Pinloom"));
     QApplication::setOrganizationName(QStringLiteral("Pinloom"));
+    QApplication::setApplicationVersion(Pinloom::pinloomVersion());
+    QApplication::setWindowIcon(QIcon(QStringLiteral(":/pinloom/icon.png")));
     app.setQuitOnLastWindowClosed(false);
 
     const QStringList startupArguments = QCoreApplication::arguments();
@@ -108,26 +117,78 @@ int main(int argc, char *argv[])
                                  + QStringLiteral("\n\nPinloom will continue with the current directory:\n")
                                  + QDir::toNativeSeparators(appDataPath));
     }
+    const bool hasAutomaticClipboardCaptureDecision =
+        appSettingsStore.contains(QStringLiteral("clip/automaticCaptureEnabled"));
+    const bool hasDefaultLibraryRootSetting =
+        appSettingsStore.contains(QStringLiteral("library/defaultRootPath"));
     Pinloom::PinloomAppSettings runtimeSettings =
         Pinloom::loadPinloomAppSettings(appSettingsStore, appDataPath);
+    if (!hasAutomaticClipboardCaptureDecision) {
+        if (!startHidden) {
+            const QMessageBox::StandardButton choice = QMessageBox::question(
+                nullptr,
+                QStringLiteral("Pinloom Clipboard History"),
+                QStringLiteral("Pinloom can automatically store copied text as temporary local history. "
+                               "This may include sensitive clipboard content.\n\n"
+                               "Enable automatic clipboard history? F24+S manual saving remains available when disabled."),
+                QMessageBox::Yes | QMessageBox::No,
+                QMessageBox::No);
+            runtimeSettings.clipAutomaticCaptureEnabled = choice == QMessageBox::Yes;
+        }
+        Pinloom::savePinloomAppSettings(appSettingsStore, runtimeSettings);
+        appSettingsStore.sync();
+    }
 
     Pinloom::SqliteLibraryRepository repository;
     const QString databasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom.sqlite3"));
-    if (!repository.open(databasePath) || !repository.initialize()) {
+    if (!repository.open(databasePath)) {
+        QMessageBox::critical(nullptr,
+                              QStringLiteral("Pinloom"),
+                              QStringLiteral("Unable to open Pinloom database:\n%1").arg(repository.lastError()));
+        return 1;
+    }
+    if (!repository.integrityCheck()) {
+        QMessageBox::critical(nullptr,
+                              QStringLiteral("Pinloom Data Integrity"),
+                              QStringLiteral("The Anchor Library database failed its integrity check:\n%1\n\n"
+                                             "Pinloom will not modify this database.")
+                                  .arg(repository.lastError()));
+        return 1;
+    }
+    if (!repository.initialize() || !repository.integrityCheck()) {
         QMessageBox::critical(nullptr,
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to initialize Pinloom database:\n%1").arg(repository.lastError()));
         return 1;
     }
+    if (!hasDefaultLibraryRootSetting) {
+        for (const Pinloom::LibraryRoot &root : repository.libraryRoots()) {
+            if (root.syncRoot) {
+                runtimeSettings.defaultLibraryRootPath = root.path;
+                break;
+            }
+        }
+    }
+    const QString startupDefaultRoot =
+        Pinloom::normalizedLibraryRootPath(runtimeSettings.defaultLibraryRootPath);
+    if (startupDefaultRoot.isEmpty() || QFileInfo(startupDefaultRoot).isDir()) {
+        QString defaultRootError;
+        if (!Pinloom::configureDefaultLibraryRoot(repository,
+                                                  startupDefaultRoot,
+                                                  &defaultRootError)) {
+            QMessageBox::warning(nullptr,
+                                 QStringLiteral("Pinloom Default Root"),
+                                 defaultRootError);
+        }
+    }
+    if (!hasDefaultLibraryRootSetting) {
+        Pinloom::savePinloomAppSettings(appSettingsStore, runtimeSettings);
+        appSettingsStore.sync();
+    }
     const QString anchorLibraryBackupDirectory =
         QDir(appDataPath).filePath(QStringLiteral("backups/anchor-library"));
     Pinloom::AnchorLibraryArchiveService anchorLibraryArchive(repository,
                                                                anchorLibraryBackupDirectory);
-    const Pinloom::AnchorLibraryOperationResult startupBackup =
-        anchorLibraryArchive.createAutomaticBackup(anchorLibraryBackupDirectory, 10);
-    if (!startupBackup.success) {
-        qWarning().noquote() << "Anchor Library startup backup failed:" << startupBackup.message;
-    }
 
     Pinloom::ClipResidentRuntimeFactory clipFactory;
     Pinloom::ClipResidentRuntimeFactoryOptions clipOptions;
@@ -143,18 +204,21 @@ int main(int argc, char *argv[])
         QObject::connect(clipHost.get(), &Pinloom::ClipResidentHost::quitRequested, &app, &QApplication::quit);
         if (clipHost->runtime()) {
             clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
+            clipHost->runtime()->trayController().setCapturePaused(
+                !runtimeSettings.clipAutomaticCaptureEnabled);
             clipHost->runtime()->captureService().setSourceAppProvider([]() {
                 return Pinloom::currentForegroundAppWindowContext().processName;
             });
         }
         if (clipHost->sqliteRepository()) {
-            const Pinloom::ClipRepositoryBackupResult clipBackup =
-                Pinloom::createAutomaticClipRepositoryBackup(
-                    *clipHost->sqliteRepository(),
-                    QDir(appDataPath).filePath(QStringLiteral("backups/clip-library")),
-                    10);
-            if (!clipBackup.success) {
-                qWarning().noquote() << "Clip Library startup backup failed:" << clipBackup.error;
+            if (!clipHost->sqliteRepository()->integrityCheck()) {
+                QMessageBox::critical(
+                    nullptr,
+                    QStringLiteral("Pinloom Data Integrity"),
+                    QStringLiteral("The Clip Library database failed its integrity check:\n%1\n\n"
+                                   "Pinloom will not modify this database.")
+                        .arg(clipHost->sqliteRepository()->lastError()));
+                return 1;
             }
         }
     } else {
@@ -163,11 +227,40 @@ int main(int argc, char *argv[])
                              QStringLiteral("Pinloom Clip could not initialize:\n%1").arg(clipHostResult.error));
     }
 
+    QList<Pinloom::ApplicationDataBackupItem> backupItems;
+    backupItems.append({QStringLiteral("pinloom.sqlite3"),
+                        [&repository](const QString &destination) {
+                            return repository.backupDatabase(destination);
+                        },
+                        [&repository]() { return repository.lastError(); }});
+    if (clipHost && clipHost->sqliteRepository()) {
+        Pinloom::SqliteClipRepository *clipRepository = clipHost->sqliteRepository();
+        backupItems.append({QStringLiteral("pinloom_clip.sqlite3"),
+                            [clipRepository](const QString &destination) {
+                                return clipRepository->backupDatabase(destination);
+                            },
+                            [clipRepository]() { return clipRepository->lastError(); }});
+    }
+    const Pinloom::ApplicationDataBackupResult startupBackup =
+        Pinloom::createAutomaticApplicationDataBackup(
+            QDir(appDataPath).filePath(QStringLiteral("backups/application-data")),
+            backupItems,
+            10);
+    QString startupDataWarning;
+    if (!startupBackup.success) {
+        startupDataWarning = startupBackup.error;
+        qWarning().noquote() << "Application data startup backup failed:" << startupBackup.error;
+    }
+
     Pinloom::PinloomMainWindow window;
-    window.setWindowTitle(QStringLiteral("Pinloom"));
+    window.setWindowTitle(QStringLiteral("Pinloom %1").arg(Pinloom::pinloomVersionLabel()));
     window.setMinimumWidth(560);
     window.resize(760, 72);
     window.setLauncherMode(true);
+    if (!startupDataWarning.isEmpty()) {
+        window.setRecentError(QStringLiteral("Application data backup failed"),
+                              startupDataWarning);
+    }
 
     const auto obsidianConfigForSettings = [](const Pinloom::PinloomAppSettings &settings) {
         Pinloom::ObsidianClipStoreConfig config;
@@ -408,35 +501,25 @@ int main(int argc, char *argv[])
     std::optional<Pinloom::ForegroundTextTarget> pendingClipInsertionTarget;
     QMainWindow *commandWindowForClipInsertion = nullptr;
 
-    Pinloom::PinloomPanelOptions panelOptions;
-    panelOptions.applicationLaunchSettings.sumatraPdfExecutablePath =
+    Pinloom::ApplicationLaunchSettings applicationLaunchSettings;
+    applicationLaunchSettings.sumatraPdfExecutablePath =
         runtimeSettings.sumatraPdfExecutablePath.trimmed();
-    panelOptions.sumatraPdfExecutablePathProvider = [&runtimeSettings]() {
+    const auto sumatraPdfExecutablePathProvider = [&runtimeSettings]() {
         const QString configured = runtimeSettings.sumatraPdfExecutablePath.trimmed();
         return configured.isEmpty() ? Pinloom::resolveSumatraPdfExecutablePath() : configured;
     };
-    panelOptions.statusChangedHandler = [&window](const QString &status) {
-        const QString lower = status.toLower();
-        if (lower.contains(QStringLiteral("unable"))
-            || lower.contains(QStringLiteral("failed"))
-            || lower.contains(QStringLiteral("error"))
-            || lower.contains(QStringLiteral("missing"))
-            || lower.contains(QStringLiteral("could not"))) {
-            window.setRecentError(status);
-        }
-    };
-    panelOptions.clipSearchHandler =
+    const auto clipSearchHandler =
         [&clipHost](const QString &query, const Pinloom::ClipSearchOptions &options) -> QList<Pinloom::ClipSearchResult> {
         if (!clipHost || !clipHost->runtime()) {
             return {};
         }
         return clipHost->runtime()->searchService().search(query, options);
     };
-    panelOptions.clipInsertionHandler = [&app,
-                                         &clipHost,
-                                         &refreshClipFromObsidian,
-                                         &pendingClipInsertionTarget,
-                                         &commandWindowForClipInsertion](const QString &clipId, QString *error) {
+    const auto clipInsertionHandler = [&app,
+                                       &clipHost,
+                                       &refreshClipFromObsidian,
+                                       &pendingClipInsertionTarget,
+                                       &commandWindowForClipInsertion](const QString &clipId, QString *error) {
         if (!clipHost || !clipHost->runtime()) {
             if (error) {
                 *error = QStringLiteral("Pinloom Clip is not running");
@@ -564,7 +647,7 @@ int main(int argc, char *argv[])
         repository,
         Pinloom::captureSumatraPdfViewState);
 
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
+    const auto foregroundPdfAnchorCaptureRequestProvider =
         [&foregroundPdfCaptureProvider,
          &lastForegroundContext,
          &commandWindowForForegroundCapture](QString *status)
@@ -656,10 +739,48 @@ int main(int argc, char *argv[])
         }
         return captureRegion(result.request);
     };
-    auto *panel = new Pinloom::PinloomPanel(repository, panelOptions, &window);
-    panel->hide();
+    Pinloom::PinloomEntrySearchService entrySearchService(repository, clipSearchHandler);
+    Pinloom::PinloomOpenServiceOptions openServiceOptions;
+    openServiceOptions.clipInsertionHandler = clipInsertionHandler;
+    openServiceOptions.applicationLaunchSettings = applicationLaunchSettings;
+    openServiceOptions.sumatraPdfExecutablePathProvider = sumatraPdfExecutablePathProvider;
+    Pinloom::PinloomOpenService openService(repository, std::move(openServiceOptions), &app);
+    const auto captureForegroundPdfAnchor =
+        [&repository, &foregroundPdfAnchorCaptureRequestProvider](QString *status) {
+        QString providerStatus;
+        const std::optional<Pinloom::ManualPdfAnchorCreationRequest> request =
+            foregroundPdfAnchorCaptureRequestProvider(&providerStatus);
+        if (!request.has_value()) {
+            if (status) {
+                *status = providerStatus.trimmed().isEmpty()
+                    ? QStringLiteral("Open or focus a SumatraPDF PDF before capturing an anchor")
+                    : providerStatus.trimmed();
+            }
+            return false;
+        }
+        Pinloom::ManualPdfAnchorCreationService service(repository);
+        const Pinloom::ManualPdfAnchorCreationResult result =
+            service.createManualPdfAnchor(request.value());
+        if (!result.success()) {
+            if (status) *status = result.error;
+            return false;
+        }
+        if (status) {
+            *status = QStringLiteral("Captured PDF anchor \"%1\"").arg(result.anchor.name);
+        }
+        return true;
+    };
 
     Pinloom::AnchorLibraryManagementService anchorLibraryManagement(repository);
+    const auto availableFileTags = [&anchorLibraryManagement]() {
+        QStringList tags;
+        for (const Pinloom::AnchorLibraryTagSummary &summary : anchorLibraryManagement.tagSummary()) {
+            if (summary.resourceCount > 0) {
+                tags.append(summary.tag);
+            }
+        }
+        return tags;
+    };
     Pinloom::AnchorLibraryWindowOptions anchorLibraryOptions;
     anchorLibraryOptions.managementService = &anchorLibraryManagement;
     anchorLibraryOptions.archiveService = &anchorLibraryArchive;
@@ -685,15 +806,18 @@ int main(int argc, char *argv[])
                                   .value_or(Pinloom::AnchorUsage{result.resource.id});
                 file.anchors.append(entry);
             }
-            if (!file.anchors.isEmpty()) {
+            if (!file.anchors.isEmpty()
+                || Pinloom::isInboxResourceId(result.resource.id)
+                || !result.resource.aliases.isEmpty()
+                || !result.resource.tags.isEmpty()) {
                 files.append(file);
             }
         }
         return files;
     };
-    anchorLibraryOptions.anchorJumpHandler = [panel](const Pinloom::AnchorLibraryFile &file,
-                                                      const Pinloom::AnchorLibraryAnchor &entry,
-                                                      QString *status) {
+    anchorLibraryOptions.anchorJumpHandler = [&openService, &window](const Pinloom::AnchorLibraryFile &file,
+                                                                     const Pinloom::AnchorLibraryAnchor &entry,
+                                                                     QString *status) {
         const Pinloom::Anchor &anchor = entry.anchor;
         Pinloom::PinloomOpenTarget target;
         target.resourceId = entry.resourceId;
@@ -701,47 +825,32 @@ int main(int argc, char *argv[])
         target.title = anchor.name.trimmed().isEmpty() ? file.resource.title : anchor.name;
         target.location = file.resource.location;
         target.anchor = anchor;
-        const bool activated = panel->activateOpenTarget(target);
+        const bool activated = openService.open(target, &window);
         if (status) {
-            *status = panel->statusText();
+            *status = openService.statusText();
         }
         return activated;
     };
-    anchorLibraryOptions.locatorPreviewHandler = [panel, &runtimeSettings](const Pinloom::AnchorLibraryFile &file,
-                                                                           const Pinloom::AnchorLibraryAnchor &entry,
-                                                                           QString *status) {
+    anchorLibraryOptions.pdfPreviewOptionsProvider = [&runtimeSettings]() {
+        Pinloom::PdfLocatorPreviewRenderOptions previewOptions;
+        previewOptions.rendererExecutablePath = Pinloom::resolvePdfLocatorPreviewRendererPath(
+            runtimeSettings.sumatraPdfExecutablePath.trimmed());
+        return previewOptions;
+    };
+    anchorLibraryOptions.locatorPreviewHandler = [&openService, &window](const Pinloom::AnchorLibraryFile &file,
+                                                                         const Pinloom::AnchorLibraryAnchor &entry,
+                                                                         QString *status) {
         const Pinloom::Resource resource = file.resource;
         const Pinloom::Anchor anchor = entry.anchor;
         const QString resourceId = entry.resourceId;
-        const bool pdfTarget = resource.kind == Pinloom::ResourceKind::Pdf
-            || resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)
-            || Pinloom::isSumatraPdfAnchor(anchor);
-        if (pdfTarget) {
-            Pinloom::PdfLocatorPreviewRenderOptions previewOptions;
-            previewOptions.rendererExecutablePath = Pinloom::resolvePdfLocatorPreviewRendererPath(
-                runtimeSettings.sumatraPdfExecutablePath.trimmed());
-            const Pinloom::PdfLocatorPreviewRenderResult preview =
-                Pinloom::renderPdfLocatorPreview(resource, anchor, previewOptions);
-            if (!preview.success()) {
-                if (status) *status = preview.error;
-                return QPixmap{};
-            }
-            if (status) {
-                *status = preview.cropped
-                    ? QStringLiteral("Showing page %1 anchor region").arg(preview.page)
-                    : QStringLiteral("Showing rendered PDF page %1").arg(preview.page);
-            }
-            return QPixmap::fromImage(preview.image);
-        }
-
         Pinloom::PinloomOpenTarget target;
         target.resourceId = resourceId;
         target.resourceKind = resource.kind;
         target.title = anchor.name.trimmed().isEmpty() ? resource.title : anchor.name;
         target.location = resource.location;
         target.anchor = anchor;
-        if (!panel->activateOpenTarget(target)) {
-            if (status) *status = panel->statusText();
+        if (!openService.open(target, &window)) {
+            if (status) *status = openService.statusText();
             return QPixmap{};
         }
         QApplication::processEvents();
@@ -764,9 +873,9 @@ int main(int argc, char *argv[])
         return screenshot;
     };
     anchorLibraryOptions.locatorRecaptureHandler =
-        [panel, &foregroundPdfCaptureProvider](const Pinloom::AnchorLibraryFile &file,
-                                               const Pinloom::AnchorLibraryAnchor &entry,
-                                               QString *status)
+        [&openService, &window, &foregroundPdfCaptureProvider](const Pinloom::AnchorLibraryFile &file,
+                                                               const Pinloom::AnchorLibraryAnchor &entry,
+                                                               QString *status)
         -> std::optional<Pinloom::AnchorLocatorUpdate> {
         const Pinloom::Resource resource = file.resource;
         const Pinloom::Anchor anchor = entry.anchor;
@@ -777,8 +886,8 @@ int main(int argc, char *argv[])
         target.title = anchor.name.trimmed().isEmpty() ? resource.title : anchor.name;
         target.location = resource.location;
         target.anchor = anchor;
-        if (!panel->activateOpenTarget(target)) {
-            if (status) *status = panel->statusText();
+        if (!openService.open(target, &window)) {
+            if (status) *status = openService.statusText();
             return std::nullopt;
         }
         QApplication::processEvents();
@@ -829,6 +938,10 @@ int main(int argc, char *argv[])
         return update;
     };
     std::unique_ptr<Pinloom::AnchorLibraryWindow> anchorLibraryWindow;
+    Pinloom::LibraryRootWindowOptions libraryRootOptions;
+    libraryRootOptions.repository = &repository;
+    libraryRootOptions.fileTagsProvider = availableFileTags;
+    std::unique_ptr<Pinloom::LibraryRootWindow> libraryRootWindow;
     Pinloom::ClipLibraryWindowOptions clipLibraryOptions;
     clipLibraryOptions.clipsProvider = [&clipHost]() {
         if (clipHost && clipHost->sqliteRepository()) {
@@ -884,6 +997,17 @@ int main(int argc, char *argv[])
                                  dataDirectoryError);
             editedSettings.dataDirectory = appDataPath;
         }
+        QString defaultRootError;
+        if (!Pinloom::configureDefaultLibraryRoot(repository,
+                                                  editedSettings.defaultLibraryRootPath,
+                                                  &defaultRootError)) {
+            QMessageBox::warning(&window,
+                                 QStringLiteral("Pinloom Default Root"),
+                                 defaultRootError);
+            editedSettings.defaultLibraryRootPath = runtimeSettings.defaultLibraryRootPath;
+        } else if (libraryRootWindow) {
+            libraryRootWindow->refresh();
+        }
         runtimeSettings = editedSettings;
         Pinloom::savePinloomAppSettings(appSettingsStore, runtimeSettings);
         appSettingsStore.sync();
@@ -900,6 +1024,8 @@ int main(int argc, char *argv[])
         }
         if (clipHost && clipHost->runtime()) {
             clipHost->runtime()->captureService().setPolicy(runtimeSettings.clipCapturePolicy());
+            clipHost->runtime()->trayController().setCapturePaused(
+                !runtimeSettings.clipAutomaticCaptureEnabled);
             Pinloom::ClipInsertionOptions insertionOptions =
                 clipHost->runtime()->insertionService().options();
             insertionOptions.restoreOriginalClipboardOnSuccess =
@@ -924,31 +1050,26 @@ int main(int argc, char *argv[])
             window.setRecentError(status);
         }
     };
-    commandOptions.unifiedEntrySearchHandler = [panel](const QString &query) {
-        panel->setSearchText(query);
-        return panel->currentEntries();
+    commandOptions.unifiedEntrySearchHandler = [&entrySearchService](const QString &query) {
+        return entrySearchService.search(query);
     };
-    commandOptions.deletedEntrySearchHandler = [panel](const QString &query) {
-        QList<Pinloom::PinloomEntry> deletedEntries;
-        for (const Pinloom::PinloomEntry &entry : panel->searchEntries(query, true)) {
-            if (entry.deleted) {
-                deletedEntries.append(entry);
-            }
-        }
-        return deletedEntries;
+    commandOptions.deletedEntrySearchHandler = [&entrySearchService](const QString &query) {
+        Pinloom::PinloomEntrySearchOptions options;
+        options.deletedOnly = true;
+        return entrySearchService.search(query, options);
     };
-    const auto activateOpenTargetFromPanel =
-        [panel](const Pinloom::PinloomOpenTarget &target, QString *status) {
-        const bool activated = panel->activateOpenTarget(target);
+    const auto activateOpenTarget =
+        [&openService, &window](const Pinloom::PinloomOpenTarget &target, QString *status) {
+        const bool activated = openService.open(target, &window);
         if (status) {
-            *status = panel->statusText();
+            *status = openService.statusText();
         }
         return activated;
     };
-    commandOptions.anchorJumpHandler = activateOpenTargetFromPanel;
-    commandOptions.resourceOpenHandler = activateOpenTargetFromPanel;
-    commandOptions.clipSearchHandler = panelOptions.clipSearchHandler;
-    commandOptions.clipInsertionHandler = panelOptions.clipInsertionHandler;
+    commandOptions.anchorJumpHandler = activateOpenTarget;
+    commandOptions.resourceOpenHandler = activateOpenTarget;
+    commandOptions.clipSearchHandler = clipSearchHandler;
+    commandOptions.clipInsertionHandler = clipInsertionHandler;
     commandOptions.clipSaveHandler = clipSaveHandler;
     commandOptions.clipLibraryHandler = [&clipLibraryWindow,
                                          &clipLibraryOptions,
@@ -973,13 +1094,7 @@ int main(int argc, char *argv[])
         }
         return true;
     };
-    commandOptions.anchorCaptureHandler = [panel](QString *status) {
-        const bool captured = panel->captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel->statusText();
-        }
-        return captured;
-    };
+    commandOptions.anchorCaptureHandler = captureForegroundPdfAnchor;
     commandOptions.anchorLibraryHandler = [&anchorLibraryWindow,
                                            &anchorLibraryOptions,
                                            &window](QString *status) {
@@ -1001,6 +1116,27 @@ int main(int argc, char *argv[])
         }
         return true;
     };
+    commandOptions.libraryRootHandler = [&libraryRootWindow,
+                                         &libraryRootOptions,
+                                         &window](QString *status) {
+        if (!libraryRootWindow) {
+            libraryRootWindow = std::make_unique<Pinloom::LibraryRootWindow>(libraryRootOptions);
+        }
+        libraryRootWindow->refresh();
+        if (libraryRootWindow->isMinimized()) {
+            libraryRootWindow->showNormal();
+        } else {
+            libraryRootWindow->show();
+        }
+        libraryRootWindow->raise();
+        libraryRootWindow->activateWindow();
+        window.hide();
+        if (status) {
+            *status = QStringLiteral("Opened Root Library: %1 root(s)")
+                          .arg(libraryRootWindow->rootCount());
+        }
+        return true;
+    };
     commandOptions.inboxSelectionProvider =
         [&lastForegroundContext, &commandWindowForForegroundCapture](QString *status) -> QStringList {
         const bool useLastForegroundContext =
@@ -1018,12 +1154,31 @@ int main(int argc, char *argv[])
         }
         return result.filePaths;
     };
-    commandOptions.inboxSaveHandler = [&repository](const Pinloom::InboxFileSaveRequest &request, QString *status) {
-        const Pinloom::InboxFileSaveResult result = Pinloom::saveInboxFile(repository, request);
-        if (status) {
-            *status = result.status;
+    commandOptions.inboxTagProvider = availableFileTags;
+    const QString managedLibraryDirectory =
+        QDir(appDataPath).filePath(QStringLiteral("managed-library"));
+    commandOptions.inboxSaveHandler =
+        [&repository, managedLibraryDirectory](Pinloom::InboxFileSaveRequest request) {
+        request.managedLibraryDirectory = managedLibraryDirectory;
+        return Pinloom::saveInboxFile(repository, request);
+    };
+    commandOptions.droppedTextSaveHandler =
+        [&archiveSelectedText, &availableClipTags, &automaticClipName](QWidget *parent,
+                                                                      const QString &text,
+                                                                      QString *status) {
+        Pinloom::TextSelectionCaptureResult selection;
+        selection.state = Pinloom::TextSelectionState::TextSelected;
+        selection.text = text;
+        selection.source = QStringLiteral("drag-drop");
+        Pinloom::ClipCaptureDialog dialog(text,
+                                          automaticClipName(text),
+                                          availableClipTags(),
+                                          parent);
+        if (dialog.exec() != QDialog::Accepted) {
+            if (status) *status = QStringLiteral("Dropped text save canceled");
+            return false;
         }
-        return result.success();
+        return archiveSelectedText(selection, dialog.metadata(), status);
     };
     const auto targetTitle = [](const Pinloom::PinloomOpenTarget &target) {
         if (target.anchor.has_value()) {
@@ -1148,24 +1303,42 @@ int main(int argc, char *argv[])
         }
         return true;
     };
-    const auto selectPanelTarget = [panel](const Pinloom::PinloomOpenTarget &target) {
-        if (target.resultRow >= 0 && panel->selectResultAt(target.resultRow)) {
-            const Pinloom::PinloomOpenTarget current = panel->currentOpenTarget();
-            if (!target.clipId.isEmpty()) {
-                return current.clipId == target.clipId;
-            }
-            if (current.resourceId == target.resourceId) {
-                const QString currentAnchorId = current.anchor.has_value() ? current.anchor->id : QString();
-                const QString targetAnchorId = target.anchor.has_value() ? target.anchor->id : QString();
-                return targetAnchorId.isEmpty() || currentAnchorId == targetAnchorId;
-            }
+    const auto targetStillExists = [&repository](const Pinloom::PinloomOpenTarget &target) {
+        if (target.resourceId.trimmed().isEmpty()) return false;
+        const std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+        if (!resource.has_value()) return false;
+        if (!target.anchor.has_value()) return true;
+        return std::any_of(resource->anchors.cbegin(),
+                           resource->anchors.cend(),
+                           [&target](const Pinloom::Anchor &anchor) {
+                               return Pinloom::sameAnchorIdentity(anchor, target.anchor.value());
+                           });
+    };
+    const auto updateAnchorMetadata =
+        [&anchorLibraryManagement](const Pinloom::PinloomOpenTarget &target,
+                                   const QString &name,
+                                   const QStringList &aliases,
+                                   const QStringList &tags,
+                                   bool pinned,
+                                   QString *status) {
+        if (!target.anchor.has_value()) {
+            if (status) *status = QStringLiteral("Anchor is required");
+            return false;
         }
-        return !target.resourceId.isEmpty() && panel->selectResultResource(target.resourceId);
+        Pinloom::AnchorMetadataUpdate update;
+        update.name = name;
+        update.aliases = aliases;
+        update.tags = tags;
+        update.pinned = pinned;
+        const Pinloom::AnchorLibraryOperationResult result =
+            anchorLibraryManagement.updateAnchorMetadata(
+                {target.resourceId, target.anchor.value()}, update);
+        if (status) *status = result.message;
+        return result.success;
     };
     const auto executeEntryAction =
         [&repository,
          &clipHost,
-         panel,
          &targetTitle,
          &cleanTag,
          &appendUniqueValue,
@@ -1175,15 +1348,17 @@ int main(int argc, char *argv[])
          &saveClipMetadata,
          &obsidianClipStore,
          &setPersistentClipState,
-         &selectPanelTarget,
-         &activateOpenTargetFromPanel](QWidget *parent,
+         &targetStillExists,
+         &updateAnchorMetadata,
+         &anchorLibraryManagement,
+         &activateOpenTarget](QWidget *parent,
                                         const Pinloom::PinloomEntry &entry,
                                         const Pinloom::PinloomCommandResultAction &action,
                                         QString *status) {
         const Pinloom::PinloomOpenTarget target = Pinloom::openTargetFromEntry(entry);
         const QString actionId = action.id.trimmed();
         if (actionId == QLatin1String("primary")) {
-            return activateOpenTargetFromPanel(target, status);
+            return activateOpenTarget(target, status);
         }
 
         if (!target.clipId.trimmed().isEmpty()) {
@@ -1437,7 +1612,6 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            panel->setSearchText(targetTitle(target));
             if (status) {
                 *status = target.anchor.has_value()
                     ? QStringLiteral("Restored anchor \"%1\"").arg(targetTitle(target))
@@ -1448,7 +1622,7 @@ int main(int argc, char *argv[])
             return true;
         }
 
-        if (!selectPanelTarget(target)) {
+        if (!targetStillExists(target)) {
             if (status) {
                 *status = QStringLiteral("Selected result is no longer available");
             }
@@ -1486,7 +1660,6 @@ int main(int argc, char *argv[])
                 return false;
             }
 
-            panel->setSearchText(panel->searchText());
             if (status) {
                 *status = target.anchor.has_value()
                     ? QStringLiteral("Deleted anchor from Pinloom")
@@ -1520,11 +1693,12 @@ int main(int argc, char *argv[])
                 return false;
             }
             if (target.anchor.has_value()) {
-                const bool updated = panel->editSelectedAnchor(name, target.anchor->aliases, target.anchor->tags);
-                if (status) {
-                    *status = panel->statusText();
-                }
-                return updated;
+                return updateAnchorMetadata(target,
+                                            name,
+                                            target.anchor->aliases,
+                                            target.anchor->tags,
+                                            target.anchor->pinned,
+                                            status);
             }
 
             std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
@@ -1542,8 +1716,6 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            panel->setSearchText(panel->searchText());
-            panel->selectResultResource(resource->id);
             if (status) {
                 *status = QStringLiteral("Renamed resource \"%1\"").arg(name);
             }
@@ -1569,11 +1741,12 @@ int main(int argc, char *argv[])
                 return false;
             }
             if (target.anchor.has_value()) {
-                const bool updated = panel->editSelectedAnchor(targetTitle(target), aliases.value(), target.anchor->tags);
-                if (status) {
-                    *status = panel->statusText();
-                }
-                return updated;
+                return updateAnchorMetadata(target,
+                                            targetTitle(target),
+                                            aliases.value(),
+                                            target.anchor->tags,
+                                            target.anchor->pinned,
+                                            status);
             }
 
             std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
@@ -1591,8 +1764,6 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            panel->setSearchText(panel->searchText());
-            panel->selectResultResource(resource->id);
             if (status) {
                 *status = QStringLiteral("Updated resource aliases");
             }
@@ -1618,11 +1789,12 @@ int main(int argc, char *argv[])
                 return false;
             }
             if (target.anchor.has_value()) {
-                const bool updated = panel->editSelectedAnchor(targetTitle(target), target.anchor->aliases, tags.value());
-                if (status) {
-                    *status = panel->statusText();
-                }
-                return updated;
+                return updateAnchorMetadata(target,
+                                            targetTitle(target),
+                                            target.anchor->aliases,
+                                            tags.value(),
+                                            target.anchor->pinned,
+                                            status);
             }
 
             std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
@@ -1640,8 +1812,6 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            panel->setSearchText(panel->searchText());
-            panel->selectResultResource(resource->id);
             if (status) {
                 *status = QStringLiteral("Updated resource tags");
             }
@@ -1650,13 +1820,12 @@ int main(int argc, char *argv[])
 
         if (actionId == QLatin1String("pin") || actionId == QLatin1String("unpin")) {
             const bool pinned = actionId == QLatin1String("pin");
-            const bool updated = target.anchor.has_value()
-                ? panel->setSelectedAnchorPinned(pinned)
-                : panel->setResourcePinnedById(target.resourceId, pinned);
-            if (status) {
-                *status = panel->statusText();
-            }
-            return updated;
+            const Pinloom::AnchorLibraryOperationResult result = target.anchor.has_value()
+                ? anchorLibraryManagement.setAnchorsPinned(
+                      {{target.resourceId, target.anchor.value()}}, pinned)
+                : anchorLibraryManagement.setResourcesPinned({target.resourceId}, pinned);
+            if (status) *status = result.message;
+            return result.success;
         }
         if (actionId == QLatin1String("add_alias")) {
             bool accepted = false;
@@ -1672,11 +1841,39 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            const bool updated = panel->addAliasToSelectedTarget(alias);
-            if (status) {
-                *status = panel->statusText();
+            if (target.anchor.has_value()) {
+                QStringList aliases = target.anchor->aliases;
+                appendUniqueValue(aliases, alias);
+                if (aliases == target.anchor->aliases) {
+                    if (status) *status = QStringLiteral("Anchor alias already exists or is empty");
+                    return false;
+                }
+                return updateAnchorMetadata(target,
+                                            targetTitle(target),
+                                            aliases,
+                                            target.anchor->tags,
+                                            target.anchor->pinned,
+                                            status);
             }
-            return updated;
+            const std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+            if (!resource.has_value()) {
+                if (status) *status = QStringLiteral("Resource no longer exists");
+                return false;
+            }
+            QStringList aliases = resource->aliases;
+            appendUniqueValue(aliases, alias);
+            if (aliases == resource->aliases) {
+                if (status) *status = QStringLiteral("Resource alias already exists or is empty");
+                return false;
+            }
+            Pinloom::ResourceMetadataUpdate update;
+            update.title = resource->title;
+            update.aliases = aliases;
+            update.tags = resource->tags;
+            const Pinloom::AnchorLibraryOperationResult result =
+                anchorLibraryManagement.updateResourceMetadata({resource->id}, update);
+            if (status) *status = result.message;
+            return result.success;
         }
         if (actionId == QLatin1String("add_tag")) {
             bool accepted = false;
@@ -1692,11 +1889,39 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            const bool updated = panel->addTagToSelectedTarget(tag);
-            if (status) {
-                *status = panel->statusText();
+            if (target.anchor.has_value()) {
+                QStringList tags = target.anchor->tags;
+                appendUniqueValue(tags, tag);
+                if (tags == target.anchor->tags) {
+                    if (status) *status = QStringLiteral("Anchor tag already exists or is empty");
+                    return false;
+                }
+                return updateAnchorMetadata(target,
+                                            targetTitle(target),
+                                            target.anchor->aliases,
+                                            tags,
+                                            target.anchor->pinned,
+                                            status);
             }
-            return updated;
+            const std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
+            if (!resource.has_value()) {
+                if (status) *status = QStringLiteral("Resource no longer exists");
+                return false;
+            }
+            QStringList tags = resource->tags;
+            appendUniqueValue(tags, tag);
+            if (tags == resource->tags) {
+                if (status) *status = QStringLiteral("Resource tag already exists or is empty");
+                return false;
+            }
+            Pinloom::ResourceMetadataUpdate update;
+            update.title = resource->title;
+            update.aliases = resource->aliases;
+            update.tags = tags;
+            const Pinloom::AnchorLibraryOperationResult result =
+                anchorLibraryManagement.updateResourceMetadata({resource->id}, update);
+            if (status) *status = result.message;
+            return result.success;
         }
         if (actionId == QLatin1String("edit_metadata")) {
             if (target.anchor.has_value()) {
@@ -1713,23 +1938,12 @@ int main(int argc, char *argv[])
                     }
                     return false;
                 }
-                if (!panel->editSelectedAnchor(edit->name, edit->aliases, edit->tags)) {
-                    if (status) {
-                        *status = panel->statusText();
-                    }
-                    return false;
-                }
-                if (target.anchor->pinned != edit->pinned
-                    && !panel->setSelectedAnchorPinned(edit->pinned)) {
-                    if (status) {
-                        *status = panel->statusText();
-                    }
-                    return false;
-                }
-                if (status) {
-                    *status = panel->statusText();
-                }
-                return true;
+                return updateAnchorMetadata(target,
+                                            edit->name,
+                                            edit->aliases,
+                                            edit->tags,
+                                            edit->pinned,
+                                            status);
             }
 
             std::optional<Pinloom::Resource> resource = repository.findResource(target.resourceId);
@@ -1754,28 +1968,15 @@ int main(int argc, char *argv[])
                 }
                 return false;
             }
-            resource->title = edit->name;
-            resource->aliases = edit->aliases;
-            resource->tags = edit->tags;
-            resource->updatedAt = QDateTime::currentDateTimeUtc();
-            if (!repository.upsertResource(resource.value())) {
-                if (status) {
-                    *status = QStringLiteral("Unable to update resource");
-                }
-                return false;
-            }
-            if (pinned != edit->pinned && !repository.setResourcePinned(resource->id, edit->pinned)) {
-                if (status) {
-                    *status = QStringLiteral("Unable to update pinned resource");
-                }
-                return false;
-            }
-            panel->setSearchText(panel->searchText());
-            panel->selectResultResource(resource->id);
-            if (status) {
-                *status = QStringLiteral("Updated resource \"%1\"").arg(resource->title);
-            }
-            return true;
+            Pinloom::ResourceMetadataUpdate update;
+            update.title = edit->name;
+            update.aliases = edit->aliases;
+            update.tags = edit->tags;
+            update.pinned = edit->pinned;
+            const Pinloom::AnchorLibraryOperationResult result =
+                anchorLibraryManagement.updateResourceMetadata({resource->id}, update);
+            if (status) *status = result.message;
+            return result.success;
         }
 
         if (status) {

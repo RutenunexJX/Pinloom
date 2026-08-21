@@ -65,6 +65,7 @@ std::optional<Clip> PersistentClipService::findClip(const QString &clipId) const
 
 bool PersistentClipService::saveClip(Clip clip, QString *error) const
 {
+    const std::optional<Clip> existingIndex = findClip(clip.id);
     clip.state = ClipState::Saved;
     if (clip.name.trimmed().isEmpty()) {
         clip.name = clip.preview.trimmed();
@@ -77,7 +78,9 @@ bool PersistentClipService::saveClip(Clip clip, QString *error) const
 
     clip.updatedAt = QDateTime::currentDateTimeUtc();
     clip.expiresAt = {};
-    clip.actionType = taggedActionForTags(clip.tags);
+    if (!existingIndex.has_value() || existingIndex->state == ClipState::Temporary) {
+        clip.actionType = taggedActionForTags(clip.tags);
+    }
     const bool mustUseObsidian = clip.storageBackend == ClipStorageBackend::Obsidian;
     const bool obsidianEnabled = obsidianStore_ && obsidianStore_->config().isEnabled();
     if (mustUseObsidian && !obsidianEnabled) {
@@ -85,10 +88,30 @@ bool PersistentClipService::saveClip(Clip clip, QString *error) const
     }
     if (obsidianEnabled) {
         clip.storageBackend = ClipStorageBackend::Obsidian;
+        QString snapshotError;
+        const std::optional<ObsidianClipDocument> previous =
+            obsidianStore_->findClip(clip.id, &snapshotError);
+        if (!snapshotError.trimmed().isEmpty()) return fail(error, snapshotError);
         const ObsidianClipWriteResult written = obsidianStore_->writeClip(clip);
         if (!written.succeeded()) {
             return fail(error, written.error);
         }
+        if (!upsert_ || !upsert_(clip)) {
+            QString rollbackError;
+            const bool rolledBack = rollbackObsidianWrite(
+                clip.id,
+                previous.has_value() ? std::optional<Clip>(previous->clip) : std::nullopt,
+                &rollbackError);
+            const QString indexError = repositoryError(
+                QStringLiteral("Unable to update the Saved Clip index"));
+            return fail(error,
+                        rolledBack
+                            ? indexError
+                            : QStringLiteral("%1; Obsidian rollback failed: %2")
+                                  .arg(indexError, rollbackError));
+        }
+        if (error) error->clear();
+        return true;
     } else {
         clip.storageBackend = ClipStorageBackend::Local;
     }
@@ -124,10 +147,30 @@ bool PersistentClipService::changeState(const QString &clipId,
         if (!obsidianStore_ || !obsidianStore_->config().isEnabled()) {
             return fail(error, QStringLiteral("Configure the Obsidian vault before changing this Clip"));
         }
+        QString snapshotError;
+        const std::optional<ObsidianClipDocument> previous =
+            obsidianStore_->findClip(clipId, &snapshotError);
+        if (!snapshotError.trimmed().isEmpty()) return fail(error, snapshotError);
         const ObsidianClipWriteResult written = obsidianStore_->writeClip(updated);
         if (!written.succeeded()) {
             return fail(error, written.error);
         }
+        if (!upsert_ || !upsert_(updated)) {
+            QString rollbackError;
+            const bool rolledBack = rollbackObsidianWrite(
+                clipId,
+                previous.has_value() ? std::optional<Clip>(previous->clip) : std::nullopt,
+                &rollbackError);
+            const QString indexError = repositoryError(
+                QStringLiteral("Unable to update the Saved Clip index"));
+            return fail(error,
+                        rolledBack
+                            ? indexError
+                            : QStringLiteral("%1; Obsidian rollback failed: %2")
+                                  .arg(indexError, rollbackError));
+        }
+        if (error) error->clear();
+        return true;
     }
     return upsertPersistentClip(updated, error);
 }
@@ -147,7 +190,39 @@ bool PersistentClipService::permanentlyRemove(const QString &clipId, QString *er
         }
     }
     if (!remove_ || !remove_(clipId)) {
-        return fail(error, repositoryError(QStringLiteral("Unable to remove Clip from the local index")));
+        const QString indexError = repositoryError(
+            QStringLiteral("Unable to remove Clip from the local index"));
+        if (isObsidianBackedClip(existing.value())) {
+            const ObsidianClipWriteResult restored = obsidianStore_->writeClip(existing.value());
+            if (!restored.succeeded()) {
+                return fail(error,
+                            QStringLiteral("%1; Obsidian rollback failed: %2")
+                                .arg(indexError, restored.error));
+            }
+        }
+        return fail(error, indexError);
+    }
+    if (error) error->clear();
+    return true;
+}
+
+bool PersistentClipService::rollbackObsidianWrite(
+    const QString &clipId,
+    const std::optional<Clip> &previousDocument,
+    QString *error) const
+{
+    if (!obsidianStore_) {
+        if (error) *error = QStringLiteral("Obsidian store is unavailable");
+        return false;
+    }
+    if (previousDocument.has_value()) {
+        const ObsidianClipWriteResult restored = obsidianStore_->writeClip(previousDocument.value());
+        if (!restored.succeeded()) {
+            if (error) *error = restored.error;
+            return false;
+        }
+    } else if (!obsidianStore_->forgetClip(clipId, error)) {
+        return false;
     }
     if (error) error->clear();
     return true;
