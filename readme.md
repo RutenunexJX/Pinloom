@@ -171,9 +171,9 @@ E:\QT6\Tools\CMake_64\bin\ctest.exe --test-dir build --output-on-failure
 
 The application version is defined by `project(VERSION ...)` in
 `CMakeLists.txt`. It is shown in the Command Window and diagnostics and is also
-written to release package metadata. Windows release packaging uses fixed
-names (`Pinloom`, `Pinloom.zip`, and `Pinloom-Setup-x64.exe`) so shortcuts can
-continue to target `Pinloom\pinloom_app.exe` after an update.
+written to the portable release README. Windows release packaging recreates one
+fixed `Pinloom` directory so shortcuts can continue to target
+`Pinloom\pinloom_app.exe` after an update.
 
 ## Run
 
@@ -371,7 +371,9 @@ queries for the Clip Picker.
 Build the Release target first, then run
 `packaging/windows/Package-Release.ps1`. Packaging stops when Git reports
 uncommitted or untracked files. `-AllowDirty` is an explicit diagnostic-only
-override, and the generated `BUILD-INFO.txt` records the `-dirty` source state.
+override. The script produces only a directly runnable `Pinloom` directory with
+the required Qt/MinGW runtime and SQLite driver. It does not create an installer,
+ZIP archive, checksum manifest, launcher script, or user database.
 
 Internally, the Command Window now routes ordinary work through
 `command -> entry/action -> result`: commands search `PinloomEntry` objects,

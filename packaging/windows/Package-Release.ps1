@@ -3,10 +3,8 @@ param(
     [string]$BuildDirectory = "",
     [string]$OutputRoot = "",
     [string]$QtBinDirectory = "E:\QT6\6.10.2\mingw_64\bin",
-    [string]$InnoCompiler = "C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
     [string]$PackageVersion = "",
     [string]$PackageName = "Pinloom",
-    [string]$InstallerBaseName = "Pinloom-Setup-x64",
     [switch]$ReplaceExisting,
     [switch]$AllowDirty
 )
@@ -61,31 +59,37 @@ $buildState = if ($dirty) { "$revision-dirty" } else { $revision }
 New-Item -ItemType Directory -Path $OutputRoot -Force | Out-Null
 $outputRootPath = (Resolve-Path -LiteralPath $OutputRoot).Path
 $packageDirectory = Join-Path $outputRootPath $PackageName
-$archivePath = "$packageDirectory.zip"
-if ((Test-Path -LiteralPath $packageDirectory) -or (Test-Path -LiteralPath $archivePath)) {
-    if (-not $ReplaceExisting) {
-        throw "Package output already exists: $PackageName. Pass -ReplaceExisting to replace it."
-    }
-    $resolvedPackageParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $packageDirectory))
-    if ($resolvedPackageParent -ne [System.IO.Path]::GetFullPath($outputRootPath)) {
-        throw "Refusing to replace package output outside OutputRoot"
-    }
+$resolvedPackageParent = [System.IO.Path]::GetFullPath((Split-Path -Parent $packageDirectory))
+if ($resolvedPackageParent -ne [System.IO.Path]::GetFullPath($outputRootPath)) {
+    throw "Package directory must be an immediate child of OutputRoot"
+}
+
+$legacyOutputs = @(
+    "$packageDirectory.zip",
+    "$packageDirectory.zip.sha256",
+    (Join-Path $outputRootPath "Pinloom-Setup-x64.exe"),
+    (Join-Path $outputRootPath "Pinloom-Setup-x64.exe.sha256")
+)
+$hasExistingOutput = Test-Path -LiteralPath $packageDirectory
+foreach ($legacyPath in $legacyOutputs) {
+    $hasExistingOutput = $hasExistingOutput -or (Test-Path -LiteralPath $legacyPath)
+}
+if ($hasExistingOutput -and -not $ReplaceExisting) {
+    throw "Package output already exists. Pass -ReplaceExisting to rebuild it."
+}
+if ($ReplaceExisting) {
     if (Test-Path -LiteralPath $packageDirectory) {
         Remove-Item -Recurse -Force -LiteralPath $packageDirectory
     }
-    foreach ($path in @($archivePath, "$archivePath.sha256")) {
-        if (Test-Path -LiteralPath $path) {
-            Remove-Item -Force -LiteralPath $path
+    foreach ($legacyPath in $legacyOutputs) {
+        if (Test-Path -LiteralPath $legacyPath -PathType Leaf) {
+            Remove-Item -Force -LiteralPath $legacyPath
         }
     }
 }
 
 New-Item -ItemType Directory -Path $packageDirectory | Out-Null
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
-Copy-Item -LiteralPath (Join-Path $scriptDirectory "Start-Pinloom.cmd") -Destination $packageDirectory
-Copy-Item -LiteralPath (Join-Path $scriptDirectory "Start-Pinloom-Hidden.cmd") -Destination $packageDirectory
-Copy-Item -LiteralPath (Join-Path $scriptDirectory "README.txt") -Destination $packageDirectory
-Copy-Item -LiteralPath (Join-Path $repositoryRoot "assets\icons\pinloom.ico") -Destination $packageDirectory
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 & $deployTool `
@@ -98,9 +102,31 @@ if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
+$sqlDriverDirectory = Join-Path $packageDirectory "sqldrivers"
+if (Test-Path -LiteralPath $sqlDriverDirectory -PathType Container) {
+    Get-ChildItem -File -LiteralPath $sqlDriverDirectory |
+        Where-Object { $_.Name -ne "qsqlite.dll" } |
+        Remove-Item -Force
+}
+
+$packageReadme = @(
+    "Pinloom v$PackageVersion",
+    "",
+    "Build profile: Release",
+    "Qt: 6.10.2",
+    "Compiler: MinGW 13.1.0",
+    "Source revision: $buildState",
+    "Release root: $packageDirectory",
+    "",
+    "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
+    "Pinloom is a resident application; Shift+Space opens its command window.",
+    "Configure the data directory, default root, SumatraPDF, and Obsidian paths",
+    "from Pinloom Settings. User databases are not stored in this release folder."
+)
+$packageReadme | Set-Content -LiteralPath (Join-Path $packageDirectory "README.txt") -Encoding UTF8
+
 $requiredFiles = @(
     "pinloom_app.exe",
-    "pinloom.ico",
     "Qt6Core.dll",
     "Qt6Gui.dll",
     "Qt6Network.dll",
@@ -119,56 +145,26 @@ foreach ($relativePath in $requiredFiles) {
     }
 }
 
-@(
-    "Package: $PackageName"
-    "Version: $PackageVersion"
-    "Source revision: $buildState"
-    "Built at: $((Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK'))"
-    "Architecture: Windows x64"
-) | Set-Content -LiteralPath (Join-Path $packageDirectory "BUILD-INFO.txt") -Encoding UTF8
-
-$manifestLines = Get-ChildItem -Recurse -File -LiteralPath $packageDirectory |
-    Where-Object { $_.Name -ne "SHA256SUMS.txt" } |
-    Sort-Object FullName |
-    ForEach-Object {
-        $relativePath = $_.FullName.Substring($packageDirectory.Length).TrimStart('\')
-        $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $_.FullName).Hash.ToLowerInvariant()
-        "$hash  $relativePath"
+$forbiddenFiles = @(
+    "Pinloom-Setup-x64.exe",
+    "Pinloom.zip",
+    "SHA256SUMS.txt",
+    "BUILD-INFO.txt",
+    "Start-Pinloom.cmd",
+    "Start-Pinloom-Hidden.cmd",
+    "pinloom.ico"
+)
+foreach ($fileName in $forbiddenFiles) {
+    if (Test-Path -LiteralPath (Join-Path $packageDirectory $fileName)) {
+        throw "Unexpected non-portable package file: $fileName"
     }
-$manifestLines | Set-Content -LiteralPath (Join-Path $packageDirectory "SHA256SUMS.txt") -Encoding ASCII
-
-Compress-Archive -Path (Join-Path $packageDirectory "*") `
-                 -DestinationPath $archivePath `
-                 -CompressionLevel Optimal
-$archiveHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $archivePath).Hash.ToLowerInvariant()
-$archiveHash | Set-Content -LiteralPath "$archivePath.sha256" -Encoding ASCII
-
-$installerPath = ""
-$installerHash = ""
-if (Test-Path -LiteralPath $InnoCompiler -PathType Leaf) {
-    $installerScript = Join-Path $scriptDirectory "Pinloom.iss"
-    & $InnoCompiler `
-        "/DMyAppVersion=$PackageVersion" `
-        "/DInstallerBaseName=$InstallerBaseName" `
-        "/DPackageSource=$packageDirectory" `
-        "/DPackageOutput=$outputRootPath" `
-        $installerScript
-    if ($LASTEXITCODE -ne 0) {
-        throw "Inno Setup failed with exit code $LASTEXITCODE"
-    }
-    $installerPath = Join-Path $outputRootPath "$InstallerBaseName.exe"
-    if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
-        throw "Installer output not found: $installerPath"
-    }
-    $installerHash = (Get-FileHash -Algorithm SHA256 -LiteralPath $installerPath).Hash.ToLowerInvariant()
-    $installerHash | Set-Content -LiteralPath "$installerPath.sha256" -Encoding ASCII
 }
 
+$packageFiles = Get-ChildItem -Recurse -File -LiteralPath $packageDirectory
 [PSCustomObject]@{
     PackageDirectory = $packageDirectory
-    ArchivePath = $archivePath
-    ArchiveSha256 = $archiveHash
-    InstallerPath = $installerPath
-    InstallerSha256 = $installerHash
+    PackageVersion = $PackageVersion
     SourceRevision = $buildState
+    FileCount = $packageFiles.Count
+    PackageBytes = ($packageFiles | Measure-Object Length -Sum).Sum
 }
