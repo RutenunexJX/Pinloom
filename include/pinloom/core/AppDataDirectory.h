@@ -9,6 +9,7 @@ namespace Pinloom {
 struct AppDataDirectoryResult {
     QString directory;
     bool migrated = false;
+    bool adoptedExisting = false;
     QString error;
 
     bool succeeded() const;

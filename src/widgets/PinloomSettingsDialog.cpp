@@ -262,7 +262,8 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     dataDirectoryLayout->addWidget(dataDirectoryEdit_, 1);
     dataDirectoryLayout->addWidget(browseDataDirectoryButton);
     dataDirectoryStatusLabel_ = new QLabel(
-        tr("A changed directory is copied and activated on the next Pinloom start; the old copy is retained. "
+        tr("An empty directory receives a copy of the current data on the next Pinloom start. "
+           "An existing Pinloom data directory is adopted without overwriting it. The old copy is retained. "
            "This is a local database directory. Do not let multiple computers open a live-synchronized copy."),
         this);
     dataDirectoryStatusLabel_->setObjectName(QStringLiteral("dataDirectoryStatusLabel"));

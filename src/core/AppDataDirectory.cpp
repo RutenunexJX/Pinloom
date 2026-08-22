@@ -102,6 +102,13 @@ bool directoryIsEmpty(const QString &path)
                .isEmpty();
 }
 
+bool isExistingPinloomDataDirectory(const QString &path)
+{
+    const QDir directory(path);
+    return QFileInfo(directory.filePath(QStringLiteral("pinloom.sqlite3"))).isFile()
+        && QFileInfo(directory.filePath(QStringLiteral("pinloom_clip.sqlite3"))).isFile();
+}
+
 } // namespace
 
 bool AppDataDirectoryResult::succeeded() const
@@ -146,8 +153,18 @@ AppDataDirectoryResult prepareAppDataDirectory(QSettings &settings,
         return result;
     }
     if (!directoryIsEmpty(pending)) {
-        result.error = QStringLiteral("Requested data directory is not empty; existing files were not overwritten: %1")
-                           .arg(QDir::toNativeSeparators(pending));
+        if (!isExistingPinloomDataDirectory(pending)) {
+            result.error = QStringLiteral(
+                               "Requested data directory is not empty and does not contain both Pinloom databases: %1")
+                               .arg(QDir::toNativeSeparators(pending));
+            return result;
+        }
+
+        result.directory = pending;
+        result.adoptedExisting = true;
+        settings.setValue(QString::fromLatin1(DataDirectoryKey), result.directory);
+        settings.remove(QString::fromLatin1(PendingDataDirectoryKey));
+        settings.sync();
         return result;
     }
 
@@ -214,6 +231,15 @@ bool stageAppDataDirectoryChange(QSettings &settings,
     if (isChildPath(requested, active) || isChildPath(active, requested)) {
         if (error) {
             *error = QStringLiteral("The current and requested data directories cannot contain one another");
+        }
+        return false;
+    }
+    if (!samePath(active, requested)
+        && !directoryIsEmpty(requested)
+        && !isExistingPinloomDataDirectory(requested)) {
+        if (error) {
+            *error = QStringLiteral(
+                         "The requested directory is not empty and does not contain both Pinloom databases");
         }
         return false;
     }

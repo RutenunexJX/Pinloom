@@ -303,11 +303,12 @@ performs SQLite integrity checks and retains paired database snapshots under
 `backups/application-data`; each finalized snapshot contains a manifest and
 both databases when Clip is available. Destructive Anchor Library operations
 also keep operation-specific safety backups under `backups/anchor-library`.
-Settings can stage a different data directory; Pinloom
-copies the complete directory and activates it before opening either database
-on the next start. The previous directory is retained, nested paths are
-rejected, and a non-empty destination is never overwritten. The data directory
-is local application state, not a synchronization protocol: two running
+Settings can stage a different data directory. On the next start, Pinloom
+copies the current data into an empty destination, or adopts a non-empty
+directory that already contains both `pinloom.sqlite3` and
+`pinloom_clip.sqlite3` without overwriting either database. The previous
+directory is retained, nested paths and unrelated non-empty destinations are
+rejected. The data directory is local application state, not a synchronization protocol: two running
 computers must not open copies managed by a live file-sync service. For
 multi-computer Saved Clips, synchronize the configured Obsidian Markdown vault
 and let each computer keep its own local SQLite index. Anchor replication is

@@ -2568,17 +2568,39 @@ void WidgetSmokeTest::dataDirectoryChangeMigratesOnNextStartup()
     QVERIFY(QFileInfo::exists(QDir(target).filePath(QStringLiteral("backups/clip-library/clip.sqlite3"))));
     QVERIFY(QFileInfo::exists(QDir(source).filePath(QStringLiteral("pinloom.sqlite3"))));
 
+    const QString existing = QDir(dir.path()).filePath(QStringLiteral("existing-pinloom"));
+    QVERIFY(QDir().mkpath(existing));
+    QFile existingAnchor(QDir(existing).filePath(QStringLiteral("pinloom.sqlite3")));
+    QVERIFY(existingAnchor.open(QIODevice::WriteOnly));
+    QCOMPARE(existingAnchor.write("existing-anchor"), static_cast<qint64>(15));
+    existingAnchor.close();
+    QFile existingClip(QDir(existing).filePath(QStringLiteral("pinloom_clip.sqlite3")));
+    QVERIFY(existingClip.open(QIODevice::WriteOnly));
+    QCOMPARE(existingClip.write("existing-clip"), static_cast<qint64>(13));
+    existingClip.close();
+
+    QVERIFY2(stageAppDataDirectoryChange(settings, target, existing, &error), qPrintable(error));
+    const AppDataDirectoryResult adopted = prepareAppDataDirectory(settings, source);
+    QVERIFY2(adopted.succeeded(), qPrintable(adopted.error));
+    QVERIFY(!adopted.migrated);
+    QVERIFY(adopted.adoptedExisting);
+    QCOMPARE(QDir::cleanPath(adopted.directory), QDir::cleanPath(existing));
+    QCOMPARE(configuredAppDataDirectory(settings, source), QDir::cleanPath(existing));
+    QVERIFY(!QFileInfo::exists(
+        QDir(existing).filePath(QStringLiteral("backups/clip-library/clip.sqlite3"))));
+    QVERIFY(existingAnchor.open(QIODevice::ReadOnly));
+    QCOMPARE(existingAnchor.readAll(), QByteArray("existing-anchor"));
+    existingAnchor.close();
+
     const QString conflict = QDir(dir.path()).filePath(QStringLiteral("conflict"));
     QVERIFY(QDir().mkpath(conflict));
     QFile conflictFile(QDir(conflict).filePath(QStringLiteral("existing.txt")));
     QVERIFY(conflictFile.open(QIODevice::WriteOnly));
     conflictFile.write("do-not-overwrite");
     conflictFile.close();
-    QVERIFY(stageAppDataDirectoryChange(settings, target, conflict, &error));
-    const AppDataDirectoryResult rejected = prepareAppDataDirectory(settings, source);
-    QVERIFY(!rejected.succeeded());
-    QCOMPARE(QDir::cleanPath(rejected.directory), QDir::cleanPath(target));
-    QVERIFY(rejected.error.contains(QStringLiteral("not empty")));
+    QVERIFY(!stageAppDataDirectoryChange(settings, existing, conflict, &error));
+    QVERIFY(error.contains(QStringLiteral("not empty")));
+    QCOMPARE(configuredAppDataDirectory(settings, source), QDir::cleanPath(existing));
     QVERIFY(QFileInfo::exists(conflictFile.fileName()));
 }
 
