@@ -20,12 +20,20 @@ HyperHotkeyMatchResult HyperHotkeyStateMachine::process(HyperKeyRole role, bool 
     HyperHotkeyMatchResult result;
     const auto processTrigger = [this, pressed, &result](bool &triggerPressed,
                                                          HyperHotkeyAction action) {
-        if (pressed && armed()) {
-            result.consume = true;
-            if (!triggerPressed) {
+        if (pressed) {
+            if (armed() || triggerPressed) {
+                result.consume = true;
+            }
+            if (armed() && !triggerPressed) {
                 triggerPressed = true;
                 if (!activatedInChord_) {
                     activatedInChord_ = true;
+                    activatedWithF24_ = f24Pressed_;
+                    activatedWithLayerChord_ = !f24Pressed_
+                        && controlPressed_
+                        && altPressed_
+                        && shiftPressed_
+                        && layerPressed_;
                     result.activated = true;
                     result.action = action;
                 }
@@ -47,17 +55,9 @@ HyperHotkeyMatchResult HyperHotkeyStateMachine::process(HyperKeyRole role, bool 
         shiftPressed_ = pressed;
         break;
     case HyperKeyRole::Layer:
-        if (!pressed && layerPressed_ && activatedInChord_) {
-            result.chordReleased = true;
-            activatedInChord_ = false;
-        }
         layerPressed_ = pressed;
         break;
     case HyperKeyRole::F24:
-        if (!pressed && f24Pressed_ && activatedInChord_) {
-            result.chordReleased = true;
-            activatedInChord_ = false;
-        }
         f24Pressed_ = pressed;
         break;
     case HyperKeyRole::SaveTrigger:
@@ -68,6 +68,20 @@ HyperHotkeyMatchResult HyperHotkeyStateMachine::process(HyperKeyRole role, bool 
         break;
     case HyperKeyRole::Other:
         break;
+    }
+
+    const bool triggersReleased = !saveTriggerPressed_ && !insertTriggerPressed_;
+    const bool f24CarrierReleased = !activatedWithF24_ || !f24Pressed_;
+    const bool layerCarrierReleased = !activatedWithLayerChord_
+        || (!controlPressed_ && !altPressed_ && !shiftPressed_ && !layerPressed_);
+    if (activatedInChord_
+        && triggersReleased
+        && f24CarrierReleased
+        && layerCarrierReleased) {
+        activatedInChord_ = false;
+        activatedWithF24_ = false;
+        activatedWithLayerChord_ = false;
+        result.chordReleased = true;
     }
 
     return result;
@@ -83,6 +97,8 @@ void HyperHotkeyStateMachine::reset()
     saveTriggerPressed_ = false;
     insertTriggerPressed_ = false;
     activatedInChord_ = false;
+    activatedWithF24_ = false;
+    activatedWithLayerChord_ = false;
 }
 
 bool HyperHotkeyStateMachine::armed() const

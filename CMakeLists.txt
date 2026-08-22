@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.1.2
+    VERSION 0.1.3
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -156,6 +156,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/ClipTrayPresenter.h
     include/pinloom/widgets/ClipCaptureDialog.h
     include/pinloom/widgets/ClipLibraryWindow.h
+    include/pinloom/widgets/ClipQuickPicker.h
     include/pinloom/widgets/LibraryRootWindow.h
     include/pinloom/widgets/MainPanelHotkey.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
@@ -173,6 +174,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/ClipCaptureDialog.cpp
     src/widgets/ClipResidentHost.cpp
     src/widgets/ClipLibraryWindow.cpp
+    src/widgets/ClipQuickPicker.cpp
     src/widgets/LibraryRootWindow.cpp
     src/widgets/AnchorLibraryWindow.cpp
     src/widgets/PdfLocatorPreviewRenderer.cpp

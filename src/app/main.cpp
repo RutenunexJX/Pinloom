@@ -21,6 +21,7 @@
 #include "pinloom/widgets/ClipResidentRuntime.h"
 #include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
+#include "pinloom/widgets/ClipQuickPicker.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -499,7 +500,7 @@ int main(int argc, char *argv[])
     };
 
     std::optional<Pinloom::ForegroundTextTarget> pendingClipInsertionTarget;
-    QMainWindow *commandWindowForClipInsertion = nullptr;
+    QWidget *activeClipInsertionWindow = nullptr;
 
     Pinloom::ApplicationLaunchSettings applicationLaunchSettings;
     applicationLaunchSettings.sumatraPdfExecutablePath =
@@ -519,7 +520,7 @@ int main(int argc, char *argv[])
                                        &clipHost,
                                        &refreshClipFromObsidian,
                                        &pendingClipInsertionTarget,
-                                       &commandWindowForClipInsertion](const QString &clipId, QString *error) {
+                                       &activeClipInsertionWindow](const QString &clipId, QString *error) {
         if (!clipHost || !clipHost->runtime()) {
             if (error) {
                 *error = QStringLiteral("Pinloom Clip is not running");
@@ -545,15 +546,15 @@ int main(int argc, char *argv[])
             if (!url.has_value()) {
                 return false;
             }
-            if (commandWindowForClipInsertion && commandWindowForClipInsertion->isVisible()) {
-                commandWindowForClipInsertion->hide();
+            if (activeClipInsertionWindow && activeClipInsertionWindow->isVisible()) {
+                activeClipInsertionWindow->hide();
                 app.processEvents();
             }
             if (!QDesktopServices::openUrl(url.value())) {
-                if (commandWindowForClipInsertion) {
-                    commandWindowForClipInsertion->show();
-                    commandWindowForClipInsertion->raise();
-                    commandWindowForClipInsertion->activateWindow();
+                if (activeClipInsertionWindow) {
+                    activeClipInsertionWindow->show();
+                    activeClipInsertionWindow->raise();
+                    activeClipInsertionWindow->activateWindow();
                 }
                 if (error) {
                     *error = QStringLiteral("Unable to open the wb Clip URL in the default browser");
@@ -581,17 +582,17 @@ int main(int argc, char *argv[])
         }
         bool commandWindowWasHidden = false;
         if (insertionTarget.has_value()) {
-            if (commandWindowForClipInsertion && commandWindowForClipInsertion->isVisible()) {
-                commandWindowForClipInsertion->hide();
+            if (activeClipInsertionWindow && activeClipInsertionWindow->isVisible()) {
+                activeClipInsertionWindow->hide();
                 commandWindowWasHidden = true;
                 app.processEvents();
             }
             QString restoreError;
             if (!Pinloom::restoreForegroundTextTarget(insertionTarget.value(), &restoreError)) {
-                if (commandWindowWasHidden && commandWindowForClipInsertion) {
-                    commandWindowForClipInsertion->show();
-                    commandWindowForClipInsertion->raise();
-                    commandWindowForClipInsertion->activateWindow();
+                if (commandWindowWasHidden && activeClipInsertionWindow) {
+                    activeClipInsertionWindow->show();
+                    activeClipInsertionWindow->raise();
+                    activeClipInsertionWindow->activateWindow();
                 }
                 if (error) {
                     *error = restoreError;
@@ -604,10 +605,10 @@ int main(int argc, char *argv[])
         if (!result.inserted() && error) {
             *error = result.error;
         }
-        if (!result.inserted() && commandWindowWasHidden && commandWindowForClipInsertion) {
-            commandWindowForClipInsertion->show();
-            commandWindowForClipInsertion->raise();
-            commandWindowForClipInsertion->activateWindow();
+        if (!result.inserted() && commandWindowWasHidden && activeClipInsertionWindow) {
+            activeClipInsertionWindow->show();
+            activeClipInsertionWindow->raise();
+            activeClipInsertionWindow->activateWindow();
         }
         return result.inserted();
     };
@@ -1037,7 +1038,7 @@ int main(int argc, char *argv[])
     QObject::connect(&window, &Pinloom::PinloomMainWindow::quitRequested, &app, &QApplication::quit);
 
     commandWindowForForegroundCapture = &window;
-    commandWindowForClipInsertion = &window;
+    activeClipInsertionWindow = &window;
 
     Pinloom::PinloomCommandPanelOptions commandOptions;
     commandOptions.statusChangedHandler = [&window](const QString &status) {
@@ -2058,17 +2059,41 @@ int main(int argc, char *argv[])
         return result;
     };
 
+    Pinloom::ClipQuickPickerOptions quickPickerOptions;
+    quickPickerOptions.panelOptions.clipSearchHandler = commandOptions.clipSearchHandler;
+    quickPickerOptions.panelOptions.clipInsertionHandler = commandOptions.clipInsertionHandler;
+    quickPickerOptions.panelOptions.clipLibraryHandler = commandOptions.clipLibraryHandler;
+    quickPickerOptions.panelOptions.statusChangedHandler = commandOptions.statusChangedHandler;
+    Pinloom::ClipQuickPicker clipQuickPicker(std::move(quickPickerOptions));
+    QObject::connect(&clipQuickPicker,
+                     &Pinloom::ClipQuickPicker::dismissed,
+                     &app,
+                     [&clipQuickPicker,
+                      &activeClipInsertionWindow,
+                      &pendingClipInsertionTarget]() {
+                         if (activeClipInsertionWindow == &clipQuickPicker) {
+                             activeClipInsertionWindow = nullptr;
+                         }
+                         pendingClipInsertionTarget.reset();
+                     });
+
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &window);
     window.setCentralWidget(commandPanel);
 
     QObject::connect(&instanceGuard,
                      &Pinloom::PinloomSingleInstanceGuard::activationRequested,
                      &app,
-                     [&window, commandPanel, &pendingClipInsertionTarget](const QString &message) {
+                     [&window,
+                      commandPanel,
+                      &clipQuickPicker,
+                      &activeClipInsertionWindow,
+                      &pendingClipInsertionTarget](const QString &message) {
                          if (message.trimmed().compare(QStringLiteral("resident"), Qt::CaseInsensitive) == 0) {
                              return;
                          }
 
+                         clipQuickPicker.dismiss();
+                         activeClipInsertionWindow = &window;
                          pendingClipInsertionTarget.reset();
                          commandPanel->openCommandSearch();
                          Pinloom::showCommandPanelForHotkey(window, *commandPanel);
@@ -2079,7 +2104,13 @@ int main(int argc, char *argv[])
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::showClipboardRequested,
                          &window,
-                         [&window, commandPanel, &pendingClipInsertionTarget]() {
+                         [&window,
+                          commandPanel,
+                          &clipQuickPicker,
+                          &activeClipInsertionWindow,
+                          &pendingClipInsertionTarget]() {
+                             clipQuickPicker.dismiss();
+                             activeClipInsertionWindow = &window;
                              pendingClipInsertionTarget.reset();
                              commandPanel->openClipSearch();
                              Pinloom::showCommandPanelForHotkey(window, *commandPanel);
@@ -2109,6 +2140,7 @@ int main(int argc, char *argv[])
     Pinloom::HyperHotkeyService hyperHotkeyService(hyperHotkeyBackend.get(), &app);
     bool hyperArchiveNeedsMenuCleanup = false;
     std::optional<Pinloom::TextSelectionCaptureResult> pendingHyperArchiveSelection;
+    std::optional<Pinloom::TextSelectionCaptureResult> pendingHyperInsertSelection;
     const auto showHyperArchiveDialog = [&](const Pinloom::TextSelectionCaptureResult &selection) {
         Pinloom::ClipCaptureDialog dialog(selection.text,
                                           automaticClipName(selection.text),
@@ -2175,14 +2207,12 @@ int main(int argc, char *argv[])
             return;
         }
 
-        pendingClipInsertionTarget = selection.target.isValid()
-            ? std::optional<Pinloom::ForegroundTextTarget>(selection.target)
-            : std::nullopt;
-        commandPanel->openClipSearch();
-        const QPoint insertionPoint = selection.target.hasInsertionPoint
-            ? selection.target.insertionPoint
-            : QCursor::pos();
-        Pinloom::showCommandPanelForHotkeyAt(window, *commandPanel, insertionPoint);
+        if (clipQuickPicker.isVisible()) {
+            pendingHyperInsertSelection.reset();
+            clipQuickPicker.dismiss();
+            return;
+        }
+        pendingHyperInsertSelection = selection;
     });
     QObject::connect(&hyperHotkeyService,
                      &Pinloom::HyperHotkeyService::chordReleased,
@@ -2200,6 +2230,19 @@ int main(int argc, char *argv[])
                                  showHyperArchiveDialog(selection);
                              });
                          }
+                         if (pendingHyperInsertSelection.has_value()) {
+                             const Pinloom::TextSelectionCaptureResult selection =
+                                 pendingHyperInsertSelection.value();
+                             pendingHyperInsertSelection.reset();
+                             QTimer::singleShot(0, &app, [&, selection]() {
+                                 pendingClipInsertionTarget = selection.target.isValid()
+                                     ? std::optional<Pinloom::ForegroundTextTarget>(selection.target)
+                                     : std::nullopt;
+                                 activeClipInsertionWindow = &clipQuickPicker;
+                                 window.hide();
+                                 clipQuickPicker.openForTarget(selection.target);
+                             });
+                         }
                      });
 
     std::unique_ptr<Pinloom::ClipHotkeyBackend> mainPanelHotkeyBackend = Pinloom::createMainPanelHotkeyBackend();
@@ -2209,10 +2252,14 @@ int main(int argc, char *argv[])
     Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService,
                                                                  [&window,
                                                                   commandPanel,
+                                                                  &clipQuickPicker,
+                                                                  &activeClipInsertionWindow,
                                                                   &lastForegroundContext,
                                                                   &pendingClipInsertionTarget]() {
                                                                      lastForegroundContext =
                                                                          Pinloom::currentForegroundAppWindowContext();
+                                                                     clipQuickPicker.dismiss();
+                                                                     activeClipInsertionWindow = &window;
                                                                      pendingClipInsertionTarget.reset();
                                                                      commandPanel->openCommandSearch();
                                                                      Pinloom::showCommandPanelForHotkey(window,

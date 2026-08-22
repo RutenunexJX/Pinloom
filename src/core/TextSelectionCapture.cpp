@@ -101,13 +101,6 @@ ForegroundTextTarget currentTextTarget(HWND foregroundWindow)
     } else {
         target.focusHandle = target.windowHandle;
     }
-    if (!target.hasInsertionPoint) {
-        POINT cursorPoint{};
-        if (GetCursorPos(&cursorPoint)) {
-            target.insertionPoint = QPoint(cursorPoint.x, cursorPoint.y);
-            target.hasInsertionPoint = true;
-        }
-    }
     return target;
 }
 

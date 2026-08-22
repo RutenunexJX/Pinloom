@@ -18,7 +18,6 @@
 #include <QEvent>
 #include <QFileInfo>
 #include <QFormLayout>
-#include <QGuiApplication>
 #include <QHBoxLayout>
 #include <QKeyEvent>
 #include <QLabel>
@@ -31,7 +30,6 @@
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
-#include <QScreen>
 #include <QSize>
 #include <QStyle>
 #include <QToolButton>
@@ -1185,17 +1183,8 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     commandEdit_->installEventFilter(this);
     resultList_->installEventFilter(this);
-    resultList_->viewport()->installEventFilter(this);
-    clipLibraryButton_->installEventFilter(this);
-
-    unusedClipPickerDismissTimer_ = new QTimer(this);
-    unusedClipPickerDismissTimer_->setSingleShot(true);
-    connect(unusedClipPickerDismissTimer_, &QTimer::timeout,
-            this, &PinloomCommandPanel::dismissTransientClipPicker);
 
     connect(commandEdit_, &QLineEdit::textChanged, this, &PinloomCommandPanel::refreshResults);
-    connect(commandEdit_, &QLineEdit::textEdited,
-            this, &PinloomCommandPanel::noteTransientClipPickerInteraction);
     connect(commandEdit_, &QLineEdit::returnPressed, this, &PinloomCommandPanel::activateCurrentCommandItem);
     connect(clipLibraryButton_, &QToolButton::clicked, this, &PinloomCommandPanel::openClipLibrary);
     connect(resultList_, &QListWidget::itemActivated, this, &PinloomCommandPanel::activateResultItem);
@@ -1208,7 +1197,6 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
 void PinloomCommandPanel::setCommandText(const QString &text)
 {
-    endTransientClipPickerSession();
     const bool refreshRequired = commandEdit_->text() == text;
     clipPickerMode_ = false;
     clipLibraryButton_->setVisible(false);
@@ -1227,7 +1215,6 @@ QString PinloomCommandPanel::commandText() const
 
 void PinloomCommandPanel::openCommandSearch(const QString &query)
 {
-    endTransientClipPickerSession();
     const bool refreshRequired = commandEdit_->text() == query;
     clipPickerMode_ = false;
     clipLibraryButton_->setVisible(false);
@@ -1242,7 +1229,6 @@ void PinloomCommandPanel::openCommandSearch(const QString &query)
 
 void PinloomCommandPanel::openClipSearch(const QString &query)
 {
-    endTransientClipPickerSession();
     const QString trimmedQuery = query.trimmed();
     const bool refreshRequired = commandEdit_->text() == trimmedQuery;
     clipPickerMode_ = true;
@@ -1254,24 +1240,6 @@ void PinloomCommandPanel::openClipSearch(const QString &query)
         refreshResults();
     }
     focusCommand();
-}
-
-void PinloomCommandPanel::beginTransientClipPickerSession()
-{
-    endTransientClipPickerSession();
-    if (!clipPickerMode_) {
-        return;
-    }
-
-    transientClipPickerSessionActive_ = true;
-    if (QWidget *host = window()) {
-        host->installEventFilter(this);
-    }
-
-    const int timeout = options_.unusedClipPickerDismissMilliseconds;
-    if (timeout > 0) {
-        unusedClipPickerDismissTimer_->start(timeout);
-    }
 }
 
 void PinloomCommandPanel::setPendingInboxFiles(const QStringList &filePaths)
@@ -1472,24 +1440,6 @@ int PinloomCommandPanel::preferredWindowHeight() const
 
 bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
 {
-    if (transientClipPickerSessionActive_) {
-        const QEvent::Type type = event->type();
-        if (type == QEvent::KeyPress
-            || type == QEvent::MouseButtonPress
-            || type == QEvent::MouseButtonDblClick
-            || type == QEvent::Wheel
-            || type == QEvent::TouchBegin) {
-            noteTransientClipPickerInteraction();
-        }
-        if (watched == window() && type == QEvent::WindowDeactivate) {
-            dismissTransientClipPicker();
-            return false;
-        }
-        if (watched == window() && type == QEvent::Hide) {
-            endTransientClipPickerSession();
-        }
-    }
-
     if (watched == commandEdit_ || watched == resultList_) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             return handleInboxDragEnter(event);
@@ -1535,41 +1485,12 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
             return true;
         }
         if (key == Qt::Key_Escape && modifiers == Qt::NoModifier) {
-            endTransientClipPickerSession();
             window()->hide();
             return true;
         }
     }
 
     return QWidget::eventFilter(watched, event);
-}
-
-void PinloomCommandPanel::noteTransientClipPickerInteraction()
-{
-    if (transientClipPickerSessionActive_) {
-        unusedClipPickerDismissTimer_->stop();
-    }
-}
-
-void PinloomCommandPanel::endTransientClipPickerSession()
-{
-    transientClipPickerSessionActive_ = false;
-    if (unusedClipPickerDismissTimer_) {
-        unusedClipPickerDismissTimer_->stop();
-    }
-}
-
-void PinloomCommandPanel::dismissTransientClipPicker()
-{
-    if (!transientClipPickerSessionActive_) {
-        return;
-    }
-
-    QWidget *host = window();
-    endTransientClipPickerSession();
-    if (host && host->isVisible()) {
-        host->hide();
-    }
 }
 
 void PinloomCommandPanel::paintEvent(QPaintEvent *event)
@@ -2716,39 +2637,6 @@ void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &pane
     commandWindow.raise();
     commandWindow.activateWindow();
     panel.focusCommand();
-}
-
-void showCommandPanelForHotkeyAt(QWidget &commandWindow,
-                                 PinloomCommandPanel &panel,
-                                 const QPoint &anchorPoint)
-{
-    showCommandPanelForHotkey(commandWindow, panel);
-
-    QScreen *screen = QGuiApplication::screenAt(anchorPoint);
-    if (!screen) {
-        screen = QGuiApplication::primaryScreen();
-    }
-    if (!screen) {
-        return;
-    }
-
-    constexpr int Gap = 4;
-    const QRect available = screen->availableGeometry();
-    const QSize size = commandWindow.frameGeometry().size();
-    int x = anchorPoint.x() + Gap;
-    int y = anchorPoint.y() + Gap;
-    if (x + size.width() > available.right() + 1) {
-        x = anchorPoint.x() - size.width() - Gap;
-    }
-    if (y + size.height() > available.bottom() + 1) {
-        y = anchorPoint.y() - size.height() - Gap;
-    }
-    const int maximumX = std::max(available.left(), available.right() - size.width() + 1);
-    const int maximumY = std::max(available.top(), available.bottom() - size.height() + 1);
-    x = std::clamp(x, available.left(), maximumX);
-    y = std::clamp(y, available.top(), maximumY);
-    commandWindow.move(x, y);
-    panel.beginTransientClipPickerSession();
 }
 
 PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,

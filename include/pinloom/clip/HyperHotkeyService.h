@@ -46,6 +46,8 @@ private:
     bool saveTriggerPressed_ = false;
     bool insertTriggerPressed_ = false;
     bool activatedInChord_ = false;
+    bool activatedWithF24_ = false;
+    bool activatedWithLayerChord_ = false;
 };
 
 class HyperHotkeyBackend : public QObject {

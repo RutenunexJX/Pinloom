@@ -401,6 +401,7 @@ private slots:
     void hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger();
     void hyperHotkeyStateMachineAcceptsF24AsCarrier();
     void hyperHotkeyStateMachineEmitsInsertAction();
+    void hyperHotkeyStateMachineWaitsForEveryChordKeyToBeReleased();
     void hyperHotkeyStateMachineRejectsIncompleteChord();
     void textSelectionCaptureServiceUsesProvider();
     void foregroundTextTargetExpiresAfterConfiguredAge();
@@ -2371,11 +2372,12 @@ void ClipTest::hyperHotkeyStateMachineActivatesOnceAndConsumesTrigger()
 
     const HyperHotkeyMatchResult layerUp = matcher.process(HyperKeyRole::Layer, false);
     QVERIFY(!layerUp.consume);
-    QVERIFY(layerUp.chordReleased);
+    QVERIFY(!layerUp.chordReleased);
     QVERIFY(!matcher.armed());
     matcher.process(HyperKeyRole::Shift, false);
     matcher.process(HyperKeyRole::Alt, false);
-    matcher.process(HyperKeyRole::Control, false);
+    const HyperHotkeyMatchResult controlUp = matcher.process(HyperKeyRole::Control, false);
+    QVERIFY(controlUp.chordReleased);
 }
 
 void ClipTest::hyperHotkeyStateMachineAcceptsF24AsCarrier()
@@ -2429,6 +2431,27 @@ void ClipTest::hyperHotkeyStateMachineEmitsInsertAction()
     QVERIFY(matcher.process(HyperKeyRole::SaveTrigger, false).consume);
     QVERIFY(!matcher.process(HyperKeyRole::F24, false).consume);
     QVERIFY(!matcher.armed());
+}
+
+void ClipTest::hyperHotkeyStateMachineWaitsForEveryChordKeyToBeReleased()
+{
+    HyperHotkeyStateMachine matcher;
+    matcher.process(HyperKeyRole::F24, true);
+    QVERIFY(matcher.process(HyperKeyRole::InsertTrigger, true).activated);
+
+    const HyperHotkeyMatchResult carrierUp = matcher.process(HyperKeyRole::F24, false);
+    QVERIFY(!carrierUp.chordReleased);
+    QVERIFY(!matcher.armed());
+
+    const HyperHotkeyMatchResult repeatedTrigger =
+        matcher.process(HyperKeyRole::InsertTrigger, true);
+    QVERIFY(repeatedTrigger.consume);
+    QVERIFY(!repeatedTrigger.activated);
+
+    const HyperHotkeyMatchResult triggerUp =
+        matcher.process(HyperKeyRole::InsertTrigger, false);
+    QVERIFY(triggerUp.consume);
+    QVERIFY(triggerUp.chordReleased);
 }
 
 void ClipTest::hyperHotkeyStateMachineRejectsIncompleteChord()

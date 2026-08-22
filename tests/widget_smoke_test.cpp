@@ -17,6 +17,7 @@
 #include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
+#include "pinloom/widgets/ClipQuickPicker.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
@@ -115,7 +116,7 @@ private slots:
     void panelTreatsCommandPrefixesAsPlainSearchText();
     void commandPanelClipRootCommandShowsCandidates();
     void commandPanelDirectClipPickerOpensWithoutCommandPrefix();
-    void commandPanelTransientClipPickerDismissesWhenUnusedOrDeactivated();
+    void clipQuickPickerPositionsAndDismissesTransiently();
     void clipCaptureDialogReturnsNameAndNormalizedTags();
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
@@ -3037,35 +3038,53 @@ void WidgetSmokeTest::commandPanelDirectClipPickerOpensWithoutCommandPrefix()
     panel.hide();
 }
 
-void WidgetSmokeTest::commandPanelTransientClipPickerDismissesWhenUnusedOrDeactivated()
+void WidgetSmokeTest::clipQuickPickerPositionsAndDismissesTransiently()
 {
-    PinloomCommandPanelOptions options;
-    options.unusedClipPickerDismissMilliseconds = 40;
-    options.clipSearchHandler = [](const QString &, const ClipSearchOptions &) {
+    const QRect available(0, 0, 1920, 1080);
+    const QRect below = clipQuickPickerGeometry(QPoint(960, 400),
+                                                QSize(500, 200),
+                                                available);
+    QVERIFY(qAbs(below.center().x() - 960) <= 1);
+    QCOMPARE(below.top(), 404);
+    QVERIFY(available.contains(below));
+
+    const QRect above = clipQuickPickerGeometry(QPoint(1880, 1040),
+                                                QSize(500, 200),
+                                                available);
+    QCOMPARE(above.bottom(), 1035);
+    QVERIFY(available.adjusted(8, 8, -8, -8).contains(above));
+
+    ClipQuickPickerOptions options;
+    options.untouchedDismissMilliseconds = 40;
+    options.idleDismissMilliseconds = 90;
+    options.panelOptions.clipSearchHandler = [](const QString &, const ClipSearchOptions &) {
         return QList<ClipSearchResult>{};
     };
 
-    QMainWindow host;
-    auto *panel = new PinloomCommandPanel(options, &host);
-    host.setCentralWidget(panel);
-    panel->openClipSearch();
-    showCommandPanelForHotkeyAt(host, *panel, QPoint(20, 20));
-    QApplication::processEvents();
-    QVERIFY(host.isVisible());
-    QTRY_VERIFY_WITH_TIMEOUT(!host.isVisible(), 500);
+    ClipQuickPicker picker(options);
+    QCOMPARE(picker.windowType(), Qt::Popup);
+    QVERIFY(picker.windowFlags().testFlag(Qt::FramelessWindowHint));
+    QVERIFY(!picker.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
 
-    panel->openClipSearch();
-    showCommandPanelForHotkeyAt(host, *panel, QPoint(20, 20));
+    picker.openAt(QPoint(100, 100));
     QApplication::processEvents();
-    auto *commandEdit = panel->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(picker.isVisible());
+    QTRY_VERIFY_WITH_TIMEOUT(!picker.isVisible(), 500);
+
+    picker.openAt(QPoint(100, 100));
+    QApplication::processEvents();
+    auto *commandEdit = picker.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
     QVERIFY(commandEdit);
     QTest::keyClicks(commandEdit, QStringLiteral("used"));
-    QTest::qWait(80);
-    QVERIFY(host.isVisible());
+    QTest::qWait(60);
+    QVERIFY(picker.isVisible());
+    QTRY_VERIFY_WITH_TIMEOUT(!picker.isVisible(), 500);
 
+    picker.openAt(QPoint(100, 100));
+    QApplication::processEvents();
     QEvent deactivateEvent(QEvent::WindowDeactivate);
-    QApplication::sendEvent(&host, &deactivateEvent);
-    QVERIFY(!host.isVisible());
+    QApplication::sendEvent(&picker, &deactivateEvent);
+    QVERIFY(!picker.isVisible());
 }
 
 void WidgetSmokeTest::clipCaptureDialogReturnsNameAndNormalizedTags()
