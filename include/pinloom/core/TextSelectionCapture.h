@@ -41,6 +41,7 @@ struct TextSelectionCaptureResult {
 };
 
 TextSelectionCaptureResult captureForegroundTextSelection();
+ForegroundTextTarget captureForegroundTextTarget();
 TextSelectionCaptureResult captureTextSelectionFromTarget(const ForegroundAppWindowContext &context,
                                                            const ForegroundTextTarget &target);
 

@@ -2,20 +2,22 @@
 
 #include "pinloom/core/TextSelectionCapture.h"
 
-#include <QEvent>
+#include <QCloseEvent>
 #include <QGuiApplication>
 #include <QHideEvent>
-#include <QLineEdit>
-#include <QListWidget>
+#include <QKeyEvent>
+#include <QMoveEvent>
 #include <QScreen>
+#include <QSettings>
 #include <QTimer>
-#include <QToolButton>
 #include <QVBoxLayout>
 
 #include <algorithm>
 #include <utility>
 
 #ifdef Q_OS_WIN
+#include <QtGui/qscreen_platform.h>
+
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
 #endif
@@ -30,73 +32,72 @@ namespace Pinloom {
 namespace {
 
 constexpr int ScreenMargin = 8;
+constexpr int PositionSaveDelayMilliseconds = 150;
 
-bool isInteractionEvent(QEvent::Type type)
+QString positionSettingsKey()
 {
-    return type == QEvent::KeyPress
-        || type == QEvent::MouseButtonPress
-        || type == QEvent::MouseButtonDblClick
-        || type == QEvent::Wheel
-        || type == QEvent::TouchBegin;
+    return QStringLiteral("ui/clipQuickPickerPosition");
 }
 
-QRect targetWindowGeometry(const ForegroundTextTarget &target)
+QRect constrainedScreenBounds(const QRect &availableGeometry)
 {
-#ifdef Q_OS_WIN
-    HWND window = reinterpret_cast<HWND>(target.windowHandle);
-    RECT bounds{};
-    if (window && IsWindow(window) && GetWindowRect(window, &bounds)) {
-        return QRect(bounds.left,
-                     bounds.top,
-                     bounds.right - bounds.left,
-                     bounds.bottom - bounds.top);
-    }
-#else
-    Q_UNUSED(target);
-#endif
-    return {};
+    const QRect inset = availableGeometry.adjusted(ScreenMargin,
+                                                    ScreenMargin,
+                                                    -ScreenMargin,
+                                                    -ScreenMargin);
+    return inset.isValid() ? inset : availableGeometry;
+}
+
+QSize fittedWindowSize(const QSize &windowSize, const QRect &bounds)
+{
+    return QSize(std::min(windowSize.width(), bounds.width()),
+                 std::min(windowSize.height(), bounds.height()));
 }
 
 } // namespace
 
-QRect clipQuickPickerGeometry(const QPoint &anchorPoint,
-                              const QSize &popupSize,
-                              const QRect &availableGeometry,
-                              int gap)
+QRect clipQuickPickerCenteredGeometry(const QSize &windowSize,
+                                      const QRect &availableGeometry)
 {
-    if (!availableGeometry.isValid() || popupSize.isEmpty()) {
-        return QRect(anchorPoint, popupSize);
+    if (!availableGeometry.isValid() || windowSize.isEmpty()) {
+        return QRect(availableGeometry.center(), windowSize);
     }
 
-    QRect bounds = availableGeometry.adjusted(ScreenMargin,
-                                               ScreenMargin,
-                                               -ScreenMargin,
-                                               -ScreenMargin);
-    if (!bounds.isValid()) {
-        bounds = availableGeometry;
+    const QRect bounds = constrainedScreenBounds(availableGeometry);
+    const QSize fittedSize = fittedWindowSize(windowSize, bounds);
+    return QRect(QPoint(bounds.left() + (bounds.width() - fittedSize.width()) / 2,
+                        bounds.top() + (bounds.height() - fittedSize.height()) / 2),
+                 fittedSize);
+}
+
+QRect clipQuickPickerPositionedGeometry(const QPoint &topLeft,
+                                        const QSize &windowSize,
+                                        const QRect &availableGeometry)
+{
+    if (!availableGeometry.isValid() || windowSize.isEmpty()) {
+        return QRect(topLeft, windowSize);
     }
-    const QSize fittedSize(std::min(popupSize.width(), bounds.width()),
-                           std::min(popupSize.height(), bounds.height()));
+
+    const QRect bounds = constrainedScreenBounds(availableGeometry);
+    const QSize fittedSize = fittedWindowSize(windowSize, bounds);
     const int maximumX = bounds.right() - fittedSize.width() + 1;
     const int maximumY = bounds.bottom() - fittedSize.height() + 1;
-
-    int x = anchorPoint.x() - fittedSize.width() / 2;
-    int y = anchorPoint.y() + std::max(0, gap);
-    if (y > maximumY) {
-        y = anchorPoint.y() - fittedSize.height() - std::max(0, gap);
-    }
-    x = std::clamp(x, bounds.left(), maximumX);
-    y = std::clamp(y, bounds.top(), maximumY);
-    return QRect(QPoint(x, y), fittedSize);
+    return QRect(QPoint(std::clamp(topLeft.x(), bounds.left(), maximumX),
+                        std::clamp(topLeft.y(), bounds.top(), maximumY)),
+                 fittedSize);
 }
 
 ClipQuickPicker::ClipQuickPicker(ClipQuickPickerOptions options, QWidget *parent)
-    : QWidget(parent, Qt::Popup | Qt::FramelessWindowHint)
+    : QWidget(parent,
+              Qt::Tool
+                  | Qt::CustomizeWindowHint
+                  | Qt::WindowTitleHint
+                  | Qt::WindowStaysOnTopHint)
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("clipQuickPicker"));
-    setWindowFlag(Qt::WindowStaysOnTopHint, false);
     setAttribute(Qt::WA_DeleteOnClose, false);
+    setWindowModality(Qt::NonModal);
 
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
@@ -106,70 +107,39 @@ ClipQuickPicker::ClipQuickPicker(ClipQuickPickerOptions options, QWidget *parent
     panel_->setObjectName(QStringLiteral("clipQuickPickerPanel"));
     layout->addWidget(panel_);
 
-    dismissTimer_ = new QTimer(this);
-    dismissTimer_->setSingleShot(true);
-    connect(dismissTimer_, &QTimer::timeout, this, &ClipQuickPicker::dismiss);
+    positionSaveTimer_ = new QTimer(this);
+    positionSaveTimer_->setSingleShot(true);
+    positionSaveTimer_->setInterval(PositionSaveDelayMilliseconds);
+    connect(positionSaveTimer_, &QTimer::timeout,
+            this, &ClipQuickPicker::persistPosition);
     connect(panel_, &PinloomCommandPanel::presentationChanged,
             this, [this](bool, int) {
                 resizeAndPosition();
             });
-
-    if (auto *commandEdit = panel_->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"))) {
-        commandEdit->installEventFilter(this);
-        connect(commandEdit, &QLineEdit::textEdited, this, [this]() {
-            markInteraction();
-        });
-    }
-    if (auto *results = panel_->findChild<QListWidget *>(QStringLiteral("commandResultList"))) {
-        results->installEventFilter(this);
-        results->viewport()->installEventFilter(this);
-    }
-    if (auto *libraryButton = panel_->findChild<QToolButton *>(
-            QStringLiteral("commandClipLibraryButton"))) {
-        libraryButton->installEventFilter(this);
-    }
-}
-
-void ClipQuickPicker::openAt(const QPoint &anchorPoint, const QString &query)
-{
-    ++sessionGeneration_;
-    anchorPoint_ = anchorPoint;
-    panel_->openClipSearch(query);
-    sessionState_ = SessionState::Untouched;
-    resizeAndPosition();
-    show();
-    raise();
-    activateWindow();
-    panel_->focusCommand();
-
-    const quint64 generation = sessionGeneration_;
-    QTimer::singleShot(0, this, [this, generation]() {
-        if (generation == sessionGeneration_
-            && sessionState_ == SessionState::Untouched
-            && isVisible()) {
-            startDismissTimer(options_.untouchedDismissMilliseconds);
-        }
-    });
 }
 
 void ClipQuickPicker::openForTarget(const ForegroundTextTarget &target,
                                     const QString &query)
 {
-    const QPoint anchor = target.hasInsertionPoint
-        && QGuiApplication::screenAt(target.insertionPoint)
-        ? target.insertionPoint
-        : fallbackAnchorForTarget(target);
-    openAt(anchor, query);
+    openingScreen_ = screenForTarget(target);
+    panel_->openClipSearch(query);
+    resizeAndPosition();
+
+    if (isMinimized()) {
+        showNormal();
+    } else {
+        show();
+    }
+    raise();
+    activateWindow();
+    panel_->focusCommand();
 }
 
 void ClipQuickPicker::dismiss()
 {
     if (isVisible()) {
         hide();
-        return;
     }
-    dismissTimer_->stop();
-    sessionState_ = SessionState::Closed;
 }
 
 PinloomCommandPanel *ClipQuickPicker::panel() const
@@ -177,86 +147,106 @@ PinloomCommandPanel *ClipQuickPicker::panel() const
     return panel_;
 }
 
-bool ClipQuickPicker::event(QEvent *event)
+void ClipQuickPicker::closeEvent(QCloseEvent *event)
 {
-    const bool handled = QWidget::event(event);
-    if (event && event->type() == QEvent::WindowDeactivate && isVisible()) {
-        hide();
-    }
-    return handled;
-}
-
-bool ClipQuickPicker::eventFilter(QObject *watched, QEvent *event)
-{
-    Q_UNUSED(watched);
-    if (event && isInteractionEvent(event->type())) {
-        markInteraction();
-    }
-    return QWidget::eventFilter(watched, event);
+    event->ignore();
 }
 
 void ClipQuickPicker::hideEvent(QHideEvent *event)
 {
-    const bool wasOpen = sessionState_ != SessionState::Closed;
-    ++sessionGeneration_;
-    dismissTimer_->stop();
-    sessionState_ = SessionState::Closed;
+    positionSaveTimer_->stop();
+    persistPosition();
     QWidget::hideEvent(event);
-    if (wasOpen) {
-        emit dismissed();
+    emit dismissed();
+}
+
+void ClipQuickPicker::keyPressEvent(QKeyEvent *event)
+{
+    if (event->key() == Qt::Key_Escape && event->modifiers() == Qt::NoModifier) {
+        event->accept();
+        dismiss();
+        return;
+    }
+    QWidget::keyPressEvent(event);
+}
+
+void ClipQuickPicker::moveEvent(QMoveEvent *event)
+{
+    QWidget::moveEvent(event);
+    if (positionInitialized_ && !applyingGeometry_ && isVisible()) {
+        positionSaveTimer_->start();
     }
 }
 
-void ClipQuickPicker::markInteraction()
+QScreen *ClipQuickPicker::screenForTarget(const ForegroundTextTarget &target) const
 {
-    if (sessionState_ == SessionState::Closed) {
-        return;
+#ifdef Q_OS_WIN
+    HWND window = reinterpret_cast<HWND>(target.windowHandle);
+    if (window && IsWindow(window)) {
+        HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        if (monitor) {
+            for (QScreen *screen : QGuiApplication::screens()) {
+                auto *nativeScreen = screen->nativeInterface<QNativeInterface::QWindowsScreen>();
+                if (nativeScreen && nativeScreen->handle() == monitor) {
+                    return screen;
+                }
+            }
+        }
     }
-    sessionState_ = SessionState::Active;
-    startDismissTimer(options_.idleDismissMilliseconds);
-}
-
-void ClipQuickPicker::startDismissTimer(int milliseconds)
-{
-    if (milliseconds <= 0) {
-        dismissTimer_->stop();
-        return;
-    }
-    dismissTimer_->start(milliseconds);
+#else
+    Q_UNUSED(target);
+#endif
+    return QGuiApplication::primaryScreen();
 }
 
 void ClipQuickPicker::resizeAndPosition()
 {
-    QScreen *screen = QGuiApplication::screenAt(anchorPoint_);
+    QScreen *screen = nullptr;
+    QPoint requestedPosition;
+    bool hasRequestedPosition = false;
+
+    if (!positionInitialized_ && options_.settings
+        && options_.settings->contains(positionSettingsKey())) {
+        requestedPosition = options_.settings->value(positionSettingsKey()).toPoint();
+        screen = QGuiApplication::screenAt(requestedPosition);
+        hasRequestedPosition = screen != nullptr;
+    }
+
+    if (positionInitialized_) {
+        requestedPosition = pos();
+        screen = QGuiApplication::screenAt(requestedPosition);
+        hasRequestedPosition = screen != nullptr;
+    }
+
     if (!screen) {
-        screen = QGuiApplication::primaryScreen();
+        screen = openingScreen_ ? openingScreen_ : QGuiApplication::primaryScreen();
     }
     if (!screen) {
         return;
     }
 
-    const QRect available = screen->availableGeometry();
     const int preferredWidth = std::clamp(options_.preferredWidth, 320, 520);
     const QSize requestedSize(preferredWidth, panel_->preferredWindowHeight());
-    setGeometry(clipQuickPickerGeometry(anchorPoint_, requestedSize, available));
+    const QRect nextGeometry = hasRequestedPosition
+        ? clipQuickPickerPositionedGeometry(requestedPosition,
+                                            requestedSize,
+                                            screen->availableGeometry())
+        : clipQuickPickerCenteredGeometry(requestedSize,
+                                          screen->availableGeometry());
+
+    applyingGeometry_ = true;
+    resize(nextGeometry.size());
+    move(nextGeometry.topLeft());
+    applyingGeometry_ = false;
+    positionInitialized_ = true;
 }
 
-QPoint ClipQuickPicker::fallbackAnchorForTarget(const ForegroundTextTarget &target) const
+void ClipQuickPicker::persistPosition()
 {
-    const QRect foregroundGeometry = targetWindowGeometry(target);
-    if (foregroundGeometry.isValid()) {
-        const int verticalOffset = std::clamp(foregroundGeometry.height() / 5, 48, 140);
-        return QPoint(foregroundGeometry.center().x(),
-                      foregroundGeometry.top() + verticalOffset);
+    if (!positionInitialized_ || !options_.settings) {
+        return;
     }
-
-    QScreen *screen = QGuiApplication::primaryScreen();
-    if (!screen) {
-        return {};
-    }
-    const QRect available = screen->availableGeometry();
-    return QPoint(available.center().x(),
-                  available.top() + available.height() / 4);
+    options_.settings->setValue(positionSettingsKey(), pos());
 }
 
 } // namespace Pinloom

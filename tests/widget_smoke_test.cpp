@@ -8,6 +8,7 @@
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/core/Version.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
@@ -66,6 +67,7 @@
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScreen>
 #include <QSettings>
 #include <QSpinBox>
 #include <QStatusBar>
@@ -116,7 +118,7 @@ private slots:
     void panelTreatsCommandPrefixesAsPlainSearchText();
     void commandPanelClipRootCommandShowsCandidates();
     void commandPanelDirectClipPickerOpensWithoutCommandPrefix();
-    void clipQuickPickerPositionsAndDismissesTransiently();
+    void clipQuickPickerCentersPersistsAndOnlyEscapeDismisses();
     void clipCaptureDialogReturnsNameAndNormalizedTags();
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
@@ -3038,53 +3040,102 @@ void WidgetSmokeTest::commandPanelDirectClipPickerOpensWithoutCommandPrefix()
     panel.hide();
 }
 
-void WidgetSmokeTest::clipQuickPickerPositionsAndDismissesTransiently()
+void WidgetSmokeTest::clipQuickPickerCentersPersistsAndOnlyEscapeDismisses()
 {
     const QRect available(0, 0, 1920, 1080);
-    const QRect below = clipQuickPickerGeometry(QPoint(960, 400),
-                                                QSize(500, 200),
-                                                available);
-    QVERIFY(qAbs(below.center().x() - 960) <= 1);
-    QCOMPARE(below.top(), 404);
-    QVERIFY(available.contains(below));
+    QCOMPARE(clipQuickPickerCenteredGeometry(QSize(500, 200), available),
+             QRect(710, 440, 500, 200));
+    QCOMPARE(clipQuickPickerPositionedGeometry(QPoint(-100, -100),
+                                               QSize(500, 200),
+                                               available),
+             QRect(8, 8, 500, 200));
+    QCOMPARE(clipQuickPickerPositionedGeometry(QPoint(1900, 1060),
+                                               QSize(500, 200),
+                                               available),
+             QRect(1412, 872, 500, 200));
 
-    const QRect above = clipQuickPickerGeometry(QPoint(1880, 1040),
-                                                QSize(500, 200),
-                                                available);
-    QCOMPARE(above.bottom(), 1035);
-    QVERIFY(available.adjusted(8, 8, -8, -8).contains(above));
+    QTemporaryDir settingsDirectory;
+    QVERIFY(settingsDirectory.isValid());
+    QSettings settings(settingsDirectory.filePath(QStringLiteral("picker.ini")),
+                       QSettings::IniFormat);
 
     ClipQuickPickerOptions options;
-    options.untouchedDismissMilliseconds = 40;
-    options.idleDismissMilliseconds = 90;
+    options.settings = &settings;
     options.panelOptions.clipSearchHandler = [](const QString &, const ClipSearchOptions &) {
         return QList<ClipSearchResult>{};
     };
 
     ClipQuickPicker picker(options);
-    QCOMPARE(picker.windowType(), Qt::Popup);
-    QVERIFY(picker.windowFlags().testFlag(Qt::FramelessWindowHint));
-    QVERIFY(!picker.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+    QCOMPARE(picker.windowType(), Qt::Tool);
+    QVERIFY(!picker.windowFlags().testFlag(Qt::FramelessWindowHint));
+    QVERIFY(picker.windowFlags().testFlag(Qt::WindowTitleHint));
+    QVERIFY(picker.windowFlags().testFlag(Qt::WindowStaysOnTopHint));
+    QVERIFY(!picker.windowFlags().testFlag(Qt::WindowCloseButtonHint));
 
-    picker.openAt(QPoint(100, 100));
+    picker.openForTarget(ForegroundTextTarget{});
     QApplication::processEvents();
     QVERIFY(picker.isVisible());
-    QTRY_VERIFY_WITH_TIMEOUT(!picker.isVisible(), 500);
+    QScreen *screen = QApplication::primaryScreen();
+    QVERIFY(screen);
+    const QRect centered = clipQuickPickerCenteredGeometry(
+        QSize(500, picker.panel()->preferredWindowHeight()),
+        screen->availableGeometry());
+    QCOMPARE(picker.pos(), centered.topLeft());
 
-    picker.openAt(QPoint(100, 100));
+    const QPoint movedPosition = screen->availableGeometry().topLeft() + QPoint(48, 48);
+    picker.move(movedPosition);
     QApplication::processEvents();
-    auto *commandEdit = picker.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    QVERIFY(commandEdit);
-    QTest::keyClicks(commandEdit, QStringLiteral("used"));
-    QTest::qWait(60);
-    QVERIFY(picker.isVisible());
-    QTRY_VERIFY_WITH_TIMEOUT(!picker.isVisible(), 500);
+    QTRY_COMPARE_WITH_TIMEOUT(settings.value(QStringLiteral("ui/clipQuickPickerPosition")).toPoint(),
+                              picker.pos(),
+                              500);
 
-    picker.openAt(QPoint(100, 100));
-    QApplication::processEvents();
     QEvent deactivateEvent(QEvent::WindowDeactivate);
     QApplication::sendEvent(&picker, &deactivateEvent);
+    QTest::qWait(120);
+    QVERIFY(picker.isVisible());
+
+    QVERIFY(!picker.close());
+    QApplication::processEvents();
+    QVERIFY(picker.isVisible());
+
+    auto *commandEdit = picker.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+    QTest::keyClick(commandEdit, Qt::Key_Escape);
+    QApplication::processEvents();
     QVERIFY(!picker.isVisible());
+
+    ClipQuickPicker restoredPicker(options);
+    restoredPicker.openForTarget(ForegroundTextTarget{});
+    QApplication::processEvents();
+    QCOMPARE(restoredPicker.pos(), movedPosition);
+    restoredPicker.dismiss();
+
+    ClipQuickPicker *insertingPicker = nullptr;
+    ClipQuickPickerOptions insertionOptions;
+    insertionOptions.panelOptions.clipSearchHandler = [](const QString &,
+                                                          const ClipSearchOptions &) {
+        ClipSearchResult result;
+        result.clipId = QStringLiteral("insert-me");
+        result.displayName = QStringLiteral("Insert me");
+        result.state = ClipState::Saved;
+        return QList<ClipSearchResult>{result};
+    };
+    insertionOptions.panelOptions.clipInsertionHandler =
+        [&insertingPicker](const QString &, QString *) {
+            if (insertingPicker) {
+                insertingPicker->dismiss();
+            }
+            return true;
+        };
+    ClipQuickPicker enterPicker(insertionOptions);
+    insertingPicker = &enterPicker;
+    enterPicker.openForTarget(ForegroundTextTarget{});
+    QApplication::processEvents();
+    auto *enterEdit = enterPicker.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(enterEdit);
+    QTest::keyClick(enterEdit, Qt::Key_Return);
+    QApplication::processEvents();
+    QVERIFY(!enterPicker.isVisible());
 }
 
 void WidgetSmokeTest::clipCaptureDialogReturnsNameAndNormalizedTags()

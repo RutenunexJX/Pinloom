@@ -1647,14 +1647,11 @@ void PinloomCommandPanel::refreshResults()
             savedOptions.includeSaved = true;
             savedOptions.includeTemporary = false;
             savedOptions.emptyQueryReturnsPinnedAndRecent = true;
-            savedOptions.limit = -1;
+            savedOptions.limit = resultLimit;
             savedOptions.mode = ClipSearchMode::Identity;
 
-            QList<ClipSearchResult> matches = options_.clipSearchHandler(command.query, savedOptions);
-            if (matches.size() > resultLimit) {
-                matches.resize(resultLimit);
-            }
-            appendClipResults(matches, CommandRowAction::ClipInsert);
+            appendClipResults(options_.clipSearchHandler(command.query, savedOptions),
+                              CommandRowAction::ClipInsert);
         } else if (command.query.isEmpty()) {
             ClipSearchOptions temporaryOptions;
             temporaryOptions.includeSaved = false;

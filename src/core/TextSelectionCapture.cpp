@@ -621,6 +621,15 @@ TextSelectionCaptureResult captureForegroundTextSelection()
 #endif
 }
 
+ForegroundTextTarget captureForegroundTextTarget()
+{
+#ifdef Q_OS_WIN
+    return currentTextTarget(GetForegroundWindow());
+#else
+    return {};
+#endif
+}
+
 bool restoreForegroundTextTarget(const ForegroundTextTarget &target, QString *error)
 {
 #ifdef Q_OS_WIN

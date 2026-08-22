@@ -7,8 +7,12 @@
 #include <QSize>
 #include <QWidget>
 
-class QEvent;
+class QCloseEvent;
 class QHideEvent;
+class QKeyEvent;
+class QMoveEvent;
+class QScreen;
+class QSettings;
 class QTimer;
 
 namespace Pinloom {
@@ -17,15 +21,15 @@ struct ForegroundTextTarget;
 
 struct ClipQuickPickerOptions {
     PinloomCommandPanelOptions panelOptions;
-    int untouchedDismissMilliseconds = 3000;
-    int idleDismissMilliseconds = 15000;
+    QSettings *settings = nullptr;
     int preferredWidth = 500;
 };
 
-QRect clipQuickPickerGeometry(const QPoint &anchorPoint,
-                              const QSize &popupSize,
-                              const QRect &availableGeometry,
-                              int gap = 4);
+QRect clipQuickPickerCenteredGeometry(const QSize &windowSize,
+                                      const QRect &availableGeometry);
+QRect clipQuickPickerPositionedGeometry(const QPoint &topLeft,
+                                        const QSize &windowSize,
+                                        const QRect &availableGeometry);
 
 class ClipQuickPicker final : public QWidget {
     Q_OBJECT
@@ -34,7 +38,6 @@ public:
     explicit ClipQuickPicker(ClipQuickPickerOptions options,
                              QWidget *parent = nullptr);
 
-    void openAt(const QPoint &anchorPoint, const QString &query = QString());
     void openForTarget(const ForegroundTextTarget &target,
                        const QString &query = QString());
     void dismiss();
@@ -45,28 +48,22 @@ signals:
     void dismissed();
 
 protected:
-    bool event(QEvent *event) override;
-    bool eventFilter(QObject *watched, QEvent *event) override;
+    void closeEvent(QCloseEvent *event) override;
     void hideEvent(QHideEvent *event) override;
+    void keyPressEvent(QKeyEvent *event) override;
+    void moveEvent(QMoveEvent *event) override;
 
 private:
-    enum class SessionState {
-        Closed,
-        Untouched,
-        Active
-    };
-
-    void markInteraction();
-    void startDismissTimer(int milliseconds);
+    QScreen *screenForTarget(const ForegroundTextTarget &target) const;
     void resizeAndPosition();
-    QPoint fallbackAnchorForTarget(const ForegroundTextTarget &target) const;
+    void persistPosition();
 
     ClipQuickPickerOptions options_;
     PinloomCommandPanel *panel_ = nullptr;
-    QTimer *dismissTimer_ = nullptr;
-    QPoint anchorPoint_;
-    SessionState sessionState_ = SessionState::Closed;
-    quint64 sessionGeneration_ = 0;
+    QTimer *positionSaveTimer_ = nullptr;
+    QScreen *openingScreen_ = nullptr;
+    bool positionInitialized_ = false;
+    bool applyingGeometry_ = false;
 };
 
 } // namespace Pinloom
