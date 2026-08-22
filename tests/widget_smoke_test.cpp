@@ -115,6 +115,7 @@ private slots:
     void panelTreatsCommandPrefixesAsPlainSearchText();
     void commandPanelClipRootCommandShowsCandidates();
     void commandPanelDirectClipPickerOpensWithoutCommandPrefix();
+    void commandPanelTransientClipPickerDismissesWhenUnusedOrDeactivated();
     void clipCaptureDialogReturnsNameAndNormalizedTags();
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
@@ -3034,6 +3035,37 @@ void WidgetSmokeTest::commandPanelDirectClipPickerOpensWithoutCommandPrefix()
     QVERIFY(libraryButton->isHidden());
     QCOMPARE(panel.commandText(), QString());
     panel.hide();
+}
+
+void WidgetSmokeTest::commandPanelTransientClipPickerDismissesWhenUnusedOrDeactivated()
+{
+    PinloomCommandPanelOptions options;
+    options.unusedClipPickerDismissMilliseconds = 40;
+    options.clipSearchHandler = [](const QString &, const ClipSearchOptions &) {
+        return QList<ClipSearchResult>{};
+    };
+
+    QMainWindow host;
+    auto *panel = new PinloomCommandPanel(options, &host);
+    host.setCentralWidget(panel);
+    panel->openClipSearch();
+    showCommandPanelForHotkeyAt(host, *panel, QPoint(20, 20));
+    QApplication::processEvents();
+    QVERIFY(host.isVisible());
+    QTRY_VERIFY_WITH_TIMEOUT(!host.isVisible(), 500);
+
+    panel->openClipSearch();
+    showCommandPanelForHotkeyAt(host, *panel, QPoint(20, 20));
+    QApplication::processEvents();
+    auto *commandEdit = panel->findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
+    QVERIFY(commandEdit);
+    QTest::keyClicks(commandEdit, QStringLiteral("used"));
+    QTest::qWait(80);
+    QVERIFY(host.isVisible());
+
+    QEvent deactivateEvent(QEvent::WindowDeactivate);
+    QApplication::sendEvent(&host, &deactivateEvent);
+    QVERIFY(!host.isVisible());
 }
 
 void WidgetSmokeTest::clipCaptureDialogReturnsNameAndNormalizedTags()

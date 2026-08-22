@@ -20,6 +20,7 @@ class QLineEdit;
 class QListWidget;
 class QListWidgetItem;
 class QPaintEvent;
+class QTimer;
 class QToolButton;
 
 namespace Pinloom {
@@ -47,6 +48,7 @@ struct PinloomCommandActionResult {
 };
 
 struct PinloomCommandPanelOptions {
+    int unusedClipPickerDismissMilliseconds = 5000;
     std::function<QList<PinloomEntry>(const QString &query)> unifiedEntrySearchHandler;
     std::function<QList<PinloomEntry>(const QString &query)> deletedEntrySearchHandler;
     std::function<QList<PinloomCommandResultAction>(const PinloomEntry &entry)> unifiedEntryActionProvider;
@@ -86,6 +88,7 @@ public:
     QString commandText() const;
     void openCommandSearch(const QString &query = QString());
     void openClipSearch(const QString &query = QString());
+    void beginTransientClipPickerSession();
     void setPendingInboxFiles(const QStringList &filePaths);
     QStringList pendingInboxFiles() const;
     void focusCommand();
@@ -152,6 +155,9 @@ private:
     std::optional<InboxFileSaveRequest> promptInboxSaveRequest(const QString &filePath);
     bool handleInboxDragEnter(QEvent *event);
     bool handleInboxDrop(QEvent *event);
+    void noteTransientClipPickerInteraction();
+    void endTransientClipPickerSession();
+    void dismissTransientClipPicker();
     void setTheme(PinloomCommandTheme theme);
     void updatePresentation();
 
@@ -161,6 +167,7 @@ private:
     QToolButton *clipLibraryButton_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
+    QTimer *unusedClipPickerDismissTimer_ = nullptr;
     QString statusText_;
     QStringList pendingInboxFiles_;
     bool showingResultActions_ = false;
@@ -170,6 +177,7 @@ private:
     QPixmap backgroundPixmap_;
     bool compact_ = true;
     bool clipPickerMode_ = false;
+    bool transientClipPickerSessionActive_ = false;
     int preferredWindowHeight_ = 62;
 };
 
