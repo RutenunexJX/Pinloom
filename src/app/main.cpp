@@ -28,6 +28,7 @@
 #include "pinloom/widgets/PinloomCommandPanel.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
+#include "pinloom/widgets/PinloomHostBridge.h"
 #include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
@@ -2004,6 +2005,129 @@ int main(int argc, char *argv[])
         }
         return result;
     };
+
+    const auto resolveHostDocument =
+        [&repository, &findClip](
+            const Pinloom::PinloomHostIdentity &identity)
+            -> std::optional<Pinloom::PinloomHostDocument> {
+        if (!identity.clipId.trimmed().isEmpty()) {
+            const std::optional<Pinloom::Clip> clip =
+                findClip(identity.clipId);
+            if (!clip.has_value()) return std::nullopt;
+
+            Pinloom::PinloomEntry entry;
+            entry.id = QStringLiteral("clip:%1").arg(clip->id);
+            entry.type = Pinloom::PinloomEntryType::SavedClip;
+            entry.name = clip->name.trimmed().isEmpty()
+                ? clip->preview
+                : clip->name;
+            entry.aliases = clip->aliases;
+            entry.tags = clip->tags;
+            entry.pinned = clip->pinned;
+            entry.deleted = clip->state == Pinloom::ClipState::Deleted;
+            entry.usedAt = clip->usedAt;
+            entry.targetSummary = clip->preview;
+            entry.clipId = clip->id;
+            entry.location = clip->sourceUri.trimmed().isEmpty()
+                ? clip->preview
+                : clip->sourceUri;
+            entry.metadata.insert(QStringLiteral("sourceApp"), clip->sourceApp);
+            entry.metadata.insert(QStringLiteral("sourceWindowTitle"),
+                                  clip->sourceWindowTitle);
+
+            Pinloom::PinloomHostDocument document;
+            document.entry = entry;
+            document.content = clip->text;
+            document.details.insert(QStringLiteral("sourceApp"), clip->sourceApp);
+            document.details.insert(QStringLiteral("sourceWindowTitle"),
+                                    clip->sourceWindowTitle);
+            document.details.insert(QStringLiteral("sourceUri"), clip->sourceUri);
+            document.details.insert(QStringLiteral("tags"), clip->tags);
+            return document;
+        }
+
+        if (identity.resourceId.trimmed().isEmpty()) return std::nullopt;
+        const std::optional<Pinloom::Resource> resource =
+            repository.findResource(identity.resourceId);
+        if (!resource.has_value()) return std::nullopt;
+
+        Pinloom::PinloomOpenTarget target;
+        target.resourceId = resource->id;
+        target.resourceKind = resource->kind;
+        target.title = resource->title;
+        target.location = resource->location;
+        target.deleted = resource->deleted;
+        if (!identity.anchorId.trimmed().isEmpty()) {
+            const auto anchor = std::find_if(
+                resource->anchors.cbegin(),
+                resource->anchors.cend(),
+                [&identity](const Pinloom::Anchor &candidate) {
+                    return candidate.id == identity.anchorId;
+                });
+            if (anchor == resource->anchors.cend()) return std::nullopt;
+            target.anchor = *anchor;
+            target.title = anchor->name.trimmed().isEmpty()
+                ? resource->title
+                : anchor->name;
+            target.deleted = target.deleted || anchor->deleted;
+        }
+
+        Pinloom::PinloomEntry entry = Pinloom::entryFromOpenTarget(target);
+        if (!target.anchor.has_value()) {
+            entry.aliases = resource->aliases;
+            entry.tags = resource->tags;
+            const std::optional<Pinloom::ResourceUsage> usage =
+                repository.resourceUsage(resource->id);
+            if (usage.has_value()) {
+                entry.pinned = usage->pinned;
+                entry.usedAt = usage->lastOpenedAt;
+                entry.frequency = usage->openCount;
+            }
+        }
+
+        Pinloom::PinloomHostDocument document;
+        document.entry = entry;
+        document.content = resource->content;
+        document.details.insert(QStringLiteral("resourceId"), resource->id);
+        document.details.insert(QStringLiteral("location"), resource->location);
+        document.details.insert(QStringLiteral("tags"), resource->tags);
+        document.details.insert(QStringLiteral("aliases"), resource->aliases);
+        if (target.anchor.has_value()) {
+            document.details.insert(QStringLiteral("anchorId"), target.anchor->id);
+            document.details.insert(QStringLiteral("targetApp"), target.anchor->targetApp);
+            document.details.insert(QStringLiteral("locatorType"), target.anchor->locatorType);
+            document.details.insert(QStringLiteral("locatorJson"), target.anchor->locatorJson);
+        }
+        return document;
+    };
+
+    Pinloom::PinloomHostBridgeCallbacks hostCallbacks;
+    hostCallbacks.search =
+        [&entrySearchService](const QString &query, int limit) {
+            Pinloom::PinloomEntrySearchOptions options;
+            options.limit = limit;
+            return entrySearchService.search(query, options);
+        };
+    hostCallbacks.resolve = resolveHostDocument;
+    hostCallbacks.open =
+        [resolveHostDocument, activateOpenTarget](
+            const Pinloom::PinloomHostIdentity &identity,
+            QString *status) {
+            const std::optional<Pinloom::PinloomHostDocument> document =
+                resolveHostDocument(identity);
+            if (!document.has_value()) {
+                if (status) *status = QStringLiteral("Pinloom entry no longer exists");
+                return false;
+            }
+            return activateOpenTarget(
+                Pinloom::openTargetFromEntry(document->entry), status);
+        };
+    auto hostBridge = std::make_unique<Pinloom::PinloomHostBridgeServer>(
+        Pinloom::PinloomHostBridgeOptions{}, std::move(hostCallbacks), &app);
+    if (!hostBridge->start()) {
+        window.setRecentError(QStringLiteral("Pinloom host bridge unavailable"),
+                              hostBridge->lastError());
+    }
 
     Pinloom::ClipQuickPickerOptions quickPickerOptions;
     quickPickerOptions.panelOptions.clipSearchHandler = commandOptions.clipSearchHandler;

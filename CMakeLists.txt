@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.1.5
+    VERSION 0.2.0
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -164,6 +164,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomMainWindow.h
     include/pinloom/widgets/PinloomEntry.h
     include/pinloom/widgets/PinloomEntrySearchService.h
+    include/pinloom/widgets/PinloomHostBridge.h
     include/pinloom/widgets/PinloomOpenService.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/PinloomSettingsDialog.h
@@ -186,6 +187,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/PinloomMainWindow.cpp
     src/widgets/PinloomEntry.cpp
     src/widgets/PinloomEntrySearchService.cpp
+    src/widgets/PinloomHostBridge.cpp
     src/widgets/PinloomOpenService.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/PinloomSettingsDialog.cpp
@@ -306,3 +308,16 @@ target_link_libraries(pinloom_widget_smoke_test
 )
 
 pinloom_add_test(pinloom_widget_smoke_test)
+
+add_executable(pinloom_host_bridge_test
+    tests/host_bridge_test.cpp
+)
+
+target_link_libraries(pinloom_host_bridge_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Network
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_host_bridge_test)

@@ -157,6 +157,21 @@ The mismatch is intentional technical debt for the reset:
 The next implementation phases should converge these foundations toward the v1
 anchor model instead of expanding source indexing.
 
+## Host Integration
+
+Pinloom exposes a user-local, versioned `pinloom-host/v1` bridge for trusted
+desktop applications such as ZeroSlack. The bridge supports bounded
+`capabilities`, `search`, `resolve`, and `open` requests over a local Qt socket.
+Search uses `PinloomEntrySearchService`; resolution reads the authoritative
+repository or Saved Clip source; opening delegates to `PinloomOpenService`.
+Consumers receive stable entry/resource/anchor/clip identities and
+`pinloom://` URIs, not direct database access.
+
+Starting `pinloom_app.exe --hidden` keeps the resident application available
+without opening a primary window. The bridge is limited to the current user,
+rejects unsupported protocol versions and oversized requests, and does not
+expose mutation commands.
+
 ## Build
 
 The first verified local toolchain is Qt 6.10.2 with MinGW and CMake/Ninja from
