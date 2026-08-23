@@ -397,13 +397,17 @@ actions return `success`, `message`, `diagnostics`, and a `next UI hint`, and
 the Qt UI is only one caller of that protocol. This keeps the path reusable for
 future hosts such as ZeroSlack without adding a new framework.
 
-## Phase 0 Validation
+## Suite application protocol
 
-Phase 0 resets the product specification only. It does not change the C++ data
-model, SQLite schema, or Qt UI implementation yet.
+Pinloom is the authoritative `suite-app/v1` owner of `pinloom://entry/...`
+resources. It exposes `pinloom.entry.open` and
+`pinloom.source-anchor.create`, plus the model Surface
+`pinloom.entry.preview`. Source-anchor creation goes through Pinloom's existing
+repository and host callbacks; another application never reads the Pinloom
+database directly.
 
-Validation target:
-
-- Documentation states the deterministic anchor launcher direction.
-- Existing build and tests still pass.
-- Changes are committed and pushed to `origin/main`.
+The optional neutral Runtime is discovered through the shared SuiteApp SDK.
+Pinloom registers after its host callbacks are ready and returns protocol
+responses before opening modal preview UI, so nested Qt event loops cannot
+block callers. If the Runtime is absent, Pinloom's command, anchor, and clip
+workflows remain independently usable.

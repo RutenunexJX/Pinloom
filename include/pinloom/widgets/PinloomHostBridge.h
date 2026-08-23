@@ -32,6 +32,24 @@ struct PinloomHostDocument {
     QVariantMap details;
 };
 
+struct PinloomSourceAnchorRequest {
+    QString title;
+    QString content;
+    QString workspaceRoot;
+    QString relativeFilePath;
+    QString absoluteFilePath;
+    QString moduleName;
+    int startLine = 0;
+    int startColumn = 0;
+    int endLine = 0;
+    int endColumn = 0;
+    QString selectedTextHash;
+    QString prefixContext;
+    QString suffixContext;
+
+    bool isValid() const;
+};
+
 struct PinloomHostBridgeOptions {
     QString serverName;
     int requestTimeoutMs = 1200;
@@ -47,10 +65,14 @@ struct PinloomHostBridgeCallbacks {
             const PinloomHostIdentity &)>;
     using OpenHandler =
         std::function<bool(const PinloomHostIdentity &, QString *)>;
+    using CreateSourceAnchorHandler =
+        std::function<std::optional<PinloomEntry>(
+            const PinloomSourceAnchorRequest &, QString *)>;
 
     SearchHandler search;
     ResolveHandler resolve;
     OpenHandler open;
+    CreateSourceAnchorHandler createSourceAnchor;
 };
 
 QString defaultPinloomHostBridgeServerName();

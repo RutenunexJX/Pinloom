@@ -29,6 +29,9 @@
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
+#ifdef PINLOOM_HAS_SUITEAPP
+#include "pinloom/widgets/PinloomSuiteIntegration.h"
+#endif
 #include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
@@ -49,6 +52,8 @@
 #include <QFormLayout>
 #include <QInputDialog>
 #include <QIcon>
+#include <QJsonDocument>
+#include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
 #include <QSettings>
@@ -2122,12 +2127,101 @@ int main(int argc, char *argv[])
             return activateOpenTarget(
                 Pinloom::openTargetFromEntry(document->entry), status);
         };
+    hostCallbacks.createSourceAnchor =
+        [&repository](const Pinloom::PinloomSourceAnchorRequest &request,
+                      QString *status)
+            -> std::optional<Pinloom::PinloomEntry> {
+        const QDateTime now = QDateTime::currentDateTimeUtc();
+        const QString resourceId =
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
+        const QString anchorId =
+            QUuid::createUuid().toString(QUuid::WithoutBraces);
+        QString title = request.title.trimmed();
+        if (title.isEmpty()) {
+            title = QFileInfo(request.absoluteFilePath).fileName()
+                + QStringLiteral(":%1").arg(request.startLine);
+        }
+
+        QJsonObject locator{
+            {QStringLiteral("type"), QStringLiteral("zeroslack.source")},
+            {QStringLiteral("workspaceRoot"), request.workspaceRoot},
+            {QStringLiteral("relativeFilePath"), request.relativeFilePath},
+            {QStringLiteral("line"), request.startLine},
+            {QStringLiteral("column"), request.startColumn},
+            {QStringLiteral("endLine"), request.endLine},
+            {QStringLiteral("endColumn"), request.endColumn},
+            {QStringLiteral("selectedTextHash"), request.selectedTextHash},
+            {QStringLiteral("prefixContext"), request.prefixContext},
+            {QStringLiteral("suffixContext"), request.suffixContext},
+        };
+        if (!request.moduleName.isEmpty()) {
+            locator.insert(QStringLiteral("moduleName"), request.moduleName);
+        }
+
+        Pinloom::Anchor anchor;
+        anchor.id = anchorId;
+        anchor.name = title;
+        anchor.targetApp = QStringLiteral("ZeroSlack");
+        anchor.targetFile = request.absoluteFilePath;
+        anchor.targetUri = QUrl::fromLocalFile(
+            request.absoluteFilePath).toString(QUrl::FullyEncoded);
+        anchor.locatorType = QStringLiteral("zeroslack.source");
+        anchor.locatorJson = QString::fromUtf8(
+            QJsonDocument(locator).toJson(QJsonDocument::Compact));
+        anchor.tags = {QStringLiteral("zeroslack"),
+                       QStringLiteral("source-anchor")};
+        anchor.createdAt = now;
+        anchor.updatedAt = now;
+
+        Pinloom::Resource resource;
+        resource.id = resourceId;
+        resource.kind = Pinloom::ResourceKind::TextSnippet;
+        resource.title = title;
+        resource.location = request.absoluteFilePath;
+        resource.tags = anchor.tags;
+        if (!request.moduleName.isEmpty())
+            resource.tags.append(request.moduleName);
+        resource.anchors = {anchor};
+        resource.content = request.content;
+        resource.updatedAt = now;
+        if (!repository.upsertResource(resource)) {
+            if (status) {
+                *status = repository.lastError().trimmed().isEmpty()
+                    ? QStringLiteral("Pinloom could not save the source anchor")
+                    : repository.lastError();
+            }
+            return std::nullopt;
+        }
+
+        Pinloom::PinloomOpenTarget target;
+        target.resourceId = resource.id;
+        target.resourceKind = resource.kind;
+        target.title = resource.title;
+        target.location = resource.location;
+        target.anchor = anchor;
+        if (status) *status = QStringLiteral("Source anchor created");
+        return Pinloom::entryFromOpenTarget(target);
+    };
+#ifdef PINLOOM_HAS_SUITEAPP
+    Pinloom::PinloomHostBridgeCallbacks suiteCallbacks = hostCallbacks;
+#endif
     auto hostBridge = std::make_unique<Pinloom::PinloomHostBridgeServer>(
         Pinloom::PinloomHostBridgeOptions{}, std::move(hostCallbacks), &app);
     if (!hostBridge->start()) {
         window.setRecentError(QStringLiteral("Pinloom host bridge unavailable"),
                               hostBridge->lastError());
     }
+#ifdef PINLOOM_HAS_SUITEAPP
+    Pinloom::PinloomSuiteIntegration suiteIntegration(
+        std::move(suiteCallbacks), &app);
+    QString suiteIntegrationError;
+    if (!suiteIntegration.start(&suiteIntegrationError)) {
+        const QString error = QStringLiteral("Suite App registration failed: %1")
+                                  .arg(suiteIntegrationError);
+        qWarning().noquote() << error;
+        window.setRecentError(QStringLiteral("Suite App unavailable"), error);
+    }
+#endif
 
     Pinloom::ClipQuickPickerOptions quickPickerOptions;
     quickPickerOptions.panelOptions.clipSearchHandler = commandOptions.clipSearchHandler;

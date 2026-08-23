@@ -54,6 +54,7 @@ class HostBridgeTest final : public QObject {
 
 private slots:
     void servesVersionedSearchResolveAndOpen();
+    void createsValidatedSourceAnchor();
 };
 
 void HostBridgeTest::servesVersionedSearchResolveAndOpen()
@@ -145,6 +146,72 @@ void HostBridgeTest::servesVersionedSearchResolveAndOpen()
     QCOMPARE(response.value(QStringLiteral("error")).toObject()
                  .value(QStringLiteral("code")).toString(),
              QStringLiteral("unsupported_protocol"));
+}
+
+void HostBridgeTest::createsValidatedSourceAnchor()
+{
+    PinloomSourceAnchorRequest captured;
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.createSourceAnchor =
+        [&captured](const PinloomSourceAnchorRequest &requestValue,
+                    QString *status) -> std::optional<PinloomEntry> {
+        captured = requestValue;
+        PinloomEntry entry;
+        entry.id = QStringLiteral("anchor:source-a");
+        entry.type = PinloomEntryType::Anchor;
+        entry.name = requestValue.title;
+        entry.resourceId = QStringLiteral("resource-source-a");
+        Anchor anchor;
+        anchor.id = QStringLiteral("source-a");
+        anchor.name = entry.name;
+        anchor.locatorType = QStringLiteral("zeroslack.source");
+        entry.anchor = anchor;
+        if (status) *status = QStringLiteral("Created source anchor");
+        return entry;
+    };
+
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-source-host-test-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY2(server.start(), qPrintable(server.lastError()));
+
+    const QJsonObject params{
+        {QStringLiteral("title"), QStringLiteral("Reset assignment")},
+        {QStringLiteral("content"), QStringLiteral("rst_n <= 1'b0;")},
+        {QStringLiteral("workspaceRoot"), QStringLiteral("E:/rtl")},
+        {QStringLiteral("relativeFilePath"), QStringLiteral("src/top.sv")},
+        {QStringLiteral("absoluteFilePath"), QStringLiteral("E:/rtl/src/top.sv")},
+        {QStringLiteral("moduleName"), QStringLiteral("top")},
+        {QStringLiteral("startLine"), 12},
+        {QStringLiteral("startColumn"), 5},
+        {QStringLiteral("endLine"), 12},
+        {QStringLiteral("endColumn"), 19},
+        {QStringLiteral("selectedTextHash"), QStringLiteral("hash")},
+        {QStringLiteral("prefixContext"), QStringLiteral("begin\n")},
+        {QStringLiteral("suffixContext"), QStringLiteral("\nend")},
+    };
+    QJsonObject response = exchange(
+        options.serverName,
+        request(QStringLiteral("createSourceAnchor"), params));
+    QVERIFY(response.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(captured.relativeFilePath, QStringLiteral("src/top.sv"));
+    QCOMPARE(captured.startLine, 12);
+    QCOMPARE(response.value(QStringLiteral("result")).toObject()
+                 .value(QStringLiteral("entry")).toObject()
+                 .value(QStringLiteral("title")).toString(),
+             QStringLiteral("Reset assignment"));
+
+    QJsonObject invalidParams = params;
+    invalidParams.insert(QStringLiteral("content"), QString());
+    response = exchange(
+        options.serverName,
+        request(QStringLiteral("createSourceAnchor"), invalidParams));
+    QVERIFY(!response.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(response.value(QStringLiteral("error")).toObject()
+                 .value(QStringLiteral("code")).toString(),
+             QStringLiteral("invalid_source_anchor"));
 }
 
 QTEST_MAIN(HostBridgeTest)

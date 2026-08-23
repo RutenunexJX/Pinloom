@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.2.0
+    VERSION 0.3.0
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -15,6 +15,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test)
+find_package(SuiteApp 1 CONFIG QUIET)
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -210,6 +211,12 @@ target_link_libraries(pinloom_widgets
         Qt6::Concurrent
         Qt6::Network
 )
+if(SuiteApp_FOUND)
+    target_sources(pinloom_widgets PRIVATE
+        include/pinloom/widgets/PinloomSuiteIntegration.h
+        src/widgets/PinloomSuiteIntegration.cpp)
+    target_link_libraries(pinloom_widgets PRIVATE SuiteApp::suiteapp)
+endif()
 
 add_executable(pinloom_app WIN32
     assets/pinloom_app.qrc
@@ -226,6 +233,9 @@ target_link_libraries(pinloom_app
         pinloom_widgets
         Qt6::Widgets
 )
+if(SuiteApp_FOUND)
+    target_compile_definitions(pinloom_app PRIVATE PINLOOM_HAS_SUITEAPP=1)
+endif()
 
 enable_testing()
 
@@ -321,3 +331,11 @@ target_link_libraries(pinloom_host_bridge_test
 )
 
 pinloom_add_test(pinloom_host_bridge_test)
+
+if(SuiteApp_FOUND)
+    add_executable(pinloom_suiteapp_integration_test
+        tests/suiteapp_integration_test.cpp)
+    target_link_libraries(pinloom_suiteapp_integration_test
+        PRIVATE pinloom_widgets SuiteApp::suiteapp Qt6::Test)
+    pinloom_add_test(pinloom_suiteapp_integration_test)
+endif()

@@ -82,7 +82,46 @@ PinloomHostBridgeOptions normalizedOptions(PinloomHostBridgeOptions options)
     return options;
 }
 
+std::optional<PinloomSourceAnchorRequest> sourceAnchorRequestFromJson(
+    const QJsonObject &object)
+{
+    PinloomSourceAnchorRequest request;
+    request.title = object.value(QStringLiteral("title")).toString().trimmed();
+    request.content = object.value(QStringLiteral("content")).toString();
+    request.workspaceRoot =
+        object.value(QStringLiteral("workspaceRoot")).toString().trimmed();
+    request.relativeFilePath =
+        object.value(QStringLiteral("relativeFilePath")).toString().trimmed();
+    request.absoluteFilePath =
+        object.value(QStringLiteral("absoluteFilePath")).toString().trimmed();
+    request.moduleName =
+        object.value(QStringLiteral("moduleName")).toString().trimmed();
+    request.startLine = object.value(QStringLiteral("startLine")).toInt();
+    request.startColumn = object.value(QStringLiteral("startColumn")).toInt();
+    request.endLine = object.value(QStringLiteral("endLine")).toInt();
+    request.endColumn = object.value(QStringLiteral("endColumn")).toInt();
+    request.selectedTextHash =
+        object.value(QStringLiteral("selectedTextHash")).toString().trimmed();
+    request.prefixContext =
+        object.value(QStringLiteral("prefixContext")).toString();
+    request.suffixContext =
+        object.value(QStringLiteral("suffixContext")).toString();
+    return request.isValid()
+        ? std::optional<PinloomSourceAnchorRequest>(request)
+        : std::nullopt;
+}
+
 } // namespace
+
+bool PinloomSourceAnchorRequest::isValid() const
+{
+    return !content.isEmpty()
+        && !absoluteFilePath.trimmed().isEmpty()
+        && startLine > 0
+        && startColumn > 0
+        && endLine >= startLine
+        && endColumn > 0;
+}
 
 bool PinloomHostIdentity::isValid() const
 {
@@ -332,7 +371,8 @@ QJsonObject PinloomHostBridgeServer::processRequest(
                  QJsonArray{QStringLiteral("capabilities"),
                             QStringLiteral("search"),
                             QStringLiteral("resolve"),
-                            QStringLiteral("open")}},
+                            QStringLiteral("open"),
+                            QStringLiteral("createSourceAnchor")}},
             });
     }
 
@@ -351,6 +391,39 @@ QJsonObject PinloomHostBridgeServer::processRequest(
             serialized.append(pinloomHostEntryToJson(entry));
         return successResponse(request,
                                QJsonObject{{QStringLiteral("entries"), serialized}});
+    }
+
+    if (method == QLatin1String("createSourceAnchor")) {
+        if (!callbacks_.createSourceAnchor) {
+            return errorResponse(
+                request,
+                QStringLiteral("unavailable"),
+                QStringLiteral("Pinloom source-anchor creation is unavailable"));
+        }
+        const std::optional<PinloomSourceAnchorRequest> sourceRequest =
+            sourceAnchorRequestFromJson(params);
+        if (!sourceRequest.has_value()) {
+            return errorResponse(
+                request,
+                QStringLiteral("invalid_source_anchor"),
+                QStringLiteral("A non-empty code selection and valid source range are required"));
+        }
+        QString status;
+        const std::optional<PinloomEntry> entry =
+            callbacks_.createSourceAnchor(*sourceRequest, &status);
+        if (!entry.has_value()) {
+            return errorResponse(
+                request,
+                QStringLiteral("create_failed"),
+                status.trimmed().isEmpty()
+                    ? QStringLiteral("Pinloom could not create the source anchor")
+                    : status.trimmed());
+        }
+        return successResponse(
+            request,
+            QJsonObject{{QStringLiteral("entry"),
+                         pinloomHostEntryToJson(*entry)},
+                        {QStringLiteral("message"), status.trimmed()}});
     }
 
     const std::optional<PinloomHostIdentity> identity =
