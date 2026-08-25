@@ -22,6 +22,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/AppDataDirectory.h
     include/pinloom/core/AnchorLibraryArchive.h
     include/pinloom/core/AnchorLibraryManagement.h
+    include/pinloom/core/AnchorLibraryPolicy.h
     include/pinloom/core/AnchorLocator.h
     include/pinloom/core/AnchorTarget.h
     include/pinloom/core/AnchorCapture.h

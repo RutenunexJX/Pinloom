@@ -1,7 +1,7 @@
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 
+#include "pinloom/core/AnchorLibraryPolicy.h"
 #include "pinloom/core/AnchorLocator.h"
-#include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 
@@ -1864,7 +1864,10 @@ QList<AnchorLibraryAnchor> AnchorLibraryWindow::scopedAnchors(const AnchorLibrar
     const bool trash = showingTrash();
     if (!trash && file.resource.deleted) return anchors;
     for (const AnchorLibraryAnchor &entry : file.anchors) {
-        if (entry.anchor.deleted == trash) anchors.append(entry);
+        if (isValidAnchorLibraryAnchor(entry.anchor)
+            && entry.anchor.deleted == trash) {
+            anchors.append(entry);
+        }
     }
     return anchors;
 }
@@ -1904,9 +1907,7 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
     const QList<AnchorLibraryAnchor> anchors = scopedAnchors(file);
     const auto scope = static_cast<AnchorLibraryScope>(scopeCombo_->currentData().toInt());
     if (!showingTrash() && file.resource.deleted) return false;
-    const bool hasFileMarker = isInboxResourceId(file.resource.id)
-        || !file.resource.aliases.isEmpty()
-        || !file.resource.tags.isEmpty();
+    const bool hasFileMarker = hasAnchorLibraryUserMarker(file.resource, file.usage);
     if (!showingTrash() && anchors.isEmpty() && !hasFileMarker) return false;
     if (showingTrash() && anchors.isEmpty() && !file.resource.deleted) return false;
     if (scope == AnchorLibraryScope::Untagged) {

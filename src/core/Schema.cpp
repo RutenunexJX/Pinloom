@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 14;
+    return 15;
 }
 
 QStringList Schema::sqliteFts5Draft()
@@ -20,6 +20,7 @@ QStringList Schema::sqliteFts5Draft()
                        "kind TEXT NOT NULL,"
                        "title TEXT NOT NULL,"
                        "location TEXT NOT NULL,"
+                       "explicitly_retained INTEGER NOT NULL DEFAULT 0,"
                        "deleted INTEGER NOT NULL DEFAULT 0,"
                        "updated_at TEXT"
                        ");"),

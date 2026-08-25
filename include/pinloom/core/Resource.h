@@ -28,6 +28,7 @@ struct Resource {
     QStringList aliases;
     QList<Anchor> anchors;
     QString content;
+    bool explicitlyRetained = false;
     bool deleted = false;
     QDateTime updatedAt;
 };

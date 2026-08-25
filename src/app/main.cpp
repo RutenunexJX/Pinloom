@@ -4,6 +4,7 @@
 #include "pinloom/core/AnchorCaptureDraft.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
+#include "pinloom/core/AnchorLibraryPolicy.h"
 #include "pinloom/core/ApplicationDataBackup.h"
 #include "pinloom/clip/ClipboardCaptureService.h"
 #include "pinloom/clip/ClipAction.h"
@@ -892,6 +893,9 @@ int main(int argc, char *argv[])
             file.usage = repository.resourceUsage(result.resource.id)
                              .value_or(Pinloom::ResourceUsage{result.resource.id});
             for (const Pinloom::Anchor &anchor : result.resource.anchors) {
+                if (!Pinloom::isValidAnchorLibraryAnchor(anchor)) {
+                    continue;
+                }
                 Pinloom::AnchorLibraryAnchor entry;
                 entry.resourceId = result.resource.id;
                 entry.anchor = anchor;
@@ -900,10 +904,7 @@ int main(int argc, char *argv[])
                                   .value_or(Pinloom::AnchorUsage{result.resource.id});
                 file.anchors.append(entry);
             }
-            if (!file.anchors.isEmpty()
-                || Pinloom::isInboxResourceId(result.resource.id)
-                || !result.resource.aliases.isEmpty()
-                || !result.resource.tags.isEmpty()) {
+            if (Pinloom::shouldProvideAnchorLibraryResource(file.resource, file.usage)) {
                 files.append(file);
             }
         }

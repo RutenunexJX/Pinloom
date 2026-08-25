@@ -139,6 +139,7 @@ QJsonObject resourceToJson(const Resource &resource)
             {QStringLiteral("aliases"), stringsToJson(resource.aliases)},
             {QStringLiteral("anchors"), anchors},
             {QStringLiteral("content"), resource.content},
+            {QStringLiteral("explicitlyRetained"), resource.explicitlyRetained},
             {QStringLiteral("deleted"), resource.deleted},
             {QStringLiteral("updatedAt"), resource.updatedAt.toUTC().toString(Qt::ISODateWithMs)}};
 }
@@ -162,6 +163,7 @@ std::optional<Resource> resourceFromJson(const QJsonValue &value, QString *error
     resource.tags = stringsFromJson(object.value(QStringLiteral("tags")));
     resource.aliases = stringsFromJson(object.value(QStringLiteral("aliases")));
     resource.content = object.value(QStringLiteral("content")).toString();
+    resource.explicitlyRetained = object.value(QStringLiteral("explicitlyRetained")).toBool();
     resource.deleted = object.value(QStringLiteral("deleted")).toBool();
     resource.updatedAt = QDateTime::fromString(object.value(QStringLiteral("updatedAt")).toString(),
                                                Qt::ISODate);
@@ -208,6 +210,7 @@ Resource mergeImportedResource(const Resource &current, const Resource &imported
     if (imported.kind != ResourceKind::Unknown) merged.kind = imported.kind;
     if (!imported.location.trimmed().isEmpty()) merged.location = imported.location;
     if (!imported.content.isEmpty()) merged.content = imported.content;
+    merged.explicitlyRetained = current.explicitlyRetained || imported.explicitlyRetained;
     merged.deleted = imported.deleted;
     mergeStringLists(merged.tags, imported.tags);
     mergeStringLists(merged.aliases, imported.aliases);

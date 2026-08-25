@@ -2254,6 +2254,30 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
     request.tags = {QStringLiteral("managed")};
     const InboxFileSaveResult saved = saveInboxFile(repository, request);
     QVERIFY2(saved.success(), qPrintable(saved.status));
+    QVERIFY(repository.findResource(saved.resourceId)->explicitlyRetained);
+
+    const QString shellPath = dir.filePath(QStringLiteral("shell.txt"));
+    QFile shellFile(shellPath);
+    QVERIFY(shellFile.open(QIODevice::WriteOnly));
+    QVERIFY(shellFile.write("shell") > 0);
+    shellFile.close();
+    Resource internalShell;
+    internalShell.id = inboxResourceIdForPath(shellPath);
+    internalShell.kind = ResourceKind::File;
+    internalShell.title = QStringLiteral("Internal shell");
+    internalShell.location = shellPath;
+    QVERIFY(repository.upsertResource(internalShell));
+
+    const QString rootPath = dir.filePath(QStringLiteral("Library Root"));
+    QVERIFY(QDir().mkpath(rootPath));
+    const LibraryRoot root = makeLibraryRootForPath(rootPath);
+    QVERIFY(repository.upsertLibraryRoot(root));
+    Resource rootShell;
+    rootShell.id = inboxResourceIdForPath(rootPath);
+    rootShell.kind = ResourceKind::Folder;
+    rootShell.title = QStringLiteral("Library Root");
+    rootShell.location = rootPath;
+    QVERIFY(repository.upsertResource(rootShell));
 
     AnchorLibraryManagementService management(repository);
     AnchorLibraryWindowOptions options;
@@ -2269,11 +2293,7 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
             entry.resource = result.resource;
             entry.usage = repository.resourceUsage(result.resource.id)
                               .value_or(ResourceUsage{result.resource.id});
-            if (isInboxResourceId(result.resource.id)
-                || !result.resource.aliases.isEmpty()
-                || !result.resource.tags.isEmpty()) {
-                files.append(entry);
-            }
+            files.append(entry);
         }
         return files;
     };
@@ -2289,6 +2309,24 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
     QCOMPARE(window.visibleFileCount(), 1);
     window.setFilterText(QStringLiteral("not-present"));
     QCOMPARE(window.visibleFileCount(), 0);
+    window.setFilterText(QString());
+
+    QVERIFY(repository.setResourcePinned(internalShell.id, true));
+    QTRY_COMPARE(window.visibleFileCount(), 2);
+    QVERIFY(repository.setResourcePinned(internalShell.id, false));
+    QTRY_COMPARE(window.visibleFileCount(), 1);
+
+    Resource retainedOnly = repository.findResource(saved.resourceId).value();
+    retainedOnly.aliases.clear();
+    retainedOnly.tags.clear();
+    QVERIFY(repository.upsertResource(retainedOnly));
+    QTRY_COMPARE(window.visibleFileCount(), 1);
+    retainedOnly.explicitlyRetained = false;
+    QVERIFY(repository.upsertResource(retainedOnly));
+    QTRY_COMPARE(window.visibleFileCount(), 0);
+
+    QCOMPARE(repository.libraryRoots().size(), 1);
+    QCOMPARE(repository.libraryRoots().first().id, root.id);
 }
 
 void WidgetSmokeTest::libraryRootWindowBrowsesTagsAndProtectsSyncRoot()

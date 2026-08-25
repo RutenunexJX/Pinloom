@@ -267,6 +267,9 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
     }
 
     resource.content.clear();
+    if (!request.registerAsLibraryRoot) {
+        resource.explicitlyRetained = true;
+    }
     resource.updatedAt = QDateTime::currentDateTimeUtc();
 
     if (!repository.upsertResource(resource)) {

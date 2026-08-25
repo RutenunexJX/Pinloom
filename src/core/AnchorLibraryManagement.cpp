@@ -1,5 +1,6 @@
 #include "pinloom/core/AnchorLibraryManagement.h"
 
+#include "pinloom/core/AnchorLibraryPolicy.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorTarget.h"
 #include "pinloom/core/ExcelCommand.h"
@@ -480,7 +481,18 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::permanentlyDeleteAn
             return failedResult(QStringLiteral("A trashed anchor was not found"));
         }
     }
-    return applyManagedMutation({batch->updates},
+    LibraryBatchMutation mutation;
+    const QList<LibraryRoot> roots = repository_.libraryRoots();
+    for (const Resource &resource : batch->updates) {
+        const ResourceUsage usage = repository_.resourceUsage(resource.id)
+                                        .value_or(ResourceUsage{resource.id});
+        if (shouldCleanupAnchorLibraryResource(resource, usage, roots)) {
+            mutation.permanentlyDeleteResourceIds.append(resource.id);
+        } else {
+            mutation.upserts.append(resource);
+        }
+    }
+    return applyManagedMutation(mutation,
                                 {},
                                 affected,
                                 QStringLiteral("Permanently deleted %1 anchor(s)").arg(affected),
@@ -842,6 +854,7 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::mergeResources(
         }
         targetPinned = targetPinned
             || repository_.resourceUsage(sourceId).value_or(ResourceUsage{}).pinned;
+        target.explicitlyRetained = target.explicitlyRetained || source.explicitlyRetained;
         source.deleted = true;
         source.updatedAt = updatedAt;
     }

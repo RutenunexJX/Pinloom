@@ -1,6 +1,7 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLibraryManagement.h"
+#include "pinloom/core/AnchorLibraryPolicy.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/LibraryRoot.h"
@@ -34,6 +35,7 @@ private slots:
     void persistsAndSearchesAnchorLocatorFields();
     void persistsAndSearchesInboxFiles();
     void persistsLibraryRootsAndProtectsSyncRoot();
+    void cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots();
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
@@ -431,6 +433,7 @@ void SqliteRepositoryTest::persistsAndSearchesInboxFiles()
     const std::optional<Resource> stored = reopened.findResource(resourceId);
     QVERIFY(stored.has_value());
     QVERIFY(isInboxResource(stored.value()));
+    QVERIFY(stored->explicitlyRetained);
     QCOMPARE(stored->title, QStringLiteral("Inbox Spec"));
     QCOMPARE(stored->location, normalizedInboxFilePath(filePath));
     QCOMPARE(stored->aliases, QStringList{QStringLiteral("inbox alias")});
@@ -493,6 +496,80 @@ void SqliteRepositoryTest::persistsLibraryRootsAndProtectsSyncRoot()
         QVERIFY(repository.removeLibraryRoot(customRoot.id));
         QCOMPARE(repository.libraryRoots().size(), 1);
     }
+}
+
+void SqliteRepositoryTest::cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("pinloom.sqlite3"));
+    const QString filePath = dir.filePath(QStringLiteral("original.pdf"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    QVERIFY(file.write("pdf") > 0);
+    file.close();
+    const QString rootPath = dir.filePath(QStringLiteral("Reference"));
+    QVERIFY(QDir().mkpath(rootPath));
+
+    QString unmarkedId;
+    QString rootResourceId;
+    LibraryRoot root;
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY2(repository.open(databasePath), qPrintable(repository.lastError()));
+        QVERIFY2(repository.initialize(), qPrintable(repository.lastError()));
+
+        Resource unmarked;
+        unmarked.id = inboxResourceIdForPath(filePath);
+        unmarkedId = unmarked.id;
+        unmarked.kind = ResourceKind::Pdf;
+        unmarked.title = QStringLiteral("Internal shell");
+        unmarked.location = filePath;
+        Anchor fileAnchor = testAnchor(QStringLiteral("File anchor"));
+        fileAnchor.id = unmarked.id + QStringLiteral("#anchor");
+        fileAnchor.deleted = true;
+        unmarked.anchors = {fileAnchor};
+        QVERIFY2(repository.upsertResource(unmarked), qPrintable(repository.lastError()));
+
+        root = makeLibraryRootForPath(rootPath);
+        QVERIFY2(repository.upsertLibraryRoot(root), qPrintable(repository.lastError()));
+        Resource rootResource;
+        rootResource.id = inboxResourceIdForPath(rootPath);
+        rootResourceId = rootResource.id;
+        rootResource.kind = ResourceKind::Folder;
+        rootResource.title = QStringLiteral("Root configuration");
+        rootResource.location = rootPath;
+        Anchor rootAnchor = testAnchor(QStringLiteral("Root anchor"));
+        rootAnchor.id = rootResource.id + QStringLiteral("#anchor");
+        rootAnchor.deleted = true;
+        rootResource.anchors = {rootAnchor};
+        QVERIFY2(repository.upsertResource(rootResource), qPrintable(repository.lastError()));
+
+        AnchorLibraryManagementService service(repository);
+        const AnchorLibraryOperationResult result = service.permanentlyDeleteAnchors(
+            {{unmarked.id, fileAnchor}, {rootResource.id, rootAnchor}});
+        QVERIFY2(result.success, qPrintable(result.message));
+        QCOMPARE(result.affectedCount, 2);
+        QVERIFY(!repository.findResource(unmarked.id).has_value());
+        const std::optional<Resource> protectedRootResource =
+            repository.findResource(rootResource.id);
+        QVERIFY(protectedRootResource.has_value());
+        QVERIFY(protectedRootResource->anchors.isEmpty());
+        QVERIFY(!shouldProvideAnchorLibraryResource(
+            protectedRootResource.value(), ResourceUsage{protectedRootResource->id}));
+        QCOMPARE(repository.libraryRoots().size(), 1);
+    }
+
+    QVERIFY(QFileInfo::exists(filePath));
+    SqliteLibraryRepository reopened;
+    QVERIFY2(reopened.open(databasePath), qPrintable(reopened.lastError()));
+    QVERIFY2(reopened.initialize(), qPrintable(reopened.lastError()));
+    QVERIFY(!reopened.findResource(unmarkedId).has_value());
+    const std::optional<Resource> protectedRootResource = reopened.findResource(rootResourceId);
+    QVERIFY(protectedRootResource.has_value());
+    QVERIFY(protectedRootResource->anchors.isEmpty());
+    QCOMPARE(reopened.libraryRoots().size(), 1);
+    QCOMPARE(reopened.libraryRoots().first().id, root.id);
 }
 
 void SqliteRepositoryTest::ranksAnchorAndFilenameMatchesBeforePathNoise()
@@ -1182,6 +1259,7 @@ void SqliteRepositoryTest::upgradesVersionOneDatabase()
     QVERIFY(legacy.has_value());
     QCOMPARE(legacy->title, QStringLiteral("Legacy Note"));
     QCOMPARE(legacy->kind, ResourceKind::File);
+    QVERIFY(!legacy->explicitlyRetained);
     SearchQuery fileQuery;
     fileQuery.requiredKinds = {ResourceKind::File};
     const QList<SearchResult> fileResults = repository.search(fileQuery);

@@ -1,6 +1,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLibraryManagement.h"
+#include "pinloom/core/AnchorLibraryPolicy.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorTarget.h"
 #include "pinloom/core/ApplicationDataBackup.h"
@@ -72,6 +73,7 @@ private slots:
     void softDeletesAndRestoresAnchorsInSearch();
     void managesAnchorLibraryMetadataTagsPathsAndDuplicates();
     void managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink();
+    void cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots();
     void archivesAnchorLibraryJsonAndPublishesAtomicChanges();
     void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
     void recognizesExplorerForegroundWindows();
@@ -1167,6 +1169,7 @@ void CoreSmokeTest::savesInboxFilesByStablePathAndSearchesMetadata()
     const std::optional<Resource> stored = repository.findResource(firstResult.resourceId);
     QVERIFY(stored.has_value());
     QVERIFY(isInboxResource(stored.value()));
+    QVERIFY(stored->explicitlyRetained);
     QCOMPARE(stored->kind, ResourceKind::File);
     QCOMPARE(stored->title, QStringLiteral("Clock Inbox Plan"));
     QCOMPARE(stored->location, normalizedInboxFilePath(filePath));
@@ -1251,6 +1254,7 @@ void CoreSmokeTest::archivesInboxFilesAndRegistersLibraryRoots()
     QVERIFY(rootResource.has_value());
     QCOMPARE(rootResource->kind, ResourceKind::Folder);
     QCOMPARE(rootResource->tags, QStringList{QStringLiteral("source")});
+    QVERIFY(!rootResource->explicitlyRetained);
 
     const QList<LibraryRoot> roots = repository.libraryRoots();
     QCOMPARE(roots.size(), 1);
@@ -1671,6 +1675,88 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     QVERIFY(!service.canUndo());
 }
 
+void CoreSmokeTest::cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString originalPath = directory.filePath(QStringLiteral("original.pdf"));
+    QFile original(originalPath);
+    QVERIFY(original.open(QIODevice::WriteOnly));
+    QVERIFY(original.write("pdf") > 0);
+    original.close();
+
+    const QString rootPath = directory.filePath(QStringLiteral("Reference"));
+    QVERIFY(QDir().mkpath(rootPath));
+
+    const auto resourceWithTrashedAnchor = [](const QString &id,
+                                               const QString &location,
+                                               ResourceKind kind = ResourceKind::File) {
+        Resource resource;
+        resource.id = id;
+        resource.kind = kind;
+        resource.title = id;
+        resource.location = location;
+        Anchor anchor = testAnchor(QStringLiteral("Trashed anchor"));
+        anchor.id = id + QStringLiteral("#anchor");
+        anchor.deleted = true;
+        resource.anchors = {anchor};
+        return resource;
+    };
+
+    Resource unmarked = resourceWithTrashedAnchor(QStringLiteral("unmarked"), originalPath);
+    Resource aliasMarked = resourceWithTrashedAnchor(QStringLiteral("alias-marked"), originalPath);
+    aliasMarked.aliases = {QStringLiteral("kept alias")};
+    Resource tagMarked = resourceWithTrashedAnchor(QStringLiteral("tag-marked"), originalPath);
+    tagMarked.tags = {QStringLiteral("kept-tag")};
+    Resource pinned = resourceWithTrashedAnchor(QStringLiteral("pinned"), originalPath);
+    Resource retained = resourceWithTrashedAnchor(QStringLiteral("retained"), originalPath);
+    retained.explicitlyRetained = true;
+    Resource rootBacked = resourceWithTrashedAnchor(QStringLiteral("root-backed"),
+                                                     rootPath,
+                                                     ResourceKind::Folder);
+
+    InMemoryLibraryRepository repository;
+    for (const Resource &resource : {unmarked, aliasMarked, tagMarked, pinned, retained, rootBacked}) {
+        QVERIFY(repository.upsertResource(resource));
+    }
+    QVERIFY(repository.setResourcePinned(pinned.id, true));
+    const LibraryRoot root = makeLibraryRootForPath(rootPath);
+    QVERIFY(repository.upsertLibraryRoot(root));
+
+    AnchorLibraryManagementService service(repository);
+    QList<AnchorReference> references;
+    for (const Resource &resource : {unmarked, aliasMarked, tagMarked, pinned, retained, rootBacked}) {
+        references.append({resource.id, resource.anchors.first()});
+    }
+    const AnchorLibraryOperationResult result = service.permanentlyDeleteAnchors(references);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(result.affectedCount, 6);
+
+    QVERIFY(!repository.findResource(unmarked.id).has_value());
+    QVERIFY(QFileInfo::exists(originalPath));
+    for (const QString &resourceId : {aliasMarked.id,
+                                      tagMarked.id,
+                                      pinned.id,
+                                      retained.id,
+                                      rootBacked.id}) {
+        const std::optional<Resource> stored = repository.findResource(resourceId);
+        QVERIFY(stored.has_value());
+        QVERIFY(stored->anchors.isEmpty());
+    }
+    QCOMPARE(repository.libraryRoots().size(), 1);
+    QCOMPARE(repository.libraryRoots().first().id, root.id);
+
+    const ResourceUsage noUsage{QStringLiteral("inbox:file:internal-shell")};
+    Resource internalShell;
+    internalShell.id = noUsage.resourceId;
+    internalShell.location = originalPath;
+    QVERIFY(!shouldProvideAnchorLibraryResource(internalShell, noUsage));
+    Resource retainedOnly = retained;
+    retainedOnly.anchors.clear();
+    QVERIFY(shouldProvideAnchorLibraryResource(retainedOnly,
+                                               ResourceUsage{retainedOnly.id}));
+}
+
 void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()
 {
     QTemporaryDir directory;
@@ -1681,6 +1767,7 @@ void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()
     resource.title = QStringLiteral("Archive note");
     resource.location = QStringLiteral("note://archive");
     resource.tags = {QStringLiteral("portable")};
+    resource.explicitlyRetained = true;
     Anchor anchor = testAnchor(QStringLiteral("Section"), QStringLiteral("text.heading"));
     anchor.id = QStringLiteral("archive-note#section");
     anchor.aliases = {QStringLiteral("part")};
@@ -1723,6 +1810,7 @@ void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()
     const std::optional<Resource> imported = repository.findResource(resource.id);
     QVERIFY(imported.has_value());
     QCOMPARE(imported->title, resource.title);
+    QVERIFY(imported->explicitlyRetained);
     QCOMPARE(imported->anchors.first().aliases, anchor.aliases);
     QVERIFY(imported->anchors.first().pinned);
 

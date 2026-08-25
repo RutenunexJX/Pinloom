@@ -604,6 +604,11 @@ bool SqliteLibraryRepository::initialize()
         return false;
     }
 
+    if (!ensureResourceRetentionColumn()) {
+        rollbackTransaction();
+        return false;
+    }
+
     if (!ensureLibraryRootColumns()) {
         rollbackTransaction();
         return false;
@@ -644,7 +649,8 @@ bool SqliteLibraryRepository::initialize()
         || !recordMigration(11, QStringLiteral("canonical_anchor_locators"))
         || !recordMigration(12, QStringLiteral("stable_anchor_identity"))
         || !recordMigration(13, QStringLiteral("lifecycle_search_index"))
-        || !recordMigration(14, QStringLiteral("library_roots_and_managed_items"))) {
+        || !recordMigration(14, QStringLiteral("library_roots_and_managed_items"))
+        || !recordMigration(15, QStringLiteral("explicit_anchor_library_retention"))) {
         rollbackTransaction();
         return false;
     }
@@ -680,18 +686,20 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     }
 
     QSqlQuery query(database_);
-    query.prepare(QStringLiteral("INSERT INTO resources(id, kind, title, location, deleted, updated_at) "
-                                 "VALUES (?, ?, ?, ?, ?, ?) "
+    query.prepare(QStringLiteral("INSERT INTO resources(id, kind, title, location, explicitly_retained, deleted, updated_at) "
+                                 "VALUES (?, ?, ?, ?, ?, ?, ?) "
                                  "ON CONFLICT(id) DO UPDATE SET "
                                  "kind = excluded.kind,"
                                  "title = excluded.title,"
                                  "location = excluded.location,"
+                                 "explicitly_retained = excluded.explicitly_retained,"
                                  "deleted = excluded.deleted,"
                                  "updated_at = excluded.updated_at"));
     query.addBindValue(storedResource.id);
     query.addBindValue(resourceKindToString(storedResource.kind));
     query.addBindValue(storedResource.title);
     query.addBindValue(storedResource.location);
+    query.addBindValue(storedResource.explicitlyRetained ? 1 : 0);
     query.addBindValue(storedResource.deleted ? 1 : 0);
     query.addBindValue(storedResource.updatedAt.isValid()
                            ? storedResource.updatedAt.toUTC().toString(Qt::ISODate)
@@ -1833,6 +1841,25 @@ bool SqliteLibraryRepository::ensureSoftDeleteColumns()
     return true;
 }
 
+bool SqliteLibraryRepository::ensureResourceRetentionColumn()
+{
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("PRAGMA table_info(resources)"))) {
+        setLastError(query.lastError().text());
+        return false;
+    }
+    bool hasRetentionColumn = false;
+    while (query.next()) {
+        if (query.value(1).toString() == QLatin1String("explicitly_retained")) {
+            hasRetentionColumn = true;
+            break;
+        }
+    }
+    return hasRetentionColumn
+        || execute(QStringLiteral(
+            "ALTER TABLE resources ADD COLUMN explicitly_retained INTEGER NOT NULL DEFAULT 0"));
+}
+
 bool SqliteLibraryRepository::ensureLibraryRootColumns()
 {
     QSqlQuery query(database_);
@@ -2554,7 +2581,9 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     Resource resource;
 
     QSqlQuery query(database_);
-    query.prepare(QStringLiteral("SELECT id, kind, title, location, deleted, updated_at FROM resources WHERE id = ?"));
+    query.prepare(QStringLiteral(
+        "SELECT id, kind, title, location, explicitly_retained, deleted, updated_at "
+        "FROM resources WHERE id = ?"));
     query.addBindValue(id);
     if (!query.exec() || !query.next()) {
         setLastError(query.lastError().text());
@@ -2565,8 +2594,9 @@ Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
     resource.kind = resourceKindFromString(query.value(1).toString());
     resource.title = query.value(2).toString();
     resource.location = query.value(3).toString();
-    resource.deleted = query.value(4).toInt() != 0;
-    resource.updatedAt = QDateTime::fromString(query.value(5).toString(), Qt::ISODate);
+    resource.explicitlyRetained = query.value(4).toInt() != 0;
+    resource.deleted = query.value(5).toInt() != 0;
+    resource.updatedAt = QDateTime::fromString(query.value(6).toString(), Qt::ISODate);
     resource.tags = readStrings(QStringLiteral("resource_tags"), QStringLiteral("tag"), id);
     resource.aliases = readStrings(QStringLiteral("resource_aliases"), QStringLiteral("alias"), id);
     resource.anchors = readAnchors(id);

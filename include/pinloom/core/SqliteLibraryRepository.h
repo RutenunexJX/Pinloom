@@ -54,6 +54,7 @@ private:
     bool execute(const QString &sql);
     bool ensureAnchorLocatorColumns();
     bool ensureSoftDeleteColumns();
+    bool ensureResourceRetentionColumn();
     bool ensureLibraryRootColumns();
     bool migrateCanonicalAnchorSchema();
     bool migrateStableAnchorIdentitySchema();
