@@ -79,6 +79,11 @@ PdfCaptureRequest captureRequestFromManualRequest(
     captureRequest.zoom = request.zoom;
     captureRequest.unit = request.unit;
     captureRequest.source = request.source;
+    captureRequest.searchText = request.searchText;
+    captureRequest.contextBefore = request.contextBefore;
+    captureRequest.contextAfter = request.contextAfter;
+    captureRequest.occurrence = request.occurrence;
+    captureRequest.fallbackRect = request.fallbackRect;
     return captureRequest;
 }
 
@@ -110,6 +115,12 @@ QString manualPdfAnchorLocatorSummary(const ManualPdfAnchorCreationRequest &requ
                               decimalText(request.rect.right),
                               decimalText(request.rect.bottom),
                               request.unit.trimmed().isEmpty() ? QStringLiteral("pt") : request.unit.trimmed()));
+    }
+    if (locatorType == QLatin1String("sumatrapdf.search")) {
+        parts.append(request.searchText.trimmed().isEmpty()
+                         ? QStringLiteral("text missing")
+                         : QStringLiteral("text \"%1\"")
+                               .arg(request.searchText.simplified().left(80)));
     }
     parts.append(request.zoom > 0.0
                      ? QStringLiteral("zoom %1%").arg(decimalText(request.zoom))
@@ -168,9 +179,12 @@ ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfAnc
     resource.updatedAt = now;
 
     Anchor anchor = capture.anchor;
-    const QString anchorSuffix = anchor.locatorType == QLatin1String("sumatrapdf.page")
-        ? QStringLiteral("page")
-        : QStringLiteral("rect");
+    QString anchorSuffix = QStringLiteral("rect");
+    if (anchor.locatorType == QLatin1String("sumatrapdf.page")) {
+        anchorSuffix = QStringLiteral("page");
+    } else if (anchor.locatorType == QLatin1String("sumatrapdf.search")) {
+        anchorSuffix = QStringLiteral("search");
+    }
     anchor.id = QStringLiteral("%1#%2").arg(resource.id, anchorSuffix);
     anchor.name = name;
     anchor.aliases = cleanedValues(request.aliases);

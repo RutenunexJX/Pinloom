@@ -17,6 +17,7 @@ struct SumatraPdfCommand {
     int page = -1;
     double zoom = -1.0;
     QRectF highlightRect;
+    QString searchText;
 };
 
 struct SumatraPdfCommandResult {

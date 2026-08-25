@@ -62,6 +62,8 @@ struct PinloomCommandPanelOptions {
     std::function<bool(const PinloomClipSaveRequest &request, QString *error)> clipSaveHandler;
     std::function<bool(QString *status)> clipLibraryHandler;
     std::function<bool(QString *status)> anchorCaptureHandler;
+    std::function<bool(QString *status)> rectangleAnchorCaptureHandler;
+    std::function<bool(QString *status)> textAnchorCaptureHandler;
     std::function<bool(QString *status)> anchorLibraryHandler;
     std::function<bool(QString *status)> libraryRootHandler;
     std::function<QStringList(QString *status)> inboxSelectionProvider;
@@ -107,6 +109,8 @@ public:
     PinloomCommandTheme theme() const;
     bool isCompact() const;
     int preferredWindowHeight() const;
+    bool triggerRectangleAnchorCapture();
+    bool triggerTextAnchorCapture();
 
 signals:
     void statusChanged(const QString &status);
@@ -139,6 +143,10 @@ private:
     bool saveClipFromItem(const QListWidgetItem *item);
     bool openClipLibrary();
     bool captureAnchor();
+    bool runQuickAnchorCapture(
+        const std::function<bool(QString *status)> &handler,
+        const QString &unavailableStatus,
+        const QString &successStatus);
     bool openAnchorLibrary();
     bool openLibraryRoots();
     bool saveInboxFromCommand();
@@ -158,6 +166,9 @@ private:
     QLineEdit *commandEdit_ = nullptr;
     QLabel *versionLabel_ = nullptr;
     QToolButton *clipLibraryButton_ = nullptr;
+    QWidget *quickActionRow_ = nullptr;
+    QToolButton *rectangleAnchorButton_ = nullptr;
+    QToolButton *textAnchorButton_ = nullptr;
     QListWidget *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;

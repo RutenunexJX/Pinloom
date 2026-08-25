@@ -11,6 +11,7 @@
 #include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/core/Version.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
+#include "pinloom/widgets/AnchorCaptureDialog.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/ClipResidentHost.h"
@@ -27,6 +28,7 @@
 #include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomPanel.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
@@ -69,6 +71,7 @@
 #include <QScrollBar>
 #include <QScreen>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTemporaryDir>
@@ -193,9 +196,13 @@ private slots:
     void panelLaunchesPowerPointAnchorWithInjectedExecutor();
     void panelReportsInvalidPowerPointLocatorWithoutGenericOpen();
     void panelLaunchesSumatraPdfAnchorWithInjectedExecutor();
+    void sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight();
+    void persistentPdfHighlightRegistrySupportsMultipleStableKeys();
     void panelReportsMissingSumatraPdfExecutable();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
+    void sharedAnchorCaptureDialogRequiresExplicitMutationConsent();
+    void applicationThemeProvidesLightAndDarkSemanticTokens();
     void textPreviewLoadsTargetFile();
 };
 
@@ -3388,7 +3395,7 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
     QVERIFY(commandEdit);
     QVERIFY(results);
 
-    panel.setCommandText(QStringLiteral("c n"));
+    panel.setCommandText(QStringLiteral("clip;new"));
 
     QCOMPARE(results->count(), 1);
     QCOMPARE(panel.currentResult().clipId, temporary.clip->id);
@@ -3415,7 +3422,7 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
     QVERIFY(saved->pinned);
     QCOMPARE(clipRepository.temporaryClips().size(), 0);
 
-    panel.setCommandText(QStringLiteral("c n"));
+    panel.setCommandText(QStringLiteral("clip;new"));
     QCOMPARE(results->count(), 0);
 }
 
@@ -3581,6 +3588,8 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
 void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 {
     int captureCount = 0;
+    int rectangleCaptureCount = 0;
+    int textCaptureCount = 0;
     QStringList statusNotifications;
     PinloomCommandPanelOptions options;
     options.statusChangedHandler = [&](const QString &statusText) {
@@ -3593,12 +3602,45 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
         }
         return true;
     };
+    options.rectangleAnchorCaptureHandler = [&](QString *status) {
+        ++rectangleCaptureCount;
+        if (status) {
+            *status = QStringLiteral("Captured rectangle via quick action");
+        }
+        return true;
+    };
+    options.textAnchorCaptureHandler = [&](QString *status) {
+        ++textCaptureCount;
+        if (status) {
+            *status = QStringLiteral("Captured text via quick action");
+        }
+        return true;
+    };
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
+    auto *quickRow = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
+    auto *rectangleButton = panel.findChild<QToolButton *>(
+        QStringLiteral("commandRectangleAnchorButton"));
+    auto *textButton = panel.findChild<QToolButton *>(
+        QStringLiteral("commandTextAnchorButton"));
+    QVERIFY(quickRow);
+    QVERIFY(rectangleButton);
+    QVERIFY(textButton);
+    QVERIFY(quickRow->isVisibleTo(&panel));
+    QVERIFY(rectangleButton->isEnabled());
+    QVERIFY(textButton->isEnabled());
+    QVERIFY(panel.preferredWindowHeight() > 62);
+
+    QTest::mouseClick(rectangleButton, Qt::LeftButton);
+    QCOMPARE(rectangleCaptureCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured rectangle via quick action"));
+    QTest::mouseClick(textButton, Qt::LeftButton);
+    QCOMPARE(textCaptureCount, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured text via quick action"));
 
     panel.setCommandText(QStringLiteral("k"));
 
@@ -3627,7 +3669,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
         return false;
     };
     PinloomCommandPanel noContextPanel(noContextOptions);
-    noContextPanel.setCommandText(QStringLiteral("k n"));
+    noContextPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(!noContextPanel.activateCurrentCommandItem());
     QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
@@ -3671,8 +3713,7 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
         QStringLiteral("ah;l"),
         QStringLiteral("ancr;li"),
         QStringLiteral("anco;l"),
-        QStringLiteral("anchor:library"),
-        QStringLiteral("k l")
+        QStringLiteral("anchor:library")
     };
     for (const QString &abbreviation : structuredAbbreviations) {
         panel.setCommandText(abbreviation);
@@ -3684,6 +3725,30 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(libraryOpenCount, 1);
     QCOMPARE(panel.statusText(), QStringLiteral("Opened test Anchor Library"));
+
+    QStringList plainQueries;
+    PinloomCommandPanelOptions plainOptions;
+    plainOptions.unifiedEntrySearchHandler = [&](const QString &query) {
+        plainQueries.append(query);
+        return QList<PinloomEntry>{};
+    };
+    PinloomCommandPanel plainPanel(plainOptions);
+    const QStringList removedWhitespaceForms{
+        QStringLiteral("c s"),
+        QStringLiteral("c n"),
+        QStringLiteral("c l"),
+        QStringLiteral("k n"),
+        QStringLiteral("k l"),
+        QStringLiteral("i n"),
+        QStringLiteral("i s"),
+        QStringLiteral("r l")
+    };
+    for (const QString &removed : removedWhitespaceForms) {
+        plainPanel.setCommandText(removed);
+        QCOMPARE(plainPanel.theme(), PinloomCommandTheme::Neutral);
+        QCOMPARE(plainQueries.last(), removed);
+        QCOMPARE(plainPanel.resultCount(), 0);
+    }
 }
 
 void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
@@ -3785,7 +3850,7 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
     QVERIFY(results);
 
     panel.setPendingInboxFiles({filePath});
-    panel.setCommandText(QStringLiteral("i n"));
+    panel.setCommandText(QStringLiteral("inbox;new"));
 
     QCOMPARE(panel.pendingInboxFiles(), QStringList{filePath});
     QCOMPARE(results->count(), 1);
@@ -3835,7 +3900,7 @@ void WidgetSmokeTest::commandPanelInboxNewReportsMissingPendingAndExplorerSelect
     };
 
     PinloomCommandPanel panel(options);
-    panel.setCommandText(QStringLiteral("i n"));
+    panel.setCommandText(QStringLiteral("inbox;new"));
 
     QVERIFY(!panel.activateCurrentCommandItem());
     QCOMPARE(selectionCalls, 1);
@@ -3903,7 +3968,7 @@ void WidgetSmokeTest::commandPanelInboxSearchStaysInUnifiedWindow()
     };
 
     PinloomCommandPanel panel(options);
-    panel.setCommandText(QStringLiteral("i s clock alias"));
+    panel.setCommandText(QStringLiteral("inbox;search clock alias"));
 
     QCOMPARE(queries, QStringList{QStringLiteral("clock alias")});
     QCOMPARE(panel.resultCount(), 1);
@@ -3925,14 +3990,18 @@ void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
     PinloomCommandPanel panel(options);
     auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
     auto *status = panel.findChild<QLabel *>(QStringLiteral("commandStatusLabel"));
+    auto *quickActions = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
     QVERIFY(results);
     QVERIFY(status);
+    QVERIFY(quickActions);
 
     QCOMPARE(panel.theme(), PinloomCommandTheme::Neutral);
     QVERIFY(panel.isCompact());
     QVERIFY(results->isHidden());
     QVERIFY(status->isHidden());
-    QVERIFY(panel.preferredWindowHeight() <= 72);
+    QVERIFY(quickActions->isVisibleTo(&panel));
+    QVERIFY(panel.preferredWindowHeight() >= 88);
+    QVERIFY(panel.preferredWindowHeight() <= 120);
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-neutral.png")));
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-anchor.png")));
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-clip.png")));
@@ -4835,7 +4904,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithout
         return captured;
     };
     PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("k n"));
+    commandPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(commandPanel.activateCurrentCommandItem());
 
@@ -4917,7 +4986,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
         return captured;
     };
     PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("k n"));
+    commandPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(commandPanel.activateCurrentCommandItem());
 
@@ -4990,7 +5059,7 @@ void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
         return captured;
     };
     PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("k n"));
+    commandPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(commandPanel.activateCurrentCommandItem());
 
@@ -5026,7 +5095,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSel
         [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
         ++foregroundRequestCount;
         if (status) {
-            *status = QStringLiteral("Open or focus a SumatraPDF PDF before k n");
+            *status = QStringLiteral("Open or focus a SumatraPDF PDF before anchor;new");
         }
         return std::nullopt;
     };
@@ -5044,12 +5113,12 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSel
         return captured;
     };
     PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("k n"));
+    commandPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(!commandPanel.activateCurrentCommandItem());
 
     QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a SumatraPDF PDF before k n"));
+    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a SumatraPDF PDF before anchor;new"));
     QCOMPARE(panel.statusText(), commandPanel.statusText());
     const std::optional<Resource> selected = repository.findResource(selectedResource.id);
     QVERIFY(selected.has_value());
@@ -5091,7 +5160,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePa
         return captured;
     };
     PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("k n"));
+    commandPanel.setCommandText(QStringLiteral("anchor;new"));
 
     QVERIFY(!commandPanel.activateCurrentCommandItem());
 
@@ -7258,6 +7327,131 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
     QCOMPARE(anchorUsage->openCount, 1);
 }
 
+void WidgetSmokeTest::sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("verified-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Verified PDF");
+    resource.location = QStringLiteral("E:/docs/verified.pdf");
+    Anchor anchor;
+    anchor.id = QStringLiteral("verified-pdf#region");
+    anchor.name = QStringLiteral("Verified region");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"page":12,"rect":[42,86,178,132],"zoom":160,"unit":"pt"})");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    int stateCalls = 0;
+    int retryCalls = 0;
+    bool launched = false;
+    QString retryDde;
+    std::optional<SumatraPdfPersistentHighlight> registeredHighlight;
+    PinloomOpenServiceOptions options;
+    options.sumatraPdfExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    options.sumatraPdfLaunchHandler = [&](const SumatraPdfCommand &, QString *) {
+        launched = true;
+        return true;
+    };
+    options.sumatraPdfStateProvider = [&](int) {
+        ++stateCalls;
+        SumatraPdfDdeFileState state;
+        state.path = resource.location;
+        state.page = stateCalls >= 8 ? 12 : 1;
+        state.pageCount = 30;
+        state.zoom = 160.0;
+        state.view = QStringLiteral("continuous");
+        return state;
+    };
+    options.sumatraPdfRetryHandler =
+        [&](const SumatraPdfCommand &command,
+            const SumatraPdfDdeFileState &state,
+            QString *) {
+            ++retryCalls;
+            retryDde = sumatraPdfRetryDdeCommand(command, state);
+            return !retryDde.isEmpty();
+        };
+    options.sumatraPdfHighlightHandler =
+        [&](const SumatraPdfPersistentHighlight &highlight) {
+            registeredHighlight = highlight;
+            return true;
+        };
+    options.sumatraPdfVerificationPollMilliseconds = 80;
+    options.sumatraPdfVerificationTimeoutMilliseconds = 1500;
+
+    PinloomOpenService service(repository, options);
+    QSignalSpy statusSpy(&service, &PinloomOpenService::statusChanged);
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.anchor = anchor;
+
+    QVERIFY(service.open(target));
+    QVERIFY(launched);
+    QCOMPARE(service.statusText(),
+             QStringLiteral("Opening SumatraPDF target; verifying jump"));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        service.statusText().contains(QStringLiteral("jump verified")), 2500);
+    QCOMPARE(retryCalls, 1);
+    QVERIFY(retryDde.contains(QStringLiteral("[GotoPage(")));
+    QVERIFY(retryDde.contains(QStringLiteral("[SetView(")));
+    QVERIFY(stateCalls >= 8);
+    QVERIFY(registeredHighlight.has_value());
+    QCOMPARE(registeredHighlight->key, anchor.id);
+    QCOMPARE(registeredHighlight->targetFile, resource.location);
+    QCOMPARE(registeredHighlight->page, 12);
+    QCOMPARE(registeredHighlight->zoom, 160.0);
+    QCOMPARE(statusSpy.last().first().toString(), service.statusText());
+
+    SumatraPdfDdeFileState wrongFile;
+    wrongFile.path = QStringLiteral("E:/docs/other.pdf");
+    wrongFile.page = 12;
+    wrongFile.zoom = 160.0;
+    QString diagnostics;
+    QVERIFY(!sumatraPdfJumpMatches(wrongFile,
+                                   SumatraPdfCommand{.filePath = resource.location,
+                                                     .page = 12,
+                                                     .zoom = 160.0},
+                                   &diagnostics));
+    QVERIFY(diagnostics.contains(QStringLiteral("active file")));
+}
+
+void WidgetSmokeTest::persistentPdfHighlightRegistrySupportsMultipleStableKeys()
+{
+    SumatraPdfHighlightManager &manager =
+        SumatraPdfHighlightManager::instance();
+    manager.clear();
+
+    SumatraPdfPersistentHighlight first;
+    first.key = QStringLiteral("anchor-a");
+    first.targetFile = QStringLiteral("E:/docs/a.pdf");
+    first.pdfRect = QRectF(10.0, 20.0, 40.0, 30.0);
+    first.page = 2;
+    first.zoom = 125.0;
+    QVERIFY(first.isValid());
+    QVERIFY(manager.addOrUpdate(first));
+
+    SumatraPdfPersistentHighlight second = first;
+    second.key = QStringLiteral("anchor-b");
+    second.pdfRect.translate(50.0, 0.0);
+    QVERIFY(manager.addOrUpdate(second));
+    QCOMPARE(manager.count(), 2);
+    QVERIFY(manager.contains(first.key));
+    QVERIFY(manager.contains(second.key));
+    QVERIFY(manager.remove(first.key));
+    QCOMPARE(manager.count(), 1);
+    manager.clear();
+    QCOMPARE(manager.count(), 0);
+}
+
 void WidgetSmokeTest::panelReportsMissingSumatraPdfExecutable()
 {
     InMemoryLibraryRepository repository;
@@ -7491,6 +7685,73 @@ void WidgetSmokeTest::textPreviewLoadsTargetFile()
 
     TextPreviewDialog preview(path, 1);
     QVERIFY(preview.load());
+}
+
+void WidgetSmokeTest::sharedAnchorCaptureDialogRequiresExplicitMutationConsent()
+{
+    AnchorCaptureDraft draft;
+    draft.targetApp = QStringLiteral("Word");
+    draft.targetFile = QStringLiteral("E:/docs/design.docx");
+    draft.locatorType = QStringLiteral("word.bookmark");
+    draft.locatorJson = QStringLiteral(
+        R"({"type":"word.bookmark","bookmark":"_Pinloom_a1"})");
+    draft.suggestedName = QStringLiteral("Initial name");
+    draft.aliases = {QStringLiteral("old alias")};
+    draft.tags = {QStringLiteral("old-tag")};
+    draft.mutationRequired = true;
+    draft.mutationLabel = QStringLiteral("Create stable Word bookmark");
+
+    AnchorCaptureDialog dialog(draft);
+    auto *name = dialog.findChild<QLineEdit *>(
+        QStringLiteral("anchorCaptureNameEdit"));
+    auto *aliases = dialog.findChild<QLineEdit *>(
+        QStringLiteral("anchorCaptureAliasesEdit"));
+    auto *tags = dialog.findChild<QLineEdit *>(
+        QStringLiteral("anchorCaptureTagsEdit"));
+    auto *pinned = dialog.findChild<QCheckBox *>(
+        QStringLiteral("anchorCapturePinnedCheck"));
+    auto *mutation = dialog.findChild<QCheckBox *>(
+        QStringLiteral("anchorCaptureMutationCheck"));
+    auto *buttons = dialog.findChild<QDialogButtonBox *>(
+        QStringLiteral("anchorCaptureButtons"));
+    QVERIFY(name);
+    QVERIFY(aliases);
+    QVERIFY(tags);
+    QVERIFY(pinned);
+    QVERIFY(mutation);
+    QVERIFY(buttons);
+    QVERIFY(!buttons->button(QDialogButtonBox::Save)->isEnabled());
+
+    name->setText(QStringLiteral("Updated position"));
+    aliases->setText(QStringLiteral("one, two"));
+    tags->setText(QStringLiteral("review, #spec"));
+    pinned->setChecked(true);
+    mutation->setChecked(true);
+    QVERIFY(buttons->button(QDialogButtonBox::Save)->isEnabled());
+
+    const AnchorCaptureDraft confirmed = dialog.draft();
+    QCOMPARE(confirmed.suggestedName, QStringLiteral("Updated position"));
+    QCOMPARE(confirmed.aliases,
+             QStringList({QStringLiteral("one"), QStringLiteral(" two")}));
+    QCOMPARE(confirmed.tags,
+             QStringList({QStringLiteral("review"), QStringLiteral(" #spec")}));
+    QVERIFY(confirmed.pinned);
+    QVERIFY(confirmed.mutationAuthorized);
+}
+
+void WidgetSmokeTest::applicationThemeProvidesLightAndDarkSemanticTokens()
+{
+    const QString light = pinloomVisualThemeStyleSheet(
+        PinloomVisualScheme::Light);
+    const QString dark = pinloomVisualThemeStyleSheet(
+        PinloomVisualScheme::Dark);
+    QVERIFY(light.contains(QStringLiteral("#F4F7FB")));
+    QVERIFY(light.contains(QStringLiteral("#0F766E")));
+    QVERIFY(light.contains(QStringLiteral("border: 2px solid #2563EB")));
+    QVERIFY(dark.contains(QStringLiteral("#111827")));
+    QVERIFY(dark.contains(QStringLiteral("#0F766E")));
+    QVERIFY(dark.contains(QStringLiteral("border: 2px solid #60A5FA")));
+    QVERIFY(light != dark);
 }
 
 QTEST_MAIN(WidgetSmokeTest)

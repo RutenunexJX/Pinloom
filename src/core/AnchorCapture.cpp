@@ -26,6 +26,9 @@ QString effectiveLocatorType(const PdfCaptureRequest &request)
         if (locatorType == QLatin1String("sumatrapdf.page")) {
             return QStringLiteral("sumatrapdf.page");
         }
+        if (locatorType == QLatin1String("sumatrapdf.search")) {
+            return QStringLiteral("sumatrapdf.search");
+        }
         return locatorType;
     }
     if (request.rect.isValid()) {
@@ -159,6 +162,24 @@ QString pdfLocatorJson(const PdfCaptureRequest &request)
     if (locatorType == QLatin1String("sumatrapdf.rect")) {
         locator.insert(QStringLiteral("rect"), rectArray(request.rect));
         locator.insert(QStringLiteral("unit"), effectiveUnit(request));
+    } else if (locatorType == QLatin1String("sumatrapdf.search")) {
+        locator.insert(QStringLiteral("text"), request.searchText.simplified());
+        if (!request.contextBefore.trimmed().isEmpty()) {
+            locator.insert(QStringLiteral("contextBefore"),
+                           request.contextBefore.simplified());
+        }
+        if (!request.contextAfter.trimmed().isEmpty()) {
+            locator.insert(QStringLiteral("contextAfter"),
+                           request.contextAfter.simplified());
+        }
+        if (request.occurrence >= 0) {
+            locator.insert(QStringLiteral("occurrence"), request.occurrence);
+        }
+        if (request.fallbackRect.isValid()) {
+            locator.insert(QStringLiteral("fallbackRect"),
+                           rectArray(request.fallbackRect));
+            locator.insert(QStringLiteral("unit"), effectiveUnit(request));
+        }
     }
     locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
     if (request.zoom > 0.0) {
@@ -177,7 +198,8 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
         return result;
     }
     if (result.locatorType != QLatin1String("sumatrapdf.rect")
-        && result.locatorType != QLatin1String("sumatrapdf.page")) {
+        && result.locatorType != QLatin1String("sumatrapdf.page")
+        && result.locatorType != QLatin1String("sumatrapdf.search")) {
         result.error = QStringLiteral("SumatraPDF capture locator type is unsupported");
         return result;
     }
@@ -187,6 +209,11 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
     }
     if (result.locatorType == QLatin1String("sumatrapdf.rect") && !result.rect.isValid()) {
         result.error = QStringLiteral("SumatraPDF capture rectangle is missing");
+        return result;
+    }
+    if (result.locatorType == QLatin1String("sumatrapdf.search")
+        && request.searchText.simplified().isEmpty()) {
+        result.error = QStringLiteral("SumatraPDF capture search text is missing");
         return result;
     }
     if (result.zoom > 0.0 && !std::isfinite(result.zoom)) {

@@ -5,9 +5,11 @@
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/PowerPointCommand.h"
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 #include "pinloom/widgets/PinloomEntry.h"
+#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 
 #include <QObject>
 #include <functional>
@@ -26,9 +28,26 @@ struct PinloomOpenServiceOptions {
     std::function<bool(const PowerPointJumpCommand &, QString *error)> powerPointLaunchHandler;
     std::function<QString()> sumatraPdfExecutablePathProvider;
     std::function<bool(const SumatraPdfCommand &, QString *error)> sumatraPdfLaunchHandler;
+    std::function<SumatraPdfDdeFileState(int timeoutMilliseconds)>
+        sumatraPdfStateProvider;
+    std::function<bool(const SumatraPdfCommand &,
+                       const SumatraPdfDdeFileState &lastState,
+                       QString *error)> sumatraPdfRetryHandler;
+    std::function<bool(const SumatraPdfPersistentHighlight &)>
+        sumatraPdfHighlightHandler;
+    int sumatraPdfVerificationTimeoutMilliseconds = 4200;
+    int sumatraPdfVerificationPollMilliseconds = 180;
 };
 
+bool sumatraPdfJumpMatches(const SumatraPdfDdeFileState &state,
+                           const SumatraPdfCommand &command,
+                           QString *diagnostics = nullptr);
+QString sumatraPdfRetryDdeCommand(const SumatraPdfCommand &command,
+                                  const SumatraPdfDdeFileState &lastState = {});
+
 class PinloomOpenService final : public QObject {
+    Q_OBJECT
+
 public:
     PinloomOpenService(ILibraryRepository &repository,
                        PinloomOpenServiceOptions options,
@@ -37,18 +56,31 @@ public:
     bool open(const PinloomOpenTarget &target, QWidget *dialogParent = nullptr);
     QString statusText() const;
 
+signals:
+    void statusChanged(const QString &status);
+
 private:
     bool openExcel(const PinloomOpenTarget &target);
     bool openVisio(const PinloomOpenTarget &target);
     bool openWord(const PinloomOpenTarget &target);
     bool openPowerPoint(const PinloomOpenTarget &target);
     bool openSumatraPdf(const PinloomOpenTarget &target);
+    void verifySumatraPdfJump(const PinloomOpenTarget &target,
+                              const SumatraPdfCommand &command,
+                              quint64 generation,
+                              int elapsedMilliseconds,
+                              bool retryIssued,
+                              const QString &lastDiagnostics = {});
+    void registerSumatraPdfHighlight(const PinloomOpenTarget &target,
+                                     const SumatraPdfCommand &command,
+                                     const SumatraPdfDdeFileState &state = {});
     void setStatus(const QString &status);
     void recordOpen(const PinloomOpenTarget &target);
 
     ILibraryRepository &repository_;
     PinloomOpenServiceOptions options_;
     QString statusText_;
+    quint64 sumatraPdfVerificationGeneration_ = 0;
 };
 
 } // namespace Pinloom

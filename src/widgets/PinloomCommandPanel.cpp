@@ -22,6 +22,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
+#include <QLinearGradient>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMenu>
@@ -193,7 +194,12 @@ struct CommandDefinition {
     CommandNamespace commandNamespace = CommandNamespace::None;
     CommandAction action = CommandAction::None;
     QString actionName;
-    QStringList legacyForms;
+};
+
+struct DirectCommandDefinition {
+    QString form;
+    CommandNamespace commandNamespace = CommandNamespace::None;
+    CommandAction action = CommandAction::None;
 };
 
 const QList<CommandDomainDefinition> &commandDomains()
@@ -213,44 +219,45 @@ const QList<CommandDefinition> &commandDefinitions()
     static const QList<CommandDefinition> definitions{
         {CommandNamespace::Clip,
          CommandAction::ClipSearch,
-         QStringLiteral("search"),
-         {QStringLiteral("c s")}},
+         QStringLiteral("search")},
         {CommandNamespace::Clip,
          CommandAction::ClipNew,
-         QStringLiteral("new"),
-         {QStringLiteral("c n")}},
+         QStringLiteral("new")},
         {CommandNamespace::Clip,
          CommandAction::ClipLibrary,
-         QStringLiteral("library"),
-         {QStringLiteral("c l")}},
+         QStringLiteral("library")},
         {CommandNamespace::Anchor,
          CommandAction::AnchorNew,
-         QStringLiteral("new"),
-         {QStringLiteral("k n")}},
+         QStringLiteral("new")},
         {CommandNamespace::Anchor,
          CommandAction::AnchorLibrary,
-         QStringLiteral("library"),
-         {QStringLiteral("k l")}},
+         QStringLiteral("library")},
         {CommandNamespace::Inbox,
          CommandAction::InboxNew,
-         QStringLiteral("new"),
-         {QStringLiteral("i n")}},
+         QStringLiteral("new")},
         {CommandNamespace::Inbox,
          CommandAction::InboxSearch,
-         QStringLiteral("search"),
-         {QStringLiteral("i s")}},
+         QStringLiteral("search")},
         {CommandNamespace::Library,
          CommandAction::OpenSearch,
-         QStringLiteral("search"),
-         {QStringLiteral("s"), QStringLiteral("search")}},
+         QStringLiteral("search")},
         {CommandNamespace::Library,
          CommandAction::RestoreSearch,
-         QStringLiteral("restore"),
-         {QStringLiteral("restore"), QStringLiteral("trash")}},
+         QStringLiteral("restore")},
         {CommandNamespace::Root,
          CommandAction::RootLibrary,
-         QStringLiteral("library"),
-         {QStringLiteral("r l")}}
+         QStringLiteral("library")}
+    };
+    return definitions;
+}
+
+const QList<DirectCommandDefinition> &directCommandDefinitions()
+{
+    static const QList<DirectCommandDefinition> definitions{
+        {QStringLiteral("s"), CommandNamespace::Library, CommandAction::OpenSearch},
+        {QStringLiteral("search"), CommandNamespace::Library, CommandAction::OpenSearch},
+        {QStringLiteral("restore"), CommandNamespace::Library, CommandAction::RestoreSearch},
+        {QStringLiteral("trash"), CommandNamespace::Library, CommandAction::RestoreSearch}
     };
     return definitions;
 }
@@ -842,17 +849,15 @@ CommandState parseCommandState(const QString &text)
     }
 
     const QString folded = trimmed.toCaseFolded();
-    for (const CommandDefinition &definition : commandDefinitions()) {
-        for (const QString &legacyForm : definition.legacyForms) {
-            const QString foldedLegacy = legacyForm.toCaseFolded();
-            if (folded == foldedLegacy
-                || folded.startsWith(foldedLegacy + QLatin1Char(' '))) {
-                CommandState state;
-                state.commandNamespace = definition.commandNamespace;
-                state.action = definition.action;
-                state.query = trimmed.mid(legacyForm.size()).trimmed();
-                return state;
-            }
+    for (const DirectCommandDefinition &definition : directCommandDefinitions()) {
+        const QString foldedForm = definition.form.toCaseFolded();
+        if (folded == foldedForm
+            || folded.startsWith(foldedForm + QLatin1Char(' '))) {
+            CommandState state;
+            state.commandNamespace = definition.commandNamespace;
+            state.action = definition.action;
+            state.query = trimmed.mid(definition.form.size()).trimmed();
+            return state;
         }
     }
 
@@ -1157,6 +1162,34 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     clipLibraryButton_->setFixedSize(42, 42);
     clipLibraryButton_->setVisible(false);
 
+    quickActionRow_ = new QWidget(this);
+    quickActionRow_->setObjectName(QStringLiteral("commandQuickActionRow"));
+    auto *quickLayout = new QHBoxLayout(quickActionRow_);
+    quickLayout->setContentsMargins(0, 0, 0, 0);
+    quickLayout->setSpacing(6);
+    auto *quickLabel = new QLabel(tr("Capture"), quickActionRow_);
+    quickLabel->setObjectName(QStringLiteral("commandQuickActionLabel"));
+    quickLayout->addWidget(quickLabel);
+
+    rectangleAnchorButton_ = new QToolButton(quickActionRow_);
+    rectangleAnchorButton_->setObjectName(QStringLiteral("commandRectangleAnchorButton"));
+    rectangleAnchorButton_->setText(tr("Rectangle Anchor"));
+    rectangleAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    rectangleAnchorButton_->setToolTip(tr("Capture a rectangle in the remembered SumatraPDF document"));
+    rectangleAnchorButton_->setEnabled(
+        static_cast<bool>(options_.rectangleAnchorCaptureHandler)
+        || static_cast<bool>(options_.anchorCaptureHandler));
+    quickLayout->addWidget(rectangleAnchorButton_);
+
+    textAnchorButton_ = new QToolButton(quickActionRow_);
+    textAnchorButton_->setObjectName(QStringLiteral("commandTextAnchorButton"));
+    textAnchorButton_->setText(tr("Text Anchor"));
+    textAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    textAnchorButton_->setToolTip(tr("Capture selected text in the remembered SumatraPDF document"));
+    textAnchorButton_->setEnabled(static_cast<bool>(options_.textAnchorCaptureHandler));
+    quickLayout->addWidget(textAnchorButton_);
+    quickLayout->addStretch(1);
+
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
     resultList_->setAlternatingRowColors(true);
@@ -1178,6 +1211,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     inputRow->addWidget(versionLabel_);
     inputRow->addWidget(clipLibraryButton_);
     layout->addLayout(inputRow);
+    layout->addWidget(quickActionRow_);
     layout->addWidget(resultList_, 1);
     layout->addWidget(statusLabel_);
 
@@ -1187,6 +1221,14 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     connect(commandEdit_, &QLineEdit::textChanged, this, &PinloomCommandPanel::refreshResults);
     connect(commandEdit_, &QLineEdit::returnPressed, this, &PinloomCommandPanel::activateCurrentCommandItem);
     connect(clipLibraryButton_, &QToolButton::clicked, this, &PinloomCommandPanel::openClipLibrary);
+    connect(rectangleAnchorButton_,
+            &QToolButton::clicked,
+            this,
+            &PinloomCommandPanel::triggerRectangleAnchorCapture);
+    connect(textAnchorButton_,
+            &QToolButton::clicked,
+            this,
+            &PinloomCommandPanel::triggerTextAnchorCapture);
     connect(resultList_, &QListWidget::itemActivated, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
 
@@ -1498,22 +1540,10 @@ void PinloomCommandPanel::paintEvent(QPaintEvent *event)
     QWidget::paintEvent(event);
 
     QPainter painter(this);
-    painter.setRenderHint(QPainter::SmoothPixmapTransform, true);
-    if (!backgroundPixmap_.isNull() && width() > 0 && height() > 0) {
-        const qreal scale = std::max(static_cast<qreal>(width()) / backgroundPixmap_.width(),
-                                     static_cast<qreal>(height()) / backgroundPixmap_.height());
-        const QSizeF sourceSize(width() / scale, height() / scale);
-        const qreal availableSourceHeight = backgroundPixmap_.height() - sourceSize.height();
-        const QRectF sourceRect((backgroundPixmap_.width() - sourceSize.width()) / 2.0,
-                                std::max<qreal>(0.0, availableSourceHeight * 0.08),
-                                sourceSize.width(),
-                                sourceSize.height());
-        painter.drawPixmap(QRectF(rect()), backgroundPixmap_, sourceRect);
-    } else {
-        painter.fillRect(rect(), QColor(QStringLiteral("#eef1f3")));
-    }
-
-    painter.fillRect(rect(), QColor(255, 255, 255, compact_ ? 96 : 138));
+    QLinearGradient background(0.0, 0.0, static_cast<qreal>(width()), 0.0);
+    background.setColorAt(0.0, QColor(QStringLiteral("#f5f7fb")));
+    background.setColorAt(1.0, QColor(QStringLiteral("#eef2f7")));
+    painter.fillRect(rect(), background);
     painter.fillRect(QRect(0, 0, 4, height()), themeAccent(theme_));
 }
 
@@ -1700,7 +1730,7 @@ void PinloomCommandPanel::refreshResults()
                             QStringLiteral("anchor;new"),
                             tr("New Anchor / Capture Anchor"),
                             tr("Open"),
-                            tr("anchor;new - capture current app position; legacy k n"));
+                            tr("anchor;new - capture the remembered app position"));
         appendCommandResult(CommandRowAction::OpenCommand,
                             QStringLiteral("anchor;library"),
                             tr("Anchor Library"),
@@ -1712,7 +1742,7 @@ void PinloomCommandPanel::refreshResults()
                             QStringLiteral("anchor;new"),
                             tr("New Anchor / Capture Anchor"),
                             tr("Capture"),
-                            tr("anchor;new - capture current app position; legacy k n"));
+                            tr("anchor;new - capture the remembered app position"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorLibrary) {
         appendCommandResult(CommandRowAction::AnchorLibrary,
@@ -1730,7 +1760,7 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Root
                && command.action == CommandAction::RootLibrary) {
         appendCommandResult(CommandRowAction::RootLibrary,
-                            QStringLiteral("r l"),
+                            QStringLiteral("root;library"),
                             tr("Root Library"),
                             tr("Open"),
                             tr("Browse all registered root directories"));
@@ -1749,7 +1779,7 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::InboxNew) {
         appendCommandResult(CommandRowAction::InboxSave,
-                            QStringLiteral("i n"),
+                            QStringLiteral("inbox;new"),
                             tr("Add Inbox Item"),
                             tr("Save"),
                             tr("Review storage and metadata - %1").arg(inboxFilesSummary(pendingInboxFiles_)));
@@ -1876,57 +1906,76 @@ void PinloomCommandPanel::activateResultItem(QListWidgetItem *item)
 
 void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
 {
-    if (theme_ == theme && !backgroundPixmap_.isNull()) {
+    if (theme_ == theme && !styleSheet().isEmpty()) {
         return;
     }
 
     theme_ = theme;
-    backgroundPixmap_.load(themeResourcePath(theme_));
+    backgroundPixmap_ = QPixmap{};
     const QString accent = themeAccent(theme_).name();
     setStyleSheet(QStringLiteral(
         "QWidget#pinloomCommandPanel { color: #20252b; }"
         "QLineEdit#commandSearchEdit {"
-        "  background-color: rgba(255, 255, 255, 232);"
-        "  border: 1px solid %1;"
-        "  border-left: 4px solid %1;"
-        "  border-radius: 4px;"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 8px;"
         "  color: #171a1f;"
         "  font-size: 14px;"
-        "  padding: 6px 10px;"
+        "  padding: 6px 12px;"
         "  selection-background-color: %1;"
         "  selection-color: white;"
         "}"
+        "QLineEdit#commandSearchEdit:focus { border: 2px solid %1; }"
         "QToolButton#commandClipLibraryButton {"
-        "  background-color: rgba(255, 255, 255, 232);"
-        "  border: 1px solid %1;"
-        "  border-radius: 4px;"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 8px;"
         "  padding: 7px;"
         "}"
-        "QToolButton#commandClipLibraryButton:hover { background-color: rgba(221, 242, 238, 245); }"
+        "QToolButton#commandClipLibraryButton:hover { background-color: #eef3f8; }"
+        "QWidget#commandQuickActionRow { background: transparent; }"
+        "QLabel#commandQuickActionLabel { color: #657181; font-size: 11px; padding: 0 4px; }"
+        "QToolButton#commandRectangleAnchorButton, QToolButton#commandTextAnchorButton {"
+        "  background-color: #ffffff;"
+        "  border: 1px solid #c7d0dc;"
+        "  border-radius: 6px;"
+        "  color: #263241;"
+        "  min-height: 26px;"
+        "  padding: 2px 10px;"
+        "}"
+        "QToolButton#commandRectangleAnchorButton:hover, QToolButton#commandTextAnchorButton:hover {"
+        "  background-color: #edf3ff; border-color: %1; color: %1;"
+        "}"
+        "QToolButton#commandRectangleAnchorButton:focus, QToolButton#commandTextAnchorButton:focus {"
+        "  border: 2px solid %1;"
+        "}"
+        "QToolButton:disabled { color: #9aa4b2; background-color: #f1f3f6; border-color: #d8dee7; }"
         "QLabel#commandVersionLabel {"
-        "  color: rgba(32, 37, 43, 185);"
+        "  color: #657181;"
         "  font-size: 11px;"
         "  padding: 0 2px;"
         "}"
         "QListWidget#commandResultList {"
-        "  background-color: rgba(255, 255, 255, 210);"
-        "  alternate-background-color: rgba(239, 242, 244, 202);"
-        "  border: 1px solid rgba(70, 78, 86, 90);"
-        "  border-radius: 4px;"
+        "  background-color: #ffffff;"
+        "  alternate-background-color: #f7f9fc;"
+        "  border: 1px solid #cfd7e2;"
+        "  border-radius: 8px;"
         "  color: #20252b;"
         "  outline: 0;"
         "}"
         "QListWidget#commandResultList::item {"
-        "  border-bottom: 1px solid rgba(70, 78, 86, 28);"
-        "  padding: 4px 7px;"
+        "  border-bottom: 1px solid #e7ebf1;"
+        "  padding: 6px 9px;"
         "}"
+        "QListWidget#commandResultList::item:hover { background-color: #eef3f8; }"
         "QListWidget#commandResultList::item:selected {"
         "  background-color: %1;"
         "  color: white;"
         "}"
         "QLabel#commandStatusLabel {"
-        "  background-color: rgba(255, 255, 255, 190);"
+        "  background-color: #ffffff;"
         "  border-left: 3px solid %1;"
+        "  border-radius: 4px;"
         "  color: #30363d;"
         "  padding: 4px 7px;"
         "}"
@@ -1937,12 +1986,17 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
 void PinloomCommandPanel::updatePresentation()
 {
     const bool nextCompact = resultList_->count() == 0 && !clipPickerMode_;
+    const bool showQuickActions = !clipPickerMode_;
+    quickActionRow_->setVisible(showQuickActions);
     resultList_->setVisible(!nextCompact);
     statusLabel_->setVisible(!nextCompact);
 
     auto *boxLayout = static_cast<QVBoxLayout *>(layout());
     const QMargins margins = boxLayout->contentsMargins();
     int nextHeight = margins.top() + commandEdit_->height() + margins.bottom();
+    if (showQuickActions) {
+        nextHeight += boxLayout->spacing() + quickActionRow_->sizeHint().height();
+    }
     if (!nextCompact) {
         const int visibleRows = std::min(resultList_->count(), 6);
         int listHeight = resultList_->frameWidth() * 2;
@@ -1963,7 +2017,7 @@ void PinloomCommandPanel::updatePresentation()
         nextHeight += boxLayout->spacing() * 2 + listHeight + statusHeight;
     }
 
-    nextHeight = std::clamp(nextHeight, 62, 390);
+    nextHeight = std::clamp(nextHeight, 62, 430);
     const bool changed = compact_ != nextCompact || preferredWindowHeight_ != nextHeight;
     compact_ = nextCompact;
     preferredWindowHeight_ = nextHeight;
@@ -2317,6 +2371,42 @@ bool PinloomCommandPanel::captureAnchor()
         status = captured ? tr("Captured anchor") : tr("No anchor context available");
     }
     updateStatus(status.trimmed());
+    return captured;
+}
+
+bool PinloomCommandPanel::triggerRectangleAnchorCapture()
+{
+    const auto &handler = options_.rectangleAnchorCaptureHandler
+        ? options_.rectangleAnchorCaptureHandler
+        : options_.anchorCaptureHandler;
+    return runQuickAnchorCapture(handler,
+                                 tr("Rectangle Anchor is unavailable for the remembered target"),
+                                 tr("Captured rectangle Anchor"));
+}
+
+bool PinloomCommandPanel::triggerTextAnchorCapture()
+{
+    return runQuickAnchorCapture(options_.textAnchorCaptureHandler,
+                                 tr("Text Anchor is unavailable for the remembered target"),
+                                 tr("Captured text Anchor"));
+}
+
+bool PinloomCommandPanel::runQuickAnchorCapture(
+    const std::function<bool(QString *status)> &handler,
+    const QString &unavailableStatus,
+    const QString &successStatus)
+{
+    emit anchorCaptureRequested();
+    if (!handler) {
+        updateStatus(unavailableStatus);
+        return false;
+    }
+
+    QString status;
+    const bool captured = handler(&status);
+    updateStatus(status.trimmed().isEmpty()
+                     ? (captured ? successStatus : unavailableStatus)
+                     : status.trimmed());
     return captured;
 }
 

@@ -2,15 +2,20 @@
 
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QDesktopServices>
+#include <QDir>
 #include <QFileInfo>
 #include <QProcess>
+#include <QRegularExpression>
 #include <QSettings>
 #include <QTimer>
 #include <QUrl>
+#include <algorithm>
+#include <cmath>
 
 namespace Pinloom {
 
@@ -39,7 +44,143 @@ bool comClassAvailable(const QString &className)
 #endif
 }
 
+QString normalizedJumpPath(QString path)
+{
+    path = QDir::cleanPath(QDir::fromNativeSeparators(path.trimmed()));
+#ifdef Q_OS_WIN
+    return path.toCaseFolded();
+#else
+    return path;
+#endif
+}
+
+QString quotedDdeValue(QString value)
+{
+    value.replace(QStringLiteral("\\"), QStringLiteral("\\\\"));
+    value.replace(QLatin1Char('"'), QStringLiteral("\\\""));
+    return QStringLiteral("\"%1\"").arg(value);
+}
+
+QString safeSumatraView(QString view)
+{
+    view = view.trimmed().toLower();
+    static const QStringList supported = {
+        QStringLiteral("single page"),
+        QStringLiteral("facing"),
+        QStringLiteral("book view"),
+        QStringLiteral("continuous"),
+        QStringLiteral("continuous facing"),
+        QStringLiteral("continuous book view"),
+    };
+    return supported.contains(view) ? view : QStringLiteral("continuous");
+}
+
+QString decimalDdeValue(double value)
+{
+    return QString::number(value, 'f', 4).remove(
+        QRegularExpression(QStringLiteral("0+$"))).remove(
+        QRegularExpression(QStringLiteral("\\.$")));
+}
+
+bool retrySumatraPdfJumpWithDdeProcess(const SumatraPdfCommand &command,
+                                       const SumatraPdfDdeFileState &lastState,
+                                       QString *error)
+{
+    const QString dde = sumatraPdfRetryDdeCommand(command, lastState);
+    if (command.executablePath.trimmed().isEmpty() || dde.isEmpty()) {
+        if (error) {
+            *error = QStringLiteral("SumatraPDF retry command is unavailable");
+        }
+        return false;
+    }
+    const bool started = QProcess::startDetached(
+        command.executablePath,
+        {QStringLiteral("-dde"), dde});
+    if (!started && error) {
+        *error = QStringLiteral("Unable to send SumatraPDF DDE retry");
+    }
+    return started;
+}
+
 } // namespace
+
+bool sumatraPdfJumpMatches(const SumatraPdfDdeFileState &state,
+                           const SumatraPdfCommand &command,
+                           QString *diagnostics)
+{
+    if (diagnostics) {
+        diagnostics->clear();
+    }
+    if (!state.success()) {
+        if (diagnostics) {
+            *diagnostics = state.error.trimmed().isEmpty()
+                ? QStringLiteral("SumatraPDF did not return a readable active document state")
+                : state.error.trimmed();
+        }
+        return false;
+    }
+    if (normalizedJumpPath(state.path)
+        != normalizedJumpPath(command.filePath)) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("active file is %1").arg(state.path);
+        }
+        return false;
+    }
+    if (state.page != command.page) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("active page is %1; expected %2")
+                               .arg(state.page)
+                               .arg(command.page);
+        }
+        return false;
+    }
+    if (command.zoom > 0.0
+        && (!std::isfinite(state.zoom)
+            || state.zoom <= 0.0
+            || std::abs(state.zoom - command.zoom) > 0.75)) {
+        if (diagnostics) {
+            *diagnostics = QStringLiteral("active zoom is %1%; expected %2%")
+                               .arg(state.zoom)
+                               .arg(command.zoom);
+        }
+        return false;
+    }
+    return true;
+}
+
+QString sumatraPdfRetryDdeCommand(
+    const SumatraPdfCommand &command,
+    const SumatraPdfDdeFileState &lastState)
+{
+    if (command.filePath.trimmed().isEmpty() || command.page <= 0) {
+        return {};
+    }
+    const QString path = quotedDdeValue(
+        QDir::toNativeSeparators(command.filePath));
+    QString retry;
+    if (!command.searchText.trimmed().isEmpty()) {
+        retry = QStringLiteral("[GotoPageWord(%1,%2,%3)]")
+                    .arg(path,
+                         QString::number(command.page),
+                         quotedDdeValue(command.searchText));
+    } else {
+        retry = QStringLiteral("[GotoPage(%1,%2)]")
+                    .arg(path, QString::number(command.page));
+    }
+    if (command.highlightRect.isValid()) {
+        const QString view = quotedDdeValue(safeSumatraView(lastState.view));
+        const QString zoom = command.zoom > 0.0
+            ? decimalDdeValue(command.zoom)
+            : QStringLiteral("0");
+        retry.append(QStringLiteral("[SetView(%1,%2,%3,%4,%5)]")
+                         .arg(path,
+                              view,
+                              zoom,
+                              decimalDdeValue(command.highlightRect.left()),
+                              decimalDdeValue(command.highlightRect.top())));
+    }
+    return retry;
+}
 
 PinloomOpenService::PinloomOpenService(ILibraryRepository &repository,
                                        PinloomOpenServiceOptions options,
@@ -243,24 +384,141 @@ bool PinloomOpenService::openSumatraPdf(const PinloomOpenTarget &target)
                       : error.trimmed());
         return false;
     }
-    if (result.command.highlightRect.isValid()
-        && result.command.page > 0
-        && result.command.zoom > 0.0) {
-        const QRectF rectangle = result.command.highlightRect;
-        const int page = result.command.page;
-        const double zoom = result.command.zoom;
-        QTimer::singleShot(450, this, [rectangle, page, zoom]() {
-            showSumatraPdfRectHighlight(rectangle, page, zoom);
-        });
-    }
     recordOpen(target);
-    setStatus(QStringLiteral("Opened SumatraPDF target"));
+    ++sumatraPdfVerificationGeneration_;
+    if (options_.sumatraPdfLaunchHandler
+        && !options_.sumatraPdfStateProvider) {
+        registerSumatraPdfHighlight(target, result.command);
+        setStatus(QStringLiteral("Opened SumatraPDF target"));
+        return true;
+    }
+
+    setStatus(QStringLiteral("Opening SumatraPDF target; verifying jump"));
+    const quint64 generation = sumatraPdfVerificationGeneration_;
+    const int pollMilliseconds = std::clamp(
+        options_.sumatraPdfVerificationPollMilliseconds, 80, 1000);
+    QTimer::singleShot(pollMilliseconds, this,
+                       [this, target, command = result.command, generation,
+                        pollMilliseconds]() {
+        verifySumatraPdfJump(target,
+                             command,
+                             generation,
+                             pollMilliseconds,
+                             false);
+    });
     return true;
+}
+
+void PinloomOpenService::verifySumatraPdfJump(
+    const PinloomOpenTarget &target,
+    const SumatraPdfCommand &command,
+    quint64 generation,
+    int elapsedMilliseconds,
+    bool retryIssued,
+    const QString &lastDiagnostics)
+{
+    if (generation != sumatraPdfVerificationGeneration_) {
+        return;
+    }
+    std::function<SumatraPdfDdeFileState(int)> stateProvider =
+        options_.sumatraPdfStateProvider;
+    if (!stateProvider) {
+        stateProvider = [](int timeoutMilliseconds) {
+            return requestSumatraPdfDdeFileState(timeoutMilliseconds);
+        };
+    }
+    const SumatraPdfDdeFileState state = stateProvider(180);
+    QString diagnostics;
+    if (sumatraPdfJumpMatches(state, command, &diagnostics)) {
+        registerSumatraPdfHighlight(target, command, state);
+        setStatus(QStringLiteral("Opened SumatraPDF target; jump verified"));
+        return;
+    }
+
+    const int timeoutMilliseconds = std::clamp(
+        options_.sumatraPdfVerificationTimeoutMilliseconds, 600, 15000);
+    bool issued = retryIssued;
+    if (!issued && elapsedMilliseconds >= 540) {
+        QString retryError;
+        const bool retried = options_.sumatraPdfRetryHandler
+            ? options_.sumatraPdfRetryHandler(command, state, &retryError)
+            : retrySumatraPdfJumpWithDdeProcess(command, state, &retryError);
+        issued = true;
+        if (!retried && !retryError.trimmed().isEmpty()) {
+            diagnostics.append(QStringLiteral("; retry: %1").arg(retryError.trimmed()));
+        }
+    }
+    if (elapsedMilliseconds >= timeoutMilliseconds) {
+        const QString reason = diagnostics.trimmed().isEmpty()
+            ? lastDiagnostics.trimmed()
+            : diagnostics.trimmed();
+        setStatus(QStringLiteral("SumatraPDF opened, but jump verification failed: %1")
+                      .arg(reason.isEmpty()
+                               ? QStringLiteral("expected page was not observed")
+                               : reason));
+        return;
+    }
+
+    const int pollMilliseconds = std::clamp(
+        options_.sumatraPdfVerificationPollMilliseconds, 80, 1000);
+    QTimer::singleShot(pollMilliseconds, this,
+                       [this, target, command, generation,
+                        elapsedMilliseconds, pollMilliseconds, issued,
+                        diagnostics]() {
+        verifySumatraPdfJump(target,
+                             command,
+                             generation,
+                             elapsedMilliseconds + pollMilliseconds,
+                             issued,
+                             diagnostics);
+    });
+}
+
+void PinloomOpenService::registerSumatraPdfHighlight(
+    const PinloomOpenTarget &target,
+    const SumatraPdfCommand &command,
+    const SumatraPdfDdeFileState &state)
+{
+    if (!command.highlightRect.isValid()
+        || command.page <= 0
+        || command.zoom <= 0.0) {
+        return;
+    }
+    SumatraPdfPersistentHighlight highlight;
+    highlight.key = target.anchor.has_value()
+        ? target.anchor->id.trimmed()
+        : QString();
+    if (highlight.key.isEmpty()) {
+        highlight.key = QStringLiteral("%1#page-%2@%3,%4")
+                            .arg(target.resourceId,
+                                 QString::number(command.page),
+                                 QString::number(command.highlightRect.left()),
+                                 QString::number(command.highlightRect.top()));
+    }
+    highlight.targetFile = command.filePath;
+    highlight.pdfRect = command.highlightRect;
+    highlight.page = command.page;
+    highlight.zoom = state.zoom > 0.0 ? state.zoom : command.zoom;
+    const ForegroundAppWindowContext foreground =
+        currentForegroundAppWindowContext();
+    if (isSumatraPdfForegroundWindow(foreground)) {
+        highlight.targetWindowHandle = foreground.windowHandle;
+    }
+    if (options_.sumatraPdfHighlightHandler) {
+        options_.sumatraPdfHighlightHandler(highlight);
+    } else {
+        registerSumatraPdfPersistentHighlight(highlight);
+    }
 }
 
 void PinloomOpenService::setStatus(const QString &status)
 {
-    statusText_ = status.trimmed();
+    const QString normalized = status.trimmed();
+    if (statusText_ == normalized) {
+        return;
+    }
+    statusText_ = normalized;
+    emit statusChanged(statusText_);
 }
 
 void PinloomOpenService::recordOpen(const PinloomOpenTarget &target)

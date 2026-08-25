@@ -25,6 +25,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/AnchorLocator.h
     include/pinloom/core/AnchorTarget.h
     include/pinloom/core/AnchorCapture.h
+    include/pinloom/core/AnchorCaptureDraft.h
     include/pinloom/core/ApplicationLaunchSettings.h
     include/pinloom/core/ApplicationDataBackup.h
     include/pinloom/core/ExcelCommand.h
@@ -35,6 +36,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ResourceNormalization.h
     include/pinloom/core/LibraryRepository.h
     include/pinloom/core/ManualPdfAnchorCreation.h
+    include/pinloom/core/NativeAnchorCapture.h
     include/pinloom/core/SumatraPdfForegroundCapture.h
     include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
@@ -49,6 +51,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/VisioCommand.h
     include/pinloom/core/WordCommand.h
     src/core/AnchorCapture.cpp
+    src/core/AnchorCaptureDraft.cpp
     src/core/AppDataDirectory.cpp
     src/core/AnchorLibraryArchive.cpp
     src/core/AnchorLibraryManagement.cpp
@@ -64,6 +67,7 @@ add_library(pinloom_core STATIC
     src/core/LibraryRepository.cpp
     src/core/ResourceNormalization.cpp
     src/core/ManualPdfAnchorCreation.cpp
+    src/core/NativeAnchorCapture.cpp
     src/core/SumatraPdfForegroundCapture.cpp
     src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
@@ -150,6 +154,7 @@ endif()
 add_library(pinloom_widgets STATIC
     assets/pinloom_themes.qrc
     include/pinloom/widgets/AnchorLocatorPreviewWidget.h
+    include/pinloom/widgets/AnchorCaptureDialog.h
     include/pinloom/widgets/AnchorLibraryWindow.h
     include/pinloom/widgets/PdfLocatorPreviewRenderer.h
     include/pinloom/widgets/ClipResidentHost.h
@@ -169,10 +174,12 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomOpenService.h
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/PinloomSettingsDialog.h
+    include/pinloom/widgets/PinloomVisualTheme.h
     include/pinloom/widgets/SumatraPdfRegionCaptureOverlay.h
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/AnchorLocatorPreviewWidget.cpp
+    src/widgets/AnchorCaptureDialog.cpp
     src/widgets/ClipCaptureDialog.cpp
     src/widgets/ClipResidentHost.cpp
     src/widgets/ClipLibraryWindow.cpp
@@ -192,6 +199,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/PinloomOpenService.cpp
     src/widgets/PinloomPanel.cpp
     src/widgets/PinloomSettingsDialog.cpp
+    src/widgets/PinloomVisualTheme.cpp
     src/widgets/SumatraPdfRegionCaptureOverlay.cpp
     src/widgets/PinloomSingleInstance.cpp
     src/widgets/TextPreviewDialog.cpp

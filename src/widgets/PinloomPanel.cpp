@@ -3,6 +3,7 @@
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/ResourceNormalization.h"
+#include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
@@ -1241,7 +1242,7 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
     } else {
         const QString status = missingContextStatus.trimmed();
         updateStatus(status.isEmpty()
-                         ? tr("Open or focus a SumatraPDF PDF before k n")
+                         ? tr("Open or focus a SumatraPDF PDF before anchor;new")
                          : status);
         return false;
     }
@@ -1295,7 +1296,7 @@ bool PinloomPanel::captureForegroundPdfAnchor()
     return capturePdfAnchorFromSuggestedRequest(
         foregroundPdfRequest,
         foregroundPdfStatus.trimmed().isEmpty()
-            ? tr("Open or focus a SumatraPDF PDF before k n")
+            ? tr("Open or focus a SumatraPDF PDF before anchor;new")
             : foregroundPdfStatus.trimmed(),
         false);
 }
@@ -2213,11 +2214,24 @@ bool PinloomPanel::activateSumatraPdfTarget(const PinloomOpenTarget &target)
     if (buildResult.command.highlightRect.isValid()
         && buildResult.command.page > 0
         && buildResult.command.zoom > 0.0) {
-        const QRectF highlightRect = buildResult.command.highlightRect;
-        const int highlightPage = buildResult.command.page;
-        const double highlightZoom = buildResult.command.zoom;
-        QTimer::singleShot(450, this, [highlightRect, highlightPage, highlightZoom]() {
-            showSumatraPdfRectHighlight(highlightRect, highlightPage, highlightZoom);
+        SumatraPdfPersistentHighlight highlight;
+        highlight.key = target.anchor->id.trimmed();
+        if (highlight.key.isEmpty()) {
+            highlight.key = QStringLiteral("%1#page-%2")
+                                .arg(target.resourceId)
+                                .arg(buildResult.command.page);
+        }
+        highlight.targetFile = buildResult.command.filePath;
+        highlight.pdfRect = buildResult.command.highlightRect;
+        highlight.page = buildResult.command.page;
+        highlight.zoom = buildResult.command.zoom;
+        QTimer::singleShot(450, this, [highlight]() mutable {
+            const ForegroundAppWindowContext foreground =
+                currentForegroundAppWindowContext();
+            if (isSumatraPdfForegroundWindow(foreground)) {
+                highlight.targetWindowHandle = foreground.windowHandle;
+            }
+            registerSumatraPdfPersistentHighlight(highlight);
         });
     }
 

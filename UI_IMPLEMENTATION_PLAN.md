@@ -1,8 +1,13 @@
 # Pinloom UI and Native Capture Implementation
 
-Status: active
+Status: implemented and verified
 
 Date: 2026-08-25
+
+Implementation evidence: the full configured CTest suite passes 7/7. Native
+Office automation is isolated behind injectable adapters; automated tests cover
+dispatch, locator construction, mutation authorization, and finalization
+without changing user documents. Packaging was not run.
 
 This document is the executable UI/capture slice of the active change set in
 `plan.md`. It does not change Pinloom's deterministic Anchor product boundary.

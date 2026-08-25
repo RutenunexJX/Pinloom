@@ -18,6 +18,11 @@ struct ManualPdfAnchorCreationRequest {
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
     QString targetApp = QStringLiteral("SumatraPDF");
+    QString searchText;
+    QString contextBefore;
+    QString contextAfter;
+    int occurrence = -1;
+    PdfCaptureRect fallbackRect;
     QStringList aliases;
     QStringList tags;
     bool pinned = false;

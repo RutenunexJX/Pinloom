@@ -243,14 +243,14 @@ The explicit command namespaces remain available. Canonical commands use
 `domain;action` names. Each segment also accepts an ordered abbreviation, so
 `an`, `ar`, `ah`, `ancr`, and `anco` all resolve to `anchor`, while `an;li`
 resolves to `anchor;library`. Colon-separated commands remain accepted as a
-transition compatibility form. Existing compact aliases such as `c s`, `k n`,
-and `i s` remain supported. Type `c` to see Clip commands.
+transition compatibility form. Whitespace-separated legacy forms are ordinary
+unified-search text and are not interpreted as commands. Type `c` to see Clip commands.
 Type `clip;search` to search all insertable Clip rows (temporary history plus Saved
 Clips), or `clip;search <query>` to search by name, alias, tag, preview, or content;
-Enter inserts the selected row into the foreground app. Type `clip;new` (or `c n`) to choose a
+Enter inserts the selected row into the foreground app. Type `clip;new` to choose a
 recent temporary clipboard item and save it as a named Saved Clip with tags,
 aliases, and pinned state. The tray `Show Clipboard` action routes back to this
-same direct Clip Picker. Use `clip;library` or `c l` to open the separate Clip
+same direct Clip Picker. Use `clip;library` to open the separate Clip
 Library, with Saved Clips, bounded clipboard history, Trash, full-content
 preview, action/backend/provenance display, metadata editing,
 deletion/restoration, permanent index removal, and Obsidian source-note access.
@@ -335,16 +335,29 @@ drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. The dialog shows the full PDF path, page, rectangle,
 zoom, and DDE capture source. Opening the anchor returns to the stored page and
-scroll position and briefly highlights the target rectangle. SumatraPDF 3.7 or
+scroll position. Pinloom verifies the active file/page/zoom, retries a missed
+jump once through DDE, and reports a bounded verification failure rather than
+silently accepting page 1. Rectangle highlights remain registered while the
+target PDF is open, coexist by Anchor, hide outside the target page/window, and
+restore when the target becomes visible again. SumatraPDF 3.7 or
 newer is required for the `GetFileState()` and `GetMousePos()` DDE requests used
 by this workflow.
+
+The command window keeps `Rectangle Anchor` and `Text Anchor` actions directly
+below the `Shift+Space` input. Text Anchor captures selected SumatraPDF text as
+a page-hinted `sumatrapdf.search` locator. `anchor;new` also dispatches to the
+remembered Word, Visio, or Excel window: Word uses bookmarks, Visio uses a shape
+UniqueID, and Excel uses an exact defined name or absolute worksheet range.
+Any required document mutation is shown in the shared confirmation dialog and
+is performed only after explicit authorization.
 
 Type `i` to see Inbox commands. Dropping a local file or folder on the Command
 Window immediately opens its metadata dialog. For a file, choose whether it
 stays at its original path or is copied into Pinloom-managed storage. For a
-folder, choose whether to tag only that folder or register it as a root. `i n`
-uses a pending item or the selection from the Explorer window that was in front
-before `Shift+Space` opened Pinloom. Type `i s <query>` to search Inbox items.
+folder, choose whether to tag only that folder or register it as a root. Use
+`inbox;new` for a pending item or the selection from
+the Explorer window that was in front before `Shift+Space` opened Pinloom. Type
+`inbox;search <query>` to search Inbox items.
 Dropping plain text opens the Saved Clip metadata dialog instead.
 
 Use `root;library` (or `r;l`) to open Root Library. It lists all registered

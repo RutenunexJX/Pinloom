@@ -1,11 +1,11 @@
 # Pinloom Goal
 
-## Active delivery
+## Completed delivery (2026-08-25)
 
-Execute the command, native Anchor capture, persistent PDF highlight, and
-competition UI work in [`UI_IMPLEMENTATION_PLAN.md`](UI_IMPLEMENTATION_PLAN.md)
-and the active change set in `plan.md`. Completion requires configured tests,
-independent commit, and push; it does not include packaging.
+The command, native Anchor capture, persistent PDF highlight, and competition
+UI work in [`UI_IMPLEMENTATION_PLAN.md`](UI_IMPLEMENTATION_PLAN.md) and the
+active change set in `plan.md` is implemented. The configured test suite passes
+7/7. Packaging is excluded.
 
 ## Core Goal
 

@@ -1,6 +1,7 @@
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorCapture.h"
+#include "pinloom/core/AnchorCaptureDraft.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/ApplicationDataBackup.h"
@@ -13,6 +14,7 @@
 #include "pinloom/core/ExplorerFileSelection.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/LibraryRoot.h"
+#include "pinloom/core/NativeAnchorCapture.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/TextSelectionCapture.h"
@@ -22,6 +24,7 @@
 #include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/widgets/ClipQuickPicker.h"
+#include "pinloom/widgets/AnchorCaptureDialog.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
@@ -35,6 +38,7 @@
 #include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 
@@ -59,6 +63,8 @@
 #include <QSettings>
 #include <QScreen>
 #include <QStandardPaths>
+#include <QStatusBar>
+#include <QStyleHints>
 #include <QThread>
 #include <QTimer>
 #include <QToolTip>
@@ -75,6 +81,13 @@ int main(int argc, char *argv[])
     QApplication::setApplicationVersion(Pinloom::pinloomVersion());
     QApplication::setWindowIcon(QIcon(QStringLiteral(":/pinloom/icon.png")));
     app.setQuitOnLastWindowClosed(false);
+    Pinloom::applySystemPinloomVisualTheme(app);
+    QObject::connect(QGuiApplication::styleHints(),
+                     &QStyleHints::colorSchemeChanged,
+                     &app,
+                     [&app](Qt::ColorScheme) {
+                         Pinloom::applySystemPinloomVisualTheme(app);
+                     });
 
     const QStringList startupArguments = QCoreApplication::arguments();
     const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
@@ -595,10 +608,47 @@ int main(int argc, char *argv[])
     };
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
+    Pinloom::ForegroundTextTarget lastForegroundTextTarget;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
     Pinloom::SumatraPdfForegroundCaptureProvider foregroundPdfCaptureProvider(
         repository,
         Pinloom::captureSumatraPdfViewState);
+    Pinloom::NativeAnchorCaptureAdapter nativeAnchorCaptureAdapter;
+    Pinloom::AnchorCaptureCommitService anchorCaptureCommitService(repository);
+
+    const auto confirmAndCommitAnchorDraft =
+        [&window,
+         &nativeAnchorCaptureAdapter,
+         &anchorCaptureCommitService](Pinloom::AnchorCaptureDraft draft,
+                                      QString *status) {
+        Pinloom::AnchorCaptureDialog dialog(draft, &window);
+        if (dialog.exec() != QDialog::Accepted) {
+            if (status) *status = QStringLiteral("Anchor capture canceled");
+            return false;
+        }
+
+        draft = dialog.draft();
+        const Pinloom::NativeAnchorCaptureResult finalized =
+            nativeAnchorCaptureAdapter.finalize(draft);
+        if (!finalized.success()) {
+            if (status) *status = finalized.error;
+            return false;
+        }
+        draft = finalized.draft;
+
+        const Pinloom::AnchorCaptureCommitResult committed =
+            anchorCaptureCommitService.commit(draft);
+        if (!committed.success()) {
+            if (status) *status = committed.error;
+            return false;
+        }
+        if (status) {
+            *status = QStringLiteral("Captured %1 Anchor \"%2\"")
+                          .arg(committed.anchor.targetApp,
+                               committed.anchor.name);
+        }
+        return true;
+    };
 
     const auto foregroundPdfAnchorCaptureRequestProvider =
         [&foregroundPdfCaptureProvider,
@@ -698,8 +748,21 @@ int main(int argc, char *argv[])
     openServiceOptions.applicationLaunchSettings = applicationLaunchSettings;
     openServiceOptions.sumatraPdfExecutablePathProvider = sumatraPdfExecutablePathProvider;
     Pinloom::PinloomOpenService openService(repository, std::move(openServiceOptions), &app);
+    QObject::connect(&openService,
+                     &Pinloom::PinloomOpenService::statusChanged,
+                     &window,
+                     [&window](const QString &status) {
+                         window.statusBar()->showMessage(status, 6000);
+                         if (status.contains(QStringLiteral("verification failed"),
+                                             Qt::CaseInsensitive)) {
+                             window.setRecentError(
+                                 QStringLiteral("SumatraPDF jump verification failed"),
+                                 status);
+                         }
+                     });
     const auto captureForegroundPdfAnchor =
-        [&repository, &foregroundPdfAnchorCaptureRequestProvider](QString *status) {
+        [&foregroundPdfAnchorCaptureRequestProvider,
+         &confirmAndCommitAnchorDraft](QString *status) {
         QString providerStatus;
         const std::optional<Pinloom::ManualPdfAnchorCreationRequest> request =
             foregroundPdfAnchorCaptureRequestProvider(&providerStatus);
@@ -711,17 +774,95 @@ int main(int argc, char *argv[])
             }
             return false;
         }
-        Pinloom::ManualPdfAnchorCreationService service(repository);
-        const Pinloom::ManualPdfAnchorCreationResult result =
-            service.createManualPdfAnchor(request.value());
-        if (!result.success()) {
-            if (status) *status = result.error;
+        return confirmAndCommitAnchorDraft(
+            Pinloom::anchorCaptureDraftFromPdfRequest(request.value()),
+            status);
+    };
+
+    const auto captureForegroundPdfTextAnchor =
+        [&foregroundPdfCaptureProvider,
+         &lastForegroundContext,
+         &lastForegroundTextTarget,
+         &commandWindowForForegroundCapture,
+         &confirmAndCommitAnchorDraft](QString *status) {
+        const bool useRememberedTarget = commandWindowForForegroundCapture
+            && commandWindowForForegroundCapture->isVisible()
+            && lastForegroundContext.isValid();
+        const Pinloom::ForegroundAppWindowContext context = useRememberedTarget
+            ? lastForegroundContext
+            : Pinloom::currentForegroundAppWindowContext();
+        Pinloom::SumatraPdfForegroundCaptureResult foreground =
+            foregroundPdfCaptureProvider.capture(context);
+        if (!foreground.success() && foreground.needsFileConfirmation) {
+            const QString selectedFile = QFileDialog::getOpenFileName(
+                commandWindowForForegroundCapture,
+                QStringLiteral("Confirm PDF File"),
+                QString(),
+                QStringLiteral("PDF files (*.pdf);;All files (*)"));
+            if (selectedFile.trimmed().isEmpty()) {
+                if (status) *status = QStringLiteral("PDF text Anchor capture canceled");
+                return false;
+            }
+            foreground = Pinloom::sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
+                foreground.documentTitle,
+                selectedFile,
+                foreground.viewState);
+        }
+        if (!foreground.success()) {
+            if (status) {
+                *status = foreground.status.trimmed().isEmpty()
+                    ? QStringLiteral("Open or focus a SumatraPDF PDF before Text Anchor")
+                    : foreground.status.trimmed();
+            }
             return false;
         }
-        if (status) {
-            *status = QStringLiteral("Captured PDF anchor \"%1\"").arg(result.anchor.name);
+
+        const Pinloom::TextSelectionCaptureResult selection =
+            Pinloom::captureTextSelectionFromTarget(
+                context,
+                useRememberedTarget
+                    ? lastForegroundTextTarget
+                    : Pinloom::captureForegroundTextTarget());
+        if (!selection.hasSelectedText()) {
+            if (status) {
+                *status = selection.diagnostics.trimmed().isEmpty()
+                    ? QStringLiteral("Select PDF text before opening Pinloom")
+                    : selection.diagnostics.trimmed();
+            }
+            return false;
         }
-        return true;
+
+        Pinloom::ManualPdfAnchorCreationRequest request = foreground.request;
+        request.locatorType = QStringLiteral("sumatrapdf.search");
+        request.searchText = selection.text.simplified();
+        request.name = request.searchText.left(64);
+        request.source = QStringLiteral("foreground-sumatrapdf-selection");
+        return confirmAndCommitAnchorDraft(
+            Pinloom::anchorCaptureDraftFromPdfRequest(request), status);
+    };
+
+    const auto captureRememberedApplicationAnchor =
+        [&lastForegroundContext,
+         &commandWindowForForegroundCapture,
+         &nativeAnchorCaptureAdapter,
+         &captureForegroundPdfAnchor,
+         &confirmAndCommitAnchorDraft](QString *status) {
+        const Pinloom::ForegroundAppWindowContext context =
+            commandWindowForForegroundCapture
+                && commandWindowForForegroundCapture->isVisible()
+                && lastForegroundContext.isValid()
+            ? lastForegroundContext
+            : Pinloom::currentForegroundAppWindowContext();
+        if (Pinloom::isSumatraPdfForegroundWindow(context)) {
+            return captureForegroundPdfAnchor(status);
+        }
+        const Pinloom::NativeAnchorCaptureResult captured =
+            nativeAnchorCaptureAdapter.captureForProcess(context.processName);
+        if (!captured.success()) {
+            if (status) *status = captured.error;
+            return false;
+        }
+        return confirmAndCommitAnchorDraft(captured.draft, status);
     };
 
     Pinloom::AnchorLibraryManagementService anchorLibraryManagement(repository);
@@ -1047,7 +1188,9 @@ int main(int argc, char *argv[])
         }
         return true;
     };
-    commandOptions.anchorCaptureHandler = captureForegroundPdfAnchor;
+    commandOptions.anchorCaptureHandler = captureRememberedApplicationAnchor;
+    commandOptions.rectangleAnchorCaptureHandler = captureForegroundPdfAnchor;
+    commandOptions.textAnchorCaptureHandler = captureForegroundPdfTextAnchor;
     commandOptions.anchorLibraryHandler = [&anchorLibraryWindow,
                                            &anchorLibraryOptions,
                                            &window](QString *status) {
@@ -2419,9 +2562,12 @@ int main(int argc, char *argv[])
                                                                   &clipQuickPicker,
                                                                   &activeClipInsertionWindow,
                                                                   &lastForegroundContext,
+                                                                  &lastForegroundTextTarget,
                                                                   &pendingClipInsertionTarget]() {
                                                                      lastForegroundContext =
                                                                          Pinloom::currentForegroundAppWindowContext();
+                                                                     lastForegroundTextTarget =
+                                                                         Pinloom::captureForegroundTextTarget();
                                                                      clipQuickPicker.dismiss();
                                                                      activeClipInsertionWindow = &window;
                                                                      pendingClipInsertionTarget.reset();

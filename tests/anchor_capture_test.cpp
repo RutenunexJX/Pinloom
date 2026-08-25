@@ -1,12 +1,15 @@
 #include "pinloom/core/AnchorCapture.h"
+#include "pinloom/core/AnchorCaptureDraft.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
+#include "pinloom/core/NativeAnchorCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QTemporaryDir>
@@ -44,6 +47,9 @@ private slots:
     void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
     void reportsForegroundSumatraPdfTitleWithoutFilePath();
     void rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMatches();
+    void buildsAndStoresSumatraPdfSearchAnchor();
+    void validatesAndCommitsSharedAnchorDraft();
+    void capturesAndFinalizesNativeOfficeAnchors();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
 };
 
@@ -770,6 +776,150 @@ void AnchorCaptureTest::rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMa
     QVERIFY(result.status.contains(QStringLiteral("Confirm the PDF file")));
     QVERIFY(result.status.contains(QStringLiteral("2 indexed PDFs matched")));
     QVERIFY(result.request.file.isEmpty());
+}
+
+void AnchorCaptureTest::buildsAndStoresSumatraPdfSearchAnchor()
+{
+    PdfCaptureRequest request;
+    request.targetFile = QStringLiteral("E:/docs/protocol.pdf");
+    request.locatorType = QStringLiteral("sumatrapdf.search");
+    request.page = 17;
+    request.zoom = 140.0;
+    request.searchText = QStringLiteral("  clock   domain crossing  ");
+    request.contextBefore = QStringLiteral("the selected");
+    request.contextAfter = QStringLiteral("must be synchronized");
+    request.occurrence = 2;
+    request.fallbackRect = {10.0, 20.0, 210.0, 64.0};
+    request.anchorName = QStringLiteral("CDC requirement");
+
+    const AnchorCaptureResult captured = captureManualPdfAnchor(request);
+    QVERIFY2(captured.success(), qPrintable(captured.error));
+    QCOMPARE(captured.locatorType, QStringLiteral("sumatrapdf.search"));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        captured.anchor.locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("text")).toString(),
+             QStringLiteral("clock domain crossing"));
+    QCOMPARE(locator.value(QStringLiteral("contextBefore")).toString(),
+             QStringLiteral("the selected"));
+    QCOMPARE(locator.value(QStringLiteral("contextAfter")).toString(),
+             QStringLiteral("must be synchronized"));
+    QCOMPARE(locator.value(QStringLiteral("occurrence")).toInt(), 2);
+    QCOMPARE(locator.value(QStringLiteral("fallbackRect")).toArray().size(), 4);
+
+    ManualPdfAnchorCreationRequest creation;
+    creation.name = request.anchorName;
+    creation.file = request.targetFile;
+    creation.locatorType = request.locatorType;
+    creation.page = request.page;
+    creation.zoom = request.zoom;
+    creation.searchText = request.searchText;
+    creation.contextBefore = request.contextBefore;
+    creation.contextAfter = request.contextAfter;
+    creation.occurrence = request.occurrence;
+    creation.fallbackRect = request.fallbackRect;
+    creation.aliases = {QStringLiteral("CDC clause")};
+    creation.tags = {QStringLiteral("#spec")};
+
+    InMemoryLibraryRepository repository;
+    AnchorCaptureCommitService service(repository);
+    const AnchorCaptureCommitResult committed = service.commit(
+        anchorCaptureDraftFromPdfRequest(creation));
+    QVERIFY2(committed.success(), qPrintable(committed.error));
+    QCOMPARE(committed.anchor.locatorType,
+             QStringLiteral("sumatrapdf.search"));
+    QCOMPARE(committed.anchor.aliases, QStringList{QStringLiteral("CDC clause")});
+    QCOMPARE(committed.anchor.tags, QStringList{QStringLiteral("spec")});
+    const std::optional<Resource> stored =
+        repository.findResource(committed.resource.id);
+    QVERIFY(stored.has_value());
+    QCOMPARE(stored->anchors.size(), 1);
+    QCOMPARE(stored->anchors.first().locatorJson, committed.anchor.locatorJson);
+}
+
+void AnchorCaptureTest::validatesAndCommitsSharedAnchorDraft()
+{
+    AnchorCaptureDraft draft;
+    draft.targetApp = QStringLiteral("Word");
+    draft.targetFile = QStringLiteral("E:/docs/design.docx");
+    draft.locatorType = QStringLiteral("word.bookmark");
+    draft.locatorJson = QStringLiteral(
+        R"({"type":"word.bookmark","bookmark":"_Pinloom_a1"})");
+    draft.suggestedName = QStringLiteral("Reset sequence");
+    draft.aliases = {QStringLiteral(" reset "), QStringLiteral("RESET")};
+    draft.tags = {QStringLiteral("#review"), QStringLiteral("review")};
+    draft.pinned = true;
+    draft.mutationRequired = true;
+
+    QString error;
+    QVERIFY(!draft.isValid(&error));
+    QVERIFY(error.contains(QStringLiteral("authorization"), Qt::CaseInsensitive));
+    draft.mutationAuthorized = true;
+    QVERIFY2(draft.isValid(&error), qPrintable(error));
+
+    InMemoryLibraryRepository repository;
+    AnchorCaptureCommitService service(repository);
+    const AnchorCaptureCommitResult result = service.commit(draft);
+    QVERIFY2(result.success(), qPrintable(result.error));
+    QCOMPARE(result.resource.kind, ResourceKind::File);
+    QCOMPARE(result.anchor.name, QStringLiteral("Reset sequence"));
+    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("reset")});
+    QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("review")});
+    QVERIFY(result.anchor.pinned);
+}
+
+void AnchorCaptureTest::capturesAndFinalizesNativeOfficeAnchors()
+{
+    QStringList scripts;
+    const NativeCaptureScriptRunner runner = [&scripts](const QString &script, int) {
+        scripts.append(script);
+        NativeCaptureScriptResult result;
+        if (script.contains(QStringLiteral("Bookmarks.Add"))) {
+            result.standardOutput = QStringLiteral(
+                R"({"ok":true,"locatorType":"word.bookmark","locator":{"type":"word.bookmark","bookmark":"_Pinloom_abcd"}})");
+        } else if (script.contains(QStringLiteral("Word.Application"))) {
+            result.standardOutput = QStringLiteral(
+                R"({"ok":true,"targetApp":"Word","targetFile":"E:/docs/design.docx","locatorType":"word.bookmark","locator":{"type":"word.bookmark","bookmark":"_Pinloom_abcd"},"suggestedName":"Reset sequence","provenance":"word-com","mutationRequired":true,"mutationOptional":false,"mutationKind":"word.bookmark","mutationLabel":"Create bookmark","mutationPayload":{"documentPath":"E:/docs/design.docx","start":20,"end":34,"bookmark":"_Pinloom_abcd"}})");
+        } else if (script.contains(QStringLiteral("Excel.Application"))) {
+            result.standardOutput = QStringLiteral(
+                R"({"ok":true,"targetApp":"Excel","targetFile":"E:/docs/map.xlsx","locatorType":"excel.range","locator":{"type":"excel.range","sheet":"Map","range":"$B$2:$D$5"},"suggestedName":"Map $B$2:$D$5","provenance":"excel-com","mutationRequired":false,"mutationOptional":true,"mutationKind":"excel.definedName","mutationLabel":"Create name","mutationPayload":{"workbookPath":"E:/docs/map.xlsx","sheet":"Map","range":"$B$2:$D$5","definedName":"_Pinloom_range"}})");
+        } else {
+            result.standardOutput = QStringLiteral(
+                R"({"ok":false,"error":"unsupported test script"})");
+        }
+        return result;
+    };
+
+    QCOMPARE(nativeAnchorApplicationForProcess(QStringLiteral("WINWORD.EXE")),
+             NativeAnchorApplication::Word);
+    QCOMPARE(nativeAnchorApplicationForProcess(QStringLiteral("VISIO.EXE")),
+             NativeAnchorApplication::Visio);
+    QCOMPARE(nativeAnchorApplicationForProcess(QStringLiteral("EXCEL.EXE")),
+             NativeAnchorApplication::Excel);
+    QCOMPARE(nativeAnchorApplicationForProcess(QStringLiteral("notepad.exe")),
+             NativeAnchorApplication::Unknown);
+
+    NativeAnchorCaptureAdapter adapter(runner);
+    NativeAnchorCaptureResult word = adapter.captureForProcess(
+        QStringLiteral("WINWORD.EXE"));
+    QVERIFY2(word.success(), qPrintable(word.error));
+    QVERIFY(word.draft.mutationRequired);
+    QVERIFY(!word.draft.mutationAuthorized);
+    word.draft.mutationAuthorized = true;
+    const NativeAnchorCaptureResult finalized = adapter.finalize(word.draft);
+    QVERIFY2(finalized.success(), qPrintable(finalized.error));
+    QVERIFY(!finalized.draft.mutationRequired);
+    QCOMPARE(finalized.draft.locatorType, QStringLiteral("word.bookmark"));
+    QVERIFY(finalized.draft.locatorJson.contains(QStringLiteral("_Pinloom_abcd")));
+
+    NativeAnchorCaptureResult excel = adapter.capture(
+        NativeAnchorApplication::Excel);
+    QVERIFY2(excel.success(), qPrintable(excel.error));
+    QVERIFY(excel.draft.mutationOptional);
+    const NativeAnchorCaptureResult unchanged = adapter.finalize(excel.draft);
+    QVERIFY2(unchanged.success(), qPrintable(unchanged.error));
+    QCOMPARE(unchanged.draft.locatorType, QStringLiteral("excel.range"));
+    QVERIFY(!unchanged.draft.mutationOptional);
+    QCOMPARE(scripts.size(), 3);
 }
 
 void AnchorCaptureTest::readsCreatedManualPdfRectAnchorAfterSqliteReopen()

@@ -1125,7 +1125,7 @@ SumatraPdfForegroundCaptureResult captureSumatraPdfForegroundContext(
 {
     SumatraPdfForegroundCaptureResult result;
     if (!context.isValid() || !isSumatraPdfForegroundWindow(context)) {
-        result.status = QStringLiteral("SumatraPDF was not detected in the foreground; open or focus a SumatraPDF PDF before k n");
+        result.status = QStringLiteral("SumatraPDF was not detected in the foreground; open or focus a SumatraPDF PDF before anchor;new");
         return result;
     }
 

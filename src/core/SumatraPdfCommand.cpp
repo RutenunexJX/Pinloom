@@ -374,6 +374,7 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
         }
         arguments.append(QStringLiteral("-search"));
         arguments.append(text);
+        result.command.searchText = text;
     }
 
     if (isRectLocator) {

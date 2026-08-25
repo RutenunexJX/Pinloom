@@ -3,14 +3,19 @@
 #include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDialog>
+#include <QHash>
+#include <QObject>
 #include <QPair>
 #include <QPoint>
 #include <QRect>
+#include <QString>
+#include <QStringList>
 #include <functional>
 
 class QKeyEvent;
 class QMouseEvent;
 class QPaintEvent;
+class QTimer;
 
 namespace Pinloom {
 
@@ -55,6 +60,43 @@ private:
 };
 
 SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandle);
+
+struct SumatraPdfPersistentHighlight {
+    QString key;
+    QString targetFile;
+    QRectF pdfRect;
+    int page = -1;
+    double zoom = -1.0;
+    quintptr targetWindowHandle = 0;
+
+    bool isValid() const;
+};
+
+class SumatraPdfHighlightManager final : public QObject {
+public:
+    static SumatraPdfHighlightManager &instance();
+
+    bool addOrUpdate(const SumatraPdfPersistentHighlight &highlight);
+    bool remove(const QString &key);
+    void clear();
+    bool contains(const QString &key) const;
+    int count() const;
+    void refreshNow();
+
+private:
+    struct Entry;
+
+    explicit SumatraPdfHighlightManager(QObject *parent = nullptr);
+    ~SumatraPdfHighlightManager() override;
+    void removeEntries(const QStringList &keys);
+
+    QHash<QString, Entry *> entries_;
+    QTimer *refreshTimer_ = nullptr;
+    int refreshSerial_ = 0;
+};
+
+bool registerSumatraPdfPersistentHighlight(
+    const SumatraPdfPersistentHighlight &highlight);
 bool showSumatraPdfRectHighlight(const QRectF &pdfRect,
                                  int page,
                                  double zoom,

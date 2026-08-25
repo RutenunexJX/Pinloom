@@ -24,6 +24,11 @@ struct PdfCaptureRequest {
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
+    QString searchText;
+    QString contextBefore;
+    QString contextAfter;
+    int occurrence = -1;
+    PdfCaptureRect fallbackRect;
     QString anchorName;
 };
 

@@ -151,6 +151,11 @@ ManualPdfAnchorCreationRequest ManualPdfAnchorDialog::request() const
     request.unit = unit_;
     request.source = source_;
     request.targetApp = targetApp_;
+    request.searchText = searchText_;
+    request.contextBefore = contextBefore_;
+    request.contextAfter = contextAfter_;
+    request.occurrence = occurrence_;
+    request.fallbackRect = fallbackRect_;
     request.aliases = valuesFromCommaText(aliasesEdit_->text());
     request.tags = valuesFromCommaText(tagsEdit_->text());
     request.pinned = pinnedCheck_->isChecked();
@@ -178,6 +183,11 @@ void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &req
     if (locatorType_.isEmpty()) {
         locatorType_ = request.rect.isValid() ? QStringLiteral("sumatrapdf.rect") : QStringLiteral("sumatrapdf.page");
     }
+    searchText_ = request.searchText;
+    contextBefore_ = request.contextBefore;
+    contextAfter_ = request.contextAfter;
+    occurrence_ = request.occurrence;
+    fallbackRect_ = request.fallbackRect;
 
     nameEdit_->setText(request.name);
     fileEdit_->setText(request.file);
