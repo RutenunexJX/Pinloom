@@ -5,6 +5,7 @@
 #include <QCursor>
 #include <QCoreApplication>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileInfo>
 #include <QGuiApplication>
 #include <QKeyEvent>
@@ -305,8 +306,11 @@ void SumatraPdfRegionCaptureOverlay::mouseReleaseEvent(QMouseEvent *event)
     result_.region = sumatraPdfDdeRegionFromMousePositions(positions.first,
                                                            positions.second);
     if (!result_.region.success()) {
-        showCaptureError(result_.region.error);
-        update();
+        // A completed drag is a terminal attempt. Keeping the application-modal
+        // overlay open here traps the user when SumatraPDF cannot resolve an
+        // endpoint. Return the error to the command window instead.
+        result_.canceled = false;
+        QDialog::reject();
         return;
     }
 
@@ -339,16 +343,18 @@ QPair<SumatraPdfDdeMousePosition, SumatraPdfDdeMousePosition>
 SumatraPdfRegionCaptureOverlay::sampleRegionPositions(const QPoint &globalStart,
                                                       const QPoint &globalEnd)
 {
+    // SumatraPDF 3.7 GetMousePos() resolves the document below the system
+    // cursor. The top-most capture dialog must be removed from hit testing
+    // before sampling, otherwise both endpoints can report page 0.
+    releaseMouse();
+    hide();
+    QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+
     if (targetWindowHandle_ == 0) {
         return {mousePositionProvider_(), mousePositionProvider_()};
     }
 
 #ifdef Q_OS_WIN
-    HWND overlayWindow = reinterpret_cast<HWND>(winId());
-    const bool restoreEnabled = overlayWindow && IsWindowEnabled(overlayWindow);
-    if (restoreEnabled) {
-        EnableWindow(overlayWindow, FALSE);
-    }
     activateTargetWindow(targetWindowHandle_);
     const QPoint originalCursorPosition = QCursor::pos();
     QCursor::setPos(globalStart);
@@ -356,11 +362,6 @@ SumatraPdfRegionCaptureOverlay::sampleRegionPositions(const QPoint &globalStart,
     QCursor::setPos(globalEnd);
     const SumatraPdfDdeMousePosition end = mousePositionProvider_();
     QCursor::setPos(originalCursorPosition);
-    if (restoreEnabled) {
-        EnableWindow(overlayWindow, TRUE);
-        BringWindowToTop(overlayWindow);
-        SetForegroundWindow(overlayWindow);
-    }
     return {start, end};
 #else
     Q_UNUSED(globalStart);

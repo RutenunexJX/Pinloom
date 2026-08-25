@@ -2666,9 +2666,14 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
     end.y = 920.0;
     positions.append(end);
 
+    SumatraPdfRegionCaptureOverlay *activeOverlay = nullptr;
+    bool hiddenForEverySample = true;
     SumatraPdfRegionCaptureOverlay overlay(
         0,
-        [&positions]() {
+        [&positions, &activeOverlay, &hiddenForEverySample]() {
+            hiddenForEverySample = hiddenForEverySample
+                && activeOverlay
+                && !activeOverlay->isVisible();
             if (positions.isEmpty()) {
                 SumatraPdfDdeMousePosition missing;
                 missing.error = QStringLiteral("missing test position");
@@ -2676,6 +2681,7 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
             }
             return positions.takeFirst();
         });
+    activeOverlay = &overlay;
     overlay.setGeometry(100, 100, 500, 300);
     overlay.show();
     QVERIFY(QTest::qWaitForWindowExposed(&overlay));
@@ -2685,6 +2691,7 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
     QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
 
     QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
+    QVERIFY(hiddenForEverySample);
     const SumatraPdfRegionCaptureResult result = overlay.captureResult();
     QVERIFY2(result.success(), qPrintable(result.region.error));
     QCOMPARE(result.region.page, 12);
@@ -2724,12 +2731,20 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayRejectsCrossPageAndCancels()
 
     QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(80, 90));
     QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
-    QVERIFY(overlay.isVisible());
-    QVERIFY(!overlay.captureResult().success());
-
-    QTest::keyClick(&overlay, Qt::Key_Escape);
     QCOMPARE(overlay.result(), static_cast<int>(QDialog::Rejected));
-    QVERIFY(overlay.captureResult().canceled);
+    QVERIFY(!overlay.isVisible());
+    const SumatraPdfRegionCaptureResult failed = overlay.captureResult();
+    QVERIFY(!failed.success());
+    QVERIFY(!failed.canceled);
+    QCOMPARE(failed.region.error, QStringLiteral("PDF region must stay on one page"));
+
+    SumatraPdfRegionCaptureOverlay canceledOverlay(0);
+    canceledOverlay.setGeometry(100, 100, 500, 300);
+    canceledOverlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&canceledOverlay));
+    QTest::keyClick(&canceledOverlay, Qt::Key_Escape);
+    QCOMPARE(canceledOverlay.result(), static_cast<int>(QDialog::Rejected));
+    QVERIFY(canceledOverlay.captureResult().canceled);
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()

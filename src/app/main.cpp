@@ -622,7 +622,18 @@ int main(int argc, char *argv[])
          &nativeAnchorCaptureAdapter,
          &anchorCaptureCommitService](Pinloom::AnchorCaptureDraft draft,
                                       QString *status) {
+        if (!window.isVisible()) {
+            window.show();
+        }
+        window.raise();
+        window.activateWindow();
+        QApplication::processEvents();
+
         Pinloom::AnchorCaptureDialog dialog(draft, &window);
+        QTimer::singleShot(0, &dialog, [&dialog]() {
+            dialog.raise();
+            dialog.activateWindow();
+        });
         if (dialog.exec() != QDialog::Accepted) {
             if (status) *status = QStringLiteral("Anchor capture canceled");
             return false;
