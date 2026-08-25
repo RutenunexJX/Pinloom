@@ -14,6 +14,7 @@
 #include <QPointer>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QThread>
 #include <QTimer>
 #include <QToolTip>
 #include <QWindow>
@@ -218,17 +219,24 @@ bool SumatraPdfRegionCaptureResult::success() const
 SumatraPdfRegionCaptureOverlay::SumatraPdfRegionCaptureOverlay(
     quintptr targetWindowHandle,
     MousePositionProvider mousePositionProvider,
-    QWidget *parent)
+    QWidget *parent,
+    int fallbackPage,
+    double fallbackZoom)
     : QDialog(parent,
               Qt::Window
                   | Qt::FramelessWindowHint
                   | Qt::WindowStaysOnTopHint)
     , targetWindowHandle_(targetWindowHandle)
     , mousePositionProvider_(std::move(mousePositionProvider))
+    , usingDefaultMousePositionProvider_(!mousePositionProvider_)
+    , fallbackPage_(std::max(1, fallbackPage))
+    , fallbackZoom_(std::isfinite(fallbackZoom) && fallbackZoom > 0.0
+                        ? fallbackZoom
+                        : -1.0)
 {
     if (!mousePositionProvider_) {
         mousePositionProvider_ = []() {
-            return requestSumatraPdfDdeMousePosition(800);
+            return requestSumatraPdfDdeMousePosition(300);
         };
     }
 
@@ -295,23 +303,27 @@ void SumatraPdfRegionCaptureOverlay::mouseReleaseEvent(QMouseEvent *event)
 
     dragCurrent_ = event->position().toPoint();
     dragging_ = false;
-    if ((dragCurrent_ - dragStart_).manhattanLength() < 6) {
-        showCaptureError(tr("PDF region is too small"));
-        update();
-        return;
-    }
-
-    const auto positions = sampleRegionPositions(mapToGlobal(dragStart_),
-                                                 mapToGlobal(dragCurrent_));
+    const QPoint globalStart = mapToGlobal(dragStart_);
+    const QPoint globalEnd = mapToGlobal(dragCurrent_);
+    const auto positions = sampleRegionPositions(globalStart, globalEnd);
     result_.region = sumatraPdfDdeRegionFromMousePositions(positions.first,
                                                            positions.second);
     if (!result_.region.success()) {
-        // A completed drag is a terminal attempt. Keeping the application-modal
-        // overlay open here traps the user when SumatraPDF cannot resolve an
-        // endpoint. Return the error to the command window instead.
-        result_.canceled = false;
-        QDialog::reject();
-        return;
+        result_.diagnostics = result_.region.error;
+        result_.region = fallbackRegionForSelection(globalStart,
+                                                    globalEnd,
+                                                    positions.first,
+                                                    positions.second);
+        result_.usedFallback = true;
+    }
+    if (!result_.region.success()) {
+        // A completed visual selection must never be discarded. This final
+        // page-space rectangle is deliberately conservative and keeps the
+        // Anchor editable even when SumatraPDF DDE is unavailable.
+        result_.region.page = std::max(1, fallbackPage_);
+        result_.region.rect = {0.0, 0.0, 1.0, 1.0};
+        result_.region.error.clear();
+        result_.usedFallback = true;
     }
 
     result_.canceled = false;
@@ -357,10 +369,8 @@ SumatraPdfRegionCaptureOverlay::sampleRegionPositions(const QPoint &globalStart,
 #ifdef Q_OS_WIN
     activateTargetWindow(targetWindowHandle_);
     const QPoint originalCursorPosition = QCursor::pos();
-    QCursor::setPos(globalStart);
-    const SumatraPdfDdeMousePosition start = mousePositionProvider_();
-    QCursor::setPos(globalEnd);
-    const SumatraPdfDdeMousePosition end = mousePositionProvider_();
+    const SumatraPdfDdeMousePosition start = sampleMousePositionAt(globalStart);
+    const SumatraPdfDdeMousePosition end = sampleMousePositionAt(globalEnd);
     QCursor::setPos(originalCursorPosition);
     return {start, end};
 #else
@@ -368,6 +378,138 @@ SumatraPdfRegionCaptureOverlay::sampleRegionPositions(const QPoint &globalStart,
     Q_UNUSED(globalEnd);
     return {mousePositionProvider_(), mousePositionProvider_()};
 #endif
+}
+
+SumatraPdfDdeMousePosition SumatraPdfRegionCaptureOverlay::sampleMousePositionAt(
+    const QPoint &globalPosition)
+{
+    SumatraPdfDdeMousePosition sampled;
+    const int attempts = usingDefaultMousePositionProvider_ ? 4 : 1;
+    for (int attempt = 0; attempt < attempts; ++attempt) {
+        QCursor::setPos(globalPosition);
+        if (usingDefaultMousePositionProvider_) {
+            // SetCursorPos is asynchronous with respect to SumatraPDF's mouse
+            // tracking. Let the target consume WM_MOUSEMOVE before GetMousePos.
+            QThread::msleep(static_cast<unsigned long>(40 + attempt * 20));
+            QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+        }
+        sampled = mousePositionProvider_();
+        if (sampled.success()) {
+            return sampled;
+        }
+    }
+    return sampled;
+}
+
+SumatraPdfDdeRegion SumatraPdfRegionCaptureOverlay::fallbackRegionForSelection(
+    const QPoint &globalStart,
+    const QPoint &globalEnd,
+    const SumatraPdfDdeMousePosition &start,
+    const SumatraPdfDdeMousePosition &end)
+{
+    SumatraPdfDdeRegion region;
+    const QRect selection = QRect(globalStart, globalEnd).normalized();
+    const QPoint selectionCenter = selection.center();
+
+    const QPoint originalCursorPosition = QCursor::pos();
+    const SumatraPdfDdeMousePosition center = sampleMousePositionAt(selectionCenter);
+    QCursor::setPos(originalCursorPosition);
+
+    SumatraPdfDdeMousePosition reference;
+    QPoint referenceScreenPosition;
+    if (center.success()) {
+        reference = center;
+        referenceScreenPosition = selectionCenter;
+    } else if (start.success()) {
+        reference = start;
+        referenceScreenPosition = globalStart;
+    } else if (end.success()) {
+        reference = end;
+        referenceScreenPosition = globalEnd;
+    }
+
+    const bool hasReferencePage = reference.success();
+    int page = hasReferencePage ? reference.page : fallbackPage_;
+    double zoom = fallbackZoom_;
+    if ((!std::isfinite(zoom) || zoom <= 0.0) && usingDefaultMousePositionProvider_) {
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            const SumatraPdfDdeFileState state = requestSumatraPdfDdeFileState(600);
+            if (state.page > 0 && !hasReferencePage) {
+                page = state.page;
+            }
+            if (std::isfinite(state.zoom) && state.zoom > 0.0) {
+                zoom = state.zoom;
+                break;
+            }
+            QThread::msleep(35);
+        }
+    }
+    page = std::max(1, page);
+
+    if (reference.success() && std::isfinite(zoom) && zoom > 0.0) {
+        constexpr double LogicalPixelsPerPdfPointAt100Percent = 96.0 / 72.0;
+        const double scale = LogicalPixelsPerPdfPointAt100Percent * zoom / 100.0;
+        const double screenLeft = std::min(globalStart.x(), globalEnd.x());
+        const double screenTop = std::min(globalStart.y(), globalEnd.y());
+        const double screenRight = std::max(globalStart.x(), globalEnd.x());
+        const double screenBottom = std::max(globalStart.y(), globalEnd.y());
+        region.page = page;
+        region.rect.left = std::max(0.0,
+                                    reference.x
+                                        + (screenLeft - referenceScreenPosition.x()) / scale);
+        region.rect.top = std::max(0.0,
+                                   reference.y
+                                       + (screenTop - referenceScreenPosition.y()) / scale);
+        region.rect.right = std::max(region.rect.left + 1.0,
+                                     reference.x
+                                         + (screenRight - referenceScreenPosition.x()) / scale);
+        region.rect.bottom = std::max(region.rect.top + 1.0,
+                                      reference.y
+                                          + (screenBottom - referenceScreenPosition.y()) / scale);
+        if (region.success()) {
+            return region;
+        }
+    }
+
+    QRect clientGeometry = geometry();
+    if (!clientGeometry.isValid()) {
+        clientGeometry = targetClientGeometry(targetWindowHandle_);
+    }
+    if (!clientGeometry.isValid()) {
+        clientGeometry = QRect(selectionCenter.x() - 1,
+                               selectionCenter.y() - 1,
+                               2,
+                               2);
+    }
+
+    // The fallback is stored in conservative PDF-point space. It guarantees a
+    // durable Anchor and a configuration dialog even if DDE is completely down.
+    constexpr double FallbackPageWidthPoints = 612.0;
+    constexpr double FallbackPageHeightPoints = 792.0;
+    const double width = std::max(1, clientGeometry.width());
+    const double height = std::max(1, clientGeometry.height());
+    const auto normalizedX = [&](double x) {
+        return std::clamp((x - clientGeometry.left()) / width, 0.0, 1.0)
+            * FallbackPageWidthPoints;
+    };
+    const auto normalizedY = [&](double y) {
+        return std::clamp((y - clientGeometry.top()) / height, 0.0, 1.0)
+            * FallbackPageHeightPoints;
+    };
+
+    region.page = page;
+    region.rect.left = normalizedX(std::min(globalStart.x(), globalEnd.x()));
+    region.rect.top = normalizedY(std::min(globalStart.y(), globalEnd.y()));
+    region.rect.right = std::max(region.rect.left + 1.0,
+                                 normalizedX(std::max(globalStart.x(), globalEnd.x())));
+    region.rect.bottom = std::max(region.rect.top + 1.0,
+                                  normalizedY(std::max(globalStart.y(), globalEnd.y())));
+    region.rect.right = std::min(FallbackPageWidthPoints, region.rect.right);
+    region.rect.bottom = std::min(FallbackPageHeightPoints, region.rect.bottom);
+    if (!region.rect.isValid()) {
+        region.rect = {0.0, 0.0, 1.0, 1.0};
+    }
+    return region;
 }
 
 void SumatraPdfRegionCaptureOverlay::showCaptureError(const QString &message)
@@ -380,16 +522,17 @@ void SumatraPdfRegionCaptureOverlay::showCaptureError(const QString &message)
     QToolTip::showText(QCursor::pos(), text, this, rect(), 1800);
 }
 
-SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandle)
+SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandle,
+                                                      int fallbackPage,
+                                                      double fallbackZoom)
 {
     SumatraPdfRegionCaptureResult result;
-    if (targetWindowHandle == 0) {
-        result.region.error = QStringLiteral("SumatraPDF window is unavailable");
-        return result;
-    }
-
     activateTargetWindow(targetWindowHandle);
-    SumatraPdfRegionCaptureOverlay overlay(targetWindowHandle);
+    SumatraPdfRegionCaptureOverlay overlay(targetWindowHandle,
+                                           {},
+                                           nullptr,
+                                           fallbackPage,
+                                           fallbackZoom);
     if (overlay.geometry().isEmpty()) {
         result.region.error = QStringLiteral("SumatraPDF window geometry is unavailable");
         return result;

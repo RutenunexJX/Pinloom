@@ -22,6 +22,8 @@ namespace Pinloom {
 struct SumatraPdfRegionCaptureResult {
     SumatraPdfDdeRegion region;
     bool canceled = false;
+    bool usedFallback = false;
+    QString diagnostics;
 
     bool success() const;
 };
@@ -33,7 +35,9 @@ public:
     explicit SumatraPdfRegionCaptureOverlay(
         quintptr targetWindowHandle,
         MousePositionProvider mousePositionProvider = {},
-        QWidget *parent = nullptr);
+        QWidget *parent = nullptr,
+        int fallbackPage = 1,
+        double fallbackZoom = -1.0);
 
     SumatraPdfRegionCaptureResult captureResult() const;
 
@@ -49,6 +53,12 @@ private:
     QPair<SumatraPdfDdeMousePosition, SumatraPdfDdeMousePosition> sampleRegionPositions(
         const QPoint &globalStart,
         const QPoint &globalEnd);
+    SumatraPdfDdeMousePosition sampleMousePositionAt(const QPoint &globalPosition);
+    SumatraPdfDdeRegion fallbackRegionForSelection(
+        const QPoint &globalStart,
+        const QPoint &globalEnd,
+        const SumatraPdfDdeMousePosition &start,
+        const SumatraPdfDdeMousePosition &end);
     void showCaptureError(const QString &message);
 
     quintptr targetWindowHandle_ = 0;
@@ -57,9 +67,15 @@ private:
     QPoint dragStart_;
     QPoint dragCurrent_;
     bool dragging_ = false;
+    bool usingDefaultMousePositionProvider_ = false;
+    int fallbackPage_ = 1;
+    double fallbackZoom_ = -1.0;
 };
 
-SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandle);
+SumatraPdfRegionCaptureResult captureSumatraPdfRegion(
+    quintptr targetWindowHandle,
+    int fallbackPage = 1,
+    double fallbackZoom = -1.0);
 
 struct SumatraPdfPersistentHighlight {
     QString key;

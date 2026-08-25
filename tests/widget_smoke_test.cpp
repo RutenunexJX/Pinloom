@@ -114,7 +114,7 @@ private slots:
     void settingsDialogRoundTripsRuntimeSettings();
     void dataDirectoryChangeMigratesOnNextStartup();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
-    void sumatraPdfRegionOverlayRejectsCrossPageAndCancels();
+    void sumatraPdfRegionOverlayRecoversCrossPageAndCancels();
     void panelUsesInjectedRepository();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
@@ -2701,7 +2701,7 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
     QCOMPARE(result.region.rect.bottom, 920.0);
 }
 
-void WidgetSmokeTest::sumatraPdfRegionOverlayRejectsCrossPageAndCancels()
+void WidgetSmokeTest::sumatraPdfRegionOverlayRecoversCrossPageAndCancels()
 {
     QList<SumatraPdfDdeMousePosition> positions;
     SumatraPdfDdeMousePosition start;
@@ -2731,12 +2731,37 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayRejectsCrossPageAndCancels()
 
     QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(80, 90));
     QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
-    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Rejected));
+    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
     QVERIFY(!overlay.isVisible());
-    const SumatraPdfRegionCaptureResult failed = overlay.captureResult();
-    QVERIFY(!failed.success());
-    QVERIFY(!failed.canceled);
-    QCOMPARE(failed.region.error, QStringLiteral("PDF region must stay on one page"));
+    const SumatraPdfRegionCaptureResult recovered = overlay.captureResult();
+    QVERIFY(recovered.success());
+    QVERIFY(!recovered.canceled);
+    QVERIFY(recovered.usedFallback);
+    QCOMPARE(recovered.diagnostics, QStringLiteral("PDF region must stay on one page"));
+    QCOMPARE(recovered.region.page, 12);
+    QVERIFY(recovered.region.rect.isValid());
+
+    SumatraPdfRegionCaptureOverlay unavailableOverlay(
+        0,
+        []() {
+            SumatraPdfDdeMousePosition missing;
+            missing.error = QStringLiteral("DDE unavailable");
+            return missing;
+        },
+        nullptr,
+        7,
+        125.0);
+    unavailableOverlay.setGeometry(100, 100, 500, 300);
+    unavailableOverlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&unavailableOverlay));
+    QTest::mousePress(&unavailableOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(40, 50));
+    QTest::mouseRelease(&unavailableOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(260, 180));
+    QCOMPARE(unavailableOverlay.result(), static_cast<int>(QDialog::Accepted));
+    const SumatraPdfRegionCaptureResult unavailable = unavailableOverlay.captureResult();
+    QVERIFY(unavailable.success());
+    QVERIFY(unavailable.usedFallback);
+    QCOMPARE(unavailable.region.page, 7);
+    QVERIFY(unavailable.region.rect.isValid());
 
     SumatraPdfRegionCaptureOverlay canceledOverlay(0);
     canceledOverlay.setGeometry(100, 100, 500, 300);

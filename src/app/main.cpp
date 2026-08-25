@@ -630,7 +630,9 @@ int main(int argc, char *argv[])
         QApplication::processEvents();
 
         Pinloom::AnchorCaptureDialog dialog(draft, &window);
+        dialog.setWindowFlag(Qt::WindowStaysOnTopHint, true);
         QTimer::singleShot(0, &dialog, [&dialog]() {
+            dialog.show();
             dialog.raise();
             dialog.activateWindow();
         });
@@ -691,7 +693,9 @@ int main(int argc, char *argv[])
             }
 
             const Pinloom::SumatraPdfRegionCaptureResult region =
-                Pinloom::captureSumatraPdfRegion(context.windowHandle);
+                Pinloom::captureSumatraPdfRegion(context.windowHandle,
+                                                request.page,
+                                                result.viewState.zoom);
 
             if (restoreCommandWindow) {
                 commandWindowForForegroundCapture->show();
@@ -713,10 +717,15 @@ int main(int argc, char *argv[])
             request.locatorType = QStringLiteral("sumatrapdf.rect");
             request.page = region.region.page;
             request.rect = region.region.rect;
-            request.source = QStringLiteral("foreground-sumatrapdf-region");
+            request.source = region.usedFallback
+                ? QStringLiteral("foreground-sumatrapdf-region-fallback")
+                : QStringLiteral("foreground-sumatrapdf-region");
             if (status) {
-                *status = QStringLiteral("Captured SumatraPDF region on page %1")
-                              .arg(request.page);
+                *status = region.usedFallback
+                    ? QStringLiteral("Captured SumatraPDF region on page %1 using resilient coordinate fallback")
+                          .arg(request.page)
+                    : QStringLiteral("Captured SumatraPDF region on page %1")
+                          .arg(request.page);
             }
             return request;
         };
@@ -1008,7 +1017,9 @@ int main(int argc, char *argv[])
             return std::nullopt;
         }
         const Pinloom::SumatraPdfRegionCaptureResult region =
-            Pinloom::captureSumatraPdfRegion(context.windowHandle);
+            Pinloom::captureSumatraPdfRegion(context.windowHandle,
+                                            foreground.request.page,
+                                            foreground.viewState.zoom);
         if (!region.success()) {
             if (status) {
                 *status = region.canceled
