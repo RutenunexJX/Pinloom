@@ -1,4 +1,6 @@
+#include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
+#include "pinloom/widgets/PinloomOpenService.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -60,6 +62,7 @@ class HostBridgeTest final : public QObject {
 private slots:
     void servesVersionedSearchResolveAndOpen();
     void resolvesPdfRectangleWithBoundedLocalPreview();
+    void hostOpenUsesLiveZoomHighlightPath();
     void createsValidatedSourceAnchor();
 };
 
@@ -290,6 +293,87 @@ void HostBridgeTest::resolvesPdfRectangleWithBoundedLocalPreview()
     inlineImage.uri = QUrl(QStringLiteral("data:image/png;base64,AAAA"));
     QVERIFY(!inlineImage.isValid());
     QVERIFY(pinloomHostPreviewToJson(inlineImage).isEmpty());
+}
+
+void HostBridgeTest::hostOpenUsesLiveZoomHighlightPath()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("host-open-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Host open PDF");
+    resource.location = QStringLiteral("E:/docs/host-open.pdf");
+    Anchor anchor;
+    anchor.id = QStringLiteral("host-open-pdf#region");
+    anchor.name = QStringLiteral("Host region without zoom");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"page":5,"rect":[20,40,180,110],"unit":"pt"})");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    std::optional<SumatraPdfPersistentHighlight> registeredHighlight;
+    PinloomOpenServiceOptions openOptions;
+    openOptions.sumatraPdfExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    openOptions.sumatraPdfLaunchHandler =
+        [](const SumatraPdfCommand &, QString *) { return true; };
+    openOptions.sumatraPdfStateProvider = [resource](int) {
+        SumatraPdfDdeFileState state;
+        state.path = resource.location;
+        state.page = 5;
+        state.pageCount = 10;
+        state.zoom = 150.0;
+        return state;
+    };
+    openOptions.sumatraPdfHighlightHandler =
+        [&](const SumatraPdfPersistentHighlight &highlight) {
+        registeredHighlight = highlight;
+        return true;
+    };
+    openOptions.sumatraPdfVerificationPollMilliseconds = 80;
+    openOptions.sumatraPdfVerificationTimeoutMilliseconds = 800;
+    PinloomOpenService openService(repository, openOptions);
+
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.open = [&](const PinloomHostIdentity &identity, QString *status) {
+        if (identity.resourceId != resource.id || identity.anchorId != anchor.id) {
+            return false;
+        }
+        PinloomOpenTarget target;
+        target.resourceId = resource.id;
+        target.resourceKind = resource.kind;
+        target.title = resource.title;
+        target.location = resource.location;
+        target.anchor = anchor;
+        const bool opened = openService.open(target);
+        if (status) *status = openService.statusText();
+        return opened;
+    };
+
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-live-zoom-host-test-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY2(server.start(), qPrintable(server.lastError()));
+
+    const QJsonObject identity{
+        {QStringLiteral("entryId"), QStringLiteral("anchor:") + anchor.id},
+        {QStringLiteral("resourceId"), resource.id},
+        {QStringLiteral("anchorId"), anchor.id},
+    };
+    const QJsonObject response = exchange(
+        options.serverName,
+        request(QStringLiteral("open"),
+                QJsonObject{{QStringLiteral("identity"), identity}}));
+    QVERIFY(response.value(QStringLiteral("ok")).toBool());
+    QTRY_VERIFY_WITH_TIMEOUT(registeredHighlight.has_value(), 1500);
+    QCOMPARE(registeredHighlight->zoom, 150.0);
+    QCOMPARE(registeredHighlight->page, 5);
 }
 
 void HostBridgeTest::createsValidatedSourceAnchor()

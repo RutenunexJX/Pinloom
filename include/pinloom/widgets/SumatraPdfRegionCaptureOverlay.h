@@ -72,6 +72,18 @@ struct SumatraPdfPersistentHighlight {
     bool isValid() const;
 };
 
+struct SumatraPdfHighlightRefreshState {
+    bool sumatraForeground = false;
+    quintptr foregroundWindowHandle = 0;
+    QRect clientGeometry;
+    QPoint sampledCursor;
+    SumatraPdfDdeFileState fileState;
+    SumatraPdfDdeMousePosition mousePosition;
+    bool openFilesAvailable = false;
+    QStringList openFiles;
+    std::function<bool(quintptr)> windowExists;
+};
+
 class SumatraPdfHighlightManager final : public QObject {
 public:
     static SumatraPdfHighlightManager &instance();
@@ -81,7 +93,10 @@ public:
     void clear();
     bool contains(const QString &key) const;
     int count() const;
+    bool isOverlayVisible(const QString &key) const;
+    QRect overlayScreenRect(const QString &key) const;
     void refreshNow();
+    void refreshWithState(const SumatraPdfHighlightRefreshState &state);
 
 private:
     struct Entry;

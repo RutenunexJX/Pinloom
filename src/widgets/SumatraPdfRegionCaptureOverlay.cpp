@@ -481,6 +481,18 @@ int SumatraPdfHighlightManager::count() const
     return entries_.size();
 }
 
+bool SumatraPdfHighlightManager::isOverlayVisible(const QString &key) const
+{
+    const Entry *entry = entries_.value(key.trimmed(), nullptr);
+    return entry && entry->overlay && entry->overlay->isVisible();
+}
+
+QRect SumatraPdfHighlightManager::overlayScreenRect(const QString &key) const
+{
+    const Entry *entry = entries_.value(key.trimmed(), nullptr);
+    return entry ? entry->lastScreenRect : QRect{};
+}
+
 void SumatraPdfHighlightManager::removeEntries(const QStringList &keys)
 {
     for (const QString &key : keys) {
@@ -496,20 +508,40 @@ void SumatraPdfHighlightManager::refreshNow()
     }
 
     ++refreshSerial_;
+    SumatraPdfHighlightRefreshState state;
+    state.windowExists = [](quintptr windowHandle) {
+        return nativeWindowExists(windowHandle);
+    };
     const ForegroundAppWindowContext context =
         currentForegroundAppWindowContext();
-    const bool sumatraForeground = isSumatraPdfForegroundWindow(context);
-    SumatraPdfDdeFileState fileState;
-    if (sumatraForeground) {
-        fileState = requestSumatraPdfDdeFileState(180);
+    state.sumatraForeground = isSumatraPdfForegroundWindow(context);
+    state.foregroundWindowHandle = context.windowHandle;
+    if (state.sumatraForeground) {
+        state.fileState = requestSumatraPdfDdeFileState(180);
+        state.clientGeometry = targetClientGeometry(context.windowHandle);
+        state.sampledCursor = QCursor::pos();
+        state.mousePosition = requestSumatraPdfDdeMousePosition(140);
+        if ((!state.mousePosition.success()
+             || state.mousePosition.page != state.fileState.page)
+            && state.clientGeometry.isValid()) {
+            const QPoint originalCursor = state.sampledCursor;
+            state.sampledCursor = state.clientGeometry.center();
+            QCursor::setPos(state.sampledCursor);
+            state.mousePosition = requestSumatraPdfDdeMousePosition(180);
+            QCursor::setPos(originalCursor);
+        }
     }
 
-    bool openFilesAvailable = false;
-    QStringList openFiles;
     if (refreshSerial_ == 1 || refreshSerial_ % 7 == 0) {
-        openFiles = openSumatraPdfFiles(&openFilesAvailable);
+        state.openFiles = openSumatraPdfFiles(&state.openFilesAvailable);
     }
+    refreshWithState(state);
+}
 
+void SumatraPdfHighlightManager::refreshWithState(
+    const SumatraPdfHighlightRefreshState &state)
+{
+    if (entries_.isEmpty()) return;
     QStringList removals;
     for (auto iterator = entries_.begin(); iterator != entries_.end(); ++iterator) {
         Entry *entry = iterator.value();
@@ -518,24 +550,32 @@ void SumatraPdfHighlightManager::refreshNow()
             continue;
         }
 
-        if (entry->highlight.targetWindowHandle != 0
-            && !nativeWindowExists(entry->highlight.targetWindowHandle)) {
+        const bool targetFileOpen = state.openFilesAvailable
+            && containsPdfPath(state.openFiles, entry->highlight.targetFile);
+        if (state.openFilesAvailable && !targetFileOpen) {
             removals.append(iterator.key());
             continue;
         }
-        if (openFilesAvailable
-            && !containsPdfPath(openFiles, entry->highlight.targetFile)) {
-            removals.append(iterator.key());
-            continue;
+        if (entry->highlight.targetWindowHandle != 0
+            && state.windowExists
+            && !state.windowExists(entry->highlight.targetWindowHandle)) {
+            if (!targetFileOpen) {
+                removals.append(iterator.key());
+                continue;
+            }
+            entry->highlight.targetWindowHandle = 0;
+            if (entry->overlay) entry->overlay->hide();
         }
 
-        const bool matchingForegroundWindow = sumatraForeground
+        const bool matchingForegroundWindow = state.sumatraForeground
             && (entry->highlight.targetWindowHandle == 0
-                || entry->highlight.targetWindowHandle == context.windowHandle);
+                || entry->highlight.targetWindowHandle
+                    == state.foregroundWindowHandle);
         const bool matchingDocument = matchingForegroundWindow
-            && fileState.success()
-            && samePdfPath(fileState.path, entry->highlight.targetFile);
-        if (!matchingDocument || fileState.page != entry->highlight.page) {
+            && state.fileState.success()
+            && samePdfPath(state.fileState.path, entry->highlight.targetFile);
+        if (!matchingDocument
+            || state.fileState.page != entry->highlight.page) {
             if (entry->overlay) {
                 entry->overlay->hide();
             }
@@ -543,9 +583,10 @@ void SumatraPdfHighlightManager::refreshNow()
         }
 
         if (entry->highlight.targetWindowHandle == 0) {
-            entry->highlight.targetWindowHandle = context.windowHandle;
+            entry->highlight.targetWindowHandle =
+                state.foregroundWindowHandle;
         }
-        const QRect clientGeometry = targetClientGeometry(context.windowHandle);
+        const QRect clientGeometry = state.clientGeometry;
         if (entry->lastScreenRect.isValid()
             && entry->lastClientGeometry.isValid()
             && clientGeometry.isValid()
@@ -555,27 +596,25 @@ void SumatraPdfHighlightManager::refreshNow()
         }
         entry->lastClientGeometry = clientGeometry;
 
-        QPoint sampledCursor = QCursor::pos();
-        SumatraPdfDdeMousePosition mouse =
-            requestSumatraPdfDdeMousePosition(140);
-        if ((!mouse.success() || mouse.page != entry->highlight.page)
-            && !entry->lastScreenRect.isValid()
-            && clientGeometry.isValid()) {
-            const QPoint originalCursor = sampledCursor;
-            sampledCursor = clientGeometry.center();
-            QCursor::setPos(sampledCursor);
-            mouse = requestSumatraPdfDdeMousePosition(180);
-            QCursor::setPos(originalCursor);
-        }
+        const SumatraPdfDdeMousePosition &mouse = state.mousePosition;
         if (mouse.success() && mouse.page == entry->highlight.page) {
-            const double zoom = fileState.zoom > 0.0
-                ? fileState.zoom
+            const double zoom = std::isfinite(state.fileState.zoom)
+                    && state.fileState.zoom > 0.0
+                ? state.fileState.zoom
                 : entry->highlight.zoom;
             const QRect candidate = screenRectForPdfRegion(
-                entry->highlight.pdfRect, zoom, sampledCursor, mouse);
+                entry->highlight.pdfRect,
+                zoom,
+                state.sampledCursor,
+                mouse);
             if (candidate.isValid() && intersectsAvailableScreen(candidate)) {
                 entry->lastScreenRect = candidate;
+            } else {
+                entry->lastScreenRect = {};
             }
+        } else {
+            if (entry->overlay) entry->overlay->hide();
+            continue;
         }
         if (!entry->lastScreenRect.isValid()) {
             if (entry->overlay) {

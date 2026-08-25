@@ -11,6 +11,7 @@
 #include "pinloom/core/WordCommand.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomEntry.h"
+#include "pinloom/widgets/PinloomOpenService.h"
 
 #include <QDateTime>
 #include <QList>
@@ -18,6 +19,7 @@
 #include <QVariantMap>
 #include <QWidget>
 #include <functional>
+#include <memory>
 #include <optional>
 
 class QLabel;
@@ -49,6 +51,15 @@ struct PinloomPanelOptions {
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
     std::function<QString()> sumatraPdfExecutablePathProvider;
     std::function<bool(const SumatraPdfCommand &command, QString *error)> sumatraPdfLaunchHandler;
+    std::function<SumatraPdfDdeFileState(int timeoutMilliseconds)>
+        sumatraPdfStateProvider;
+    std::function<bool(const SumatraPdfCommand &command,
+                       const SumatraPdfDdeFileState &lastState,
+                       QString *error)> sumatraPdfRetryHandler;
+    std::function<bool(const SumatraPdfPersistentHighlight &highlight)>
+        sumatraPdfHighlightHandler;
+    int sumatraPdfVerificationTimeoutMilliseconds = 4200;
+    int sumatraPdfVerificationPollMilliseconds = 180;
     std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
@@ -163,6 +174,7 @@ private:
 
     ILibraryRepository &repository_;
     PinloomPanelOptions options_;
+    std::unique_ptr<PinloomOpenService> openService_;
     QStringList requiredTags_;
     QStringList requiredLocationPrefixes_;
     QList<ResourceKind> requiredResourceKinds_;

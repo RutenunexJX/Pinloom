@@ -479,9 +479,13 @@ void PinloomOpenService::registerSumatraPdfHighlight(
     const SumatraPdfCommand &command,
     const SumatraPdfDdeFileState &state)
 {
+    const double effectiveZoom = std::isfinite(state.zoom) && state.zoom > 0.0
+        ? state.zoom
+        : command.zoom;
     if (!command.highlightRect.isValid()
         || command.page <= 0
-        || command.zoom <= 0.0) {
+        || !std::isfinite(effectiveZoom)
+        || effectiveZoom <= 0.0) {
         return;
     }
     SumatraPdfPersistentHighlight highlight;
@@ -498,7 +502,7 @@ void PinloomOpenService::registerSumatraPdfHighlight(
     highlight.targetFile = command.filePath;
     highlight.pdfRect = command.highlightRect;
     highlight.page = command.page;
-    highlight.zoom = state.zoom > 0.0 ? state.zoom : command.zoom;
+    highlight.zoom = effectiveZoom;
     const ForegroundAppWindowContext foreground =
         currentForegroundAppWindowContext();
     if (isSumatraPdfForegroundWindow(foreground)) {

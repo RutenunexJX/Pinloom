@@ -738,6 +738,25 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     , repository_(repository)
     , options_(std::move(options))
 {
+    PinloomOpenServiceOptions openOptions;
+    openOptions.applicationLaunchSettings = options_.applicationLaunchSettings;
+    openOptions.sumatraPdfExecutablePathProvider =
+        options_.sumatraPdfExecutablePathProvider;
+    openOptions.sumatraPdfLaunchHandler = options_.sumatraPdfLaunchHandler;
+    openOptions.sumatraPdfStateProvider = options_.sumatraPdfStateProvider;
+    openOptions.sumatraPdfRetryHandler = options_.sumatraPdfRetryHandler;
+    openOptions.sumatraPdfHighlightHandler = options_.sumatraPdfHighlightHandler;
+    openOptions.sumatraPdfVerificationTimeoutMilliseconds =
+        options_.sumatraPdfVerificationTimeoutMilliseconds;
+    openOptions.sumatraPdfVerificationPollMilliseconds =
+        options_.sumatraPdfVerificationPollMilliseconds;
+    openService_ = std::make_unique<PinloomOpenService>(
+        repository_, std::move(openOptions), this);
+    connect(openService_.get(),
+            &PinloomOpenService::statusChanged,
+            this,
+            [this](const QString &status) { updateStatus(status); });
+
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(10, 8, 10, 8);
     layout->setSpacing(6);
@@ -1945,11 +1964,7 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
     }
 
     if (target.anchor.has_value() && isSumatraPdfAnchor(target.anchor.value())) {
-        if (activateSumatraPdfTarget(target)) {
-            recordOpen();
-            return true;
-        }
-        return false;
+        return activateSumatraPdfTarget(target);
     }
 
     const int anchorLine = target.anchor.has_value()
@@ -2171,72 +2186,13 @@ bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
 
 bool PinloomPanel::activateSumatraPdfTarget(const PinloomOpenTarget &target)
 {
-    if (!target.anchor.has_value()) {
-        updateStatus(tr("No SumatraPDF anchor selected"));
+    if (!openService_) {
+        updateStatus(tr("SumatraPDF open service is unavailable"));
         return false;
     }
-
-    const SumatraPdfCommandResult buildResult = options_.sumatraPdfExecutablePathProvider
-        ? buildSumatraPdfCommand(target.anchor.value(),
-                                 target.location,
-                                 options_.sumatraPdfExecutablePathProvider().trimmed())
-        : buildSumatraPdfCommand(target.anchor.value(),
-                                 target.location,
-                                 options_.applicationLaunchSettings);
-    if (!buildResult.success()) {
-        updateStatus(buildResult.error);
-        return false;
-    }
-
-    if (options_.sumatraPdfLaunchHandler) {
-        QString error;
-        if (!options_.sumatraPdfLaunchHandler(buildResult.command, &error)) {
-            updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch SumatraPDF")
-                             : error.trimmed());
-            return false;
-        }
-        updateStatus(tr("Opened SumatraPDF target"));
-        return true;
-    }
-
-    const QFileInfo executable(buildResult.command.executablePath);
-    if (!executable.exists() || !executable.isFile()) {
-        updateStatus(tr("SumatraPDF executable is not configured/found"));
-        return false;
-    }
-
-    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch SumatraPDF"));
-        return false;
-    }
-
-    if (buildResult.command.highlightRect.isValid()
-        && buildResult.command.page > 0
-        && buildResult.command.zoom > 0.0) {
-        SumatraPdfPersistentHighlight highlight;
-        highlight.key = target.anchor->id.trimmed();
-        if (highlight.key.isEmpty()) {
-            highlight.key = QStringLiteral("%1#page-%2")
-                                .arg(target.resourceId)
-                                .arg(buildResult.command.page);
-        }
-        highlight.targetFile = buildResult.command.filePath;
-        highlight.pdfRect = buildResult.command.highlightRect;
-        highlight.page = buildResult.command.page;
-        highlight.zoom = buildResult.command.zoom;
-        QTimer::singleShot(450, this, [highlight]() mutable {
-            const ForegroundAppWindowContext foreground =
-                currentForegroundAppWindowContext();
-            if (isSumatraPdfForegroundWindow(foreground)) {
-                highlight.targetWindowHandle = foreground.windowHandle;
-            }
-            registerSumatraPdfPersistentHighlight(highlight);
-        });
-    }
-
-    updateStatus(tr("Opened SumatraPDF target"));
-    return true;
+    const bool opened = openService_->open(target, this);
+    if (!opened) updateStatus(openService_->statusText());
+    return opened;
 }
 
 void PinloomPanel::openSelectedResource()
