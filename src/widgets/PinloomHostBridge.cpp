@@ -1,7 +1,10 @@
 #include "pinloom/widgets/PinloomHostBridge.h"
 
+#include "pinloom/core/AnchorLocator.h"
+
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLocalServer>
@@ -111,6 +114,59 @@ std::optional<PinloomSourceAnchorRequest> sourceAnchorRequestFromJson(
         : std::nullopt;
 }
 
+QStringList mergedValues(const QStringList &primary,
+                         const QStringList &secondary)
+{
+    QStringList result;
+    for (const QStringList *values : {&primary, &secondary}) {
+        for (const QString &value : *values) {
+            const QString normalized = value.trimmed();
+            if (normalized.isEmpty()
+                || result.contains(normalized, Qt::CaseInsensitive)) {
+                continue;
+            }
+            result.append(normalized);
+        }
+    }
+    return result;
+}
+
+QString anchorFileName(const Resource &resource,
+                       const std::optional<Anchor> &anchor)
+{
+    QStringList candidates;
+    if (anchor.has_value()) {
+        candidates.append(anchor->targetFile);
+        candidates.append(anchor->targetUri);
+    }
+    candidates.append(resource.location);
+    for (QString candidate : candidates) {
+        candidate = candidate.trimmed();
+        if (candidate.isEmpty()) continue;
+        const QUrl url(candidate);
+        if (url.isLocalFile()) candidate = url.toLocalFile();
+        if (url.isValid() && !url.scheme().isEmpty() && !url.isLocalFile()) {
+            const QString name = url.fileName().trimmed();
+            if (!name.isEmpty()) return name;
+            continue;
+        }
+        const QString name = QFileInfo(candidate).fileName().trimmed();
+        if (!name.isEmpty()) return name;
+    }
+    return {};
+}
+
+QString previewAltText(const QString &title,
+                       const QString &fileName,
+                       int page)
+{
+    QStringList parts;
+    if (!title.trimmed().isEmpty()) parts.append(title.trimmed());
+    if (!fileName.trimmed().isEmpty()) parts.append(fileName.trimmed());
+    if (page > 0) parts.append(QStringLiteral("Page %1").arg(page));
+    return parts.join(QStringLiteral(" | "));
+}
+
 } // namespace
 
 bool PinloomSourceAnchorRequest::isValid() const
@@ -128,6 +184,31 @@ bool PinloomHostIdentity::isValid() const
     return !entryId.trimmed().isEmpty()
         || !resourceId.trimmed().isEmpty()
         || !clipId.trimmed().isEmpty();
+}
+
+bool PinloomHostPreviewDescriptor::isValid() const
+{
+    const QString normalizedKind = kind.trimmed().toLower();
+    const QString normalizedState = state.trimmed().toLower();
+    if (normalizedKind != QLatin1String("image")
+        || (normalizedState != QLatin1String("ready")
+            && normalizedState != QLatin1String("unavailable")
+            && normalizedState != QLatin1String("error"))) {
+        return false;
+    }
+    if (!uri.isEmpty() && !uri.isLocalFile()) return false;
+    if (normalizedState == QLatin1String("ready")) {
+        return uri.isLocalFile()
+            && !filePath.trimmed().isEmpty()
+            && mimeType.trimmed().compare(QStringLiteral("image/png"),
+                                           Qt::CaseInsensitive) == 0
+            && byteSize >= 0
+            && pixelWidth > 0
+            && pixelHeight > 0;
+    }
+    return uri.isEmpty()
+        && filePath.trimmed().isEmpty()
+        && !error.trimmed().isEmpty();
 }
 
 QString defaultPinloomHostBridgeServerName()
@@ -226,14 +307,176 @@ QJsonObject pinloomHostEntryToJson(const PinloomEntry &entry)
     return result;
 }
 
+QJsonObject pinloomHostPreviewToJson(
+    const PinloomHostPreviewDescriptor &preview)
+{
+    if (!preview.isValid()) return {};
+
+    QJsonObject result{
+        {QStringLiteral("kind"), preview.kind.trimmed().toLower()},
+        {QStringLiteral("state"), preview.state.trimmed().toLower()},
+        {QStringLiteral("page"), preview.page},
+        {QStringLiteral("cropped"), preview.cropped},
+    };
+    if (!preview.mimeType.trimmed().isEmpty()) {
+        result.insert(QStringLiteral("mimeType"), preview.mimeType.trimmed().toLower());
+    }
+    if (!preview.uri.isEmpty()) {
+        result.insert(QStringLiteral("uri"),
+                      preview.uri.toString(QUrl::FullyEncoded));
+    }
+    if (!preview.filePath.trimmed().isEmpty()) {
+        result.insert(QStringLiteral("filePath"), preview.filePath.trimmed());
+    }
+    if (preview.byteSize >= 0) {
+        result.insert(QStringLiteral("byteSize"), preview.byteSize);
+    }
+    if (preview.pixelWidth > 0) {
+        result.insert(QStringLiteral("pixelWidth"), preview.pixelWidth);
+    }
+    if (preview.pixelHeight > 0) {
+        result.insert(QStringLiteral("pixelHeight"), preview.pixelHeight);
+    }
+    if (!preview.altText.trimmed().isEmpty()) {
+        result.insert(QStringLiteral("altText"), preview.altText.trimmed());
+    }
+    if (!preview.error.trimmed().isEmpty()) {
+        result.insert(QStringLiteral("error"), preview.error.trimmed());
+    }
+
+    if (QJsonDocument(result).toJson(QJsonDocument::Compact).size()
+        <= kPinloomHostPreviewDescriptorMaxBytes) {
+        return result;
+    }
+    result.remove(QStringLiteral("altText"));
+    if (QJsonDocument(result).toJson(QJsonDocument::Compact).size()
+        <= kPinloomHostPreviewDescriptorMaxBytes) {
+        return result;
+    }
+    return {
+        {QStringLiteral("kind"), QStringLiteral("image")},
+        {QStringLiteral("state"), QStringLiteral("error")},
+        {QStringLiteral("page"), preview.page},
+        {QStringLiteral("cropped"), false},
+        {QStringLiteral("error"),
+         QStringLiteral("Preview descriptor exceeds the host size limit")},
+    };
+}
+
 QJsonObject pinloomHostDocumentToJson(const PinloomHostDocument &document)
 {
-    return {
+    QJsonObject result{
         {QStringLiteral("entry"), pinloomHostEntryToJson(document.entry)},
         {QStringLiteral("content"), document.content},
         {QStringLiteral("contentType"), document.contentType},
         {QStringLiteral("details"), QJsonObject::fromVariantMap(document.details)},
     };
+    if (document.preview.has_value()) {
+        const QJsonObject preview = pinloomHostPreviewToJson(*document.preview);
+        if (!preview.isEmpty()) result.insert(QStringLiteral("preview"), preview);
+    }
+    return result;
+}
+
+PinloomHostDocument pinloomHostDocumentForResource(
+    const Resource &resource,
+    const std::optional<Anchor> &anchor,
+    const std::optional<ResourceUsage> &usage,
+    const PdfLocatorPreviewRenderOptions &previewOptions)
+{
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.deleted = resource.deleted;
+    target.anchor = anchor;
+    if (anchor.has_value()) {
+        target.title = anchor->name.trimmed().isEmpty()
+            ? resource.title
+            : anchor->name;
+        target.deleted = target.deleted || anchor->deleted;
+    }
+
+    PinloomEntry entry = entryFromOpenTarget(target);
+    entry.aliases = anchor.has_value()
+        ? mergedValues(anchor->aliases, resource.aliases)
+        : resource.aliases;
+    entry.tags = anchor.has_value()
+        ? mergedValues(anchor->tags, resource.tags)
+        : resource.tags;
+    if (!anchor.has_value() && usage.has_value()) {
+        entry.pinned = usage->pinned;
+        entry.usedAt = usage->lastOpenedAt;
+        entry.frequency = usage->openCount;
+    }
+
+    const QString fileName = anchorFileName(resource, anchor);
+    const int page = anchor.has_value() ? anchorLocatorPage(*anchor) : -1;
+    entry.metadata.insert(QStringLiteral("title"), entry.name);
+    entry.metadata.insert(QStringLiteral("fileName"), fileName);
+    if (page > 0) entry.metadata.insert(QStringLiteral("page"), page);
+    entry.metadata.insert(QStringLiteral("aliases"), entry.aliases);
+    entry.metadata.insert(QStringLiteral("tags"), entry.tags);
+
+    PinloomHostDocument document;
+    document.entry = entry;
+    document.content = resource.content;
+    document.details.insert(QStringLiteral("resourceId"), resource.id);
+    document.details.insert(QStringLiteral("title"), entry.name);
+    document.details.insert(QStringLiteral("fileName"), fileName);
+    document.details.insert(QStringLiteral("location"), resource.location);
+    document.details.insert(QStringLiteral("aliases"), entry.aliases);
+    document.details.insert(QStringLiteral("tags"), entry.tags);
+    if (page > 0) document.details.insert(QStringLiteral("page"), page);
+
+    if (!anchor.has_value()) return document;
+
+    document.details.insert(QStringLiteral("anchorId"), anchor->id);
+    document.details.insert(QStringLiteral("targetApp"), anchor->targetApp);
+    document.details.insert(QStringLiteral("locatorType"), anchor->locatorType);
+    document.details.insert(QStringLiteral("locatorJson"), anchor->locatorJson);
+    document.details.insert(
+        QStringLiteral("locator"),
+        QVariantMap{
+            {QStringLiteral("targetApp"), anchor->targetApp},
+            {QStringLiteral("targetFile"), anchor->targetFile},
+            {QStringLiteral("targetUri"), anchor->targetUri},
+            {QStringLiteral("type"), anchor->locatorType},
+            {QStringLiteral("json"), anchor->locatorJson},
+        });
+
+    if (anchorLocatorType(*anchor) != QLatin1String("sumatrapdf.rect")) {
+        return document;
+    }
+
+    const PdfLocatorPreviewRenderResult rendered =
+        renderPdfLocatorPreview(resource, *anchor, previewOptions);
+    PinloomHostPreviewDescriptor preview;
+    preview.page = rendered.page > 0 ? rendered.page : page;
+    preview.cropped = rendered.cropped;
+    preview.altText = previewAltText(entry.name, fileName, preview.page);
+    const QFileInfo cacheFile(rendered.cacheFilePath);
+    if (rendered.success()
+        && !rendered.cacheFilePath.trimmed().isEmpty()
+        && cacheFile.exists()
+        && cacheFile.isFile()) {
+        preview.state = QStringLiteral("ready");
+        preview.mimeType = QStringLiteral("image/png");
+        preview.filePath = cacheFile.absoluteFilePath();
+        preview.uri = QUrl::fromLocalFile(preview.filePath);
+        preview.byteSize = cacheFile.size();
+        preview.pixelWidth = rendered.image.width();
+        preview.pixelHeight = rendered.image.height();
+    } else {
+        preview.state = QStringLiteral("unavailable");
+        preview.cropped = false;
+        preview.error = rendered.error.trimmed().isEmpty()
+            ? QStringLiteral("PDF preview cache file is unavailable")
+            : rendered.error.trimmed();
+    }
+    document.preview = preview;
+    return document;
 }
 
 PinloomHostBridgeServer::PinloomHostBridgeServer(

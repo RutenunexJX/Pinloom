@@ -2155,7 +2155,7 @@ int main(int argc, char *argv[])
     };
 
     const auto resolveHostDocument =
-        [&repository, &findClip](
+        [&repository, &findClip, &runtimeSettings](
             const Pinloom::PinloomHostIdentity &identity)
             -> std::optional<Pinloom::PinloomHostDocument> {
         if (!identity.clipId.trimmed().isEmpty()) {
@@ -2199,54 +2199,29 @@ int main(int argc, char *argv[])
             repository.findResource(identity.resourceId);
         if (!resource.has_value()) return std::nullopt;
 
-        Pinloom::PinloomOpenTarget target;
-        target.resourceId = resource->id;
-        target.resourceKind = resource->kind;
-        target.title = resource->title;
-        target.location = resource->location;
-        target.deleted = resource->deleted;
+        std::optional<Pinloom::Anchor> anchor;
         if (!identity.anchorId.trimmed().isEmpty()) {
-            const auto anchor = std::find_if(
+            const auto match = std::find_if(
                 resource->anchors.cbegin(),
                 resource->anchors.cend(),
                 [&identity](const Pinloom::Anchor &candidate) {
                     return candidate.id == identity.anchorId;
                 });
-            if (anchor == resource->anchors.cend()) return std::nullopt;
-            target.anchor = *anchor;
-            target.title = anchor->name.trimmed().isEmpty()
-                ? resource->title
-                : anchor->name;
-            target.deleted = target.deleted || anchor->deleted;
+            if (match == resource->anchors.cend()) return std::nullopt;
+            anchor = *match;
         }
 
-        Pinloom::PinloomEntry entry = Pinloom::entryFromOpenTarget(target);
-        if (!target.anchor.has_value()) {
-            entry.aliases = resource->aliases;
-            entry.tags = resource->tags;
-            const std::optional<Pinloom::ResourceUsage> usage =
-                repository.resourceUsage(resource->id);
-            if (usage.has_value()) {
-                entry.pinned = usage->pinned;
-                entry.usedAt = usage->lastOpenedAt;
-                entry.frequency = usage->openCount;
-            }
-        }
-
-        Pinloom::PinloomHostDocument document;
-        document.entry = entry;
-        document.content = resource->content;
-        document.details.insert(QStringLiteral("resourceId"), resource->id);
-        document.details.insert(QStringLiteral("location"), resource->location);
-        document.details.insert(QStringLiteral("tags"), resource->tags);
-        document.details.insert(QStringLiteral("aliases"), resource->aliases);
-        if (target.anchor.has_value()) {
-            document.details.insert(QStringLiteral("anchorId"), target.anchor->id);
-            document.details.insert(QStringLiteral("targetApp"), target.anchor->targetApp);
-            document.details.insert(QStringLiteral("locatorType"), target.anchor->locatorType);
-            document.details.insert(QStringLiteral("locatorJson"), target.anchor->locatorJson);
-        }
-        return document;
+        Pinloom::PdfLocatorPreviewRenderOptions previewOptions;
+        previewOptions.rendererExecutablePath =
+            Pinloom::resolvePdfLocatorPreviewRendererPath(
+                runtimeSettings.sumatraPdfExecutablePath.trimmed());
+        return Pinloom::pinloomHostDocumentForResource(
+            *resource,
+            anchor,
+            anchor.has_value()
+                ? std::optional<Pinloom::ResourceUsage>{}
+                : repository.resourceUsage(resource->id),
+            previewOptions);
     };
 
     Pinloom::PinloomHostBridgeCallbacks hostCallbacks;

@@ -150,18 +150,19 @@ void prunePreviewCache(const QString &cacheDirectory, qint64 maximumBytes)
     }
 }
 
-void writePreviewCache(const QString &cachePath,
+bool writePreviewCache(const QString &cachePath,
                        const QImage &image,
                        qint64 maximumCacheBytes)
 {
-    if (cachePath.isEmpty() || image.isNull()) return;
+    if (cachePath.isEmpty() || image.isNull()) return false;
     const QString directory = QFileInfo(cachePath).absolutePath();
-    if (!QDir().mkpath(directory)) return;
+    if (!QDir().mkpath(directory)) return false;
     QSaveFile file(cachePath);
-    if (!file.open(QIODevice::WriteOnly)) return;
+    if (!file.open(QIODevice::WriteOnly)) return false;
     QImageWriter writer(&file, "png");
-    if (!writer.write(image) || !file.commit()) return;
+    if (!writer.write(image) || !file.commit()) return false;
     prunePreviewCache(directory, maximumCacheBytes);
+    return QFileInfo::exists(cachePath);
 }
 
 } // namespace
@@ -190,6 +191,17 @@ QString resolvePdfLocatorPreviewRendererPath(const QString &sumatraPdfExecutable
         if (info.exists() && info.isFile()) return QDir::toNativeSeparators(info.absoluteFilePath());
     }
     return {};
+}
+
+QString pdfLocatorPreviewCacheFilePath(
+    const Resource &resource,
+    const Anchor &anchor,
+    const PdfLocatorPreviewRenderOptions &options)
+{
+    if (!options.usePersistentCache) return {};
+    const QString pdfPath = localPdfPath(resource, anchor);
+    if (pdfPath.isEmpty()) return {};
+    return previewCachePath(previewCacheDirectory(options), pdfPath, anchor, options);
 }
 
 QImage cropPdfLocatorPreviewImage(const QImage &pageImage,
@@ -250,11 +262,10 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         result.error = QStringLiteral("PDF preview file is missing");
         return result;
     }
-    const QString cachePath = options.usePersistentCache
-        ? previewCachePath(previewCacheDirectory(options), pdfPath, anchor, options)
-        : QString();
+    const QString cachePath = pdfLocatorPreviewCacheFilePath(resource, anchor, options);
     result.image = readPreviewCache(cachePath);
     if (!result.image.isNull()) {
+        result.cacheFilePath = QFileInfo(cachePath).absoluteFilePath();
         result.cropped = geometry.rectangle.isValid();
         result.fromCache = true;
         return result;
@@ -329,7 +340,9 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         result.image = pageImage;
     }
     if (result.success()) {
-        writePreviewCache(cachePath, result.image, options.maximumCacheBytes);
+        if (writePreviewCache(cachePath, result.image, options.maximumCacheBytes)) {
+            result.cacheFilePath = QFileInfo(cachePath).absoluteFilePath();
+        }
     }
     return result;
 }

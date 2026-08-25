@@ -21,6 +21,7 @@ struct PdfLocatorPreviewRenderOptions {
 
 struct PdfLocatorPreviewRenderResult {
     QImage image;
+    QString cacheFilePath;
     QString error;
     int page = -1;
     QRectF locatorRectangle;
@@ -31,6 +32,11 @@ struct PdfLocatorPreviewRenderResult {
 };
 
 QString resolvePdfLocatorPreviewRendererPath(const QString &sumatraPdfExecutablePath = {});
+
+QString pdfLocatorPreviewCacheFilePath(
+    const Resource &resource,
+    const Anchor &anchor,
+    const PdfLocatorPreviewRenderOptions &options = {});
 
 QImage cropPdfLocatorPreviewImage(const QImage &pageImage,
                                   const QRectF &locatorRectanglePoints,

@@ -2,10 +2,15 @@
 
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDir>
 #include <QElapsedTimer>
+#include <QFile>
+#include <QFileInfo>
+#include <QImage>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLocalSocket>
+#include <QTemporaryDir>
 #include <QTest>
 
 using namespace Pinloom;
@@ -54,6 +59,7 @@ class HostBridgeTest final : public QObject {
 
 private slots:
     void servesVersionedSearchResolveAndOpen();
+    void resolvesPdfRectangleWithBoundedLocalPreview();
     void createsValidatedSourceAnchor();
 };
 
@@ -131,6 +137,8 @@ void HostBridgeTest::servesVersionedSearchResolveAndOpen()
     QCOMPARE(response.value(QStringLiteral("result")).toObject()
                  .value(QStringLiteral("content")).toString(),
              QStringLiteral("Reset crosses the clock domain here."));
+    QVERIFY(!response.value(QStringLiteral("result")).toObject()
+                 .contains(QStringLiteral("preview")));
 
     response = exchange(
         options.serverName,
@@ -146,6 +154,142 @@ void HostBridgeTest::servesVersionedSearchResolveAndOpen()
     QCOMPARE(response.value(QStringLiteral("error")).toObject()
                  .value(QStringLiteral("code")).toString(),
              QStringLiteral("unsupported_protocol"));
+}
+
+void HostBridgeTest::resolvesPdfRectangleWithBoundedLocalPreview()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pdfPath = directory.filePath(QStringLiteral("clock.pdf"));
+    QFile pdf(pdfPath);
+    QVERIFY(pdf.open(QIODevice::WriteOnly));
+    QVERIFY(pdf.write("%PDF-1.4\n% host preview fixture\n") > 0);
+    pdf.close();
+
+    Resource resource;
+    resource.id = QStringLiteral("resource-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Clock domain report");
+    resource.location = pdfPath;
+    resource.aliases = {QStringLiteral("CDC report")};
+    resource.tags = {QStringLiteral("rtl")};
+
+    Anchor anchor;
+    anchor.id = QStringLiteral("anchor-rect");
+    anchor.name = QStringLiteral("Reset crossing diagram");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = pdfPath;
+    anchor.targetUri = QUrl::fromLocalFile(pdfPath).toString(QUrl::FullyEncoded);
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        "{\"type\":\"sumatrapdf.rect\",\"page\":4,\"rect\":[72,144,252,252]}");
+    anchor.aliases = {QStringLiteral("reset figure")};
+    anchor.tags = {QStringLiteral("timing")};
+    resource.anchors = {anchor};
+
+    PdfLocatorPreviewRenderOptions previewOptions;
+    previewOptions.cacheDirectory = directory.filePath(QStringLiteral("preview-cache"));
+    previewOptions.rendererExecutablePath =
+        directory.filePath(QStringLiteral("missing-renderer.exe"));
+    const QString cachePath =
+        pdfLocatorPreviewCacheFilePath(resource, anchor, previewOptions);
+    QVERIFY(!cachePath.isEmpty());
+    QVERIFY(QDir().mkpath(QFileInfo(cachePath).absolutePath()));
+    QImage cachedImage(360, 216, QImage::Format_ARGB32_Premultiplied);
+    cachedImage.fill(QColor(QStringLiteral("#c08a16")));
+    QVERIFY(cachedImage.save(cachePath, "PNG"));
+
+    const PinloomHostDocument resolved = pinloomHostDocumentForResource(
+        resource, anchor, std::nullopt, previewOptions);
+    QVERIFY(resolved.preview.has_value());
+    QCOMPARE(resolved.preview->state, QStringLiteral("ready"));
+    QCOMPARE(resolved.preview->filePath, QFileInfo(cachePath).absoluteFilePath());
+    QCOMPARE(resolved.preview->pixelWidth, 360);
+    QCOMPARE(resolved.preview->pixelHeight, 216);
+
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.resolve = [resolved](const PinloomHostIdentity &identity)
+        -> std::optional<PinloomHostDocument> {
+        if (identity.resourceId != QLatin1String("resource-pdf")
+            || identity.anchorId != QLatin1String("anchor-rect")) {
+            return std::nullopt;
+        }
+        return resolved;
+    };
+
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-pdf-host-test-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY2(server.start(), qPrintable(server.lastError()));
+
+    const QJsonObject identity{
+        {QStringLiteral("entryId"), QStringLiteral("anchor:anchor-rect")},
+        {QStringLiteral("resourceId"), resource.id},
+        {QStringLiteral("anchorId"), anchor.id},
+    };
+    const QJsonObject response = exchange(
+        options.serverName,
+        request(QStringLiteral("resolve"),
+                QJsonObject{{QStringLiteral("identity"), identity}}));
+    QVERIFY(response.value(QStringLiteral("ok")).toBool());
+
+    const QJsonObject result = response.value(QStringLiteral("result")).toObject();
+    const QJsonObject entry = result.value(QStringLiteral("entry")).toObject();
+    const QJsonObject details = result.value(QStringLiteral("details")).toObject();
+    const QJsonObject preview = result.value(QStringLiteral("preview")).toObject();
+    QCOMPARE(entry.value(QStringLiteral("title")).toString(), anchor.name);
+    QCOMPARE(details.value(QStringLiteral("title")).toString(), anchor.name);
+    QCOMPARE(details.value(QStringLiteral("fileName")).toString(),
+             QStringLiteral("clock.pdf"));
+    QCOMPARE(details.value(QStringLiteral("page")).toInt(), 4);
+    QVERIFY(details.value(QStringLiteral("aliases")).toArray().contains(
+        QStringLiteral("reset figure")));
+    QVERIFY(details.value(QStringLiteral("aliases")).toArray().contains(
+        QStringLiteral("CDC report")));
+    QVERIFY(details.value(QStringLiteral("tags")).toArray().contains(
+        QStringLiteral("timing")));
+    QVERIFY(details.value(QStringLiteral("tags")).toArray().contains(
+        QStringLiteral("rtl")));
+    QCOMPARE(details.value(QStringLiteral("locator")).toObject()
+                 .value(QStringLiteral("json")).toString(),
+             anchor.locatorJson);
+
+    QCOMPARE(preview.value(QStringLiteral("kind")).toString(),
+             QStringLiteral("image"));
+    QCOMPARE(preview.value(QStringLiteral("state")).toString(),
+             QStringLiteral("ready"));
+    QCOMPARE(preview.value(QStringLiteral("mimeType")).toString(),
+             QStringLiteral("image/png"));
+    QCOMPARE(QUrl(preview.value(QStringLiteral("uri")).toString()).toLocalFile(),
+             QFileInfo(cachePath).absoluteFilePath());
+    QCOMPARE(preview.value(QStringLiteral("filePath")).toString(),
+             QFileInfo(cachePath).absoluteFilePath());
+    QCOMPARE(preview.value(QStringLiteral("pixelWidth")).toInt(), 360);
+    QCOMPARE(preview.value(QStringLiteral("pixelHeight")).toInt(), 216);
+    QCOMPARE(preview.value(QStringLiteral("page")).toInt(), 4);
+    QVERIFY(preview.value(QStringLiteral("cropped")).toBool());
+    QVERIFY(preview.value(QStringLiteral("byteSize")).toInteger() > 0);
+    QVERIFY(!preview.contains(QStringLiteral("data")));
+
+    const QByteArray wireResponse =
+        QJsonDocument(response).toJson(QJsonDocument::Compact);
+    QVERIFY(wireResponse.size() < 256 * 1024);
+    QVERIFY(!wireResponse.contains("base64"));
+
+    PinloomHostPreviewDescriptor oversized = *resolved.preview;
+    oversized.altText = QString(100000, QLatin1Char('x'));
+    const QJsonObject bounded = pinloomHostPreviewToJson(oversized);
+    QVERIFY(!bounded.isEmpty());
+    QVERIFY(QJsonDocument(bounded).toJson(QJsonDocument::Compact).size()
+            <= kPinloomHostPreviewDescriptorMaxBytes);
+    QVERIFY(!bounded.contains(QStringLiteral("altText")));
+
+    PinloomHostPreviewDescriptor inlineImage = *resolved.preview;
+    inlineImage.uri = QUrl(QStringLiteral("data:image/png;base64,AAAA"));
+    QVERIFY(!inlineImage.isValid());
+    QVERIFY(pinloomHostPreviewToJson(inlineImage).isEmpty());
 }
 
 void HostBridgeTest::createsValidatedSourceAnchor()
