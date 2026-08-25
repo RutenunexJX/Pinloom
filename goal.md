@@ -98,7 +98,9 @@ The user creates a PDF anchor manually. Pinloom stores page and rectangle, then
 jumps with SumatraPDF command-line arguments such as `-page`, `-zoom`,
 `-search`, and `-scroll`. SumatraPDF 3.7 DDE provides the active file state and
 mouse positions used for same-page rectangle capture. Pinloom adds its own
-short-lived, click-through rectangle highlight after a jump.
+click-through rectangle highlight after a jump. The highlight is tied to its
+target PDF document and Anchor, follows the visible document geometry, and
+remains active until that PDF document or window closes.
 
 ### Excel
 
