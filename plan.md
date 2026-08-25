@@ -47,6 +47,9 @@ Saved Clip foundations are in place. Product boundaries are defined in
 
 The following work is one Pinloom delivery. Word, Visio, and Excel capture are
 part of this change set and are not deferred to a later phase.
+The widget architecture, visual system, native-capture boundaries, and focused
+verification are specified in [`UI_IMPLEMENTATION_PLAN.md`](UI_IMPLEMENTATION_PLAN.md).
+Implementation is active; packaging is excluded.
 
 ### Command Window and capture confirmation
 

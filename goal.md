@@ -1,5 +1,12 @@
 # Pinloom Goal
 
+## Active delivery
+
+Execute the command, native Anchor capture, persistent PDF highlight, and
+competition UI work in [`UI_IMPLEMENTATION_PLAN.md`](UI_IMPLEMENTATION_PLAN.md)
+and the active change set in `plan.md`. Completion requires configured tests,
+independent commit, and push; it does not include packaging.
+
 ## Core Goal
 
 Pinloom v1 is a deterministic anchor launcher for native applications.
