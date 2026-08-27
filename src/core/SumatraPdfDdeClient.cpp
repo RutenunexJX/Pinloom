@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QHash>
+#include <QMutex>
 #include <QStringList>
 #include <QtGlobal>
 #include <algorithm>
@@ -20,6 +21,28 @@
 namespace Pinloom {
 
 namespace {
+
+QMutex &ddeTransactionMutex()
+{
+    static QMutex mutex;
+    return mutex;
+}
+
+class ScopedMutexUnlock final {
+public:
+    explicit ScopedMutexUnlock(QMutex &mutex)
+        : mutex_(mutex)
+    {
+    }
+
+    ~ScopedMutexUnlock()
+    {
+        mutex_.unlock();
+    }
+
+private:
+    QMutex &mutex_;
+};
 
 QString normalizedDdeCommand(QString command)
 {
@@ -209,6 +232,15 @@ SumatraPdfDdeRequestResult requestSumatraPdfDdeCommand(
     result.error = QStringLiteral("SumatraPDF DDE is only available on Windows");
     return result;
 #else
+    QMutex &transactionMutex = ddeTransactionMutex();
+    const int lockTimeoutMilliseconds = std::clamp(
+        timeoutMilliseconds * 2, 100, 1000);
+    if (!transactionMutex.tryLock(lockTimeoutMilliseconds)) {
+        result.error = QStringLiteral(
+            "SumatraPDF DDE channel is busy; retry after the current request");
+        return result;
+    }
+    const ScopedMutexUnlock transactionUnlock(transactionMutex);
     DWORD instance = 0;
     const UINT initializeResult = DdeInitializeW(&instance, ddeCallback, APPCLASS_STANDARD, 0);
     if (initializeResult != DMLERR_NO_ERROR) {

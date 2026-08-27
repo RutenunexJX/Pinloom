@@ -384,7 +384,12 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
             return result;
         }
         arguments.append(QStringLiteral("-scroll"));
-        arguments.append(QStringLiteral("%1,%2").arg(decimalText(rect.left), decimalText(rect.top)));
+        // SumatraPDF 3.7 accepts PDF user coordinates here, but its command
+        // parser requires integral values. Decimal coordinates silently leave
+        // the viewport at the page origin.
+        arguments.append(QStringLiteral("%1,%2")
+                             .arg(QString::number(std::llround(rect.left)),
+                                  QString::number(std::llround(rect.top))));
         result.command.highlightRect = QRectF(rect.left,
                                               rect.top,
                                               rect.right - rect.left,

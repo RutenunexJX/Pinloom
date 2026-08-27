@@ -3,6 +3,7 @@
 #include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDialog>
+#include <QFutureWatcher>
 #include <QHash>
 #include <QObject>
 #include <QPair>
@@ -124,7 +125,9 @@ private:
 
     QHash<QString, Entry *> entries_;
     QTimer *refreshTimer_ = nullptr;
-    int refreshSerial_ = 0;
+    QFutureWatcher<SumatraPdfHighlightRefreshState> *refreshWatcher_ = nullptr;
+    quint64 refreshGeneration_ = 0;
+    quint64 inFlightGeneration_ = 0;
 };
 
 bool registerSumatraPdfPersistentHighlight(

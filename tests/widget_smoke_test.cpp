@@ -47,9 +47,11 @@
 #include <QDoubleSpinBox>
 #include <QDragEnterEvent>
 #include <QDropEvent>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QFrame>
+#include <QFutureWatcher>
 #include <QCheckBox>
 #include <QHeaderView>
 #include <QItemSelectionModel>
@@ -77,10 +79,12 @@
 #include <QTemporaryDir>
 #include <QTableWidget>
 #include <QTest>
+#include <QThread>
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
 #include <QWidgetAction>
+#include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 #include <memory>
 #include <optional>
@@ -198,7 +202,12 @@ private slots:
     void panelLaunchesSumatraPdfAnchorWithInjectedExecutor();
     void sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight();
     void sumatraPdfOpenServiceRegistersNoZoomUsingLiveState();
-    void sumatraPdfOpenServiceKeepsPendingHighlightWhenVerificationFails();
+    void sumatraPdfOpenServiceDoesNotShowUnverifiedHighlight();
+    void sumatraPdfOpenServiceVerificationDoesNotBlockGui();
+    void sumatraPdfOpenServiceTimesOutHungWorkerWithoutBlockingGui();
+    void sumatraPdfDdeWorkerCompletesAgainstLiveServerWhenRequested();
+    void sumatraPdfOpenServiceCompletesAgainstLiveServerWhenRequested();
+    void sumatraPdfHighlightManagerFindsLivePageWhenRequested();
     void persistentPdfHighlightRegistrySupportsMultipleStableKeys();
     void persistentPdfHighlightIsStableAndEndsOnViewChange();
     void panelReportsMissingSumatraPdfExecutable();
@@ -7422,7 +7431,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistent
     anchor.targetFile = resource.location;
     anchor.locatorType = QStringLiteral("sumatrapdf.rect");
     anchor.locatorJson = QStringLiteral(
-        R"({"page":12,"rect":[42,86,178,132],"zoom":160,"unit":"pt"})");
+        R"({"page":12,"rect":[42.4,85.6,178,132],"zoom":160,"unit":"pt"})");
     resource.anchors = {anchor};
     QVERIFY(repository.upsertResource(resource));
 
@@ -7483,6 +7492,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistent
     QCOMPARE(retryCalls, 1);
     QVERIFY(retryDde.contains(QStringLiteral("[GotoPage(")));
     QVERIFY(retryDde.contains(QStringLiteral("[SetView(")));
+    QVERIFY(retryDde.contains(QStringLiteral(",160,42,86)]")));
     QVERIFY(stateCalls >= 8);
     QVERIFY(registeredHighlight.has_value());
     QCOMPARE(registeredHighlight->key, anchor.id);
@@ -7525,6 +7535,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
 
     std::optional<SumatraPdfCommand> launchedCommand;
     std::optional<SumatraPdfPersistentHighlight> registeredHighlight;
+    QString retryDde;
     PinloomOpenServiceOptions options;
     options.sumatraPdfExecutablePathProvider = []() {
         return QStringLiteral("C:/Tools/SumatraPDF.exe");
@@ -7542,6 +7553,13 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
         state.zoom = 175.0;
         state.view = QStringLiteral("continuous");
         return state;
+    };
+    options.sumatraPdfRetryHandler =
+        [&](const SumatraPdfCommand &command,
+            const SumatraPdfDdeFileState &state,
+            QString *) {
+        retryDde = sumatraPdfRetryDdeCommand(command, state);
+        return !retryDde.isEmpty();
     };
     options.sumatraPdfHighlightHandler =
         [&](const SumatraPdfPersistentHighlight &highlight) {
@@ -7567,6 +7585,8 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
         1500);
     QCOMPARE(registeredHighlight->zoom, 175.0);
     QCOMPARE(registeredHighlight->page, 7);
+    QVERIFY(retryDde.contains(QStringLiteral("[SetView(")));
+    QVERIFY(retryDde.contains(QStringLiteral(",0,42,86)]")));
 
     std::optional<SumatraPdfPersistentHighlight> panelHighlight;
     PinloomPanelOptions panelOptions;
@@ -7574,6 +7594,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
         options.sumatraPdfExecutablePathProvider;
     panelOptions.sumatraPdfLaunchHandler = options.sumatraPdfLaunchHandler;
     panelOptions.sumatraPdfStateProvider = options.sumatraPdfStateProvider;
+    panelOptions.sumatraPdfRetryHandler = options.sumatraPdfRetryHandler;
     panelOptions.sumatraPdfHighlightHandler =
         [&](const SumatraPdfPersistentHighlight &highlight) {
         panelHighlight = highlight;
@@ -7594,7 +7615,9 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
     SumatraPdfHighlightManager &manager =
         SumatraPdfHighlightManager::instance();
     manager.clear();
-    QVERIFY(manager.addOrUpdate(*registeredHighlight));
+    SumatraPdfPersistentHighlight syntheticHighlight = *registeredHighlight;
+    syntheticHighlight.targetWindowHandle = 0;
+    QVERIFY(manager.addOrUpdate(syntheticHighlight));
     QScreen *screen = QGuiApplication::primaryScreen();
     QVERIFY(screen);
     SumatraPdfHighlightRefreshState refresh;
@@ -7612,11 +7635,13 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
     refresh.openFiles = {resource.location};
     refresh.windowExists = [](quintptr) { return true; };
     manager.refreshWithState(refresh);
+    QVERIFY(!manager.isOverlayVisible(anchor.id));
+    manager.refreshWithState(refresh);
     QVERIFY(manager.isOverlayVisible(anchor.id));
     manager.clear();
 }
 
-void WidgetSmokeTest::sumatraPdfOpenServiceKeepsPendingHighlightWhenVerificationFails()
+void WidgetSmokeTest::sumatraPdfOpenServiceDoesNotShowUnverifiedHighlight()
 {
     InMemoryLibraryRepository repository;
     Resource resource;
@@ -7675,10 +7700,296 @@ void WidgetSmokeTest::sumatraPdfOpenServiceKeepsPendingHighlightWhenVerification
     QTRY_VERIFY_WITH_TIMEOUT(
         service.statusText().contains(QStringLiteral("verification failed")),
         1800);
-    QCOMPARE(registeredHighlights.size(), 1);
-    QCOMPARE(registeredHighlights.first().key, anchor.id);
-    QCOMPARE(registeredHighlights.first().page, 9);
-    QVERIFY(registeredHighlights.first().zoom <= 0.0);
+    QVERIFY(registeredHighlights.isEmpty());
+}
+
+void WidgetSmokeTest::sumatraPdfOpenServiceVerificationDoesNotBlockGui()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("async-verify-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Async verify PDF");
+    resource.location = QStringLiteral("E:/docs/async-verify.pdf");
+    Anchor anchor;
+    anchor.id = QStringLiteral("async-verify-pdf#region");
+    anchor.name = QStringLiteral("Async region");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"page":4,"rect":[10,20,110,80],"zoom":200,"unit":"pt"})");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool highlightRegistered = false;
+    PinloomOpenServiceOptions options;
+    options.sumatraPdfExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    options.sumatraPdfLaunchHandler = [](const SumatraPdfCommand &, QString *) {
+        return true;
+    };
+    options.sumatraPdfStateProvider = [resource](int) {
+        QThread::msleep(350);
+        SumatraPdfDdeFileState state;
+        state.path = resource.location;
+        state.page = 4;
+        state.pageCount = 10;
+        state.zoom = 200.0;
+        state.view = QStringLiteral("continuous");
+        return state;
+    };
+    options.sumatraPdfStateProviderRunsInWorker = true;
+    options.sumatraPdfRetryHandler =
+        [](const SumatraPdfCommand &,
+           const SumatraPdfDdeFileState &,
+           QString *) { return true; };
+    options.sumatraPdfHighlightHandler =
+        [&](const SumatraPdfPersistentHighlight &) {
+        highlightRegistered = true;
+        return true;
+    };
+    options.sumatraPdfVerificationPollMilliseconds = 80;
+    options.sumatraPdfVerificationTimeoutMilliseconds = 2200;
+
+    PinloomOpenService service(repository, options);
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.anchor = anchor;
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    qint64 uiTimerElapsed = -1;
+    QTimer::singleShot(140, &service, [&]() {
+        uiTimerElapsed = elapsed.elapsed();
+    });
+    QVERIFY(service.open(target));
+    QTRY_VERIFY_WITH_TIMEOUT(uiTimerElapsed >= 0, 1000);
+    QVERIFY2(uiTimerElapsed < 300,
+             qPrintable(QStringLiteral("GUI timer was delayed for %1 ms")
+                            .arg(uiTimerElapsed)));
+    QTRY_VERIFY_WITH_TIMEOUT(highlightRegistered, 3500);
+}
+
+void WidgetSmokeTest::sumatraPdfOpenServiceTimesOutHungWorkerWithoutBlockingGui()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("hung-dde-pdf");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Hung DDE PDF");
+    resource.location = QStringLiteral("E:/docs/hung-dde.pdf");
+    Anchor anchor;
+    anchor.id = QStringLiteral("hung-dde-pdf#region");
+    anchor.name = QStringLiteral("Hung DDE region");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"page":4,"rect":[10,20,110,80],"zoom":200,"unit":"pt"})");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    PinloomOpenServiceOptions options;
+    options.sumatraPdfExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    options.sumatraPdfLaunchHandler = [](const SumatraPdfCommand &, QString *) {
+        return true;
+    };
+    options.sumatraPdfStateProvider = [](int) {
+        QThread::msleep(1500);
+        SumatraPdfDdeFileState state;
+        state.error = QStringLiteral("simulated blocked DDE request");
+        return state;
+    };
+    options.sumatraPdfStateProviderRunsInWorker = true;
+    options.sumatraPdfVerificationPollMilliseconds = 80;
+    options.sumatraPdfVerificationTimeoutMilliseconds = 600;
+
+    PinloomOpenService service(repository, options);
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.anchor = anchor;
+
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QVERIFY(service.open(target));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        service.statusText().contains(QStringLiteral("verification failed")),
+        1000);
+    QVERIFY(elapsed.elapsed() < 1000);
+}
+
+void WidgetSmokeTest::sumatraPdfDdeWorkerCompletesAgainstLiveServerWhenRequested()
+{
+    const QString expectedPdf =
+        qEnvironmentVariable("PINLOOM_LIVE_DDE_PDF").trimmed();
+    if (expectedPdf.isEmpty()) {
+        QSKIP("Set PINLOOM_LIVE_DDE_PDF for the manual SumatraPDF integration probe");
+    }
+
+    QFutureWatcher<SumatraPdfDdeFileState> watcher;
+    watcher.setFuture(QtConcurrent::run([]() {
+        return requestSumatraPdfDdeFileState(250);
+    }));
+    QTRY_VERIFY_WITH_TIMEOUT(watcher.isFinished(), 3000);
+    const SumatraPdfDdeFileState state = watcher.result();
+    QVERIFY2(state.success(), qPrintable(state.error));
+    QCOMPARE(QDir::cleanPath(QDir::fromNativeSeparators(state.path)).toCaseFolded(),
+             QDir::cleanPath(QDir::fromNativeSeparators(expectedPdf)).toCaseFolded());
+}
+
+void WidgetSmokeTest::sumatraPdfOpenServiceCompletesAgainstLiveServerWhenRequested()
+{
+    const QString expectedPdf =
+        qEnvironmentVariable("PINLOOM_LIVE_DDE_PDF").trimmed();
+    if (expectedPdf.isEmpty()) {
+        QSKIP("Set PINLOOM_LIVE_DDE_PDF for the manual SumatraPDF integration probe");
+    }
+
+    const SumatraPdfDdeFileState initialState =
+        requestSumatraPdfDdeFileState(250);
+    QVERIFY2(initialState.success(), qPrintable(initialState.error));
+    QVERIFY(initialState.zoom > 0.0);
+
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("live-dde-open-service");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Live DDE open service");
+    resource.location = expectedPdf;
+    Anchor anchor;
+    anchor.id = QStringLiteral("live-dde-open-service#region");
+    anchor.name = QStringLiteral("Live DDE region");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = expectedPdf;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"page":%1,"rect":[0,0,20,20],"zoom":%2,"unit":"pt"})")
+                             .arg(initialState.page)
+                             .arg(initialState.zoom, 0, 'f', 2);
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    bool registered = false;
+    PinloomOpenServiceOptions options;
+    options.sumatraPdfExecutablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    options.sumatraPdfLaunchHandler = [](const SumatraPdfCommand &, QString *) {
+        return true;
+    };
+    options.sumatraPdfStateProvider = [](int timeoutMilliseconds) {
+        return requestSumatraPdfDdeFileState(timeoutMilliseconds);
+    };
+    options.sumatraPdfStateProviderRunsInWorker = true;
+    options.sumatraPdfRetryHandler =
+        [](const SumatraPdfCommand &,
+           const SumatraPdfDdeFileState &,
+           QString *) { return true; };
+    options.sumatraPdfHighlightHandler =
+        [&](const SumatraPdfPersistentHighlight &highlight) {
+        registered = highlight.page == initialState.page
+            && qFuzzyCompare(highlight.zoom, initialState.zoom);
+        return true;
+    };
+    options.sumatraPdfVerificationPollMilliseconds = 80;
+    options.sumatraPdfVerificationTimeoutMilliseconds = 1800;
+
+    PinloomOpenService service(repository, options);
+    PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.anchor = anchor;
+    QVERIFY(service.open(target));
+    QTRY_VERIFY_WITH_TIMEOUT(registered, 2500);
+    QVERIFY(service.statusText().contains(QStringLiteral("jump verified")));
+}
+
+void WidgetSmokeTest::sumatraPdfHighlightManagerFindsLivePageWhenRequested()
+{
+    const QString expectedPdf =
+        qEnvironmentVariable("PINLOOM_LIVE_DDE_PDF").trimmed();
+    if (expectedPdf.isEmpty()) {
+        QSKIP("Set PINLOOM_LIVE_DDE_PDF for the manual SumatraPDF integration probe");
+    }
+
+    const ForegroundAppWindowContext foreground =
+        currentForegroundAppWindowContext();
+    QVERIFY2(isSumatraPdfForegroundWindow(foreground),
+             "SumatraPDF must be foreground for the live highlight probe");
+
+    QWindow *foreignWindow = QWindow::fromWinId(
+        static_cast<WId>(foreground.windowHandle));
+    QVERIFY(foreignWindow);
+    const QRect liveGeometry = foreignWindow->geometry();
+    delete foreignWindow;
+    QVERIFY(liveGeometry.isValid());
+    const SumatraPdfDdeFileState liveFileState =
+        requestSumatraPdfDdeFileState(250);
+    QVERIFY2(liveFileState.success(), qPrintable(liveFileState.error));
+    QVERIFY(liveFileState.zoom > 0.0);
+    qInfo() << "live geometry" << liveGeometry
+            << "file" << liveFileState.path
+            << "page" << liveFileState.page
+            << "zoom" << liveFileState.zoom
+            << "error" << liveFileState.error;
+    const QPoint originalCursor = QCursor::pos();
+    const QList<QPoint> probePoints = {
+        liveGeometry.center(),
+        QPoint(liveGeometry.left() + liveGeometry.width() * 3 / 4,
+               liveGeometry.top() + liveGeometry.height() / 2),
+        QPoint(liveGeometry.left() + liveGeometry.width() / 4,
+               liveGeometry.top() + liveGeometry.height() / 2),
+    };
+    std::optional<SumatraPdfDdeMousePosition> referenceMouse;
+    for (const QPoint &probePoint : probePoints) {
+        QCursor::setPos(probePoint);
+        QTest::qWait(60);
+        const SumatraPdfDdeMousePosition mouse =
+            requestSumatraPdfDdeMousePosition(250);
+        qInfo() << "probe" << probePoint
+                << "page" << mouse.page
+                << "x" << mouse.x
+                << "y" << mouse.y
+                << "error" << mouse.error;
+        if (!referenceMouse.has_value()
+            && mouse.success()
+            && mouse.page == liveFileState.page) {
+            referenceMouse = mouse;
+        }
+    }
+    QCursor::setPos(originalCursor);
+    QVERIFY(referenceMouse.has_value());
+
+    SumatraPdfPersistentHighlight highlight;
+    highlight.key = QStringLiteral("live-highlight-probe");
+    highlight.targetFile = expectedPdf;
+    highlight.pdfRect = QRectF(std::max(0.0, referenceMouse->x - 10.0),
+                               std::max(0.0, referenceMouse->y - 10.0),
+                               20.0,
+                               20.0);
+    highlight.page = liveFileState.page;
+    highlight.zoom = liveFileState.zoom;
+    highlight.targetWindowHandle = foreground.windowHandle;
+
+    SumatraPdfHighlightManager &manager =
+        SumatraPdfHighlightManager::instance();
+    manager.clear();
+    QVERIFY(manager.addOrUpdate(highlight));
+    QTRY_VERIFY_WITH_TIMEOUT(manager.isOverlayVisible(highlight.key), 6000);
+    QVERIFY(manager.overlayScreenRect(highlight.key).isValid());
+    manager.clear();
 }
 
 void WidgetSmokeTest::persistentPdfHighlightRegistrySupportsMultipleStableKeys()
@@ -7743,11 +8054,27 @@ void WidgetSmokeTest::persistentPdfHighlightIsStableAndEndsOnViewChange()
     state.windowExists = [](quintptr) { return true; };
 
     manager.refreshWithState(state);
+    QVERIFY(!manager.isOverlayVisible(highlight.key));
+    QVERIFY(manager.contains(highlight.key));
+    state.sampledCursor += QPoint(80, 0);
+    manager.refreshWithState(state);
+    QVERIFY(!manager.isOverlayVisible(highlight.key));
+    QVERIFY(manager.contains(highlight.key));
+    manager.refreshWithState(state);
     QVERIFY(manager.isOverlayVisible(highlight.key));
     const QRect original = manager.overlayScreenRect(highlight.key);
     QVERIFY(original.isValid());
     QVERIFY(original.width() >= 130);
     QVERIFY(original.height() >= 98);
+    QCOMPARE(manager.overlayPresentationCount(highlight.key), 1);
+
+    SumatraPdfHighlightRefreshState transientFailure = state;
+    transientFailure.fileState.error = QStringLiteral("DDE timeout");
+    manager.refreshWithState(transientFailure);
+    QVERIFY(manager.isOverlayVisible(highlight.key));
+    QVERIFY(manager.contains(highlight.key));
+    manager.refreshWithState(state);
+    QVERIFY(manager.isOverlayVisible(highlight.key));
     QCOMPARE(manager.overlayPresentationCount(highlight.key), 1);
 
     manager.refreshWithState(state);
@@ -7770,6 +8097,8 @@ void WidgetSmokeTest::persistentPdfHighlightIsStableAndEndsOnViewChange()
 
     highlight.targetWindowHandle = state.foregroundWindowHandle;
     QVERIFY(manager.addOrUpdate(highlight));
+    manager.refreshWithState(state);
+    QVERIFY(!manager.isOverlayVisible(highlight.key));
     manager.refreshWithState(state);
     QVERIFY(manager.isOverlayVisible(highlight.key));
     state.fileState.zoom = 300.0;

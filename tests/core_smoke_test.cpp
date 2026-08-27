@@ -274,7 +274,7 @@ void CoreSmokeTest::buildsSumatraPdfRectCommand()
     anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = QStringLiteral("E:/docs/clock.pdf");
     anchor.locatorType = QStringLiteral("sumatrapdf.rect");
-    anchor.locatorJson = QStringLiteral("{\"type\":\"sumatrapdf.rect\",\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"sumatrapdf.rect\",\"page\":12,\"rect\":[420.4,859.6,780,920],\"zoom\":250,\"unit\":\"pt\"}");
 
     QVERIFY(isSumatraPdfAnchor(anchor));
     const SumatraPdfCommandResult result =

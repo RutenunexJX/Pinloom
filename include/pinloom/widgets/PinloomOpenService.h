@@ -11,6 +11,7 @@
 #include "pinloom/widgets/PinloomEntry.h"
 #include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 
+#include <QElapsedTimer>
 #include <QObject>
 #include <functional>
 
@@ -30,6 +31,7 @@ struct PinloomOpenServiceOptions {
     std::function<bool(const SumatraPdfCommand &, QString *error)> sumatraPdfLaunchHandler;
     std::function<SumatraPdfDdeFileState(int timeoutMilliseconds)>
         sumatraPdfStateProvider;
+    bool sumatraPdfStateProviderRunsInWorker = false;
     std::function<bool(const SumatraPdfCommand &,
                        const SumatraPdfDdeFileState &lastState,
                        QString *error)> sumatraPdfRetryHandler;
@@ -69,8 +71,18 @@ private:
                               const SumatraPdfCommand &command,
                               quint64 generation,
                               int elapsedMilliseconds,
-                              bool retryIssued,
+                              bool positioningIssued,
+                              int consecutiveMatches,
                               const QString &lastDiagnostics = {});
+    void handleSumatraPdfVerificationState(
+        const PinloomOpenTarget &target,
+        const SumatraPdfCommand &command,
+        quint64 generation,
+        int elapsedMilliseconds,
+        bool positioningIssued,
+        int consecutiveMatches,
+        const QString &lastDiagnostics,
+        const SumatraPdfDdeFileState &state);
     void registerSumatraPdfHighlight(const PinloomOpenTarget &target,
                                      const SumatraPdfCommand &command,
                                      const SumatraPdfDdeFileState &state = {});
@@ -81,6 +93,7 @@ private:
     PinloomOpenServiceOptions options_;
     QString statusText_;
     quint64 sumatraPdfVerificationGeneration_ = 0;
+    QElapsedTimer sumatraPdfVerificationTimer_;
 };
 
 } // namespace Pinloom
