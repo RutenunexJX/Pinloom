@@ -209,6 +209,7 @@ struct SumatraPdfHighlightManager::Entry {
     QPointer<SumatraPdfRectHighlightOverlay> overlay;
     QRect lastClientGeometry;
     QRect lastScreenRect;
+    int consecutiveOpenFileMisses = 0;
 };
 
 bool SumatraPdfRegionCaptureResult::success() const
@@ -310,20 +311,9 @@ void SumatraPdfRegionCaptureOverlay::mouseReleaseEvent(QMouseEvent *event)
                                                            positions.second);
     if (!result_.region.success()) {
         result_.diagnostics = result_.region.error;
-        result_.region = fallbackRegionForSelection(globalStart,
-                                                    globalEnd,
-                                                    positions.first,
-                                                    positions.second);
-        result_.usedFallback = true;
-    }
-    if (!result_.region.success()) {
-        // A completed visual selection must never be discarded. This final
-        // page-space rectangle is deliberately conservative and keeps the
-        // Anchor editable even when SumatraPDF DDE is unavailable.
-        result_.region.page = std::max(1, fallbackPage_);
-        result_.region.rect = {0.0, 0.0, 1.0, 1.0};
-        result_.region.error.clear();
-        result_.usedFallback = true;
+        result_.canceled = false;
+        accept();
+        return;
     }
 
     result_.canceled = false;
@@ -546,9 +536,7 @@ bool SumatraPdfPersistentHighlight::isValid() const
     return !key.trimmed().isEmpty()
         && !targetFile.trimmed().isEmpty()
         && pdfRect.isValid()
-        && page > 0
-        && std::isfinite(zoom)
-        && zoom > 0.0;
+        && page > 0;
 }
 
 SumatraPdfHighlightManager &SumatraPdfHighlightManager::instance()
@@ -586,6 +574,7 @@ bool SumatraPdfHighlightManager::addOrUpdate(
     }
     entry->highlight = highlight;
     entry->highlight.key = key;
+    entry->consecutiveOpenFileMisses = 0;
     if (!refreshTimer_->isActive()) {
         refreshTimer_->start();
     }
@@ -662,6 +651,22 @@ void SumatraPdfHighlightManager::refreshNow()
     state.foregroundWindowHandle = context.windowHandle;
     if (state.sumatraForeground) {
         state.fileState = requestSumatraPdfDdeFileState(180);
+        const bool needsLiveZoom = std::any_of(
+            entries_.cbegin(), entries_.cend(), [](const Entry *entry) {
+                return entry
+                    && (!std::isfinite(entry->highlight.zoom)
+                        || entry->highlight.zoom <= 0.0);
+            });
+        if (needsLiveZoom
+            && (!std::isfinite(state.fileState.zoom)
+                || state.fileState.zoom <= 0.0)
+            && (refreshSerial_ == 1 || refreshSerial_ % 7 == 0)) {
+            const SumatraPdfViewState viewState =
+                captureSumatraPdfViewState(context);
+            if (viewState.hasZoom()) {
+                state.fileState.zoom = viewState.zoom;
+            }
+        }
         state.clientGeometry = targetClientGeometry(context.windowHandle);
         state.sampledCursor = QCursor::pos();
         state.mousePosition = requestSumatraPdfDdeMousePosition(140);
@@ -696,9 +701,16 @@ void SumatraPdfHighlightManager::refreshWithState(
 
         const bool targetFileOpen = state.openFilesAvailable
             && containsPdfPath(state.openFiles, entry->highlight.targetFile);
-        if (state.openFilesAvailable && !targetFileOpen) {
-            removals.append(iterator.key());
-            continue;
+        if (state.openFilesAvailable) {
+            if (targetFileOpen) {
+                entry->consecutiveOpenFileMisses = 0;
+            } else {
+                ++entry->consecutiveOpenFileMisses;
+                if (entry->consecutiveOpenFileMisses >= 3) {
+                    removals.append(iterator.key());
+                    continue;
+                }
+            }
         }
         if (entry->highlight.targetWindowHandle != 0
             && state.windowExists
@@ -746,6 +758,11 @@ void SumatraPdfHighlightManager::refreshWithState(
                     && state.fileState.zoom > 0.0
                 ? state.fileState.zoom
                 : entry->highlight.zoom;
+            if (!std::isfinite(zoom) || zoom <= 0.0) {
+                if (entry->overlay) entry->overlay->hide();
+                continue;
+            }
+            entry->highlight.zoom = zoom;
             const QRect candidate = screenRectForPdfRegion(
                 entry->highlight.pdfRect,
                 zoom,

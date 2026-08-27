@@ -704,12 +704,19 @@ int main(int argc, char *argv[])
             }
 
             if (!region.success()) {
+                const QString failure = region.region.error.trimmed().isEmpty()
+                    ? QStringLiteral("Unable to read reliable PDF rectangle coordinates")
+                    : region.region.error.trimmed();
+                if (!region.canceled) {
+                    QMessageBox::warning(commandWindowForForegroundCapture,
+                                         QStringLiteral("PDF Rectangle Capture Failed"),
+                                         failure);
+                }
                 if (status) {
                     *status = region.canceled
                         ? QStringLiteral("PDF region capture canceled")
-                        : (region.region.error.trimmed().isEmpty()
-                               ? QStringLiteral("Unable to capture PDF region")
-                               : region.region.error.trimmed());
+                        : QStringLiteral("PDF rectangle capture failed: %1")
+                              .arg(failure);
                 }
                 return std::nullopt;
             }
@@ -1021,12 +1028,19 @@ int main(int argc, char *argv[])
                                             foreground.request.page,
                                             foreground.viewState.zoom);
         if (!region.success()) {
+            const QString failure = region.region.error.trimmed().isEmpty()
+                ? QStringLiteral("Unable to read reliable PDF rectangle coordinates")
+                : region.region.error.trimmed();
+            if (!region.canceled) {
+                QMessageBox::warning(&window,
+                                     QStringLiteral("PDF Rectangle Capture Failed"),
+                                     failure);
+            }
             if (status) {
                 *status = region.canceled
                     ? QStringLiteral("PDF locator recapture canceled")
-                    : (region.region.error.trimmed().isEmpty()
-                           ? QStringLiteral("Unable to capture PDF rectangle")
-                           : region.region.error.trimmed());
+                    : QStringLiteral("PDF rectangle capture failed: %1")
+                          .arg(failure);
             }
             return std::nullopt;
         }

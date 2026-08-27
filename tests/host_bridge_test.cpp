@@ -371,7 +371,10 @@ void HostBridgeTest::hostOpenUsesLiveZoomHighlightPath()
         request(QStringLiteral("open"),
                 QJsonObject{{QStringLiteral("identity"), identity}}));
     QVERIFY(response.value(QStringLiteral("ok")).toBool());
-    QTRY_VERIFY_WITH_TIMEOUT(registeredHighlight.has_value(), 1500);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        registeredHighlight.has_value()
+            && qFuzzyCompare(registeredHighlight->zoom, 150.0),
+        1500);
     QCOMPARE(registeredHighlight->zoom, 150.0);
     QCOMPARE(registeredHighlight->page, 5);
 }

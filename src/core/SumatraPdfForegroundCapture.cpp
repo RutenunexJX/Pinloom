@@ -1001,6 +1001,55 @@ SumatraPdfViewState parseSumatraPdfViewStateText(const QString &text, const QStr
     return state;
 }
 
+SumatraPdfViewState mergeSumatraPdfViewStates(
+    const SumatraPdfViewState &primary,
+    const SumatraPdfViewState &fallback)
+{
+    SumatraPdfViewState result = primary;
+    bool enriched = false;
+    if (!result.hasDocumentPath() && fallback.hasDocumentPath()) {
+        result.documentPath = fallback.documentPath;
+        enriched = true;
+    }
+    if (!result.hasCurrentPage() && fallback.hasCurrentPage()) {
+        result.currentPage = fallback.currentPage;
+        enriched = true;
+    }
+    if (result.totalPages <= 0 && fallback.totalPages > 0) {
+        result.totalPages = fallback.totalPages;
+        enriched = true;
+    }
+    if (!result.hasZoom() && fallback.hasZoom()) {
+        result.zoom = fallback.zoom;
+        enriched = true;
+    }
+    if (result.sumatraVersion.trimmed().isEmpty()
+        && !fallback.sumatraVersion.trimmed().isEmpty()) {
+        result.sumatraVersion = fallback.sumatraVersion;
+        enriched = true;
+    }
+
+    const QString primarySource = primary.source.trimmed();
+    const QString fallbackSource = fallback.source.trimmed();
+    if (primarySource.isEmpty()) {
+        result.source = fallbackSource;
+    } else if (enriched
+               && !fallbackSource.isEmpty()
+               && primarySource.compare(fallbackSource,
+                                        Qt::CaseInsensitive) != 0) {
+        result.source = primarySource + QLatin1Char('+') + fallbackSource;
+    }
+
+    QStringList missing;
+    if (!result.hasCurrentPage()) missing.append(QStringLiteral("current page"));
+    if (!result.hasZoom()) missing.append(QStringLiteral("zoom"));
+    result.diagnostics = missing.isEmpty()
+        ? QString()
+        : QStringLiteral("PDF view state parsed partially; missing %1")
+              .arg(missing.join(QStringLiteral(", ")));
+    return result;
+}
+
 SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext &context)
 {
     SumatraPdfViewState state;
@@ -1048,18 +1097,17 @@ SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext 
     }
 #endif
 
-    if (state.hasAnyViewState() || state.hasDocumentPath()) {
-        return state;
-    }
-
     if (fragments.isEmpty()) {
-        state.diagnostics = QStringLiteral("No PDF viewer window text was readable");
+        if (!state.hasAnyViewState() && !state.hasDocumentPath()) {
+            state.diagnostics = QStringLiteral("No PDF viewer window text was readable");
+        }
         return state;
     }
 
-    state = parseSumatraPdfViewStateText(fragments.join(QLatin1Char('\n')),
-                                         QStringLiteral("win32-window-text+wm-gettext+uia"));
-    return state;
+    const SumatraPdfViewState textState = parseSumatraPdfViewStateText(
+        fragments.join(QLatin1Char('\n')),
+        QStringLiteral("win32-window-text+wm-gettext+uia"));
+    return mergeSumatraPdfViewStates(state, textState);
 }
 
 QList<Resource> sumatraPdfTitleMatchedPdfResources(

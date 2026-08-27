@@ -69,6 +69,9 @@ QString sumatraPdfDocumentTitleFromWindowTitle(const QString &windowTitle);
 QString sumatraPdfDocumentPathFromWindowTitle(const QString &windowTitle);
 SumatraPdfViewState parseSumatraPdfViewStateText(const QString &text,
                                                  const QString &source = QStringLiteral("text"));
+SumatraPdfViewState mergeSumatraPdfViewStates(
+    const SumatraPdfViewState &primary,
+    const SumatraPdfViewState &fallback);
 SumatraPdfViewState captureSumatraPdfViewState(const ForegroundAppWindowContext &context);
 QList<Resource> sumatraPdfTitleMatchedPdfResources(
     const ILibraryRepository &repository,

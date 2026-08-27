@@ -386,9 +386,12 @@ bool PinloomOpenService::openSumatraPdf(const PinloomOpenTarget &target)
     }
     recordOpen(target);
     ++sumatraPdfVerificationGeneration_;
+    // Register immediately. The highlight manager independently waits for the
+    // matching PDF and page, so delayed or flaky DDE verification must not
+    // suppress a valid rectangle highlight.
+    registerSumatraPdfHighlight(target, result.command);
     if (options_.sumatraPdfLaunchHandler
         && !options_.sumatraPdfStateProvider) {
-        registerSumatraPdfHighlight(target, result.command);
         setStatus(QStringLiteral("Opened SumatraPDF target"));
         return true;
     }
@@ -483,9 +486,7 @@ void PinloomOpenService::registerSumatraPdfHighlight(
         ? state.zoom
         : command.zoom;
     if (!command.highlightRect.isValid()
-        || command.page <= 0
-        || !std::isfinite(effectiveZoom)
-        || effectiveZoom <= 0.0) {
+        || command.page <= 0) {
         return;
     }
     SumatraPdfPersistentHighlight highlight;

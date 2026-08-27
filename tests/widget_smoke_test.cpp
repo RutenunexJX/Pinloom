@@ -114,7 +114,7 @@ private slots:
     void settingsDialogRoundTripsRuntimeSettings();
     void dataDirectoryChangeMigratesOnNextStartup();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
-    void sumatraPdfRegionOverlayRecoversCrossPageAndCancels();
+    void sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels();
     void panelUsesInjectedRepository();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
@@ -198,7 +198,7 @@ private slots:
     void panelLaunchesSumatraPdfAnchorWithInjectedExecutor();
     void sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight();
     void sumatraPdfOpenServiceRegistersNoZoomUsingLiveState();
-    void sumatraPdfOpenServiceSkipsHighlightWhenVerificationFails();
+    void sumatraPdfOpenServiceKeepsPendingHighlightWhenVerificationFails();
     void persistentPdfHighlightRegistrySupportsMultipleStableKeys();
     void persistentPdfHighlightTracksViewAndClearsOnlyOnClose();
     void panelReportsMissingSumatraPdfExecutable();
@@ -2701,7 +2701,7 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
     QCOMPARE(result.region.rect.bottom, 920.0);
 }
 
-void WidgetSmokeTest::sumatraPdfRegionOverlayRecoversCrossPageAndCancels()
+void WidgetSmokeTest::sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels()
 {
     QList<SumatraPdfDdeMousePosition> positions;
     SumatraPdfDdeMousePosition start;
@@ -2733,13 +2733,12 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayRecoversCrossPageAndCancels()
     QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
     QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
     QVERIFY(!overlay.isVisible());
-    const SumatraPdfRegionCaptureResult recovered = overlay.captureResult();
-    QVERIFY(recovered.success());
-    QVERIFY(!recovered.canceled);
-    QVERIFY(recovered.usedFallback);
-    QCOMPARE(recovered.diagnostics, QStringLiteral("PDF region must stay on one page"));
-    QCOMPARE(recovered.region.page, 12);
-    QVERIFY(recovered.region.rect.isValid());
+    const SumatraPdfRegionCaptureResult failed = overlay.captureResult();
+    QVERIFY(!failed.success());
+    QVERIFY(!failed.canceled);
+    QVERIFY(!failed.usedFallback);
+    QCOMPARE(failed.diagnostics, QStringLiteral("PDF region must stay on one page"));
+    QCOMPARE(failed.region.error, QStringLiteral("PDF region must stay on one page"));
 
     SumatraPdfRegionCaptureOverlay unavailableOverlay(
         0,
@@ -2758,10 +2757,10 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayRecoversCrossPageAndCancels()
     QTest::mouseRelease(&unavailableOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(260, 180));
     QCOMPARE(unavailableOverlay.result(), static_cast<int>(QDialog::Accepted));
     const SumatraPdfRegionCaptureResult unavailable = unavailableOverlay.captureResult();
-    QVERIFY(unavailable.success());
-    QVERIFY(unavailable.usedFallback);
-    QCOMPARE(unavailable.region.page, 7);
-    QVERIFY(unavailable.region.rect.isValid());
+    QVERIFY(!unavailable.success());
+    QVERIFY(!unavailable.canceled);
+    QVERIFY(!unavailable.usedFallback);
+    QCOMPARE(unavailable.region.error, QStringLiteral("DDE unavailable"));
 
     SumatraPdfRegionCaptureOverlay canceledOverlay(0);
     canceledOverlay.setGeometry(100, 100, 500, 300);
@@ -7562,7 +7561,10 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
     QVERIFY(service.open(target));
     QVERIFY(launchedCommand.has_value());
     QVERIFY(launchedCommand->zoom <= 0.0);
-    QTRY_VERIFY_WITH_TIMEOUT(registeredHighlight.has_value(), 1500);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        registeredHighlight.has_value()
+            && qFuzzyCompare(registeredHighlight->zoom, 175.0),
+        1500);
     QCOMPARE(registeredHighlight->zoom, 175.0);
     QCOMPARE(registeredHighlight->page, 7);
 
@@ -7583,7 +7585,10 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
     panel.setSearchText(anchor.name);
     QVERIFY(panel.selectFirstResult());
     QVERIFY(panel.activateCurrentOpenTarget());
-    QTRY_VERIFY_WITH_TIMEOUT(panelHighlight.has_value(), 1500);
+    QTRY_VERIFY_WITH_TIMEOUT(
+        panelHighlight.has_value()
+            && qFuzzyCompare(panelHighlight->zoom, 175.0),
+        1500);
     QCOMPARE(panelHighlight->zoom, 175.0);
 
     SumatraPdfHighlightManager &manager =
@@ -7611,7 +7616,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceRegistersNoZoomUsingLiveState()
     manager.clear();
 }
 
-void WidgetSmokeTest::sumatraPdfOpenServiceSkipsHighlightWhenVerificationFails()
+void WidgetSmokeTest::sumatraPdfOpenServiceKeepsPendingHighlightWhenVerificationFails()
 {
     InMemoryLibraryRepository repository;
     Resource resource;
@@ -7630,7 +7635,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceSkipsHighlightWhenVerificationFails()
     resource.anchors = {anchor};
     QVERIFY(repository.upsertResource(resource));
 
-    int highlightRegistrations = 0;
+    QList<SumatraPdfPersistentHighlight> registeredHighlights;
     PinloomOpenServiceOptions options;
     options.sumatraPdfExecutablePathProvider = []() {
         return QStringLiteral("C:/Tools/SumatraPDF.exe");
@@ -7652,8 +7657,8 @@ void WidgetSmokeTest::sumatraPdfOpenServiceSkipsHighlightWhenVerificationFails()
            const SumatraPdfDdeFileState &,
            QString *) { return true; };
     options.sumatraPdfHighlightHandler =
-        [&](const SumatraPdfPersistentHighlight &) {
-        ++highlightRegistrations;
+        [&](const SumatraPdfPersistentHighlight &highlight) {
+        registeredHighlights.append(highlight);
         return true;
     };
     options.sumatraPdfVerificationPollMilliseconds = 80;
@@ -7670,7 +7675,10 @@ void WidgetSmokeTest::sumatraPdfOpenServiceSkipsHighlightWhenVerificationFails()
     QTRY_VERIFY_WITH_TIMEOUT(
         service.statusText().contains(QStringLiteral("verification failed")),
         1800);
-    QCOMPARE(highlightRegistrations, 0);
+    QCOMPARE(registeredHighlights.size(), 1);
+    QCOMPARE(registeredHighlights.first().key, anchor.id);
+    QCOMPARE(registeredHighlights.first().page, 9);
+    QVERIFY(registeredHighlights.first().zoom <= 0.0);
 }
 
 void WidgetSmokeTest::persistentPdfHighlightRegistrySupportsMultipleStableKeys()
@@ -7712,7 +7720,8 @@ void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
     highlight.targetFile = QStringLiteral("E:/docs/tracked.pdf");
     highlight.pdfRect = QRectF(10.0, 20.0, 40.0, 30.0);
     highlight.page = 2;
-    highlight.zoom = 100.0;
+    highlight.zoom = -1.0;
+    QVERIFY(highlight.isValid());
     QVERIFY(manager.addOrUpdate(highlight));
 
     QScreen *screen = QGuiApplication::primaryScreen();
@@ -7791,6 +7800,10 @@ void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
     QVERIFY(manager.isOverlayVisible(highlight.key));
 
     state.openFiles.clear();
+    manager.refreshWithState(state);
+    QVERIFY(manager.contains(highlight.key));
+    manager.refreshWithState(state);
+    QVERIFY(manager.contains(highlight.key));
     manager.refreshWithState(state);
     QVERIFY(!manager.contains(highlight.key));
     QCOMPARE(manager.count(), 0);

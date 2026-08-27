@@ -43,6 +43,7 @@ private slots:
     void buildsSumatraPdfDdeRegionFromMousePositions();
     void prefersDdeDocumentPathOverTitleConfirmation();
     void parsesSumatraPdfViewStateFromStatusText();
+    void mergesPartialDdeAndUiAutomationViewState();
     void reportsUnparseableSumatraPdfViewStateText();
     void injectsForegroundSumatraPdfViewStateIntoCaptureRequest();
     void reportsForegroundSumatraPdfTitleWithoutFilePath();
@@ -668,6 +669,32 @@ void AnchorCaptureTest::parsesSumatraPdfViewStateFromStatusText()
     QCOMPARE(uiaState.currentPage, 26);
     QCOMPARE(uiaState.totalPages, 31);
     QCOMPARE(uiaState.zoom, 300.0);
+}
+
+void AnchorCaptureTest::mergesPartialDdeAndUiAutomationViewState()
+{
+    SumatraPdfViewState dde;
+    dde.documentPath = QStringLiteral("E:/docs/merged.pdf");
+    dde.currentPage = 28;
+    dde.totalPages = 149;
+    dde.zoom = -1.0;
+    dde.sumatraVersion = QStringLiteral("3.7");
+    dde.source = QStringLiteral("sumatrapdf-dde");
+
+    SumatraPdfViewState uiAutomation;
+    uiAutomation.currentPage = 27;
+    uiAutomation.zoom = 125.0;
+    uiAutomation.source = QStringLiteral("uia");
+
+    const SumatraPdfViewState merged =
+        mergeSumatraPdfViewStates(dde, uiAutomation);
+    QCOMPARE(merged.documentPath, dde.documentPath);
+    QCOMPARE(merged.currentPage, 28);
+    QCOMPARE(merged.totalPages, 149);
+    QCOMPARE(merged.zoom, 125.0);
+    QCOMPARE(merged.sumatraVersion, dde.sumatraVersion);
+    QCOMPARE(merged.source, QStringLiteral("sumatrapdf-dde+uia"));
+    QVERIFY(merged.diagnostics.isEmpty());
 }
 
 void AnchorCaptureTest::reportsUnparseableSumatraPdfViewStateText()
