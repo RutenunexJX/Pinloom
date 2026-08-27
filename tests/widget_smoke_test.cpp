@@ -200,7 +200,7 @@ private slots:
     void sumatraPdfOpenServiceRegistersNoZoomUsingLiveState();
     void sumatraPdfOpenServiceKeepsPendingHighlightWhenVerificationFails();
     void persistentPdfHighlightRegistrySupportsMultipleStableKeys();
-    void persistentPdfHighlightTracksViewAndClearsOnlyOnClose();
+    void persistentPdfHighlightIsStableAndEndsOnViewChange();
     void panelReportsMissingSumatraPdfExecutable();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
@@ -7709,7 +7709,7 @@ void WidgetSmokeTest::persistentPdfHighlightRegistrySupportsMultipleStableKeys()
     QCOMPARE(manager.count(), 0);
 }
 
-void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
+void WidgetSmokeTest::persistentPdfHighlightIsStableAndEndsOnViewChange()
 {
     SumatraPdfHighlightManager &manager =
         SumatraPdfHighlightManager::instance();
@@ -7734,7 +7734,7 @@ void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
     state.sampledCursor = screenGeometry.center();
     state.fileState.path = highlight.targetFile;
     state.fileState.page = highlight.page;
-    state.fileState.zoom = 100.0;
+    state.fileState.zoom = 250.0;
     state.mousePosition.page = highlight.page;
     state.mousePosition.x = 20.0;
     state.mousePosition.y = 20.0;
@@ -7746,6 +7746,13 @@ void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
     QVERIFY(manager.isOverlayVisible(highlight.key));
     const QRect original = manager.overlayScreenRect(highlight.key);
     QVERIFY(original.isValid());
+    QVERIFY(original.width() >= 130);
+    QVERIFY(original.height() >= 98);
+    QCOMPARE(manager.overlayPresentationCount(highlight.key), 1);
+
+    manager.refreshWithState(state);
+    QCOMPARE(manager.overlayScreenRect(highlight.key), original);
+    QCOMPARE(manager.overlayPresentationCount(highlight.key), 1);
 
     state.clientGeometry.translate(45, 30);
     state.sampledCursor += QPoint(45, 30);
@@ -7753,66 +7760,27 @@ void WidgetSmokeTest::persistentPdfHighlightTracksViewAndClearsOnlyOnClose()
     const QRect moved = manager.overlayScreenRect(highlight.key);
     QVERIFY(manager.isOverlayVisible(highlight.key));
     QCOMPARE(moved.topLeft() - original.topLeft(), QPoint(45, 30));
-
-    state.clientGeometry.adjust(0, 0, -120, -80);
-    state.sampledCursor = state.clientGeometry.center();
-    manager.refreshWithState(state);
-    const QRect resized = manager.overlayScreenRect(highlight.key);
-    QVERIFY(manager.isOverlayVisible(highlight.key));
-    QVERIFY(resized != moved);
-
-    state.fileState.zoom = 200.0;
-    manager.refreshWithState(state);
-    const QRect zoomed = manager.overlayScreenRect(highlight.key);
-    QVERIFY(zoomed.width() > resized.width());
-    QVERIFY(zoomed.height() > resized.height());
+    QCOMPARE(manager.overlayPresentationCount(highlight.key), 1);
 
     state.mousePosition.x = 60.0;
     state.mousePosition.y = 45.0;
     manager.refreshWithState(state);
-    const QRect scrolled = manager.overlayScreenRect(highlight.key);
-    QVERIFY(scrolled.topLeft() != zoomed.topLeft());
-
-    state.fileState.page = 3;
-    state.mousePosition.page = 3;
-    manager.refreshWithState(state);
     QVERIFY(!manager.isOverlayVisible(highlight.key));
-    QVERIFY(manager.contains(highlight.key));
-
-    state.fileState.page = highlight.page;
-    state.mousePosition.page = highlight.page;
-    manager.refreshWithState(state);
-    QVERIFY(manager.isOverlayVisible(highlight.key));
-    QVERIFY(manager.contains(highlight.key));
-
-    state.sumatraForeground = false;
-    manager.refreshWithState(state);
-    QVERIFY(!manager.isOverlayVisible(highlight.key));
-    QVERIFY(manager.contains(highlight.key));
-
-    state.sumatraForeground = true;
-    state.foregroundWindowHandle = 8100;
-    state.windowExists = [](quintptr windowHandle) {
-        return windowHandle != 8001;
-    };
-    manager.refreshWithState(state);
-    QVERIFY(manager.contains(highlight.key));
-    QVERIFY(manager.isOverlayVisible(highlight.key));
-
-    state.openFiles.clear();
-    manager.refreshWithState(state);
-    QVERIFY(manager.contains(highlight.key));
-    manager.refreshWithState(state);
-    QVERIFY(manager.contains(highlight.key));
-    manager.refreshWithState(state);
     QVERIFY(!manager.contains(highlight.key));
-    QCOMPARE(manager.count(), 0);
 
-    highlight.targetWindowHandle = 9001;
+    highlight.targetWindowHandle = state.foregroundWindowHandle;
     QVERIFY(manager.addOrUpdate(highlight));
-    state.openFilesAvailable = false;
-    state.windowExists = [](quintptr windowHandle) {
-        return windowHandle != 9001;
+    manager.refreshWithState(state);
+    QVERIFY(manager.isOverlayVisible(highlight.key));
+    state.fileState.zoom = 300.0;
+    manager.refreshWithState(state);
+    QVERIFY(!manager.isOverlayVisible(highlight.key));
+    QVERIFY(!manager.contains(highlight.key));
+
+    highlight.zoom = 300.0;
+    QVERIFY(manager.addOrUpdate(highlight));
+    state.windowExists = [closedWindow = highlight.targetWindowHandle](quintptr windowHandle) {
+        return windowHandle != closedWindow;
     };
     manager.refreshWithState(state);
     QVERIFY(!manager.contains(highlight.key));

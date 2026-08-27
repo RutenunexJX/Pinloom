@@ -111,6 +111,7 @@ public:
     int count() const;
     bool isOverlayVisible(const QString &key) const;
     QRect overlayScreenRect(const QString &key) const;
+    int overlayPresentationCount(const QString &key) const;
     void refreshNow();
     void refreshWithState(const SumatraPdfHighlightRefreshState &state);
 

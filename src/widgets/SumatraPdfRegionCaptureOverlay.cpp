@@ -202,6 +202,15 @@ QRect screenRectForPdfRegion(const QRectF &pdfRect,
         .toAlignedRect();
 }
 
+bool materiallyDifferentRect(const QRect &left, const QRect &right)
+{
+    constexpr int TolerancePixels = 3;
+    return std::abs(left.x() - right.x()) > TolerancePixels
+        || std::abs(left.y() - right.y()) > TolerancePixels
+        || std::abs(left.width() - right.width()) > TolerancePixels
+        || std::abs(left.height() - right.height()) > TolerancePixels;
+}
+
 } // namespace
 
 struct SumatraPdfHighlightManager::Entry {
@@ -209,6 +218,8 @@ struct SumatraPdfHighlightManager::Entry {
     QPointer<SumatraPdfRectHighlightOverlay> overlay;
     QRect lastClientGeometry;
     QRect lastScreenRect;
+    double displayedZoom = -1.0;
+    int presentationCount = 0;
     int consecutiveOpenFileMisses = 0;
 };
 
@@ -571,9 +582,16 @@ bool SumatraPdfHighlightManager::addOrUpdate(
     if (!entry) {
         entry = new Entry;
         entries_.insert(key, entry);
+    } else if (entry->overlay) {
+        entry->overlay->close();
     }
     entry->highlight = highlight;
     entry->highlight.key = key;
+    entry->overlay = nullptr;
+    entry->lastClientGeometry = {};
+    entry->lastScreenRect = {};
+    entry->displayedZoom = -1.0;
+    entry->presentationCount = 0;
     entry->consecutiveOpenFileMisses = 0;
     if (!refreshTimer_->isActive()) {
         refreshTimer_->start();
@@ -626,6 +644,13 @@ QRect SumatraPdfHighlightManager::overlayScreenRect(const QString &key) const
     return entry ? entry->lastScreenRect : QRect{};
 }
 
+int SumatraPdfHighlightManager::overlayPresentationCount(
+    const QString &key) const
+{
+    const Entry *entry = entries_.value(key.trimmed(), nullptr);
+    return entry ? entry->presentationCount : 0;
+}
+
 void SumatraPdfHighlightManager::removeEntries(const QStringList &keys)
 {
     for (const QString &key : keys) {
@@ -637,6 +662,21 @@ void SumatraPdfHighlightManager::refreshNow()
 {
     if (entries_.isEmpty()) {
         refreshTimer_->stop();
+        return;
+    }
+
+    // A closed SumatraPDF window is authoritative. Remove its overlays before
+    // issuing DDE requests so a dead DDE server cannot block Pinloom's UI.
+    QStringList closedWindowEntries;
+    for (auto iterator = entries_.cbegin(); iterator != entries_.cend(); ++iterator) {
+        const Entry *entry = iterator.value();
+        if (entry && entry->highlight.targetWindowHandle != 0
+            && !nativeWindowExists(entry->highlight.targetWindowHandle)) {
+            closedWindowEntries.append(iterator.key());
+        }
+    }
+    removeEntries(closedWindowEntries);
+    if (entries_.isEmpty()) {
         return;
     }
 
@@ -659,8 +699,7 @@ void SumatraPdfHighlightManager::refreshNow()
             });
         if (needsLiveZoom
             && (!std::isfinite(state.fileState.zoom)
-                || state.fileState.zoom <= 0.0)
-            && (refreshSerial_ == 1 || refreshSerial_ % 7 == 0)) {
+                || state.fileState.zoom <= 0.0)) {
             const SumatraPdfViewState viewState =
                 captureSumatraPdfViewState(context);
             if (viewState.hasZoom()) {
@@ -670,8 +709,13 @@ void SumatraPdfHighlightManager::refreshNow()
         state.clientGeometry = targetClientGeometry(context.windowHandle);
         state.sampledCursor = QCursor::pos();
         state.mousePosition = requestSumatraPdfDdeMousePosition(140);
-        if ((!state.mousePosition.success()
-             || state.mousePosition.page != state.fileState.page)
+        const bool needsInitialPlacement = std::any_of(
+            entries_.cbegin(), entries_.cend(), [](const Entry *entry) {
+                return entry && !entry->lastScreenRect.isValid();
+            });
+        if (needsInitialPlacement
+            && (!state.mousePosition.success()
+                || state.mousePosition.page != state.fileState.page)
             && state.clientGeometry.isValid()) {
             const QPoint originalCursor = state.sampledCursor;
             state.sampledCursor = state.clientGeometry.center();
@@ -681,7 +725,12 @@ void SumatraPdfHighlightManager::refreshNow()
         }
     }
 
-    if (refreshSerial_ == 1 || refreshSerial_ % 7 == 0) {
+    const bool hasUnboundEntry = std::any_of(
+        entries_.cbegin(), entries_.cend(), [](const Entry *entry) {
+            return entry && entry->highlight.targetWindowHandle == 0;
+        });
+    if (hasUnboundEntry
+        && (refreshSerial_ == 1 || refreshSerial_ % 7 == 0)) {
         state.openFiles = openSumatraPdfFiles(&state.openFilesAvailable);
     }
     refreshWithState(state);
@@ -715,26 +764,35 @@ void SumatraPdfHighlightManager::refreshWithState(
         if (entry->highlight.targetWindowHandle != 0
             && state.windowExists
             && !state.windowExists(entry->highlight.targetWindowHandle)) {
-            if (!targetFileOpen) {
-                removals.append(iterator.key());
-                continue;
-            }
-            entry->highlight.targetWindowHandle = 0;
-            if (entry->overlay) entry->overlay->hide();
+            removals.append(iterator.key());
+            continue;
         }
 
         const bool matchingForegroundWindow = state.sumatraForeground
             && (entry->highlight.targetWindowHandle == 0
                 || entry->highlight.targetWindowHandle
                     == state.foregroundWindowHandle);
-        const bool matchingDocument = matchingForegroundWindow
-            && state.fileState.success()
-            && samePdfPath(state.fileState.path, entry->highlight.targetFile);
-        if (!matchingDocument
-            || state.fileState.page != entry->highlight.page) {
+        if (!matchingForegroundWindow) {
             if (entry->overlay) {
                 entry->overlay->hide();
             }
+            continue;
+        }
+
+        const bool matchingDocument = state.fileState.success()
+            && samePdfPath(state.fileState.path, entry->highlight.targetFile);
+        if (!matchingDocument) {
+            if (entry->highlight.targetWindowHandle != 0
+                && entry->highlight.targetWindowHandle
+                    == state.foregroundWindowHandle) {
+                removals.append(iterator.key());
+            } else if (entry->overlay) {
+                entry->overlay->hide();
+            }
+            continue;
+        }
+        if (state.fileState.page != entry->highlight.page) {
+            removals.append(iterator.key());
             continue;
         }
 
@@ -743,25 +801,43 @@ void SumatraPdfHighlightManager::refreshWithState(
                 state.foregroundWindowHandle;
         }
         const QRect clientGeometry = state.clientGeometry;
+        if (!clientGeometry.isValid()) {
+            if (entry->overlay) entry->overlay->hide();
+            continue;
+        }
+        if (entry->lastClientGeometry.isValid()
+            && entry->lastClientGeometry.size() != clientGeometry.size()) {
+            removals.append(iterator.key());
+            continue;
+        }
         if (entry->lastScreenRect.isValid()
             && entry->lastClientGeometry.isValid()
-            && clientGeometry.isValid()
             && clientGeometry.topLeft() != entry->lastClientGeometry.topLeft()) {
             entry->lastScreenRect.translate(
                 clientGeometry.topLeft() - entry->lastClientGeometry.topLeft());
+            if (entry->overlay) {
+                entry->overlay->setGeometry(
+                    entry->lastScreenRect.adjusted(-5, -5, 5, 5));
+            }
         }
         entry->lastClientGeometry = clientGeometry;
 
         const SumatraPdfDdeMousePosition &mouse = state.mousePosition;
+        const double zoom = std::isfinite(state.fileState.zoom)
+                && state.fileState.zoom > 0.0
+            ? state.fileState.zoom
+            : entry->highlight.zoom;
+        if (!std::isfinite(zoom) || zoom <= 0.0) {
+            if (entry->overlay) entry->overlay->hide();
+            continue;
+        }
+        if (std::isfinite(entry->displayedZoom)
+            && entry->displayedZoom > 0.0
+            && std::abs(entry->displayedZoom - zoom) > 0.25) {
+            removals.append(iterator.key());
+            continue;
+        }
         if (mouse.success() && mouse.page == entry->highlight.page) {
-            const double zoom = std::isfinite(state.fileState.zoom)
-                    && state.fileState.zoom > 0.0
-                ? state.fileState.zoom
-                : entry->highlight.zoom;
-            if (!std::isfinite(zoom) || zoom <= 0.0) {
-                if (entry->overlay) entry->overlay->hide();
-                continue;
-            }
             entry->highlight.zoom = zoom;
             const QRect candidate = screenRectForPdfRegion(
                 entry->highlight.pdfRect,
@@ -769,13 +845,21 @@ void SumatraPdfHighlightManager::refreshWithState(
                 state.sampledCursor,
                 mouse);
             if (candidate.isValid() && intersectsAvailableScreen(candidate)) {
-                entry->lastScreenRect = candidate;
-            } else {
-                entry->lastScreenRect = {};
+                if (entry->lastScreenRect.isValid()
+                    && materiallyDifferentRect(entry->lastScreenRect, candidate)) {
+                    // Scrolling changes the PDF-to-screen mapping. A stale
+                    // rectangle is more misleading than no rectangle, so the
+                    // highlight ends instead of following or drifting.
+                    removals.append(iterator.key());
+                    continue;
+                }
+                if (!entry->lastScreenRect.isValid()) {
+                    entry->lastScreenRect = candidate;
+                    entry->displayedZoom = zoom;
+                }
+            } else if (!entry->lastScreenRect.isValid()) {
+                continue;
             }
-        } else {
-            if (entry->overlay) entry->overlay->hide();
-            continue;
         }
         if (!entry->lastScreenRect.isValid()) {
             if (entry->overlay) {
@@ -791,8 +875,11 @@ void SumatraPdfHighlightManager::refreshWithState(
             entry->overlay->setGeometry(
                 entry->lastScreenRect.adjusted(-5, -5, 5, 5));
         }
-        entry->overlay->show();
-        entry->overlay->raise();
+        if (!entry->overlay->isVisible()) {
+            entry->overlay->show();
+            entry->overlay->raise();
+            ++entry->presentationCount;
+        }
     }
     removeEntries(removals);
 }
