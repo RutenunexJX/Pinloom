@@ -162,6 +162,9 @@ QString pdfLocatorJson(const PdfCaptureRequest &request)
     if (locatorType == QLatin1String("sumatrapdf.rect")) {
         locator.insert(QStringLiteral("rect"), rectArray(request.rect));
         locator.insert(QStringLiteral("unit"), effectiveUnit(request));
+        locator.insert(QStringLiteral("version"), 2);
+        locator.insert(QStringLiteral("coordinateSpace"),
+                       QStringLiteral("page-top-left"));
     } else if (locatorType == QLatin1String("sumatrapdf.search")) {
         locator.insert(QStringLiteral("text"), request.searchText.simplified());
         if (!request.contextBefore.trimmed().isEmpty()) {

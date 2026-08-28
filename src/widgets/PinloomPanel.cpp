@@ -744,12 +744,15 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
         options_.sumatraPdfExecutablePathProvider;
     openOptions.sumatraPdfLaunchHandler = options_.sumatraPdfLaunchHandler;
     openOptions.sumatraPdfStateProvider = options_.sumatraPdfStateProvider;
-    openOptions.sumatraPdfRetryHandler = options_.sumatraPdfRetryHandler;
-    openOptions.sumatraPdfHighlightHandler = options_.sumatraPdfHighlightHandler;
     openOptions.sumatraPdfVerificationTimeoutMilliseconds =
         options_.sumatraPdfVerificationTimeoutMilliseconds;
     openOptions.sumatraPdfVerificationPollMilliseconds =
         options_.sumatraPdfVerificationPollMilliseconds;
+    openOptions.pdfPresentationGenerationTimeoutMilliseconds =
+        options_.pdfPresentationGenerationTimeoutMilliseconds;
+    openOptions.pdfPresentationCacheDirectory =
+        options_.pdfPresentationCacheDirectory;
+    openOptions.pdfAnchorPresenter = options_.pdfAnchorPresenter;
     openService_ = std::make_unique<PinloomOpenService>(
         repository_, std::move(openOptions), this);
     connect(openService_.get(),

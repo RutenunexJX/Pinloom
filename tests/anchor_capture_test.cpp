@@ -200,7 +200,7 @@ void AnchorCaptureTest::keepsSumatraPdfLocatorJsonStable()
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"zoom\":250}"));
+             QStringLiteral("{\"coordinateSpace\":\"page-top-left\",\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"version\":2,\"zoom\":250}"));
 }
 
 void AnchorCaptureTest::buildsAnchorCompatibleWithSumatraPdfExecutor()
@@ -291,7 +291,7 @@ void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithSumatraPdfExecut
 
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"zoom\":250}"));
+             QStringLiteral("{\"coordinateSpace\":\"page-top-left\",\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"version\":2,\"zoom\":250}"));
     QVERIFY(isSumatraPdfAnchor(result.anchor));
 
     const SumatraPdfCommandResult command =

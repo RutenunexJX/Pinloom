@@ -53,13 +53,11 @@ struct PinloomPanelOptions {
     std::function<bool(const SumatraPdfCommand &command, QString *error)> sumatraPdfLaunchHandler;
     std::function<SumatraPdfDdeFileState(int timeoutMilliseconds)>
         sumatraPdfStateProvider;
-    std::function<bool(const SumatraPdfCommand &command,
-                       const SumatraPdfDdeFileState &lastState,
-                       QString *error)> sumatraPdfRetryHandler;
-    std::function<bool(const SumatraPdfPersistentHighlight &highlight)>
-        sumatraPdfHighlightHandler;
     int sumatraPdfVerificationTimeoutMilliseconds = 4200;
     int sumatraPdfVerificationPollMilliseconds = 180;
+    int pdfPresentationGenerationTimeoutMilliseconds = 15000;
+    QString pdfPresentationCacheDirectory;
+    PdfAnchorPresenter *pdfAnchorPresenter = nullptr;
     std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;

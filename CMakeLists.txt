@@ -14,7 +14,7 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test)
+find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
 
 add_library(pinloom_core STATIC
@@ -41,6 +41,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/SumatraPdfForegroundCapture.h
     include/pinloom/core/SumatraPdfDdeClient.h
     include/pinloom/core/PowerPointCommand.h
+    include/pinloom/core/PdfAnnotatedCopy.h
     include/pinloom/core/TextSelectionCapture.h
     include/pinloom/core/Resource.h
     include/pinloom/core/ResourceUsage.h
@@ -72,6 +73,7 @@ add_library(pinloom_core STATIC
     src/core/SumatraPdfForegroundCapture.cpp
     src/core/SumatraPdfDdeClient.cpp
     src/core/PowerPointCommand.cpp
+    src/core/PdfAnnotatedCopy.cpp
     src/core/TextSelectionCapture.cpp
     src/core/Schema.cpp
     src/core/SqliteLibraryRepository.cpp
@@ -90,6 +92,8 @@ target_link_libraries(pinloom_core
     PUBLIC
         Qt6::Core
         Qt6::Sql
+    PRIVATE
+        Qt6::ZlibPrivate
 )
 
 target_compile_definitions(pinloom_core
@@ -158,6 +162,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/AnchorCaptureDialog.h
     include/pinloom/widgets/AnchorLibraryWindow.h
     include/pinloom/widgets/PdfLocatorPreviewRenderer.h
+    include/pinloom/widgets/PdfAnchorPresenter.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipTrayPresenter.h
@@ -188,6 +193,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/LibraryRootWindow.cpp
     src/widgets/AnchorLibraryWindow.cpp
     src/widgets/PdfLocatorPreviewRenderer.cpp
+    src/widgets/PdfAnchorPresenter.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
@@ -292,6 +298,19 @@ target_link_libraries(pinloom_anchor_capture_test
 
 pinloom_add_test(pinloom_anchor_capture_test)
 
+add_executable(pinloom_pdf_annotated_copy_test
+    tests/pdf_annotated_copy_test.cpp
+)
+
+target_link_libraries(pinloom_pdf_annotated_copy_test
+    PRIVATE
+        pinloom_core
+        Qt6::Gui
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_pdf_annotated_copy_test)
+
 add_executable(pinloom_sqlite_repository_test
     tests/sqlite_repository_test.cpp
 )
@@ -327,6 +346,18 @@ target_link_libraries(pinloom_widget_smoke_test
 )
 
 pinloom_add_test(pinloom_widget_smoke_test)
+
+add_executable(pinloom_pdf_anchor_presenter_test
+    tests/pdf_anchor_presenter_test.cpp
+)
+
+target_link_libraries(pinloom_pdf_anchor_presenter_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_pdf_anchor_presenter_test)
 
 add_executable(pinloom_host_bridge_test
     tests/host_bridge_test.cpp

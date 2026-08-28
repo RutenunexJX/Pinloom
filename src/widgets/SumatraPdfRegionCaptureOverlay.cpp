@@ -92,6 +92,7 @@ void activateTargetWindow(quintptr windowHandle)
 #endif
 }
 
+#if 0 // Legacy jump-only overlay path; rectangle jumps use PdfAnchorPresenter.
 class SumatraPdfRectHighlightOverlay final : public QWidget {
 public:
     explicit SumatraPdfRectHighlightOverlay(const QRect &screenRect)
@@ -290,9 +291,11 @@ SumatraPdfHighlightRefreshState querySumatraPdfHighlightState(
 #endif
     return state;
 }
+#endif
 
 } // namespace
 
+#if 0 // Legacy jump-only overlay state is intentionally excluded from the capture API.
 struct SumatraPdfHighlightManager::Entry {
     SumatraPdfPersistentHighlight highlight;
     QPointer<SumatraPdfRectHighlightOverlay> overlay;
@@ -305,6 +308,7 @@ struct SumatraPdfHighlightManager::Entry {
     int presentationCount = 0;
     int consecutiveOpenFileMisses = 0;
 };
+#endif
 
 bool SumatraPdfRegionCaptureResult::success() const
 {
@@ -625,6 +629,7 @@ SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandl
     return overlay.captureResult();
 }
 
+#if 0 // Legacy jump-only overlay implementation is disabled.
 bool SumatraPdfPersistentHighlight::isValid() const
 {
     return !key.trimmed().isEmpty()
@@ -1050,5 +1055,6 @@ bool showSumatraPdfRectHighlight(const QRectF &pdfRect,
     QTimer::singleShot(std::max(250, durationMilliseconds), overlay, &QWidget::close);
     return true;
 }
+#endif
 
 } // namespace Pinloom

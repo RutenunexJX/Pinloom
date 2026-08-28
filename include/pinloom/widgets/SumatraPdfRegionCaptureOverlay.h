@@ -3,14 +3,9 @@
 #include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDialog>
-#include <QFutureWatcher>
-#include <QHash>
-#include <QObject>
 #include <QPair>
 #include <QPoint>
-#include <QRect>
 #include <QString>
-#include <QStringList>
 #include <functional>
 
 class QKeyEvent;
@@ -29,6 +24,8 @@ struct SumatraPdfRegionCaptureResult {
     bool success() const;
 };
 
+// Capture-only overlay. Rectangle Anchor presentation is owned by
+// PdfAnchorPresenter and never uses this dialog.
 class SumatraPdfRegionCaptureOverlay final : public QDialog {
 public:
     using MousePositionProvider = std::function<SumatraPdfDdeMousePosition()>;
@@ -77,64 +74,5 @@ SumatraPdfRegionCaptureResult captureSumatraPdfRegion(
     quintptr targetWindowHandle,
     int fallbackPage = 1,
     double fallbackZoom = -1.0);
-
-struct SumatraPdfPersistentHighlight {
-    QString key;
-    QString targetFile;
-    QRectF pdfRect;
-    int page = -1;
-    double zoom = -1.0;
-    quintptr targetWindowHandle = 0;
-
-    bool isValid() const;
-};
-
-struct SumatraPdfHighlightRefreshState {
-    bool sumatraForeground = false;
-    quintptr foregroundWindowHandle = 0;
-    QRect clientGeometry;
-    QPoint sampledCursor;
-    SumatraPdfDdeFileState fileState;
-    SumatraPdfDdeMousePosition mousePosition;
-    bool openFilesAvailable = false;
-    QStringList openFiles;
-    std::function<bool(quintptr)> windowExists;
-};
-
-class SumatraPdfHighlightManager final : public QObject {
-public:
-    static SumatraPdfHighlightManager &instance();
-
-    bool addOrUpdate(const SumatraPdfPersistentHighlight &highlight);
-    bool remove(const QString &key);
-    void clear();
-    bool contains(const QString &key) const;
-    int count() const;
-    bool isOverlayVisible(const QString &key) const;
-    QRect overlayScreenRect(const QString &key) const;
-    int overlayPresentationCount(const QString &key) const;
-    void refreshNow();
-    void refreshWithState(const SumatraPdfHighlightRefreshState &state);
-
-private:
-    struct Entry;
-
-    explicit SumatraPdfHighlightManager(QObject *parent = nullptr);
-    ~SumatraPdfHighlightManager() override;
-    void removeEntries(const QStringList &keys);
-
-    QHash<QString, Entry *> entries_;
-    QTimer *refreshTimer_ = nullptr;
-    QFutureWatcher<SumatraPdfHighlightRefreshState> *refreshWatcher_ = nullptr;
-    quint64 refreshGeneration_ = 0;
-    quint64 inFlightGeneration_ = 0;
-};
-
-bool registerSumatraPdfPersistentHighlight(
-    const SumatraPdfPersistentHighlight &highlight);
-bool showSumatraPdfRectHighlight(const QRectF &pdfRect,
-                                 int page,
-                                 double zoom,
-                                 int durationMilliseconds = 1400);
 
 } // namespace Pinloom

@@ -200,16 +200,8 @@ private slots:
     void panelLaunchesPowerPointAnchorWithInjectedExecutor();
     void panelReportsInvalidPowerPointLocatorWithoutGenericOpen();
     void panelLaunchesSumatraPdfAnchorWithInjectedExecutor();
-    void sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight();
-    void sumatraPdfOpenServiceRegistersNoZoomUsingLiveState();
-    void sumatraPdfOpenServiceDoesNotShowUnverifiedHighlight();
-    void sumatraPdfOpenServiceVerificationDoesNotBlockGui();
-    void sumatraPdfOpenServiceTimesOutHungWorkerWithoutBlockingGui();
+    void panelDelegatesRectangleAnchorToInjectedPresenter();
     void sumatraPdfDdeWorkerCompletesAgainstLiveServerWhenRequested();
-    void sumatraPdfOpenServiceCompletesAgainstLiveServerWhenRequested();
-    void sumatraPdfHighlightManagerFindsLivePageWhenRequested();
-    void persistentPdfHighlightRegistrySupportsMultipleStableKeys();
-    void persistentPdfHighlightIsStableAndEndsOnViewChange();
     void panelReportsMissingSumatraPdfExecutable();
     void panelAllowsHostToHandleUrlTarget();
     void panelFallbackOpensUrlFragmentAnchor();
@@ -231,6 +223,41 @@ public slots:
 public:
     QUrl lastUrl;
     int openCount = 0;
+};
+
+class PanelRecordingPdfPresenter final : public PdfAnchorPresenter {
+public:
+    using PdfAnchorPresenter::PdfAnchorPresenter;
+
+    PdfAnchorPresentationStartResult present(
+        const PdfAnchorPresentationRequest &requestValue,
+        PdfAnchorPresentationCallbacks callbacks) override
+    {
+        lastRequest = requestValue;
+        ++presentCount;
+        active = 1;
+        PdfAnchorPresentationStartResult start;
+        start.requestId = ++lastId;
+        QTimer::singleShot(0, this, [this, callbacks, id = start.requestId, requestValue]() {
+            active = 0;
+            PdfAnchorPresentationResult result;
+            result.requestId = id;
+            result.sourceFilePath = requestValue.sourceCommand.filePath;
+            result.previewFilePath = QStringLiteral("E:/cache/panel - Pinloom Preview.pdf");
+            result.previewCommand = requestValue.sourceCommand;
+            result.previewCommand.filePath = result.previewFilePath;
+            if (callbacks.completed) callbacks.completed(result);
+        });
+        return start;
+    }
+
+    void cancelPending() override { active = 0; }
+    int activeRequestCount() const override { return active; }
+
+    PdfAnchorPresentationRequest lastRequest;
+    int presentCount = 0;
+    int active = 0;
+    quint64 lastId = 0;
 };
 
 class FakeClipboardTextSource : public ClipboardTextSource {
@@ -5431,7 +5458,8 @@ void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()
     anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = resource.location;
     anchor.locatorType = QStringLiteral("sumatrapdf.rect");
-    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    anchor.locatorJson = QStringLiteral(
+        "{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
     anchor.aliases = {QStringLiteral("pll budget")};
     anchor.tags = {QStringLiteral("clock"), QStringLiteral("review")};
     resource.anchors = {anchor};
@@ -7365,8 +7393,9 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
     anchor.name = QStringLiteral("PLL jitter budget");
     anchor.targetApp = QStringLiteral("SumatraPDF");
     anchor.targetFile = resource.location;
-    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
-    anchor.locatorJson = QStringLiteral("{\"page\":12,\"rect\":[420,860,780,920],\"zoom\":250,\"unit\":\"pt\"}");
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
+    anchor.locatorJson = QStringLiteral(
+        "{\"page\":12,\"type\":\"sumatrapdf.page\"}");
     resource.anchors = {anchor};
     QVERIFY(repository.upsertResource(resource));
 
@@ -7397,10 +7426,6 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
              QStringList({QStringLiteral("-reuse-instance"),
                           QStringLiteral("-page"),
                           QStringLiteral("12"),
-                          QStringLiteral("-zoom"),
-                          QStringLiteral("250"),
-                          QStringLiteral("-scroll"),
-                          QStringLiteral("420,860"),
                           resource.location}));
     QCOMPARE(panel.statusText(), QStringLiteral("Opened SumatraPDF target"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
@@ -7416,6 +7441,54 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
     QCOMPARE(anchorUsage->openCount, 1);
 }
 
+void WidgetSmokeTest::panelDelegatesRectangleAnchorToInjectedPresenter()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("pdf-presenter-panel");
+    resource.kind = ResourceKind::Pdf;
+    resource.title = QStringLiteral("Presenter PDF");
+    resource.location = QStringLiteral("E:/docs/presenter.pdf");
+    Anchor anchor;
+    anchor.id = QStringLiteral("presenter-region");
+    anchor.name = QStringLiteral("Presenter region");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = resource.location;
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    anchor.locatorJson = QStringLiteral(
+        R"({"type":"sumatrapdf.rect","page":6,"rect":[20,40,180,110]})");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+
+    PanelRecordingPdfPresenter presenter;
+    int directLaunchCount = 0;
+    PinloomPanelOptions options;
+    options.applicationLaunchSettings.sumatraPdfExecutablePath =
+        QStringLiteral("C:/Tools/SumatraPDF.exe");
+    options.pdfAnchorPresenter = &presenter;
+    options.sumatraPdfLaunchHandler = [&](const SumatraPdfCommand &, QString *) {
+        ++directLaunchCount;
+        return true;
+    };
+    PinloomPanel panel(repository, options);
+    panel.setSearchText(anchor.name);
+    QVERIFY(panel.selectFirstResult());
+    QVERIFY(panel.activateCurrentOpenTarget());
+    QTRY_COMPARE_WITH_TIMEOUT(presenter.presentCount, 1, 1000);
+    QCOMPARE(directLaunchCount, 0);
+    QCOMPARE(presenter.lastRequest.anchor.id, anchor.id);
+    QCOMPARE(presenter.lastRequest.sourceCommand.highlightRect,
+             QRectF(20, 40, 160, 70));
+    QTRY_VERIFY_WITH_TIMEOUT(
+        panel.statusText().startsWith(QStringLiteral("Opened"))
+            && panel.statusText().contains(QStringLiteral("Pinloom Preview")),
+        1000);
+    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
+    QVERIFY(usage.has_value());
+    QCOMPARE(usage->openCount, 1);
+}
+
+#if 0 // Removed jump-overlay regression tests; presentation is intrinsic to the PDF page.
 void WidgetSmokeTest::sumatraPdfOpenServiceVerifiesRetriesAndRegistersPersistentHighlight()
 {
     InMemoryLibraryRepository repository;
@@ -7827,6 +7900,7 @@ void WidgetSmokeTest::sumatraPdfOpenServiceTimesOutHungWorkerWithoutBlockingGui(
         1000);
     QVERIFY(elapsed.elapsed() < 1000);
 }
+#endif
 
 void WidgetSmokeTest::sumatraPdfDdeWorkerCompletesAgainstLiveServerWhenRequested()
 {
@@ -7847,6 +7921,7 @@ void WidgetSmokeTest::sumatraPdfDdeWorkerCompletesAgainstLiveServerWhenRequested
              QDir::cleanPath(QDir::fromNativeSeparators(expectedPdf)).toCaseFolded());
 }
 
+#if 0 // Removed jump-overlay live probes and registry tests.
 void WidgetSmokeTest::sumatraPdfOpenServiceCompletesAgainstLiveServerWhenRequested()
 {
     const QString expectedPdf =
@@ -8115,6 +8190,7 @@ void WidgetSmokeTest::persistentPdfHighlightIsStableAndEndsOnViewChange()
     QVERIFY(!manager.contains(highlight.key));
     QCOMPARE(manager.count(), 0);
 }
+#endif
 
 void WidgetSmokeTest::panelReportsMissingSumatraPdfExecutable()
 {

@@ -61,6 +61,7 @@
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QSettings>
 #include <QScreen>
 #include <QStandardPaths>
@@ -775,6 +776,22 @@ int main(int argc, char *argv[])
     openServiceOptions.clipInsertionHandler = clipInsertionHandler;
     openServiceOptions.applicationLaunchSettings = applicationLaunchSettings;
     openServiceOptions.sumatraPdfExecutablePathProvider = sumatraPdfExecutablePathProvider;
+    openServiceOptions.pdfOriginalFallbackPrompt =
+        [&window](const QString &sourceFilePath, int page, const QString &reason) {
+        QMessageBox message(&window);
+        message.setWindowTitle(QStringLiteral("Pinloom Preview"));
+        message.setIcon(QMessageBox::Warning);
+        message.setText(reason);
+        message.setInformativeText(
+            QStringLiteral("The original PDF was not modified.\n\n%1\nPage %2")
+                .arg(QDir::toNativeSeparators(sourceFilePath))
+                .arg(page));
+        QPushButton *openOriginal = message.addButton(
+            QStringLiteral("Open original PDF"), QMessageBox::AcceptRole);
+        message.addButton(QMessageBox::Cancel);
+        message.exec();
+        return message.clickedButton() == openOriginal;
+    };
     Pinloom::PinloomOpenService openService(repository, std::move(openServiceOptions), &app);
     QObject::connect(&openService,
                      &Pinloom::PinloomOpenService::statusChanged,
@@ -782,7 +799,9 @@ int main(int argc, char *argv[])
                      [&window](const QString &status) {
                          window.statusBar()->showMessage(status, 6000);
                          if (status.contains(QStringLiteral("verification failed"),
-                                             Qt::CaseInsensitive)) {
+                                             Qt::CaseInsensitive)
+                             || status.contains(QStringLiteral("Pinloom Preview failed"),
+                                                Qt::CaseInsensitive)) {
                              window.setRecentError(
                                  QStringLiteral("SumatraPDF jump verification failed"),
                                  status);

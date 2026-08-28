@@ -14,6 +14,7 @@
 #include <QLocalSocket>
 #include <QTemporaryDir>
 #include <QTest>
+#include <QTimer>
 
 using namespace Pinloom;
 
@@ -54,6 +55,41 @@ QJsonObject request(const QString &method,
         {QStringLiteral("params"), params},
     };
 }
+
+class RecordingPdfPresenter final : public PdfAnchorPresenter {
+public:
+    using PdfAnchorPresenter::PdfAnchorPresenter;
+
+    PdfAnchorPresentationStartResult present(
+        const PdfAnchorPresentationRequest &requestValue,
+        PdfAnchorPresentationCallbacks callbacks) override
+    {
+        lastRequest = requestValue;
+        ++presentCount;
+        active = 1;
+        PdfAnchorPresentationStartResult start;
+        start.requestId = ++lastId;
+        QTimer::singleShot(0, this, [this, callbacks, id = start.requestId, requestValue]() {
+            active = 0;
+            PdfAnchorPresentationResult result;
+            result.requestId = id;
+            result.sourceFilePath = requestValue.sourceCommand.filePath;
+            result.previewFilePath = QStringLiteral("E:/cache/host - Pinloom Preview.pdf");
+            result.previewCommand = requestValue.sourceCommand;
+            result.previewCommand.filePath = result.previewFilePath;
+            if (callbacks.completed) callbacks.completed(result);
+        });
+        return start;
+    }
+
+    void cancelPending() override { active = 0; }
+    int activeRequestCount() const override { return active; }
+
+    PdfAnchorPresentationRequest lastRequest;
+    int presentCount = 0;
+    int active = 0;
+    quint64 lastId = 0;
+};
 } // namespace
 
 class HostBridgeTest final : public QObject {
@@ -62,7 +98,7 @@ class HostBridgeTest final : public QObject {
 private slots:
     void servesVersionedSearchResolveAndOpen();
     void resolvesPdfRectangleWithBoundedLocalPreview();
-    void hostOpenUsesLiveZoomHighlightPath();
+    void hostOpenUsesSharedPdfAnchorPresenter();
     void createsValidatedSourceAnchor();
 };
 
@@ -295,7 +331,7 @@ void HostBridgeTest::resolvesPdfRectangleWithBoundedLocalPreview()
     QVERIFY(pinloomHostPreviewToJson(inlineImage).isEmpty());
 }
 
-void HostBridgeTest::hostOpenUsesLiveZoomHighlightPath()
+void HostBridgeTest::hostOpenUsesSharedPdfAnchorPresenter()
 {
     InMemoryLibraryRepository repository;
     Resource resource;
@@ -314,28 +350,18 @@ void HostBridgeTest::hostOpenUsesLiveZoomHighlightPath()
     resource.anchors = {anchor};
     QVERIFY(repository.upsertResource(resource));
 
-    std::optional<SumatraPdfPersistentHighlight> registeredHighlight;
+    RecordingPdfPresenter presenter;
+    int directLaunchCount = 0;
     PinloomOpenServiceOptions openOptions;
     openOptions.sumatraPdfExecutablePathProvider = []() {
         return QStringLiteral("C:/Tools/SumatraPDF.exe");
     };
-    openOptions.sumatraPdfLaunchHandler =
-        [](const SumatraPdfCommand &, QString *) { return true; };
-    openOptions.sumatraPdfStateProvider = [resource](int) {
-        SumatraPdfDdeFileState state;
-        state.path = resource.location;
-        state.page = 5;
-        state.pageCount = 10;
-        state.zoom = 150.0;
-        return state;
-    };
-    openOptions.sumatraPdfHighlightHandler =
-        [&](const SumatraPdfPersistentHighlight &highlight) {
-        registeredHighlight = highlight;
+    openOptions.sumatraPdfLaunchHandler = [&directLaunchCount](
+                                               const SumatraPdfCommand &, QString *) {
+        ++directLaunchCount;
         return true;
     };
-    openOptions.sumatraPdfVerificationPollMilliseconds = 80;
-    openOptions.sumatraPdfVerificationTimeoutMilliseconds = 800;
+    openOptions.pdfAnchorPresenter = &presenter;
     PinloomOpenService openService(repository, openOptions);
 
     PinloomHostBridgeCallbacks callbacks;
@@ -371,12 +397,16 @@ void HostBridgeTest::hostOpenUsesLiveZoomHighlightPath()
         request(QStringLiteral("open"),
                 QJsonObject{{QStringLiteral("identity"), identity}}));
     QVERIFY(response.value(QStringLiteral("ok")).toBool());
+    QTRY_COMPARE_WITH_TIMEOUT(presenter.presentCount, 1, 1000);
+    QCOMPARE(directLaunchCount, 0);
+    QCOMPARE(presenter.lastRequest.anchor.id, anchor.id);
+    QCOMPARE(presenter.lastRequest.sourceCommand.filePath, resource.location);
+    QCOMPARE(presenter.lastRequest.sourceCommand.page, 5);
+    QCOMPARE(presenter.lastRequest.sourceCommand.highlightRect,
+             QRectF(20, 40, 160, 70));
     QTRY_VERIFY_WITH_TIMEOUT(
-        registeredHighlight.has_value()
-            && qFuzzyCompare(registeredHighlight->zoom, 150.0),
-        1500);
-    QCOMPARE(registeredHighlight->zoom, 150.0);
-    QCOMPARE(registeredHighlight->page, 5);
+        openService.statusText().contains(QStringLiteral("Pinloom Preview")),
+        1000);
 }
 
 void HostBridgeTest::createsValidatedSourceAnchor()
