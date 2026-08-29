@@ -49,7 +49,7 @@ enum ClipColumn {
     ClipAliasesColumn,
     ClipTagsColumn,
     ClipActionColumn,
-    ClipContentColumn,
+    ClipMatchColumn,
     ClipUpdatedColumn,
     ClipPinnedColumn
 };
@@ -176,11 +176,13 @@ QString formattedBytes(qsizetype bytes)
 
 QString defaultClipName(const Clip &clip)
 {
-    const QString firstLine = clip.text.split(QLatin1Char('\n')).value(0).trimmed();
-    if (!firstLine.isEmpty()) {
-        return firstLine.left(80);
+    if (clip.state == ClipState::Temporary) {
+        const QString source = clip.sourceApp.trimmed();
+        return source.isEmpty()
+            ? QStringLiteral("Clipboard item")
+            : QStringLiteral("Clipboard item from %1").arg(source);
     }
-    return clip.preview.trimmed().left(80);
+    return QStringLiteral("Untitled Clip");
 }
 
 bool clipInScope(const Clip &clip, ClipLibraryScope scope)
@@ -231,7 +233,7 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 {
     setObjectName(QStringLiteral("clipLibraryWindow"));
     setWindowTitle(tr("Pinloom Clip Library"));
-    setMinimumSize(840, 520);
+    setMinimumSize(620, 460);
     resize(1180, 760);
 
     auto *central = new QWidget(this);
@@ -264,12 +266,15 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 
     table_ = new QTableWidget(splitter);
     table_->setObjectName(QStringLiteral("clipLibraryTable"));
+    table_->setAccessibleName(tr("Clip list"));
+    table_->setAccessibleDescription(
+        tr("Compact Clip metadata. Select a row to read the complete content in the preview pane."));
     table_->setColumnCount(7);
     table_->setHorizontalHeaderLabels({tr("Name"),
                                        tr("Aliases"),
                                        tr("Tags"),
                                        tr("Action"),
-                                       tr("Content"),
+                                       tr("Match"),
                                        tr("Updated"),
                                        tr("Pinned")});
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -277,16 +282,21 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
     table_->setShowGrid(false);
+    table_->setWordWrap(false);
+    table_->setTextElideMode(Qt::ElideRight);
     table_->verticalHeader()->setVisible(false);
     table_->verticalHeader()->setDefaultSectionSize(34);
-    table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(ClipNameColumn, QHeaderView::Interactive);
-    table_->horizontalHeader()->setSectionResizeMode(ClipAliasesColumn, QHeaderView::Stretch);
+    table_->horizontalHeader()->setMinimumSectionSize(52);
+    table_->horizontalHeader()->setStretchLastSection(false);
+    table_->horizontalHeader()->setSectionResizeMode(ClipNameColumn, QHeaderView::Stretch);
+    table_->horizontalHeader()->setSectionResizeMode(ClipAliasesColumn, QHeaderView::Interactive);
     table_->horizontalHeader()->setSectionResizeMode(ClipTagsColumn, QHeaderView::Interactive);
     table_->horizontalHeader()->setSectionResizeMode(ClipActionColumn, QHeaderView::ResizeToContents);
-    table_->horizontalHeader()->setSectionResizeMode(ClipContentColumn, QHeaderView::Stretch);
-    table_->setColumnWidth(ClipNameColumn, 190);
-    table_->setColumnWidth(ClipTagsColumn, 170);
+    table_->horizontalHeader()->setSectionResizeMode(ClipMatchColumn, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(ClipUpdatedColumn, QHeaderView::ResizeToContents);
+    table_->horizontalHeader()->setSectionResizeMode(ClipPinnedColumn, QHeaderView::ResizeToContents);
+    table_->setColumnWidth(ClipAliasesColumn, 150);
+    table_->setColumnWidth(ClipTagsColumn, 150);
     table_->setItemDelegateForColumn(ClipTagsColumn, new ClipTagChipDelegate(table_));
     table_->setContextMenuPolicy(Qt::CustomContextMenu);
 
@@ -303,6 +313,7 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     previewMetadata_->setWordWrap(true);
     previewText_ = new QPlainTextEdit(preview);
     previewText_->setObjectName(QStringLiteral("clipLibraryPreview"));
+    previewText_->setAccessibleName(tr("Selected Clip content"));
     previewText_->setReadOnly(true);
     previewText_->setPlaceholderText(tr("The complete Clip content appears here"));
     previewLayout->addWidget(previewTitle_);
@@ -657,6 +668,17 @@ void ClipLibraryWindow::refreshRows()
 {
     const QString selectedId = selectedClip().has_value() ? selectedClip()->id : QString();
     const QString query = searchEdit_->text().trimmed();
+    QString effectiveQuery = query;
+    QString qualifiedTag;
+    const qsizetype qualifierSeparator = query.indexOf(QLatin1Char(';'));
+    if (qualifierSeparator >= 0) {
+        qualifiedTag = query.left(qualifierSeparator).trimmed();
+        while (qualifiedTag.startsWith(QLatin1Char('#'))) {
+            qualifiedTag.remove(0, 1);
+            qualifiedTag = qualifiedTag.trimmed();
+        }
+        effectiveQuery = query.mid(qualifierSeparator + 1).trimmed();
+    }
     const QString tag = tagCombo_->currentData().toString();
     QList<Clip> searchable = clips_;
     for (Clip &clip : searchable) {
@@ -678,10 +700,11 @@ void ClipLibraryWindow::refreshRows()
     searchOptions.includeDeleted = scope() == ClipLibraryScope::Trash;
     searchOptions.emptyQueryReturnsPinnedAndRecent = true;
     searchOptions.limit = -1;
-    searchOptions.mode = ClipSearchMode::Identity;
+    searchOptions.mode = ClipSearchMode::AllFields;
 
     QList<Clip> visible;
-    for (const ClipSearchResult &result : searchClips(searchable, query, searchOptions)) {
+    QHash<QString, QString> matchLabels;
+    for (const ClipSearchResult &result : searchClips(searchable, effectiveQuery, searchOptions)) {
         const auto found = std::find_if(searchable.cbegin(), searchable.cend(), [&result](const Clip &clip) {
             return clip.id == result.clipId;
         });
@@ -691,7 +714,16 @@ void ClipLibraryWindow::refreshRows()
         if (!tag.isEmpty() && !found->tags.contains(tag, Qt::CaseInsensitive)) {
             continue;
         }
+        if (!qualifiedTag.isEmpty()
+            && !found->tags.contains(qualifiedTag, Qt::CaseInsensitive)) {
+            continue;
+        }
         visible.append(*found);
+        if (!effectiveQuery.isEmpty()
+            && (result.matchedField == QLatin1String("text")
+                || result.matchedField == QLatin1String("preview"))) {
+            matchLabels.insert(found->id, tr("Content match"));
+        }
     }
 
     populatingTable_ = true;
@@ -704,7 +736,7 @@ void ClipLibraryWindow::refreshRows()
             clip.aliases.join(QStringLiteral(", ")),
             tagsText(clip.tags),
             actionDisplayName(clip.actionType),
-            clip.preview.simplified(),
+            matchLabels.value(clip.id),
             sortTimestamp(clip).isValid() ? sortTimestamp(clip).toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QString(),
             clip.pinned ? tr("Yes") : QString()
         };
@@ -718,9 +750,6 @@ void ClipLibraryWindow::refreshRows()
             }
             if (column == ClipTagsColumn) {
                 item->setData(TagValuesRole, clip.tags);
-            }
-            if (column == ClipContentColumn) {
-                item->setToolTip(clip.text);
             }
             table_->setItem(row, column, item);
         }

@@ -3552,8 +3552,10 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
                                                                base);
     QVERIFY(temporary.captured());
 
+    const QString savedContent = QStringLiteral("saved library full content\nsecond line\n")
+        + QString(4096, QLatin1Char('x'));
     const QString savedId = saveWidgetClip(repository,
-                                           QStringLiteral("saved library full content\nsecond line"),
+                                           savedContent,
                                            QStringLiteral("Saved Library Clip"),
                                            {QStringLiteral("library alias")},
                                            {QStringLiteral("library-tag")},
@@ -3622,15 +3624,46 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     QCOMPARE(window.scope(), ClipLibraryScope::Saved);
     QCOMPARE(window.visibleClipCount(), 1);
     QCOMPARE(table->columnCount(), 7);
+    for (int column = 0; column < table->columnCount(); ++column) {
+        QVERIFY(table->horizontalHeaderItem(column));
+        QVERIFY(table->horizontalHeaderItem(column)->text() != QStringLiteral("Content"));
+    }
+    QCOMPARE(table->horizontalHeaderItem(4)->text(), QStringLiteral("Match"));
     QCOMPARE(table->item(0, 1)->text(), QStringLiteral("library alias"));
     QCOMPARE(table->item(0, 3)->text(), QStringLiteral("Insert text"));
+    for (int column = 0; column < table->columnCount(); ++column) {
+        QVERIFY(table->item(0, column));
+        QVERIFY(!table->item(0, column)->text().contains(QString(128, QLatin1Char('x'))));
+        QVERIFY(table->item(0, column)->toolTip().isEmpty());
+    }
+    QCOMPARE(table->accessibleName(), QStringLiteral("Clip list"));
+    QCOMPARE(preview->accessibleName(), QStringLiteral("Selected Clip content"));
     QVERIFY(window.selectClipAt(0));
     QCOMPARE(window.selectedClip()->id, savedId);
-    QCOMPARE(preview->toPlainText(), QStringLiteral("saved library full content\nsecond line"));
+    QCOMPARE(preview->toPlainText(), savedContent);
     QVERIFY(previewMetadata->text().contains(QStringLiteral("Stored in: Obsidian")));
     QVERIFY(previewMetadata->text().contains(QStringLiteral("Source app: notepad++.exe")));
     window.show();
     QApplication::processEvents();
+    window.resize(window.minimumSize());
+    QApplication::processEvents();
+    QVERIFY(table->columnWidth(4) < 180);
+    QVERIFY(table->horizontalHeader()->length() < 1000);
+    table->setFocus();
+    QTest::keyClick(&window, Qt::Key_F, Qt::ControlModifier);
+    QCOMPARE(QApplication::focusWidget(), window.findChild<QLineEdit *>(QStringLiteral("clipLibrarySearchEdit")));
+
+    window.setSearchText(QStringLiteral("second line"));
+    QCOMPARE(window.visibleClipCount(), 1);
+    QCOMPARE(table->item(0, 4)->text(), QStringLiteral("Content match"));
+    QVERIFY(!table->item(0, 4)->text().contains(QStringLiteral("second line"), Qt::CaseInsensitive));
+    QVERIFY(table->item(0, 4)->toolTip().isEmpty());
+    QVERIFY(window.selectClipAt(0));
+    QCOMPARE(preview->toPlainText(), savedContent);
+    window.setSearchText(QStringLiteral("Saved Library Clip"));
+    QCOMPARE(window.visibleClipCount(), 1);
+    QVERIFY(table->item(0, 4)->text().isEmpty());
+    window.setSearchText(QString());
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     if (!snapshotDirectory.isEmpty()) {
         QVERIFY(QDir().mkpath(snapshotDirectory));
