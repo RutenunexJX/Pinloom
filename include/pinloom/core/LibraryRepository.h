@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/LibraryRoot.h"
+#include "pinloom/core/GlobalIdentity.h"
 #include "pinloom/core/Resource.h"
 #include "pinloom/core/ResourceUsage.h"
 #include "pinloom/core/Search.h"
@@ -63,6 +64,10 @@ public:
     virtual std::optional<ResourceUsage> resourceUsage(const QString &resourceId) const = 0;
     virtual bool recordAnchorOpen(const QString &resourceId, const Anchor &anchor) = 0;
     virtual std::optional<AnchorUsage> anchorUsage(const QString &resourceId, const Anchor &anchor) const = 0;
+
+    virtual QString lastError() const;
+    virtual std::optional<GlobalIdentityConflict> lastIdentityConflict() const;
+    virtual QList<GlobalIdentityConflict> identityConflicts() const;
 
     virtual quint64 changeRevision() const;
     virtual quint64 contentRevision() const;

@@ -1568,6 +1568,7 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     region.updatedAt = QDateTime::currentDateTimeUtc();
     Anchor duplicateRegion = region;
     duplicateRegion.id = QStringLiteral("board#region-copy");
+    duplicateRegion.name = QStringLiteral("Power region duplicate");
     Resource board;
     board.id = QStringLiteral("board");
     board.kind = ResourceKind::Pdf;
@@ -1729,7 +1730,7 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     }
     QVERIFY(window.selectFileAt(boardRow));
     QVERIFY(window.deduplicateSelectedFileAnchors());
-    QCOMPARE(repository.findResource(board.id)->anchors.size(), 1);
+    QCOMPARE(repository.findResource(board.id)->anchors.size(), 2);
     QVERIFY(window.selectFileAt(0) || window.visibleFileCount() > 0);
     boardRow = -1;
     for (int row = 0; row < fileTable->rowCount(); ++row) {
@@ -1779,7 +1780,7 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     QVERIFY(window.selectFileAt(boardRow));
     QVERIFY(window.selectAnchorAt(0));
     QVERIFY(window.permanentlyDeleteSelection());
-    QVERIFY(repository.findResource(board.id)->anchors.isEmpty());
+    QCOMPARE(repository.findResource(board.id)->anchors.size(), 1);
     QVERIFY(!management.canUndo());
 
     scope->setCurrentIndex(scope->findData(0));
@@ -2012,7 +2013,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QTest::keyClick(fileTable, Qt::Key_S, Qt::ControlModifier);
     QVERIFY2(window.statusText().contains(QStringLiteral("Saved")), qPrintable(window.statusText()));
     QTRY_COMPARE(repository.findResource(resource.id)->aliases,
-                 (QStringList{QStringLiteral("edited file alias"), QStringLiteral("filing alias")}));
+                 (QStringList{QStringLiteral("edited file alias"), QStringLiteral(" filing alias")}));
     QVERIFY(repository.findResource(resource.id)->tags.contains(QStringLiteral("filing")));
     QCOMPARE(fileTable->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
     QCOMPARE(fileTable->item(0, 5)->background().color(), QColor(QStringLiteral("#bfe8c6")));
@@ -2126,7 +2127,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     anchorTable->setFocus();
     QTest::keyClick(anchorTable, Qt::Key_S, Qt::ControlModifier);
     QTRY_COMPARE(repository.findResource(resource.id)->anchors.first().aliases,
-                 (QStringList{QStringLiteral("inline alias"), QStringLiteral("second alias")}));
+                 (QStringList{QStringLiteral("inline alias"), QStringLiteral(" second alias")}));
     QVERIFY(repository.findResource(resource.id)->anchors.first().tags.contains(QStringLiteral("delta")));
     regionRow = -1;
     for (int row = 0; row < anchorTable->rowCount(); ++row) {
@@ -2417,7 +2418,7 @@ void WidgetSmokeTest::libraryRootWindowBrowsesTagsAndProtectsSyncRoot()
     QVERIFY(rootResource.has_value());
     QCOMPARE(rootResource->kind, ResourceKind::Folder);
     QCOMPARE(rootResource->aliases,
-             (QStringList{QStringLiteral("sync material"), QStringLiteral("nutstore")}));
+             (QStringList{QStringLiteral("sync material"), QStringLiteral(" nutstore")}));
     QCOMPARE(rootResource->tags,
              (QStringList{QStringLiteral("reference"), QStringLiteral("review")}));
 
@@ -3675,7 +3676,7 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     table->item(0, 1)->setText(QStringLiteral("library alias, updated alias"));
     QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#fff2a8")));
     QVERIFY(window.savePendingEdits());
-    QVERIFY(repository.findClip(savedId)->aliases.contains(QStringLiteral("updated alias")));
+    QVERIFY(repository.findClip(savedId)->aliases.contains(QStringLiteral(" updated alias")));
     QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
 
     QTableWidgetItem *tagCell = table->item(0, 2);
@@ -4929,12 +4930,13 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
 
 void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
 {
-    InMemoryLibraryRepository repository;
+    const auto identityRegistry = createInMemoryGlobalIdentityRegistry();
+    InMemoryLibraryRepository repository(identityRegistry);
 
     Resource exact;
     exact.id = QStringLiteral("exact-title");
     exact.kind = ResourceKind::File;
-    exact.title = QStringLiteral("Launch");
+    exact.title = QStringLiteral("Launch exact");
     exact.location = QStringLiteral("E:/docs/exact.txt");
     QVERIFY(repository.upsertResource(exact));
 
@@ -4943,7 +4945,7 @@ void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
     alias.kind = ResourceKind::File;
     alias.title = QStringLiteral("Alias Result");
     alias.location = QStringLiteral("E:/docs/alias.txt");
-    alias.aliases = {QStringLiteral("Launch")};
+    alias.aliases = {QStringLiteral("Launch alias")};
     QVERIFY(repository.upsertResource(alias));
 
     Resource tagged;
@@ -4963,11 +4965,11 @@ void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
     pathOnly.location = QStringLiteral("E:/docs/launch/path.txt");
     QVERIFY(repository.upsertResource(pathOnly));
 
-    InMemoryClipRepository clipRepository;
+    InMemoryClipRepository clipRepository(identityRegistry);
     const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
     const QString clipId = saveWidgetClip(clipRepository,
                                           QStringLiteral("body text"),
-                                          QStringLiteral("Launch"),
+                                          QStringLiteral("Launch clip"),
                                           {},
                                           {},
                                           false,
@@ -6538,8 +6540,8 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
     QTest::keyClick(searchEdit, Qt::Key_A, Qt::AltModifier);
     std::optional<Resource> withAlias = repository.findResource(resource.id);
     QVERIFY(withAlias.has_value());
-    QVERIFY(withAlias->anchors.first().aliases.contains(QStringLiteral("Keyboard command")));
-    QVERIFY(statusNotifications.last().contains(QStringLiteral("Added anchor alias")));
+    QVERIFY(!withAlias->anchors.first().aliases.contains(QStringLiteral("Keyboard command")));
+    QVERIFY(statusNotifications.last().contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
 
     QTest::keyClick(searchEdit, Qt::Key_T, Qt::AltModifier);
     std::optional<Resource> withTag = repository.findResource(resource.id);

@@ -324,7 +324,7 @@ bool LibraryRootWindow::saveSelectedMetadata()
     const QString rootId = selectedRootId();
     InboxFileSaveRequest request;
     request.filePath = savedPath;
-    request.name = nameEdit_->text().trimmed();
+    request.name = nameEdit_->text();
     request.aliases = commaSeparatedValues(aliasesEdit_->text());
     request.tags = commaSeparatedValues(tagsEdit_->text(), true);
     request.mode = InboxFileArchiveMode::Link;
@@ -513,7 +513,7 @@ void LibraryRootWindow::loadMetadata(const QString &path)
         : std::nullopt;
     nameEdit_->setText(resource.has_value() ? resource->title : defaultInboxFileName(path));
     aliasesEdit_->setText(resource.has_value()
-                              ? resource->aliases.join(QStringLiteral(", "))
+                              ? resource->aliases.join(QLatin1Char(','))
                               : QString());
     tagsEdit_->setText(resource.has_value()
                            ? resource->tags.join(QStringLiteral(", "))
@@ -552,7 +552,11 @@ QStringList LibraryRootWindow::commaSeparatedValues(const QString &text, bool ta
 {
     QStringList values;
     for (const QString &value : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-        appendUnique(values, value, tags);
+        if (tags) {
+            appendUnique(values, value, true);
+        } else if (!value.trimmed().isEmpty()) {
+            values.append(value);
+        }
     }
     return values;
 }

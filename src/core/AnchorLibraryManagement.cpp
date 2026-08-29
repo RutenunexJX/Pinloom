@@ -46,6 +46,17 @@ QStringList cleanedResourceIds(const QStringList &resourceIds)
     return cleanedValues(resourceIds);
 }
 
+QStringList retainedIdentityValues(const QStringList &values)
+{
+    QStringList result;
+    for (const QString &value : values) {
+        if (!value.trimmed().isEmpty()) {
+            result.append(value);
+        }
+    }
+    return result;
+}
+
 bool removeValue(QStringList &values, const QString &value)
 {
     bool removed = false;
@@ -74,6 +85,15 @@ void mergeValues(QStringList &target, const QStringList &source)
 {
     for (const QString &value : cleanedValues(source)) {
         appendValue(target, value);
+    }
+}
+
+void mergeIdentityValues(QStringList &target, const QStringList &source)
+{
+    for (const QString &value : source) {
+        if (!value.trimmed().isEmpty()) {
+            target.append(value);
+        }
     }
 }
 
@@ -146,10 +166,10 @@ void mergeAnchorMetadata(Anchor &target, const Anchor &source)
     if (target.name.trimmed().isEmpty()) {
         target.name = source.name;
     } else if (!source.name.trimmed().isEmpty()
-               && target.name.trimmed().compare(source.name.trimmed(), Qt::CaseInsensitive) != 0) {
-        appendValue(target.aliases, source.name);
+               && normalizedGlobalIdentity(target.name) != normalizedGlobalIdentity(source.name)) {
+        target.aliases.append(source.name);
     }
-    mergeValues(target.aliases, source.aliases);
+    mergeIdentityValues(target.aliases, source.aliases);
     mergeValues(target.tags, source.tags);
     target.pinned = target.pinned || source.pinned;
     target.deleted = target.deleted && source.deleted;
@@ -273,8 +293,8 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchorMetadat
     const AnchorReference &reference,
     const AnchorMetadataUpdate &update)
 {
-    const QString name = update.name.trimmed();
-    if (reference.resourceId.trimmed().isEmpty() || name.isEmpty()) {
+    const QString name = update.name;
+    if (reference.resourceId.trimmed().isEmpty() || name.trimmed().isEmpty()) {
         return failedResult(QStringLiteral("Anchor name is required"));
     }
     std::optional<ResourceBatch> batch = loadResourceBatch(repository_, {reference.resourceId});
@@ -287,7 +307,7 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchorMetadat
     }
 
     anchor->name = name;
-    anchor->aliases = cleanedValues(update.aliases);
+    anchor->aliases = retainedIdentityValues(update.aliases);
     anchor->tags = cleanedValues(update.tags);
     anchor->pinned = update.pinned;
     anchor->updatedAt = QDateTime::currentDateTimeUtc();
@@ -340,9 +360,9 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateResourceMetad
     const QStringList &resourceIds,
     const ResourceMetadataUpdate &update)
 {
-    const QString title = update.title.trimmed();
+    const QString title = update.title;
     const QStringList ids = cleanedResourceIds(resourceIds);
-    if (ids.isEmpty() || title.isEmpty()) {
+    if (ids.isEmpty() || title.trimmed().isEmpty()) {
         return failedResult(QStringLiteral("File title is required"));
     }
     std::optional<ResourceBatch> batch = loadResourceBatch(repository_, ids);
@@ -352,7 +372,7 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateResourceMetad
     const QDateTime updatedAt = QDateTime::currentDateTimeUtc();
     for (Resource &resource : batch->updates) {
         resource.title = title;
-        resource.aliases = cleanedValues(update.aliases);
+        resource.aliases = retainedIdentityValues(update.aliases);
         resource.tags = cleanedValues(update.tags);
         resource.updatedAt = updatedAt;
     }
@@ -827,8 +847,9 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::mergeResources(
         if (target.title.trimmed().isEmpty()) {
             target.title = source.title;
         } else if (!source.title.trimmed().isEmpty()
-                   && target.title.trimmed().compare(source.title.trimmed(), Qt::CaseInsensitive) != 0) {
-            appendValue(target.aliases, source.title);
+                   && normalizedGlobalIdentity(target.title)
+                          != normalizedGlobalIdentity(source.title)) {
+            target.aliases.append(source.title);
         }
         if (target.kind == ResourceKind::Unknown) {
             target.kind = source.kind;
@@ -839,7 +860,7 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::mergeResources(
         if (target.content.trimmed().isEmpty()) {
             target.content = source.content;
         }
-        mergeValues(target.aliases, source.aliases);
+        mergeIdentityValues(target.aliases, source.aliases);
         mergeValues(target.tags, source.tags);
         for (const Anchor &anchor : source.anchors) {
             auto existing = std::find_if(target.anchors.begin(), target.anchors.end(),
@@ -1200,7 +1221,9 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::undoLast()
             continue;
         }
         if (!repository_.applyBatch(it->undoMutation)) {
-            return failedResult(QStringLiteral("Unable to undo the last Anchor Library operation"));
+            return failedResult(repository_.lastError().trimmed().isEmpty()
+                                    ? QStringLiteral("Unable to undo the last Anchor Library operation")
+                                    : repository_.lastError());
         }
         observedContentRevision_ = repository_.contentRevision();
         it->item.undone = true;
@@ -1233,7 +1256,9 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::applyManagedMutatio
         observedContentRevision_ = repository_.contentRevision();
     }
     if (!repository_.applyBatch(mutation)) {
-        return failedResult(QStringLiteral("Unable to update the Anchor Library atomically"));
+        return failedResult(repository_.lastError().trimmed().isEmpty()
+                                ? QStringLiteral("Unable to update the Anchor Library atomically")
+                                : repository_.lastError());
     }
     observedContentRevision_ = repository_.contentRevision();
     if (recordHistory) {

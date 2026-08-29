@@ -190,9 +190,8 @@ QString clipAliasesText(const QStringList &aliases)
 {
     QStringList cleanedAliases;
     for (const QString &alias : aliases) {
-        const QString trimmed = alias.trimmed();
-        if (!trimmed.isEmpty()) {
-            cleanedAliases.append(trimmed);
+        if (!alias.trimmed().isEmpty()) {
+            cleanedAliases.append(alias);
         }
     }
     return cleanedAliases.join(QStringLiteral(", "));
@@ -566,7 +565,11 @@ QStringList cleanedValues(const QStringList &values, bool tags = false)
 {
     QStringList cleaned;
     for (const QString &value : values) {
-        appendUniqueCaseInsensitive(cleaned, tags ? cleanTag(value) : value);
+        if (tags) {
+            appendUniqueCaseInsensitive(cleaned, cleanTag(value));
+        } else if (!value.trimmed().isEmpty()) {
+            cleaned.append(value);
+        }
     }
     return cleaned;
 }
@@ -1345,12 +1348,11 @@ bool PinloomPanel::captureCurrentAppPosition()
 
 bool PinloomPanel::addAliasToSelectedTarget(const QString &alias)
 {
-    const QString trimmedAlias = alias.trimmed();
     const PinloomOpenTarget target = currentOpenTarget();
     if (!target.anchor.has_value()) {
-        return addAliasToResource(target.resourceId, trimmedAlias);
+        return addAliasToResource(target.resourceId, alias);
     }
-    if (target.resourceId.isEmpty() || trimmedAlias.isEmpty()) {
+    if (target.resourceId.isEmpty() || alias.trimmed().isEmpty()) {
         updateStatus(tr("Select an anchor and enter an alias"));
         return false;
     }
@@ -1370,22 +1372,24 @@ bool PinloomPanel::addAliasToSelectedTarget(const QString &alias)
     }
 
     Anchor &anchor = resource->anchors[index];
-    if (containsValueCaseInsensitive(anchor.aliases, trimmedAlias)) {
+    if (containsValueCaseInsensitive(anchor.aliases, alias)) {
         updateStatus(tr("Anchor alias already exists"));
         return false;
     }
 
-    anchor.aliases.append(trimmedAlias);
+    anchor.aliases.append(alias);
     anchor.updatedAt = QDateTime::currentDateTimeUtc();
     resource->updatedAt = anchor.updatedAt;
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to save anchor alias"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to save anchor alias")
+                         : repository_.lastError());
         return false;
     }
 
     refreshResults();
     selectResultResource(target.resourceId);
-    updateStatus(tr("Added anchor alias \"%1\"").arg(trimmedAlias));
+    updateStatus(tr("Added anchor alias \"%1\"").arg(alias));
     return true;
 }
 
@@ -1396,8 +1400,7 @@ bool PinloomPanel::addAliasToSelectedResource(const QString &alias)
 
 bool PinloomPanel::addAliasToResource(const QString &resourceId, const QString &alias)
 {
-    const QString trimmedAlias = alias.trimmed();
-    if (resourceId.isEmpty() || trimmedAlias.isEmpty()) {
+    if (resourceId.isEmpty() || alias.trimmed().isEmpty()) {
         updateStatus(tr("Select a resource and enter an alias"));
         return false;
     }
@@ -1409,21 +1412,23 @@ bool PinloomPanel::addAliasToResource(const QString &resourceId, const QString &
         return false;
     }
 
-    if (resource->aliases.contains(trimmedAlias, Qt::CaseInsensitive)) {
+    if (resource->aliases.contains(alias, Qt::CaseInsensitive)) {
         updateStatus(tr("Alias already exists"));
         return false;
     }
 
-    resource->aliases.append(trimmedAlias);
+    resource->aliases.append(alias);
     resource->updatedAt = QDateTime::currentDateTimeUtc();
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to save alias"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to save alias")
+                         : repository_.lastError());
         return false;
     }
 
     refreshResults();
     selectResultResource(resourceId);
-    updateStatus(tr("Added alias \"%1\"").arg(trimmedAlias));
+    updateStatus(tr("Added alias \"%1\"").arg(alias));
     return true;
 }
 
@@ -1469,7 +1474,9 @@ bool PinloomPanel::addTagToSelectedTarget(const QString &tag)
 
     resource->updatedAt = updatedAt;
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to save tag"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to save tag")
+                         : repository_.lastError());
         return false;
     }
 
@@ -1502,13 +1509,15 @@ bool PinloomPanel::editSelectedAnchor(const QString &name, const QStringList &al
     }
 
     Anchor &anchor = resource->anchors[index];
-    anchor.name = name.trimmed();
+    anchor.name = name;
     anchor.aliases = cleanedValues(aliases);
     anchor.tags = cleanedValues(tags, true);
     anchor.updatedAt = QDateTime::currentDateTimeUtc();
     resource->updatedAt = anchor.updatedAt;
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to update anchor"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to update anchor")
+                         : repository_.lastError());
         return false;
     }
 
@@ -1575,7 +1584,9 @@ bool PinloomPanel::setSelectedAnchorPinned(bool pinned)
     anchor.updatedAt = QDateTime::currentDateTimeUtc();
     resource->updatedAt = anchor.updatedAt;
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to update pinned anchor"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to update pinned anchor")
+                         : repository_.lastError());
         return false;
     }
 
@@ -1592,8 +1603,7 @@ bool PinloomPanel::addManualAnchorToSelectedResource(const QString &target, int 
 
 bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QString &target, int line)
 {
-    const QString trimmedTarget = target.trimmed();
-    if (resourceId.isEmpty() || trimmedTarget.isEmpty()) {
+    if (resourceId.isEmpty() || target.trimmed().isEmpty()) {
         updateStatus(tr("Select a resource and enter an anchor"));
         return false;
     }
@@ -1611,7 +1621,7 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
     }
 
     Anchor anchor;
-    anchor.name = trimmedTarget;
+    anchor.name = target;
     anchor.locatorType = line > 0 ? QStringLiteral("file.line") : QStringLiteral("manual");
     QJsonObject locator;
     locator.insert(QStringLiteral("type"), anchor.locatorType);
@@ -1634,13 +1644,15 @@ bool PinloomPanel::addManualAnchorToResource(const QString &resourceId, const QS
     resource->anchors.append(anchor);
     resource->updatedAt = QDateTime::currentDateTimeUtc();
     if (!repository_.upsertResource(resource.value())) {
-        updateStatus(tr("Unable to save anchor"));
+        updateStatus(repository_.lastError().trimmed().isEmpty()
+                         ? tr("Unable to save anchor")
+                         : repository_.lastError());
         return false;
     }
 
     refreshResults();
     selectResultResource(resourceId);
-    updateStatus(tr("Added anchor \"%1\"").arg(trimmedTarget));
+    updateStatus(tr("Added anchor \"%1\"").arg(target));
     return true;
 }
 
@@ -2220,8 +2232,8 @@ void PinloomPanel::triggerCaptureCurrentAppPosition()
 
 void PinloomPanel::addSearchTextAsAlias()
 {
-    const QString alias = searchEdit_->text().trimmed();
-    if (alias.isEmpty()) {
+    const QString alias = searchEdit_->text();
+    if (alias.trimmed().isEmpty()) {
         updateStatus(tr("Type an alias in the search box before pressing Alt+A"));
         return;
     }
@@ -2266,7 +2278,7 @@ void PinloomPanel::promptEditAnchor()
     auto *form = new QFormLayout(&dialog);
     auto *nameEdit = new QLineEdit(anchorDisplayName(target.anchor.value(), Resource{}), &dialog);
     nameEdit->setObjectName(QStringLiteral("anchorNameEdit"));
-    auto *aliasesEdit = new QLineEdit(target.anchor->aliases.join(QStringLiteral(", ")), &dialog);
+    auto *aliasesEdit = new QLineEdit(target.anchor->aliases.join(QLatin1Char(',')), &dialog);
     aliasesEdit->setObjectName(QStringLiteral("anchorAliasesEdit"));
     auto *tagsEdit = new QLineEdit(target.anchor->tags.join(QStringLiteral(", ")), &dialog);
     tagsEdit->setObjectName(QStringLiteral("anchorTagsEdit"));

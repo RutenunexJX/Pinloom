@@ -91,7 +91,7 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     form->setVerticalSpacing(10);
     nameEdit_ = new QLineEdit(draft.suggestedName, this);
     nameEdit_->setObjectName(QStringLiteral("anchorCaptureNameEdit"));
-    aliasesEdit_ = new QLineEdit(draft.aliases.join(QStringLiteral(", ")), this);
+    aliasesEdit_ = new QLineEdit(draft.aliases.join(QLatin1Char(',')), this);
     aliasesEdit_->setObjectName(QStringLiteral("anchorCaptureAliasesEdit"));
     tagsEdit_ = new QLineEdit(draft.tags.join(QStringLiteral(", ")), this);
     tagsEdit_->setObjectName(QStringLiteral("anchorCaptureTagsEdit"));
@@ -159,7 +159,7 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
 AnchorCaptureDraft AnchorCaptureDialog::draft() const
 {
     AnchorCaptureDraft result = initialDraft_;
-    result.suggestedName = nameEdit_->text().trimmed();
+    result.suggestedName = nameEdit_->text();
     result.aliases = commaValues(aliasesEdit_->text());
     result.tags = commaValues(tagsEdit_->text());
     result.pinned = pinnedCheck_->isChecked();

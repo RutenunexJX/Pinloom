@@ -732,7 +732,7 @@ void ClipTest::sqlitePersistsSavedClipMetadataAcrossRepositoryRestart()
         clipId = captured.clip->id;
         QVERIFY2(repository.saveClip(clipId,
                                      QStringLiteral("Launch command"),
-                                     {QStringLiteral("run app"), QStringLiteral(" run app "), QStringLiteral("launcher")},
+                                     {QStringLiteral("run app"), QStringLiteral("launcher")},
                                      {QStringLiteral("ops"), QStringLiteral(" "), QStringLiteral("clipboard")},
                                      true,
                                      now.addSecs(10)),
@@ -826,7 +826,7 @@ void ClipTest::sqliteMigratesLegacyPersistentClipSchema()
     conflictingIdentity.name = QStringLiteral("old alias");
     conflictingIdentity.aliases.clear();
     QVERIFY(!repository.upsertPersistentClip(conflictingIdentity));
-    QVERIFY(repository.lastError().contains(QStringLiteral("already exists"), Qt::CaseInsensitive));
+    QVERIFY(repository.lastError().contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
     QVERIFY(!repository.findClip(conflictingIdentity.id).has_value());
 }
 
@@ -1269,7 +1269,7 @@ void ClipTest::rejectsDuplicateSavedClipNamesAndAliases()
     QVERIFY(!sqlite.saveClip(sqliteSecond.clip->id,
                              QStringLiteral("Other SQLite Name"),
                              {QStringLiteral("sqlite name")}));
-    QVERIFY(sqlite.lastError().contains(QStringLiteral("already exists"), Qt::CaseInsensitive));
+    QVERIFY(sqlite.lastError().contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
 }
 
 void ClipTest::wbTagResolvesDefaultBrowserUrl()

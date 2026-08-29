@@ -125,7 +125,7 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
 ClipCaptureMetadata ClipCaptureDialog::metadata() const
 {
     ClipCaptureMetadata metadata;
-    metadata.name = nameEdit_->text().trimmed();
+    metadata.name = nameEdit_->text();
     metadata.tags = selectedTags_;
     return metadata;
 }

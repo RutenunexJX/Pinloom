@@ -14,10 +14,12 @@ public:
     SqliteLibraryRepository();
     ~SqliteLibraryRepository() override;
 
-    bool open(const QString &path);
+    bool open(const QString &path, const QString &identityRegistryPath = {});
     bool initialize();
     bool isOpen() const;
-    QString lastError() const;
+    QString lastError() const override;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict() const override;
+    QList<GlobalIdentityConflict> identityConflicts() const override;
 
     bool upsertResource(const Resource &resource) override;
     std::optional<Resource> findResource(const QString &id) const override;
@@ -59,6 +61,8 @@ private:
     bool migrateCanonicalAnchorSchema();
     bool migrateStableAnchorIdentitySchema();
     bool migrateLifecycleSearchSchema();
+    bool rebuildGlobalIdentityRegistry();
+    bool attachGlobalIdentityRegistry();
     int schemaVersion() const;
     bool recordMigration(int version, const QString &name);
     bool beginTransaction();
@@ -67,6 +71,7 @@ private:
     bool deleteResourcePermanently(const QString &resourceId);
     bool clearResourceTables();
     void notifyChange(LibraryChangeKind kind, const QStringList &resourceIds = {});
+    QList<Resource> allResourcesForIdentity() const;
     Resource hydrateResource(const QString &id) const;
     LibraryRoot hydrateLibraryRoot(QSqlQuery &query) const;
     ResourceUsage hydrateResourceUsage(QSqlQuery &query) const;
@@ -78,13 +83,16 @@ private:
 
     QString connectionName_;
     QSqlDatabase database_;
+    QString identityRegistryPath_;
     mutable QString lastError_;
+    mutable std::optional<GlobalIdentityConflict> lastIdentityConflict_;
     QHash<int, LibraryChangeListener> listeners_;
     quint64 revision_ = 0;
     quint64 contentRevision_ = 0;
     int nextListenerId_ = 1;
     int transactionDepth_ = 0;
     int deferredChangeDepth_ = 0;
+    bool identityUpdatesDeferred_ = false;
     QStringList deferredResourceIds_;
     LibraryChangeKind deferredChangeKind_ = LibraryChangeKind::Content;
 };

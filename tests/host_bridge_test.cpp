@@ -1,3 +1,4 @@
+#include "pinloom/clip/ClipRepository.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
 #include "pinloom/widgets/PinloomOpenService.h"
@@ -100,6 +101,7 @@ private slots:
     void resolvesPdfRectangleWithBoundedLocalPreview();
     void hostOpenUsesSharedPdfAnchorPresenter();
     void createsValidatedSourceAnchor();
+    void hostSourceAnchorWriteReturnsGlobalIdentityConflict();
 };
 
 void HostBridgeTest::servesVersionedSearchResolveAndOpen()
@@ -473,6 +475,77 @@ void HostBridgeTest::createsValidatedSourceAnchor()
     QCOMPARE(response.value(QStringLiteral("error")).toObject()
                  .value(QStringLiteral("code")).toString(),
              QStringLiteral("invalid_source_anchor"));
+}
+
+void HostBridgeTest::hostSourceAnchorWriteReturnsGlobalIdentityConflict()
+{
+    const auto identityRegistry = createInMemoryGlobalIdentityRegistry();
+    InMemoryLibraryRepository library(identityRegistry);
+    InMemoryClipRepository clips(identityRegistry);
+    Clip existing;
+    existing.id = QStringLiteral("host-conflict-clip");
+    existing.state = ClipState::Saved;
+    existing.text = QStringLiteral("Existing clip body");
+    existing.name = QStringLiteral("Host collision");
+    existing.createdAt = QDateTime::currentDateTimeUtc();
+    existing.updatedAt = existing.createdAt;
+    QVERIFY(clips.upsertPersistentClip(existing));
+
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.createSourceAnchor =
+        [&library](const PinloomSourceAnchorRequest &requestValue,
+                   QString *status) -> std::optional<PinloomEntry> {
+        Resource resource;
+        resource.id = QStringLiteral("host-conflict-resource");
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Host source file");
+        resource.location = requestValue.absoluteFilePath;
+        resource.updatedAt = QDateTime::currentDateTimeUtc();
+        Anchor anchor;
+        anchor.id = QStringLiteral("host-conflict-anchor");
+        anchor.name = requestValue.title;
+        anchor.targetApp = QStringLiteral("host-bridge-test");
+        anchor.targetFile = requestValue.absoluteFilePath;
+        anchor.locatorType = QStringLiteral("zeroslack.source");
+        anchor.locatorJson = QStringLiteral("{}");
+        anchor.createdAt = resource.updatedAt;
+        anchor.updatedAt = resource.updatedAt;
+        resource.anchors = {anchor};
+        if (!library.upsertResource(resource)) {
+            if (status) *status = library.lastError();
+            return std::nullopt;
+        }
+        return PinloomEntry{};
+    };
+
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-source-conflict-test-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY2(server.start(), qPrintable(server.lastError()));
+
+    const QJsonObject params{
+        {QStringLiteral("title"), QStringLiteral(" host collision ")},
+        {QStringLiteral("content"), QStringLiteral("assign ready = valid;")},
+        {QStringLiteral("workspaceRoot"), QStringLiteral("E:/rtl")},
+        {QStringLiteral("relativeFilePath"), QStringLiteral("src/host.sv")},
+        {QStringLiteral("absoluteFilePath"), QStringLiteral("E:/rtl/src/host.sv")},
+        {QStringLiteral("startLine"), 4},
+        {QStringLiteral("startColumn"), 1},
+        {QStringLiteral("endLine"), 4},
+        {QStringLiteral("endColumn"), 21},
+    };
+    const QJsonObject response = exchange(
+        options.serverName,
+        request(QStringLiteral("createSourceAnchor"), params));
+    QVERIFY(!response.value(QStringLiteral("ok")).toBool());
+    const QJsonObject error = response.value(QStringLiteral("error")).toObject();
+    QCOMPARE(error.value(QStringLiteral("code")).toString(), QStringLiteral("create_failed"));
+    const QString message = error.value(QStringLiteral("message")).toString();
+    QVERIFY(message.contains(QStringLiteral("host-conflict-clip")));
+    QVERIFY(message.contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
+    QVERIFY(!library.findResource(QStringLiteral("host-conflict-resource")).has_value());
 }
 
 QTEST_MAIN(HostBridgeTest)

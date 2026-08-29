@@ -8,6 +8,9 @@ namespace Pinloom {
 
 class InMemoryLibraryRepository final : public ILibraryRepository {
 public:
+    explicit InMemoryLibraryRepository(
+        SharedInMemoryGlobalIdentityRegistry identityRegistry = {});
+
     bool upsertResource(const Resource &resource) override;
     std::optional<Resource> findResource(const QString &id) const override;
     QList<SearchResult> search(const SearchQuery &query) const override;
@@ -29,6 +32,10 @@ public:
     bool recordAnchorOpen(const QString &resourceId, const Anchor &anchor) override;
     std::optional<AnchorUsage> anchorUsage(const QString &resourceId, const Anchor &anchor) const override;
 
+    QString lastError() const override;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict() const override;
+    QList<GlobalIdentityConflict> identityConflicts() const override;
+
     quint64 changeRevision() const override;
     quint64 contentRevision() const override;
     int addChangeListener(LibraryChangeListener listener) override;
@@ -36,6 +43,10 @@ public:
 
 private:
     void notifyChange(LibraryChangeKind kind, const QStringList &resourceIds = {});
+
+    SharedInMemoryGlobalIdentityRegistry identityRegistry_;
+    QString lastError_;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict_;
 
     QHash<QString, Resource> resources_;
     QHash<QString, LibraryRoot> libraryRoots_;

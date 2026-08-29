@@ -134,8 +134,8 @@ AnchorCaptureResult ManualPdfRectCaptureProvider::capture(const PdfCaptureReques
     }
 
     Anchor anchor;
-    anchor.name = rectRequest.anchorName.trimmed();
-    if (anchor.name.isEmpty()) {
+    anchor.name = rectRequest.anchorName;
+    if (anchor.name.trimmed().isEmpty()) {
         anchor.name = defaultAnchorName(rectRequest);
     }
     anchor.targetApp = result.targetApp;
@@ -225,8 +225,8 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
     }
 
     Anchor anchor;
-    anchor.name = request.anchorName.trimmed();
-    if (anchor.name.isEmpty()) {
+    anchor.name = request.anchorName;
+    if (anchor.name.trimmed().isEmpty()) {
         anchor.name = defaultAnchorName(request);
     }
     anchor.targetApp = result.targetApp;

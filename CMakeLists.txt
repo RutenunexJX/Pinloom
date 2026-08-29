@@ -31,6 +31,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ApplicationDataBackup.h
     include/pinloom/core/ExcelCommand.h
     include/pinloom/core/ExplorerFileSelection.h
+    include/pinloom/core/GlobalIdentity.h
     include/pinloom/core/InboxFileCapture.h
     include/pinloom/core/InMemoryLibraryRepository.h
     include/pinloom/core/LibraryRoot.h
@@ -63,6 +64,7 @@ add_library(pinloom_core STATIC
     src/core/ApplicationDataBackup.cpp
     src/core/ExcelCommand.cpp
     src/core/ExplorerFileSelection.cpp
+    src/core/GlobalIdentity.cpp
     src/core/InboxFileCapture.cpp
     src/core/InMemoryLibraryRepository.cpp
     src/core/LibraryRoot.cpp
@@ -334,6 +336,18 @@ target_link_libraries(pinloom_clip_test
 )
 
 pinloom_add_test(pinloom_clip_test)
+
+add_executable(pinloom_global_identity_test
+    tests/global_identity_test.cpp
+)
+
+target_link_libraries(pinloom_global_identity_test
+    PRIVATE
+        pinloom_clip_core
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_global_identity_test)
 
 add_executable(pinloom_widget_smoke_test
     tests/widget_smoke_test.cpp

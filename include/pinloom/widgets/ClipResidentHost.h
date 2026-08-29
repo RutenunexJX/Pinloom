@@ -16,6 +16,7 @@ enum class ClipResidentRepositoryKind {
 struct ClipResidentRuntimeFactoryOptions {
     ClipResidentRepositoryKind repositoryKind = ClipResidentRepositoryKind::InMemory;
     QString sqliteDatabasePath;
+    QString sqliteIdentityRegistryPath;
     bool initializeSqlite = true;
     ClipResidentRuntimeOptions runtimeOptions;
 };

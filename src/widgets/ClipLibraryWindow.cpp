@@ -138,14 +138,15 @@ QStringList valuesFromText(const QString &text, bool tags)
     const QStringList candidates = text.split(QRegularExpression(QStringLiteral("[,;\\n]")),
                                                Qt::SkipEmptyParts);
     for (QString value : candidates) {
-        value = value.trimmed();
         if (tags) {
+            value = value.trimmed();
             while (value.startsWith(QLatin1Char('#'))) {
                 value.remove(0, 1);
                 value = value.trimmed();
             }
         }
-        if (!value.isEmpty() && !values.contains(value, Qt::CaseInsensitive)) {
+        if (!value.trimmed().isEmpty()
+            && (!tags || !values.contains(value, Qt::CaseInsensitive))) {
             values.append(value);
         }
     }
@@ -208,7 +209,7 @@ QDateTime sortTimestamp(const Clip &clip)
 
 QString displayName(const Clip &clip)
 {
-    return clip.name.trimmed().isEmpty() ? defaultClipName(clip) : clip.name.trimmed();
+    return clip.name.trimmed().isEmpty() ? defaultClipName(clip) : clip.name;
 }
 
 QString actionDisplayName(ClipActionType action)
@@ -462,7 +463,7 @@ bool ClipLibraryWindow::editSelectedClip()
     dialog.setWindowTitle(selected->state == ClipState::Temporary ? tr("Save Clip") : tr("Edit Clip"));
     auto *form = new QFormLayout(&dialog);
     auto *nameEdit = new QLineEdit(displayName(selected.value()), &dialog);
-    auto *aliasesEdit = new QLineEdit(selected->aliases.join(QStringLiteral(", ")), &dialog);
+    auto *aliasesEdit = new QLineEdit(selected->aliases.join(QLatin1Char(',')), &dialog);
     auto *tagsEdit = new QLineEdit(selected->tags.join(QStringLiteral(", ")), &dialog);
     auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
     pinnedCheck->setChecked(selected->pinned);
@@ -480,7 +481,7 @@ bool ClipLibraryWindow::editSelectedClip()
 
     Clip updated = selected.value();
     updated.state = ClipState::Saved;
-    updated.name = nameEdit->text().trimmed();
+    updated.name = nameEdit->text();
     updated.aliases = valuesFromText(aliasesEdit->text(), false);
     updated.tags = valuesFromText(tagsEdit->text(), true);
     updated.pinned = pinnedCheck->isChecked();
@@ -733,7 +734,7 @@ void ClipLibraryWindow::refreshRows()
         const Clip &clip = visible.at(row);
         const QStringList values{
             displayName(clip),
-            clip.aliases.join(QStringLiteral(", ")),
+            clip.aliases.join(QLatin1Char(',')),
             tagsText(clip.tags),
             actionDisplayName(clip.actionType),
             matchLabels.value(clip.id),

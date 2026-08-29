@@ -59,19 +59,29 @@ QStringList cleanStringList(const QStringList &values)
 
 QString normalizedIdentity(const QString &value)
 {
-    return value.simplified().toCaseFolded();
+    return normalizedGlobalIdentity(value);
+}
+
+QStringList nonEmptyIdentityValues(const QStringList &values)
+{
+    QStringList retained;
+    for (const QString &value : values) {
+        if (!value.trimmed().isEmpty()) {
+            retained.append(value);
+        }
+    }
+    return retained;
 }
 
 QStringList clipIdentityValues(const QString &name, const QStringList &aliases)
 {
     QStringList values;
-    const QString trimmedName = name.trimmed();
-    if (!trimmedName.isEmpty()) {
-        values.append(trimmedName);
+    if (!name.trimmed().isEmpty()) {
+        values.append(name);
     }
-    for (const QString &alias : cleanStringList(aliases)) {
+    for (const QString &alias : aliases) {
         if (!alias.trimmed().isEmpty()) {
-            values.append(alias.trimmed());
+            values.append(alias);
         }
     }
     return values;
@@ -218,6 +228,16 @@ QString listToStorage(const QStringList &values)
     return cleanStringList(values).join(QLatin1Char('\n'));
 }
 
+QStringList identityListFromStorage(const QString &stored)
+{
+    return stored.split(QLatin1Char('\n'), Qt::SkipEmptyParts);
+}
+
+QString identityListToStorage(const QStringList &values)
+{
+    return nonEmptyIdentityValues(values).join(QLatin1Char('\n'));
+}
+
 QVariant dateTimeToStorageValue(const QDateTime &dateTime)
 {
     if (!dateTime.isValid()) {
@@ -271,10 +291,11 @@ QStringList latestClipSchemaStatements()
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_clips_state_expires_at "
                        "ON clips(state, expires_at);"),
         QStringLiteral("CREATE TABLE IF NOT EXISTS clip_identities ("
-                       "identity_key TEXT PRIMARY KEY,"
+                       "identity_key TEXT NOT NULL,"
                        "clip_id TEXT NOT NULL,"
                        "identity_value TEXT NOT NULL,"
                        "identity_kind TEXT NOT NULL,"
+                       "PRIMARY KEY(identity_key, clip_id, identity_kind),"
                        "FOREIGN KEY(clip_id) REFERENCES clips(id) ON DELETE CASCADE"
                        ");"),
         QStringLiteral("CREATE INDEX IF NOT EXISTS idx_clip_identities_clip_id "
@@ -350,8 +371,8 @@ std::optional<Clip> normalizedPersistentClip(const Clip &source, QString *error)
     const QDateTime importedAt = QDateTime::currentDateTimeUtc();
     clip.preview = previewForText(clip.text);
     clip.contentHash = contentHashForBytes(bytes);
-    clip.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name.trimmed();
-    clip.aliases = cleanStringList(clip.aliases);
+    clip.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name;
+    clip.aliases = nonEmptyIdentityValues(clip.aliases);
     clip.tags = cleanStringList(clip.tags);
     clip.createdAt = clip.createdAt.isValid() ? clip.createdAt.toUTC() : importedAt;
     clip.updatedAt = clip.updatedAt.isValid() ? clip.updatedAt.toUTC() : clip.createdAt;
@@ -362,6 +383,22 @@ std::optional<Clip> normalizedPersistentClip(const Clip &source, QString *error)
     clip.sourceUri = clip.sourceUri.trimmed();
     clip.sizeBytes = bytes.size();
     return clip;
+}
+
+GlobalIdentityObject identityObjectForClip(const Clip &clip)
+{
+    GlobalIdentityObject object;
+    object.owner.objectType = GlobalIdentityObjectType::Clip;
+    object.owner.objectId = clip.id;
+    object.owner.displayName = clip.name;
+    object.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::Clip,
+                                                 clip.id);
+    object.active = clip.state == ClipState::Saved;
+    object.values.append({GlobalIdentityFieldKind::Name, clip.name});
+    for (const QString &alias : clip.aliases) {
+        object.values.append({GlobalIdentityFieldKind::Alias, alias});
+    }
+    return object;
 }
 
 } // namespace
@@ -378,32 +415,68 @@ ClipIdentityValidationResult validateClipIdentity(const QList<Clip> &clips,
 {
     ClipIdentityValidationResult result;
     const QStringList candidateValues = clipIdentityValues(name, aliases);
-    QSet<QString> candidateKeys;
-    for (const QString &value : candidateValues) {
+    QHash<QString, GlobalIdentityClaim> candidateClaims;
+    for (int index = 0; index < candidateValues.size(); ++index) {
+        const QString &value = candidateValues.at(index);
         const QString key = normalizedIdentity(value);
         if (key.isEmpty()) {
             continue;
         }
-        if (candidateKeys.contains(key)) {
+        GlobalIdentityClaim claim;
+        claim.normalizedValue = key;
+        claim.owner.objectType = GlobalIdentityObjectType::Clip;
+        claim.owner.objectId = clipId;
+        claim.owner.displayName = name;
+        claim.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::Clip,
+                                                    clipId);
+        claim.fieldKind = index == 0 ? GlobalIdentityFieldKind::Name
+                                     : GlobalIdentityFieldKind::Alias;
+        claim.displayValue = value;
+        claim.fieldIndex = index;
+        if (candidateClaims.contains(key)) {
             result.valid = false;
             result.conflictingValue = value;
-            result.error = QStringLiteral("Clip name and aliases must be unique: %1").arg(value);
+            GlobalIdentityConflict conflict;
+            conflict.normalizedValue = key;
+            conflict.attemptedClaim = claim;
+            conflict.conflictingClaims = {candidateClaims.value(key)};
+            result.conflict = conflict;
+            result.error = conflict.message();
             return result;
         }
-        candidateKeys.insert(key);
+        candidateClaims.insert(key, claim);
     }
     for (const Clip &existing : clips) {
-        if (existing.id == clipId || existing.state == ClipState::Temporary) {
+        if (existing.id == clipId || existing.state != ClipState::Saved) {
             continue;
         }
-        for (const QString &value : clipIdentityValues(existing.name, existing.aliases)) {
-            if (!candidateKeys.contains(normalizedIdentity(value))) {
+        const QStringList existingValues = clipIdentityValues(existing.name, existing.aliases);
+        for (int index = 0; index < existingValues.size(); ++index) {
+            const QString &value = existingValues.at(index);
+            const QString key = normalizedIdentity(value);
+            if (!candidateClaims.contains(key)) {
                 continue;
             }
             result.valid = false;
             result.conflictingClipId = existing.id;
             result.conflictingValue = value;
-            result.error = QStringLiteral("Clip name or alias already exists: %1").arg(value);
+            GlobalIdentityClaim existingClaim;
+            existingClaim.normalizedValue = key;
+            existingClaim.owner.objectType = GlobalIdentityObjectType::Clip;
+            existingClaim.owner.objectId = existing.id;
+            existingClaim.owner.displayName = existing.name;
+            existingClaim.owner.locator = globalIdentityLocator(
+                GlobalIdentityObjectType::Clip, existing.id);
+            existingClaim.fieldKind = index == 0 ? GlobalIdentityFieldKind::Name
+                                                  : GlobalIdentityFieldKind::Alias;
+            existingClaim.displayValue = value;
+            existingClaim.fieldIndex = index;
+            GlobalIdentityConflict conflict;
+            conflict.normalizedValue = key;
+            conflict.attemptedClaim = candidateClaims.value(key);
+            conflict.conflictingClaims = {existingClaim};
+            result.conflict = conflict;
+            result.error = conflict.message();
             return result;
         }
     }
@@ -424,7 +497,7 @@ SqliteClipRepository::~SqliteClipRepository()
     }
 }
 
-bool SqliteClipRepository::open(const QString &path)
+bool SqliteClipRepository::open(const QString &path, const QString &identityRegistryPath)
 {
     if (path.trimmed().isEmpty()) {
         setLastError(QStringLiteral("Database path is required"));
@@ -448,6 +521,11 @@ bool SqliteClipRepository::open(const QString &path)
 
     database_ = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName_);
     database_.setDatabaseName(path);
+    identityRegistryPath_ = identityRegistryPath.trimmed().isEmpty()
+        ? defaultGlobalIdentityRegistryPath(path)
+        : (identityRegistryPath == QLatin1String(":memory:")
+               ? QStringLiteral(":memory:")
+               : QFileInfo(identityRegistryPath).absoluteFilePath());
 
     if (!database_.open()) {
         setLastError(database_.lastError().text());
@@ -455,6 +533,10 @@ bool SqliteClipRepository::open(const QString &path)
     }
 
     if (!execute(QStringLiteral("PRAGMA foreign_keys = ON;"))) {
+        return false;
+    }
+    if (!execute(QStringLiteral("PRAGMA busy_timeout = 5000;"))
+        || !attachGlobalIdentityRegistry()) {
         return false;
     }
 
@@ -471,6 +553,13 @@ bool SqliteClipRepository::initialize()
 
     if (!database_.transaction()) {
         setLastError(database_.lastError().text());
+        return false;
+    }
+
+    QString identityError;
+    if (!initializeSqliteGlobalIdentityRegistry(database_, &identityError)) {
+        setLastError(identityError);
+        database_.rollback();
         return false;
     }
 
@@ -497,7 +586,8 @@ bool SqliteClipRepository::initialize()
         }
         if (!recordMigration(1, QStringLiteral("initial_clip_text_schema"))
             || !recordMigration(2, QStringLiteral("persistent_clip_identity_and_provenance"))
-            || !recordMigration(3, QStringLiteral("clip_identity_tag_and_fts_indexes"))) {
+            || !recordMigration(3, QStringLiteral("clip_identity_tag_and_fts_indexes"))
+            || !recordMigration(4, QStringLiteral("global_name_alias_identity_registry"))) {
             database_.rollback();
             return false;
         }
@@ -510,16 +600,25 @@ bool SqliteClipRepository::initialize()
             database_.rollback();
             return false;
         }
+        if (version < 4 && !migrateIdentityIndexToVersion4()) {
+            database_.rollback();
+            return false;
+        }
         if (version < 3
-            && (!rebuildAllMetadataIndexes()
-                || !recordMigration(3, QStringLiteral("clip_identity_tag_and_fts_indexes")))) {
+            && !recordMigration(3, QStringLiteral("clip_identity_tag_and_fts_indexes"))) {
             database_.rollback();
             return false;
         }
     }
 
+    if (!rebuildGlobalIdentityRegistry()) {
+        database_.rollback();
+        return false;
+    }
+
     if (!database_.commit()) {
         setLastError(database_.lastError().text());
+        database_.rollback();
         return false;
     }
 
@@ -535,6 +634,22 @@ bool SqliteClipRepository::isOpen() const
 QString SqliteClipRepository::lastError() const
 {
     return lastError_;
+}
+
+std::optional<GlobalIdentityConflict> SqliteClipRepository::lastIdentityConflict() const
+{
+    return lastIdentityConflict_;
+}
+
+QList<GlobalIdentityConflict> SqliteClipRepository::identityConflicts() const
+{
+    QString error;
+    QSqlDatabase database = database_;
+    const QList<GlobalIdentityConflict> conflicts = sqliteGlobalIdentityConflicts(database, &error);
+    if (!error.isEmpty()) {
+        setLastError(error);
+    }
+    return conflicts;
 }
 
 ClipCaptureResult SqliteClipRepository::captureText(const QString &text,
@@ -611,7 +726,7 @@ ClipCaptureResult SqliteClipRepository::captureText(const QString &text,
     query.addBindValue(clip.preview);
     query.addBindValue(clip.contentHash);
     query.addBindValue(clip.name);
-    query.addBindValue(listToStorage(clip.aliases));
+    query.addBindValue(identityListToStorage(clip.aliases));
     query.addBindValue(listToStorage(clip.tags));
     query.addBindValue(clipActionTypeToString(clip.actionType));
     query.addBindValue(clipStorageBackendToString(clip.storageBackend));
@@ -670,7 +785,7 @@ bool SqliteClipRepository::saveClip(const QString &id,
 
     Clip updated = stored.value();
     updated.state = ClipState::Saved;
-    updated.name = name.trimmed().isEmpty() ? stored->preview : name.trimmed();
+    updated.name = name.trimmed().isEmpty() ? stored->preview : name;
     updated.aliases = aliases;
     updated.tags = tags;
     updated.pinned = pinned;
@@ -731,6 +846,8 @@ bool SqliteClipRepository::upsertSavedClip(const Clip &clip)
 
 bool SqliteClipRepository::upsertPersistentClip(const Clip &clip)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     if (!isOpen()) {
         setLastError(QStringLiteral("Database is not open"));
         return false;
@@ -743,15 +860,27 @@ bool SqliteClipRepository::upsertPersistentClip(const Clip &clip)
         return false;
     }
 
-    const ClipIdentityValidationResult identity =
-        validateClipIdentity(clips(), normalized->id, normalized->name, normalized->aliases);
-    if (!identity.valid) {
-        setLastError(identity.error);
-        return false;
+    if (normalized->state == ClipState::Saved) {
+        const ClipIdentityValidationResult identity =
+            validateClipIdentity(clips(), normalized->id, normalized->name, normalized->aliases);
+        if (!identity.valid) {
+            lastIdentityConflict_ = identity.conflict;
+            setLastError(identity.error);
+            return false;
+        }
     }
 
     if (!database_.transaction()) {
         setLastError(database_.lastError().text());
+        return false;
+    }
+    QString identityError;
+    if (!replaceSqliteGlobalIdentityObjects(database_,
+                                            {identityObjectForClip(normalized.value())},
+                                            &lastIdentityConflict_,
+                                            &identityError)) {
+        database_.rollback();
+        setLastError(identityError);
         return false;
     }
     QSqlQuery query(database_);
@@ -777,7 +906,7 @@ bool SqliteClipRepository::upsertPersistentClip(const Clip &clip)
     query.addBindValue(normalized->preview);
     query.addBindValue(normalized->contentHash);
     query.addBindValue(normalized->name);
-    query.addBindValue(listToStorage(normalized->aliases));
+    query.addBindValue(identityListToStorage(normalized->aliases));
     query.addBindValue(listToStorage(normalized->tags));
     query.addBindValue(clipActionTypeToString(normalized->actionType));
     query.addBindValue(clipStorageBackendToString(normalized->storageBackend));
@@ -1132,6 +1261,19 @@ bool SqliteClipRepository::integrityCheck()
                          .arg(failures.join(QStringLiteral("; "))));
         return false;
     }
+    QSqlQuery identityQuery(database_);
+    if (!identityQuery.exec(QStringLiteral("PRAGMA identity_registry.quick_check"))) {
+        setLastError(identityQuery.lastError().text());
+        return false;
+    }
+    while (identityQuery.next()) {
+        const QString result = identityQuery.value(0).toString().trimmed();
+        if (result.compare(QStringLiteral("ok"), Qt::CaseInsensitive) != 0) {
+            setLastError(QStringLiteral("Global identity registry integrity check failed: %1")
+                             .arg(result));
+            return false;
+        }
+    }
     lastError_.clear();
     return true;
 }
@@ -1208,6 +1350,36 @@ bool SqliteClipRepository::recordMigration(int version, const QString &name)
     return true;
 }
 
+bool SqliteClipRepository::attachGlobalIdentityRegistry()
+{
+    QString error;
+    if (attachSqliteGlobalIdentityRegistry(database_, identityRegistryPath_, &error)) {
+        return true;
+    }
+    setLastError(error);
+    return false;
+}
+
+bool SqliteClipRepository::rebuildGlobalIdentityRegistry()
+{
+    QList<GlobalIdentityObject> objects;
+    for (const Clip &clip : clips()) {
+        objects.append(identityObjectForClip(clip));
+    }
+    if (!lastError_.isEmpty()) {
+        return false;
+    }
+    QString error;
+    if (!rebuildSqliteHistoricalIdentityObjects(database_,
+                                                {GlobalIdentityObjectType::Clip},
+                                                objects,
+                                                &error)) {
+        setLastError(error);
+        return false;
+    }
+    return true;
+}
+
 int SqliteClipRepository::schemaVersion() const
 {
     QSqlQuery query(database_);
@@ -1279,6 +1451,23 @@ bool SqliteClipRepository::migrateToVersion2()
     return true;
 }
 
+bool SqliteClipRepository::migrateIdentityIndexToVersion4()
+{
+    if (!execute(QStringLiteral("DROP TABLE IF EXISTS clip_identities"))
+        || !execute(QStringLiteral(
+            "CREATE TABLE clip_identities ("
+            "identity_key TEXT NOT NULL, clip_id TEXT NOT NULL, identity_value TEXT NOT NULL, "
+            "identity_kind TEXT NOT NULL, PRIMARY KEY(identity_key, clip_id, identity_kind), "
+            "FOREIGN KEY(clip_id) REFERENCES clips(id) ON DELETE CASCADE)"))
+        || !execute(QStringLiteral(
+            "CREATE INDEX IF NOT EXISTS idx_clip_identities_clip_id ON clip_identities(clip_id)"))
+        || !rebuildAllMetadataIndexes()
+        || !recordMigration(4, QStringLiteral("global_name_alias_identity_registry"))) {
+        return false;
+    }
+    return true;
+}
+
 bool SqliteClipRepository::ensureSearchSchema()
 {
     for (const QString &statement : latestClipSchemaStatements()) {
@@ -1308,7 +1497,7 @@ bool SqliteClipRepository::rebuildMetadataIndex(const Clip &clip)
         const QStringList identities = clipIdentityValues(clip.name, clip.aliases);
         for (int index = 0; index < identities.size(); ++index) {
             QSqlQuery identity(database_);
-            identity.prepare(QStringLiteral("INSERT INTO clip_identities("
+            identity.prepare(QStringLiteral("INSERT OR IGNORE INTO clip_identities("
                                             "identity_key, clip_id, identity_value, identity_kind) "
                                             "VALUES (?, ?, ?, ?)"));
             identity.addBindValue(normalizedIdentity(identities.at(index)));
@@ -1482,7 +1671,7 @@ Clip SqliteClipRepository::hydrateClip(QSqlQuery &query) const
     clip.preview = query.value(4).toString();
     clip.contentHash = query.value(5).toString();
     clip.name = query.value(6).toString();
-    clip.aliases = listFromStorage(query.value(7).toString());
+    clip.aliases = identityListFromStorage(query.value(7).toString());
     clip.tags = listFromStorage(query.value(8).toString());
     clip.actionType = clipActionTypeFromString(query.value(9).toString());
     clip.storageBackend = clipStorageBackendFromString(query.value(10).toString());
@@ -1501,6 +1690,13 @@ Clip SqliteClipRepository::hydrateClip(QSqlQuery &query) const
 void SqliteClipRepository::setLastError(const QString &message) const
 {
     lastError_ = message;
+}
+
+InMemoryClipRepository::InMemoryClipRepository(
+    SharedInMemoryGlobalIdentityRegistry identityRegistry)
+    : identityRegistry_(identityRegistry ? std::move(identityRegistry)
+                                         : createInMemoryGlobalIdentityRegistry())
+{
 }
 
 ClipCaptureResult InMemoryClipRepository::captureText(const QString &text,
@@ -1569,43 +1765,73 @@ bool InMemoryClipRepository::saveClip(const QString &id,
                                       bool pinned,
                                       const QDateTime &now)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     const int index = clipIndexById(clips_, id);
     if (index < 0) {
+        lastError_ = QStringLiteral("Clip not found");
         return false;
     }
 
-    Clip &clip = clips_[index];
-    const QString trimmedName = name.trimmed();
-    const QString savedName = trimmedName.isEmpty() ? clip.preview : trimmedName;
-    if (!validateClipIdentity(clips_, id, savedName, aliases).valid) {
+    Clip updated = clips_.at(index);
+    const QString savedName = name.trimmed().isEmpty() ? updated.preview : name;
+    const ClipIdentityValidationResult validation =
+        validateClipIdentity(clips_, id, savedName, aliases);
+    if (!validation.valid) {
+        lastIdentityConflict_ = validation.conflict;
+        lastError_ = validation.error;
         return false;
     }
-    clip.state = ClipState::Saved;
-    clip.name = savedName;
-    clip.aliases = cleanStringList(aliases);
-    clip.tags = cleanStringList(tags);
-    clip.pinned = pinned;
-    clip.updatedAt = effectiveUtcNow(now);
-    clip.expiresAt = {};
+    updated.state = ClipState::Saved;
+    updated.name = savedName;
+    updated.aliases = nonEmptyIdentityValues(aliases);
+    updated.tags = cleanStringList(tags);
+    updated.pinned = pinned;
+    updated.updatedAt = effectiveUtcNow(now);
+    updated.expiresAt = {};
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(updated)},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
+        return false;
+    }
+    clips_[index] = updated;
     return true;
 }
 
 bool InMemoryClipRepository::importSavedClip(const Clip &clip)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     if (clip.state != ClipState::Saved) {
+        lastError_ = QStringLiteral("Only saved clips can be imported");
         return false;
     }
     QString error;
     const std::optional<Clip> normalized = normalizedPersistentClip(clip, &error);
     if (!normalized.has_value()) {
+        lastError_ = error;
         return false;
     }
 
     if (clipIndexById(clips_, normalized->id) >= 0) {
+        lastError_ = QStringLiteral("Clip already exists");
         return false;
     }
 
-    if (!validateClipIdentity(clips_, normalized->id, normalized->name, normalized->aliases).valid) {
+    const ClipIdentityValidationResult validation =
+        validateClipIdentity(clips_, normalized->id, normalized->name, normalized->aliases);
+    if (!validation.valid) {
+        lastIdentityConflict_ = validation.conflict;
+        lastError_ = validation.error;
+        return false;
+    }
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(normalized.value())},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
         return false;
     }
 
@@ -1623,14 +1849,30 @@ bool InMemoryClipRepository::upsertSavedClip(const Clip &clip)
 
 bool InMemoryClipRepository::upsertPersistentClip(const Clip &clip)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     QString error;
     const std::optional<Clip> normalized = normalizedPersistentClip(clip, &error);
     if (!normalized.has_value()) {
+        lastError_ = error;
         return false;
     }
 
     const int index = clipIndexById(clips_, normalized->id);
-    if (!validateClipIdentity(clips_, normalized->id, normalized->name, normalized->aliases).valid) {
+    if (normalized->state == ClipState::Saved) {
+        const ClipIdentityValidationResult validation =
+            validateClipIdentity(clips_, normalized->id, normalized->name, normalized->aliases);
+        if (!validation.valid) {
+            lastIdentityConflict_ = validation.conflict;
+            lastError_ = validation.error;
+            return false;
+        }
+    }
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(normalized.value())},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
         return false;
     }
     if (index < 0) {
@@ -1643,39 +1885,74 @@ bool InMemoryClipRepository::upsertPersistentClip(const Clip &clip)
 
 bool InMemoryClipRepository::softDeleteSavedClip(const QString &id, const QDateTime &now)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     const int index = clipIndexById(clips_, id);
     if (index < 0 || clips_.at(index).state != ClipState::Saved) {
+        lastError_ = QStringLiteral("Only Saved Clips can be deleted");
         return false;
     }
 
-    clips_[index].state = ClipState::Deleted;
-    clips_[index].updatedAt = effectiveUtcNow(now);
+    Clip updated = clips_.at(index);
+    updated.state = ClipState::Deleted;
+    updated.updatedAt = effectiveUtcNow(now);
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(updated)},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
+        return false;
+    }
+    clips_[index] = updated;
     return true;
 }
 
 bool InMemoryClipRepository::restoreClip(const QString &id, const QDateTime &now)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     const int index = clipIndexById(clips_, id);
     if (index < 0 || clips_.at(index).state != ClipState::Deleted) {
+        lastError_ = QStringLiteral("Only deleted clips can be restored");
         return false;
     }
 
-    if (!validateClipIdentity(clips_,
-                              clips_.at(index).id,
-                              clips_.at(index).name,
-                              clips_.at(index).aliases).valid) {
+    Clip updated = clips_.at(index);
+    updated.state = ClipState::Saved;
+    updated.updatedAt = effectiveUtcNow(now);
+    const ClipIdentityValidationResult validation =
+        validateClipIdentity(clips_, updated.id, updated.name, updated.aliases);
+    if (!validation.valid) {
+        lastIdentityConflict_ = validation.conflict;
+        lastError_ = validation.error;
+        return false;
+    }
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(updated)},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
         return false;
     }
 
-    clips_[index].state = ClipState::Saved;
-    clips_[index].updatedAt = effectiveUtcNow(now);
+    clips_[index] = updated;
     return true;
 }
 
 bool InMemoryClipRepository::permanentlyDeleteClip(const QString &id)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     const int index = clipIndexById(clips_, id);
     if (index < 0 || clips_.at(index).state != ClipState::Deleted) {
+        lastError_ = QStringLiteral("Only deleted clips can be permanently removed");
+        return false;
+    }
+    if (!identityRegistry_->replaceObjects({identityObjectForClip(clips_.at(index))},
+                                           &lastIdentityConflict_)) {
+        lastError_ = lastIdentityConflict_.has_value()
+            ? lastIdentityConflict_->message()
+            : QStringLiteral("Unable to update global identity registry");
         return false;
     }
     clips_.removeAt(index);
@@ -1770,6 +2047,22 @@ std::optional<Clip> InMemoryClipRepository::findClip(const QString &id) const
     return clips_.at(index);
 }
 
+QString InMemoryClipRepository::lastError() const
+{
+    return lastError_;
+}
+
+std::optional<GlobalIdentityConflict> InMemoryClipRepository::lastIdentityConflict() const
+{
+    return lastIdentityConflict_;
+}
+
+QList<GlobalIdentityConflict> InMemoryClipRepository::identityConflicts() const
+{
+    return identityRegistry_ ? identityRegistry_->conflicts()
+                             : QList<GlobalIdentityConflict>{};
+}
+
 QString clipTargetApp()
 {
     return QStringLiteral("pinloom.clip");
@@ -1801,7 +2094,7 @@ std::optional<Anchor> savedClipAnchor(const Clip &clip, ClipInsertMode mode)
 
     Anchor anchor;
     anchor.id = QStringLiteral("clip:%1").arg(clip.id);
-    anchor.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name.trimmed();
+    anchor.name = clip.name.trimmed().isEmpty() ? clip.preview : clip.name;
     anchor.targetApp = clipTargetApp();
     anchor.targetUri = clipTargetUri(clip.id);
     anchor.locatorType = clipLocatorType();

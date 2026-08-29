@@ -1041,7 +1041,7 @@ void SqliteRepositoryTest::filtersByRequiredLocationPrefixes()
     other.title = QStringLiteral("UART Other Note");
     other.location = QStringLiteral("E:/workspace/other/uart.md");
     other.anchors = {
-        testAnchor(QStringLiteral("Dock handoff"), QStringLiteral("text.heading"), 4)};
+        testAnchor(QStringLiteral("Dock handoff other"), QStringLiteral("text.heading"), 4)};
     QVERIFY2(repository.upsertResource(other), qPrintable(repository.lastError()));
 
     SearchQuery query;
@@ -1135,7 +1135,7 @@ void SqliteRepositoryTest::filtersByRequiredResourceKinds()
     link.kind = ResourceKind::Url;
     link.title = QStringLiteral("UART Link");
     link.location = QStringLiteral("https://docs.example.com/uart#handoff");
-    link.anchors = {testAnchor(QStringLiteral("Dock handoff"), QStringLiteral("url.fragment"))};
+    link.anchors = {testAnchor(QStringLiteral("Dock handoff link"), QStringLiteral("url.fragment"))};
     QVERIFY2(repository.upsertResource(link), qPrintable(repository.lastError()));
 
     SearchQuery query;
@@ -1219,7 +1219,7 @@ void SqliteRepositoryTest::tracksAnchorUsageAndRanksAnchorRecall()
     hot.title = QStringLiteral("Zulu");
     hot.location = QStringLiteral("zulu.md");
     hot.anchors = {
-        testAnchor(QStringLiteral("Power rail"), QStringLiteral("text.heading"), 2)};
+        testAnchor(QStringLiteral("Power rail hot"), QStringLiteral("text.heading"), 2)};
     QVERIFY2(repository.upsertResource(hot), qPrintable(repository.lastError()));
 
     QVERIFY2(repository.recordAnchorOpen(hot.id, hot.anchors.first()), qPrintable(repository.lastError()));

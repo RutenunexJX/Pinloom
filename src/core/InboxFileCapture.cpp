@@ -1,5 +1,6 @@
 #include "pinloom/core/InboxFileCapture.h"
 
+#include "pinloom/core/GlobalIdentity.h"
 #include "pinloom/core/LibraryRoot.h"
 
 #include <QCryptographicHash>
@@ -7,7 +8,9 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSet>
 #include <algorithm>
+#include <utility>
 
 namespace Pinloom {
 
@@ -47,6 +50,23 @@ QStringList cleanedValues(const QStringList &source, bool tags = false)
         appendUniqueValue(values, tags ? cleanTag(value) : value);
     }
     return values;
+}
+
+void appendRequestedIdentityValues(QStringList &stored, const QStringList &requested)
+{
+    QSet<QString> preexisting;
+    for (const QString &value : std::as_const(stored)) {
+        const QString key = normalizedGlobalIdentity(value);
+        if (!key.isEmpty()) {
+            preexisting.insert(key);
+        }
+    }
+    for (const QString &value : requested) {
+        const QString key = normalizedGlobalIdentity(value);
+        if (!key.isEmpty() && !preexisting.contains(key)) {
+            stored.append(value);
+        }
+    }
 }
 
 QString pathKeyForId(const QString &filePath)
@@ -249,17 +269,14 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
     resource.kind = resourceKindForPath(QFileInfo(storedPath));
     resource.location = storedPath;
 
-    const QString requestedName = request.name.trimmed();
-    if (!requestedName.isEmpty()) {
+    const QString requestedName = request.name;
+    if (!requestedName.trimmed().isEmpty()) {
         resource.title = requestedName;
     } else if (resource.title.trimmed().isEmpty()) {
         resource.title = defaultInboxFileName(storedPath);
     }
 
-    const QStringList aliases = cleanedValues(request.aliases);
-    for (const QString &alias : aliases) {
-        appendUniqueValue(resource.aliases, alias);
-    }
+    appendRequestedIdentityValues(resource.aliases, request.aliases);
 
     const QStringList tags = cleanedValues(request.tags, true);
     for (const QString &tag : tags) {
@@ -278,7 +295,9 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
         } else if (movedFile) {
             moveFileWithFallback(storedPath, sourcePath);
         }
-        result.status = QStringLiteral("Unable to save Inbox file");
+        result.status = repository.lastError().trimmed().isEmpty()
+            ? QStringLiteral("Unable to save Inbox file")
+            : repository.lastError();
         return result;
     }
     if (request.pinned) {
@@ -304,7 +323,7 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
             break;
         }
         if (!request.name.trimmed().isEmpty()) {
-            root.displayName = request.name.trimmed();
+            root.displayName = request.name;
         }
         for (const QString &ignored : requestedIgnores) {
             appendUniqueValue(root.ignoredDirectoryNames, ignored);

@@ -73,7 +73,7 @@ QString scalarFromYamlValue(QString value)
     return value;
 }
 
-QStringList listFromYamlValue(const QString &value)
+QStringList listFromYamlValue(const QString &value, bool identityValues)
 {
     const QString trimmed = value.trimmed();
     if (trimmed.isEmpty()) {
@@ -85,19 +85,25 @@ QStringList listFromYamlValue(const QString &value)
     if (parseError.error == QJsonParseError::NoError && document.isArray()) {
         QStringList values;
         for (const QJsonValue &item : document.array()) {
-            if (item.isString() && !item.toString().trimmed().isEmpty()) {
-                values.append(item.toString().trimmed());
+            if (!item.isString()) {
+                continue;
+            }
+            const QString parsed = item.toString();
+            if (!parsed.trimmed().isEmpty()
+                && (identityValues || !values.contains(parsed.trimmed(), Qt::CaseInsensitive))) {
+                values.append(identityValues ? parsed : parsed.trimmed());
             }
         }
-        values.removeDuplicates();
         return values;
     }
 
     QStringList values;
     for (const QString &item : trimmed.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-        const QString parsed = scalarFromYamlValue(item).trimmed();
-        if (!parsed.isEmpty() && !values.contains(parsed, Qt::CaseInsensitive)) {
-            values.append(parsed);
+        const QString parsed = scalarFromYamlValue(item);
+        if (!parsed.trimmed().isEmpty()
+            && (identityValues
+                || !values.contains(parsed.trimmed(), Qt::CaseInsensitive))) {
+            values.append(identityValues ? parsed : parsed.trimmed());
         }
     }
     return values;
@@ -148,9 +154,10 @@ ParsedFrontmatter parseFrontmatter(const QString &contents)
             continue;
         }
         if (!currentListKey.isEmpty() && trimmed.startsWith(QLatin1Char('-'))) {
-            const QString item = scalarFromYamlValue(trimmed.mid(1)).trimmed();
-            if (!item.isEmpty()) {
-                parsed.lists[currentListKey].append(item);
+            const QString item = scalarFromYamlValue(trimmed.mid(1));
+            if (!item.trimmed().isEmpty()) {
+                parsed.lists[currentListKey].append(
+                    currentListKey == QLatin1String("aliases") ? item : item.trimmed());
             }
             continue;
         }
@@ -166,7 +173,8 @@ ParsedFrontmatter parseFrontmatter(const QString &contents)
             currentListKey = key;
             parsed.lists.insert(key, {});
         } else if (key == QLatin1String("aliases") || key == QLatin1String("tags")) {
-            parsed.lists.insert(key, listFromYamlValue(value));
+            parsed.lists.insert(key,
+                                listFromYamlValue(value, key == QLatin1String("aliases")));
         } else {
             parsed.values.insert(key, scalarFromYamlValue(value));
         }
@@ -223,13 +231,12 @@ QString yamlScalar(const QString &value)
     return QString::fromUtf8(encoded.mid(1, encoded.size() - 2));
 }
 
-QString yamlStringList(const QStringList &values)
+QString yamlStringList(const QStringList &values, bool identityValues)
 {
     QJsonArray array;
     for (const QString &value : values) {
-        const QString trimmed = value.trimmed();
-        if (!trimmed.isEmpty()) {
-            array.append(trimmed);
+        if (!value.trimmed().isEmpty()) {
+            array.append(identityValues ? value : value.trimmed());
         }
     }
     return QString::fromUtf8(QJsonDocument(array).toJson(QJsonDocument::Compact));
@@ -351,9 +358,11 @@ bool clipsEquivalent(const Clip &left, const Clip &right)
         && left.updatedAt.toUTC() == right.updatedAt.toUTC();
 }
 
-QString repositoryError(const InMemoryClipRepository &)
+QString repositoryError(const InMemoryClipRepository &repository)
 {
-    return QStringLiteral("Unable to update in-memory Clip repository");
+    return repository.lastError().trimmed().isEmpty()
+        ? QStringLiteral("Unable to update in-memory Clip repository")
+        : repository.lastError().trimmed();
 }
 
 QString repositoryError(const SqliteClipRepository &repository)
@@ -555,7 +564,9 @@ ObsidianClipWriteResult ObsidianClipStore::writeClip(const Clip &clip) const
         return result;
     }
 
-    const QString displayName = clip.name.trimmed().isEmpty() ? previewForText(clip.text) : clip.name.trimmed();
+    const QString displayName = clip.name.trimmed().isEmpty()
+        ? previewForText(clip.text)
+        : clip.name;
     QString filePath;
     const std::optional<ObsidianClipDocument> existing = findClip(clip.id, &error);
     if (existing.has_value()) {
@@ -587,8 +598,8 @@ ObsidianClipWriteResult ObsidianClipStore::writeClip(const Clip &clip) const
     contents += QStringLiteral("pinloom_state: %1\n").arg(yamlScalar(persistentStateText(clip.state)));
     contents += QStringLiteral("action_type: %1\n").arg(yamlScalar(actionTypeText(clip.actionType)));
     contents += QStringLiteral("name: %1\n").arg(yamlScalar(displayName));
-    contents += QStringLiteral("aliases: %1\n").arg(yamlStringList(clip.aliases));
-    contents += QStringLiteral("tags: %1\n").arg(yamlStringList(clip.tags));
+    contents += QStringLiteral("aliases: %1\n").arg(yamlStringList(clip.aliases, true));
+    contents += QStringLiteral("tags: %1\n").arg(yamlStringList(clip.tags, false));
     contents += QStringLiteral("pinned: %1\n").arg(clip.pinned ? QStringLiteral("true") : QStringLiteral("false"));
     contents += QStringLiteral("created: %1\n").arg(yamlScalar(createdAt.toString(Qt::ISODateWithMs)));
     contents += QStringLiteral("updated: %1\n").arg(yamlScalar(updatedAt.toString(Qt::ISODateWithMs)));
@@ -679,7 +690,7 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::readClipFile(const QStrin
     clip.text = parsed.body;
     clip.preview = previewForText(clip.text);
     clip.contentHash = contentHashForText(clip.text);
-    clip.name = parsed.values.value(QStringLiteral("name")).trimmed();
+    clip.name = parsed.values.value(QStringLiteral("name"));
     if (clip.name.isEmpty()) {
         clip.name = fileInfo.completeBaseName();
     }

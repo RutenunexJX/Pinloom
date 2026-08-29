@@ -1,6 +1,7 @@
 #include "pinloom/core/AnchorLibraryArchive.h"
 
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/GlobalIdentity.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 
 #include <QDir>
@@ -69,16 +70,17 @@ QJsonArray stringsToJson(const QStringList &values)
     return array;
 }
 
-QStringList stringsFromJson(const QJsonValue &value)
+QStringList stringsFromJson(const QJsonValue &value, bool identityValues = false)
 {
     QStringList values;
     if (!value.isArray()) {
         return values;
     }
     for (const QJsonValue &item : value.toArray()) {
-        const QString text = item.toString().trimmed();
-        if (!text.isEmpty() && !values.contains(text, Qt::CaseInsensitive)) {
-            values.append(text);
+        const QString text = item.toString();
+        if (!text.trimmed().isEmpty()
+            && (identityValues || !values.contains(text.trimmed(), Qt::CaseInsensitive))) {
+            values.append(identityValues ? text : text.trimmed());
         }
     }
     return values;
@@ -112,7 +114,7 @@ Anchor anchorFromJson(const QJsonObject &object)
     anchor.targetUri = object.value(QStringLiteral("targetUri")).toString();
     anchor.locatorType = object.value(QStringLiteral("locatorType")).toString();
     anchor.locatorJson = object.value(QStringLiteral("locatorJson")).toString();
-    anchor.aliases = stringsFromJson(object.value(QStringLiteral("aliases")));
+    anchor.aliases = stringsFromJson(object.value(QStringLiteral("aliases")), true);
     anchor.tags = stringsFromJson(object.value(QStringLiteral("tags")));
     anchor.pinned = object.value(QStringLiteral("pinned")).toBool();
     anchor.deleted = object.value(QStringLiteral("deleted")).toBool();
@@ -161,7 +163,7 @@ std::optional<Resource> resourceFromJson(const QJsonValue &value, QString *error
     resource.title = object.value(QStringLiteral("title")).toString();
     resource.location = object.value(QStringLiteral("location")).toString();
     resource.tags = stringsFromJson(object.value(QStringLiteral("tags")));
-    resource.aliases = stringsFromJson(object.value(QStringLiteral("aliases")));
+    resource.aliases = stringsFromJson(object.value(QStringLiteral("aliases")), true);
     resource.content = object.value(QStringLiteral("content")).toString();
     resource.explicitlyRetained = object.value(QStringLiteral("explicitlyRetained")).toBool();
     resource.deleted = object.value(QStringLiteral("deleted")).toBool();
@@ -194,10 +196,25 @@ std::optional<Resource> resourceFromJson(const QJsonValue &value, QString *error
     return resource;
 }
 
-void mergeStringLists(QStringList &target, const QStringList &source)
+void mergeStringLists(QStringList &target,
+                      const QStringList &source,
+                      bool identityValues = false)
 {
+    QSet<QString> preexistingIdentityKeys;
+    if (identityValues) {
+        for (const QString &value : std::as_const(target)) {
+            preexistingIdentityKeys.insert(normalizedGlobalIdentity(value));
+        }
+    }
     for (const QString &value : source) {
-        if (!value.trimmed().isEmpty() && !target.contains(value, Qt::CaseInsensitive)) {
+        if (value.trimmed().isEmpty()) {
+            continue;
+        }
+        if (identityValues) {
+            if (!preexistingIdentityKeys.contains(normalizedGlobalIdentity(value))) {
+                target.append(value);
+            }
+        } else if (!target.contains(value.trimmed(), Qt::CaseInsensitive)) {
             target.append(value.trimmed());
         }
     }
@@ -213,7 +230,7 @@ Resource mergeImportedResource(const Resource &current, const Resource &imported
     merged.explicitlyRetained = current.explicitlyRetained || imported.explicitlyRetained;
     merged.deleted = imported.deleted;
     mergeStringLists(merged.tags, imported.tags);
-    mergeStringLists(merged.aliases, imported.aliases);
+    mergeStringLists(merged.aliases, imported.aliases, true);
     for (const Anchor &importedAnchor : imported.anchors) {
         auto existing = std::find_if(merged.anchors.begin(), merged.anchors.end(),
                                      [&importedAnchor](const Anchor &anchor) {
@@ -326,7 +343,9 @@ AnchorLibraryOperationResult AnchorLibraryArchiveService::importJson(
         }
     }
     if (!repository_.applyBatch(mutation)) {
-        return failedArchiveResult(QStringLiteral("Unable to import the archive atomically"));
+        return failedArchiveResult(repository_.lastError().trimmed().isEmpty()
+                                       ? QStringLiteral("Unable to import the archive atomically")
+                                       : repository_.lastError());
     }
     return {true,
             static_cast<int>(imported.size()),

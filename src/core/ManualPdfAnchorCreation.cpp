@@ -35,7 +35,11 @@ QStringList cleanedValues(const QStringList &values, bool tags = false)
 {
     QStringList cleaned;
     for (const QString &value : values) {
-        appendUniqueCaseInsensitive(cleaned, tags ? cleanTag(value) : value);
+        if (tags) {
+            appendUniqueCaseInsensitive(cleaned, cleanTag(value));
+        } else if (!value.trimmed().isEmpty()) {
+            cleaned.append(value);
+        }
     }
     return cleaned;
 }
@@ -61,7 +65,9 @@ QString manualPdfAnchorResourceId()
 QString resourceTitleForFile(const QString &file, const QString &name)
 {
     const QString fileName = QFileInfo(file).fileName().trimmed();
-    return fileName.isEmpty() ? name : fileName;
+    return fileName.isEmpty()
+        ? QStringLiteral("PDF target: %1").arg(name)
+        : fileName;
 }
 
 PdfCaptureRequest captureRequestFromManualRequest(
@@ -151,8 +157,8 @@ ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfAnc
 {
     ManualPdfAnchorCreationResult result;
 
-    const QString name = request.name.trimmed();
-    if (name.isEmpty()) {
+    const QString name = request.name;
+    if (name.trimmed().isEmpty()) {
         result.error = QStringLiteral("Manual PDF anchor name is missing");
         return result;
     }
@@ -198,7 +204,9 @@ ManualPdfAnchorCreationResult ManualPdfAnchorCreationService::createManualPdfAnc
     if (!repository_.upsertResource(resource)) {
         result.resource = resource;
         result.anchor = anchor;
-        result.error = QStringLiteral("Unable to save manual PDF anchor");
+        result.error = repository_.lastError().trimmed().isEmpty()
+            ? QStringLiteral("Unable to save manual PDF anchor")
+            : repository_.lastError();
         return result;
     }
 

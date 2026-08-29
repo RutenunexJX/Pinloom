@@ -104,7 +104,7 @@ static ManualPdfAnchorCreationRequest validCreationRequest()
     request.page = 12;
     request.rect = {420.0, 860.0, 780.0, 920.0};
     request.zoom = 250.0;
-    request.aliases = {QStringLiteral("cdc zoom"), QStringLiteral("CDC Zoom")};
+    request.aliases = {QStringLiteral(" cdc zoom "), QStringLiteral("CDC closeup")};
     request.tags = {QStringLiteral("#reviewpoint"), QStringLiteral("reviewpoint")};
     request.pinned = true;
     return request;
@@ -242,7 +242,8 @@ void AnchorCaptureTest::savesManualPdfRectAnchorInRepository()
     QCOMPARE(result.anchor.name, QStringLiteral("Clock domain window"));
     QCOMPARE(result.anchor.targetFile, QStringLiteral("E:/docs/clock.pdf"));
     QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.rect"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("cdc zoom")});
+    QCOMPARE(result.anchor.aliases,
+             (QStringList{QStringLiteral(" cdc zoom "), QStringLiteral("CDC closeup")}));
     QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("reviewpoint")});
     QVERIFY(result.anchor.pinned);
     QVERIFY(result.anchor.createdAt.isValid());
@@ -778,14 +779,14 @@ void AnchorCaptureTest::rejectsForegroundSumatraPdfTitleWithMultipleIndexedPdfMa
     Resource first;
     first.id = QStringLiteral("clock-a");
     first.kind = ResourceKind::Pdf;
-    first.title = QStringLiteral("clock");
+    first.title = QStringLiteral("Clock source A");
     first.location = QStringLiteral("E:/docs/a/clock.pdf");
     QVERIFY(repository.upsertResource(first));
 
     Resource second;
     second.id = QStringLiteral("clock-b");
     second.kind = ResourceKind::Pdf;
-    second.title = QStringLiteral("clock");
+    second.title = QStringLiteral("Clock source B");
     second.location = QStringLiteral("E:/docs/b/clock.pdf");
     QVERIFY(repository.upsertResource(second));
 
@@ -872,7 +873,7 @@ void AnchorCaptureTest::validatesAndCommitsSharedAnchorDraft()
     draft.locatorJson = QStringLiteral(
         R"({"type":"word.bookmark","bookmark":"_Pinloom_a1"})");
     draft.suggestedName = QStringLiteral("Reset sequence");
-    draft.aliases = {QStringLiteral(" reset "), QStringLiteral("RESET")};
+    draft.aliases = {QStringLiteral(" reset alias "), QStringLiteral("RESET secondary")};
     draft.tags = {QStringLiteral("#review"), QStringLiteral("review")};
     draft.pinned = true;
     draft.mutationRequired = true;
@@ -889,7 +890,8 @@ void AnchorCaptureTest::validatesAndCommitsSharedAnchorDraft()
     QVERIFY2(result.success(), qPrintable(result.error));
     QCOMPARE(result.resource.kind, ResourceKind::File);
     QCOMPARE(result.anchor.name, QStringLiteral("Reset sequence"));
-    QCOMPARE(result.anchor.aliases, QStringList{QStringLiteral("reset")});
+    QCOMPARE(result.anchor.aliases,
+             (QStringList{QStringLiteral(" reset alias "), QStringLiteral("RESET secondary")}));
     QCOMPARE(result.anchor.tags, QStringList{QStringLiteral("review")});
     QVERIFY(result.anchor.pinned);
 }

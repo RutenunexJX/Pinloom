@@ -38,9 +38,6 @@ Resource normalizedResource(Resource resource)
         }
         anchor.id = anchorId;
         if (!anchorId.isEmpty()) anchorIds.insert(anchorId);
-        if (anchor.name.trimmed().isEmpty()) {
-            anchor.name = resource.title.trimmed();
-        }
     }
     return resource;
 }

@@ -18,7 +18,7 @@ PersistentClipService::PersistentClipService(InMemoryClipRepository &repository,
                             [&repository](const QString &id) {
                                 return repository.permanentlyDeleteClip(id);
                             },
-                            {},
+                            [&repository]() { return repository.lastError(); },
                             obsidianStore)
 {
 }

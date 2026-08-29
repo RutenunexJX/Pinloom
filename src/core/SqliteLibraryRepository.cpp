@@ -21,6 +21,7 @@
 #include <QVariant>
 #include <algorithm>
 #include <tuple>
+#include <utility>
 
 namespace Pinloom {
 
@@ -534,6 +535,57 @@ double contextScoreAdjustment(const Resource &resource, const SearchQuery &query
     return adjustment;
 }
 
+QList<GlobalIdentityObject> identityObjectsForResource(const Resource &resource)
+{
+    QList<GlobalIdentityObject> objects;
+    GlobalIdentityObject file;
+    file.owner.objectType = GlobalIdentityObjectType::File;
+    file.owner.objectId = resource.id;
+    file.owner.displayName = resource.title;
+    file.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::File,
+                                               resource.id);
+    file.active = !resource.deleted;
+    file.values.append({GlobalIdentityFieldKind::Name, resource.title});
+    for (const QString &alias : resource.aliases) {
+        file.values.append({GlobalIdentityFieldKind::Alias, alias});
+    }
+    objects.append(file);
+    for (const Anchor &anchor : resource.anchors) {
+        GlobalIdentityObject value;
+        value.owner.objectType = GlobalIdentityObjectType::Anchor;
+        value.owner.objectId = anchor.id;
+        value.owner.parentId = resource.id;
+        value.owner.displayName = anchor.name;
+        value.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::Anchor,
+                                                    anchor.id,
+                                                    resource.id);
+        value.active = !resource.deleted && !anchor.deleted;
+        value.values.append({GlobalIdentityFieldKind::Name, anchor.name});
+        for (const QString &alias : anchor.aliases) {
+            value.values.append({GlobalIdentityFieldKind::Alias, alias});
+        }
+        objects.append(value);
+    }
+    return objects;
+}
+
+void addIdentityReplacement(QHash<QString, GlobalIdentityObject> &updates,
+                            const std::optional<Resource> &before,
+                            const std::optional<Resource> &after)
+{
+    if (before.has_value()) {
+        for (GlobalIdentityObject object : identityObjectsForResource(before.value())) {
+            object.active = false;
+            updates.insert(globalIdentityOwnerKey(object.owner), object);
+        }
+    }
+    if (after.has_value()) {
+        for (const GlobalIdentityObject &object : identityObjectsForResource(after.value())) {
+            updates.insert(globalIdentityOwnerKey(object.owner), object);
+        }
+    }
+}
+
 } // namespace
 
 SqliteLibraryRepository::SqliteLibraryRepository()
@@ -550,7 +602,7 @@ SqliteLibraryRepository::~SqliteLibraryRepository()
     }
 }
 
-bool SqliteLibraryRepository::open(const QString &path)
+bool SqliteLibraryRepository::open(const QString &path, const QString &identityRegistryPath)
 {
     const QFileInfo databaseFile(path);
     QDir parentDir(databaseFile.absolutePath());
@@ -567,13 +619,20 @@ bool SqliteLibraryRepository::open(const QString &path)
 
     database_ = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName_);
     database_.setDatabaseName(path);
+    identityRegistryPath_ = identityRegistryPath.trimmed().isEmpty()
+        ? defaultGlobalIdentityRegistryPath(path)
+        : (identityRegistryPath == QLatin1String(":memory:")
+               ? QStringLiteral(":memory:")
+               : QFileInfo(identityRegistryPath).absoluteFilePath());
 
     if (!database_.open()) {
         setLastError(database_.lastError().text());
         return false;
     }
 
-    return execute(QStringLiteral("PRAGMA foreign_keys = ON;"));
+    return execute(QStringLiteral("PRAGMA foreign_keys = ON;"))
+        && execute(QStringLiteral("PRAGMA busy_timeout = 5000;"))
+        && attachGlobalIdentityRegistry();
 }
 
 bool SqliteLibraryRepository::initialize()
@@ -584,6 +643,13 @@ bool SqliteLibraryRepository::initialize()
     }
 
     if (!beginTransaction()) {
+        return false;
+    }
+
+    QString identityError;
+    if (!initializeSqliteGlobalIdentityRegistry(database_, &identityError)) {
+        setLastError(identityError);
+        rollbackTransaction();
         return false;
     }
 
@@ -636,6 +702,11 @@ bool SqliteLibraryRepository::initialize()
         return false;
     }
 
+    if (!rebuildGlobalIdentityRegistry()) {
+        rollbackTransaction();
+        return false;
+    }
+
     if (!recordMigration(1, QStringLiteral("initial_sqlite_fts5_schema"))
         || !recordMigration(2, QStringLiteral("library_roots"))
         || !recordMigration(3, QStringLiteral("anchor_fts"))
@@ -650,7 +721,8 @@ bool SqliteLibraryRepository::initialize()
         || !recordMigration(12, QStringLiteral("stable_anchor_identity"))
         || !recordMigration(13, QStringLiteral("lifecycle_search_index"))
         || !recordMigration(14, QStringLiteral("library_roots_and_managed_items"))
-        || !recordMigration(15, QStringLiteral("explicit_anchor_library_retention"))) {
+        || !recordMigration(15, QStringLiteral("explicit_anchor_library_retention"))
+        || !recordMigration(16, QStringLiteral("global_name_alias_identity_registry"))) {
         rollbackTransaction();
         return false;
     }
@@ -668,8 +740,26 @@ QString SqliteLibraryRepository::lastError() const
     return lastError_;
 }
 
+std::optional<GlobalIdentityConflict> SqliteLibraryRepository::lastIdentityConflict() const
+{
+    return lastIdentityConflict_;
+}
+
+QList<GlobalIdentityConflict> SqliteLibraryRepository::identityConflicts() const
+{
+    QString error;
+    QSqlDatabase database = database_;
+    const QList<GlobalIdentityConflict> conflicts = sqliteGlobalIdentityConflicts(database, &error);
+    if (!error.isEmpty()) {
+        setLastError(error);
+    }
+    return conflicts;
+}
+
 bool SqliteLibraryRepository::upsertResource(const Resource &resource)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     if (!isOpen()) {
         setLastError(QStringLiteral("Database is not open"));
         return false;
@@ -680,9 +770,25 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     }
 
     const Resource storedResource = normalizedResource(resource);
+    const std::optional<Resource> existingResource = findResource(storedResource.id);
+    lastError_.clear();
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    addIdentityReplacement(identityUpdates, existingResource, storedResource);
 
     if (!beginTransaction()) {
         return false;
+    }
+
+    if (!identityUpdatesDeferred_) {
+        QString identityError;
+        if (!replaceSqliteGlobalIdentityObjects(database_,
+                                                identityUpdates.values(),
+                                                &lastIdentityConflict_,
+                                                &identityError)) {
+            setLastError(identityError);
+            rollbackTransaction();
+            return false;
+        }
     }
 
     QSqlQuery query(database_);
@@ -818,6 +924,8 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     if (!commitTransaction()) {
         return false;
     }
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     notifyChange(LibraryChangeKind::Content, {storedResource.id});
     return true;
 }
@@ -1068,50 +1176,28 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
 
 bool SqliteLibraryRepository::softDeleteResource(const QString &resourceId)
 {
-    if (!isOpen()) {
-        setLastError(QStringLiteral("Database is not open"));
-        return false;
-    }
-
-    QSqlQuery query(database_);
-    query.prepare(QStringLiteral("UPDATE resources SET deleted = 1, updated_at = ? WHERE id = ?"));
-    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    query.addBindValue(resourceId);
-    if (!query.exec()) {
-        setLastError(query.lastError().text());
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
+    const std::optional<Resource> stored = findResource(resourceId);
+    if (!stored.has_value()) {
         setLastError(QStringLiteral("Resource not found"));
         return false;
     }
-    lastError_.clear();
-    notifyChange(LibraryChangeKind::Content, {resourceId});
-    return true;
+    Resource updated = stored.value();
+    updated.deleted = true;
+    updated.updatedAt = QDateTime::currentDateTimeUtc();
+    return upsertResource(updated);
 }
 
 bool SqliteLibraryRepository::restoreResource(const QString &resourceId)
 {
-    if (!isOpen()) {
-        setLastError(QStringLiteral("Database is not open"));
-        return false;
-    }
-
-    QSqlQuery query(database_);
-    query.prepare(QStringLiteral("UPDATE resources SET deleted = 0, updated_at = ? WHERE id = ?"));
-    query.addBindValue(QDateTime::currentDateTimeUtc().toString(Qt::ISODate));
-    query.addBindValue(resourceId);
-    if (!query.exec()) {
-        setLastError(query.lastError().text());
-        return false;
-    }
-    if (query.numRowsAffected() <= 0) {
+    const std::optional<Resource> stored = findResource(resourceId);
+    if (!stored.has_value()) {
         setLastError(QStringLiteral("Resource not found"));
         return false;
     }
-    lastError_.clear();
-    notifyChange(LibraryChangeKind::Content, {resourceId});
-    return true;
+    Resource updated = stored.value();
+    updated.deleted = false;
+    updated.updatedAt = QDateTime::currentDateTimeUtc();
+    return upsertResource(updated);
 }
 
 bool SqliteLibraryRepository::softDeleteAnchor(const QString &resourceId, const Anchor &anchor)
@@ -1167,7 +1253,26 @@ bool SqliteLibraryRepository::clearResources()
         return false;
     }
 
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    for (const Resource &resource : allResourcesForIdentity()) {
+        addIdentityReplacement(identityUpdates, resource, std::nullopt);
+    }
+    if (!lastError_.isEmpty()) {
+        return false;
+    }
+
     if (!beginTransaction()) {
+        return false;
+    }
+
+    QString identityError;
+    lastIdentityConflict_.reset();
+    if (!replaceSqliteGlobalIdentityObjects(database_,
+                                            identityUpdates.values(),
+                                            &lastIdentityConflict_,
+                                            &identityError)) {
+        setLastError(identityError);
+        rollbackTransaction();
         return false;
     }
 
@@ -1190,13 +1295,55 @@ bool SqliteLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
         return false;
     }
 
+    lastError_.clear();
+    lastIdentityConflict_.reset();
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    if (mutation.clearExistingResources) {
+        for (const Resource &resource : allResourcesForIdentity()) {
+            addIdentityReplacement(identityUpdates, resource, std::nullopt);
+        }
+        if (!lastError_.isEmpty()) {
+            return false;
+        }
+    }
+    for (const QString &resourceIdValue : mutation.permanentlyDeleteResourceIds) {
+        const QString resourceId = resourceIdValue.trimmed();
+        const std::optional<Resource> existing = findResource(resourceId);
+        if (!existing.has_value()) {
+            setLastError(QStringLiteral("Resource not found: %1").arg(resourceId));
+            return false;
+        }
+        addIdentityReplacement(identityUpdates, existing, std::nullopt);
+    }
+    for (const Resource &resource : mutation.upserts) {
+        if (resource.id.trimmed().isEmpty()) {
+            setLastError(QStringLiteral("Resource id is required"));
+            return false;
+        }
+        const Resource normalized = normalizedResource(resource);
+        addIdentityReplacement(identityUpdates, findResource(normalized.id), normalized);
+    }
+
     ++deferredChangeDepth_;
     if (!beginTransaction()) {
         --deferredChangeDepth_;
         return false;
     }
 
+    QString identityError;
+    if (!replaceSqliteGlobalIdentityObjects(database_,
+                                            identityUpdates.values(),
+                                            &lastIdentityConflict_,
+                                            &identityError)) {
+        setLastError(identityError);
+        rollbackTransaction();
+        --deferredChangeDepth_;
+        return false;
+    }
+
     bool succeeded = true;
+    const bool previousIdentityDeferral = identityUpdatesDeferred_;
+    identityUpdatesDeferred_ = true;
     if (mutation.clearExistingResources && !clearResourceTables()) {
         succeeded = false;
     }
@@ -1221,6 +1368,7 @@ bool SqliteLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
     } else if (!commitTransaction()) {
         succeeded = false;
     }
+    identityUpdatesDeferred_ = previousIdentityDeferral;
 
     --deferredChangeDepth_;
     if (!succeeded) {
@@ -1569,6 +1717,19 @@ bool SqliteLibraryRepository::integrityCheck()
                          .arg(failures.join(QStringLiteral("; "))));
         return false;
     }
+    QSqlQuery identityQuery(database_);
+    if (!identityQuery.exec(QStringLiteral("PRAGMA identity_registry.quick_check"))) {
+        setLastError(identityQuery.lastError().text());
+        return false;
+    }
+    while (identityQuery.next()) {
+        const QString result = identityQuery.value(0).toString().trimmed();
+        if (result.compare(QStringLiteral("ok"), Qt::CaseInsensitive) != 0) {
+            setLastError(QStringLiteral("Global identity registry integrity check failed: %1")
+                             .arg(result));
+            return false;
+        }
+    }
     lastError_.clear();
     return true;
 }
@@ -1685,7 +1846,9 @@ bool SqliteLibraryRepository::restoreDatabase(const QString &sourcePath)
     transactionDepth_ = 0;
     const auto reopenActiveDatabase = [this]() {
         return database_.open()
-            && execute(QStringLiteral("PRAGMA foreign_keys = ON;"));
+            && execute(QStringLiteral("PRAGMA foreign_keys = ON;"))
+            && execute(QStringLiteral("PRAGMA busy_timeout = 5000;"))
+            && attachGlobalIdentityRegistry();
     };
     const auto removeSidecars = [&destination]() {
         bool removed = true;
@@ -1725,7 +1888,11 @@ bool SqliteLibraryRepository::restoreDatabase(const QString &sourcePath)
         return false;
     }
 
-    if (!database_.open() || !execute(QStringLiteral("PRAGMA foreign_keys = ON;")) || !initialize()) {
+    if (!database_.open()
+        || !execute(QStringLiteral("PRAGMA foreign_keys = ON;"))
+        || !execute(QStringLiteral("PRAGMA busy_timeout = 5000;"))
+        || !attachGlobalIdentityRegistry()
+        || !initialize()) {
         const QString restoreError = lastError_;
         database_.close();
         removeSidecars();
@@ -1754,6 +1921,37 @@ bool SqliteLibraryRepository::execute(const QString &sql)
     QSqlQuery query(database_);
     if (!query.exec(sql)) {
         setLastError(query.lastError().text());
+        return false;
+    }
+    return true;
+}
+
+bool SqliteLibraryRepository::attachGlobalIdentityRegistry()
+{
+    QString error;
+    if (attachSqliteGlobalIdentityRegistry(database_, identityRegistryPath_, &error)) {
+        return true;
+    }
+    setLastError(error);
+    return false;
+}
+
+bool SqliteLibraryRepository::rebuildGlobalIdentityRegistry()
+{
+    QList<GlobalIdentityObject> objects;
+    for (const Resource &resource : allResourcesForIdentity()) {
+        objects.append(identityObjectsForResource(resource));
+    }
+    if (!lastError_.isEmpty()) {
+        return false;
+    }
+    QString error;
+    if (!rebuildSqliteHistoricalIdentityObjects(
+            database_,
+            {GlobalIdentityObjectType::File, GlobalIdentityObjectType::Anchor},
+            objects,
+            &error)) {
+        setLastError(error);
         return false;
     }
     return true;
@@ -1950,7 +2148,7 @@ bool SqliteLibraryRepository::migrateCanonicalAnchorSchema()
         row.resourceId = selectQuery.value(0).toString();
         row.order = selectQuery.value(1).toInt();
         row.id = selectQuery.value(2).toString().trimmed();
-        row.name = selectQuery.value(3).toString().trimmed();
+        row.name = selectQuery.value(3).toString();
         row.targetApp = selectQuery.value(4).toString().trimmed();
         row.targetFile = selectQuery.value(5).toString().trimmed();
         row.targetUri = selectQuery.value(6).toString().trimmed();
@@ -2488,6 +2686,7 @@ bool SqliteLibraryRepository::commitTransaction()
     }
     if (!database_.commit()) {
         setLastError(database_.lastError().text());
+        database_.rollback();
         transactionDepth_ = 0;
         return false;
     }
@@ -2574,6 +2773,28 @@ void SqliteLibraryRepository::notifyChange(LibraryChangeKind kind,
             listener(change);
         }
     }
+}
+
+QList<Resource> SqliteLibraryRepository::allResourcesForIdentity() const
+{
+    QList<Resource> resources;
+    lastError_.clear();
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("SELECT id FROM resources ORDER BY id"))) {
+        setLastError(query.lastError().text());
+        return {};
+    }
+    QStringList ids;
+    while (query.next()) {
+        ids.append(query.value(0).toString());
+    }
+    for (const QString &id : ids) {
+        resources.append(hydrateResource(id));
+        if (!lastError_.isEmpty()) {
+            return {};
+        }
+    }
+    return resources;
 }
 
 Resource SqliteLibraryRepository::hydrateResource(const QString &id) const

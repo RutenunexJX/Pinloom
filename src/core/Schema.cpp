@@ -4,7 +4,7 @@ namespace Pinloom {
 
 int Schema::currentVersion()
 {
-    return 15;
+    return 16;
 }
 
 QStringList Schema::sqliteFts5Draft()

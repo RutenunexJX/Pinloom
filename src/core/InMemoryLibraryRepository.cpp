@@ -268,16 +268,97 @@ void applyRankingSignals(SearchResult &result,
     }
 }
 
+QList<GlobalIdentityObject> identityObjectsForResource(const Resource &resource)
+{
+    QList<GlobalIdentityObject> objects;
+    GlobalIdentityObject file;
+    file.owner.objectType = GlobalIdentityObjectType::File;
+    file.owner.objectId = resource.id;
+    file.owner.displayName = resource.title;
+    file.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::File,
+                                               resource.id);
+    file.active = !resource.deleted;
+    file.values.append({GlobalIdentityFieldKind::Name, resource.title});
+    for (const QString &alias : resource.aliases) {
+        file.values.append({GlobalIdentityFieldKind::Alias, alias});
+    }
+    objects.append(file);
+
+    for (const Anchor &anchor : resource.anchors) {
+        GlobalIdentityObject value;
+        value.owner.objectType = GlobalIdentityObjectType::Anchor;
+        value.owner.objectId = anchor.id;
+        value.owner.parentId = resource.id;
+        value.owner.displayName = anchor.name;
+        value.owner.locator = globalIdentityLocator(GlobalIdentityObjectType::Anchor,
+                                                    anchor.id,
+                                                    resource.id);
+        value.active = !resource.deleted && !anchor.deleted;
+        value.values.append({GlobalIdentityFieldKind::Name, anchor.name});
+        for (const QString &alias : anchor.aliases) {
+            value.values.append({GlobalIdentityFieldKind::Alias, alias});
+        }
+        objects.append(value);
+    }
+    return objects;
+}
+
+void addIdentityReplacement(QHash<QString, GlobalIdentityObject> &updates,
+                            const std::optional<Resource> &before,
+                            const std::optional<Resource> &after)
+{
+    if (before.has_value()) {
+        for (GlobalIdentityObject object : identityObjectsForResource(before.value())) {
+            object.active = false;
+            updates.insert(globalIdentityOwnerKey(object.owner), object);
+        }
+    }
+    if (after.has_value()) {
+        for (const GlobalIdentityObject &object : identityObjectsForResource(after.value())) {
+            updates.insert(globalIdentityOwnerKey(object.owner), object);
+        }
+    }
+}
+
+QString identityFailureMessage(const std::optional<GlobalIdentityConflict> &conflict,
+                               const QString &fallback)
+{
+    return conflict.has_value() ? conflict->message() : fallback;
+}
+
 } // namespace
+
+InMemoryLibraryRepository::InMemoryLibraryRepository(
+    SharedInMemoryGlobalIdentityRegistry identityRegistry)
+    : identityRegistry_(identityRegistry ? std::move(identityRegistry)
+                                         : createInMemoryGlobalIdentityRegistry())
+{
+}
 
 bool InMemoryLibraryRepository::upsertResource(const Resource &resource)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     if (resource.id.trimmed().isEmpty()) {
+        lastError_ = QStringLiteral("Resource id is required");
         return false;
     }
 
-    resources_.insert(resource.id, normalizedResource(resource));
-    notifyChange(LibraryChangeKind::Content, {resource.id});
+    const Resource stored = normalizedResource(resource);
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    const auto existing = resources_.constFind(stored.id);
+    addIdentityReplacement(identityUpdates,
+                           existing == resources_.cend()
+                               ? std::nullopt
+                               : std::optional<Resource>(existing.value()),
+                           stored);
+    if (!identityRegistry_->replaceObjects(identityUpdates.values(), &lastIdentityConflict_)) {
+        lastError_ = identityFailureMessage(lastIdentityConflict_,
+                                            QStringLiteral("Unable to update global identity registry"));
+        return false;
+    }
+    resources_.insert(stored.id, stored);
+    notifyChange(LibraryChangeKind::Content, {stored.id});
     return true;
 }
 
@@ -403,74 +484,89 @@ QList<SearchResult> InMemoryLibraryRepository::search(const SearchQuery &query) 
 
 bool InMemoryLibraryRepository::softDeleteResource(const QString &resourceId)
 {
-    auto it = resources_.find(resourceId);
-    if (it == resources_.end()) {
+    const auto it = resources_.constFind(resourceId);
+    if (it == resources_.cend()) {
+        lastError_ = QStringLiteral("Resource not found");
         return false;
     }
-
-    it->deleted = true;
-    it->updatedAt = QDateTime::currentDateTimeUtc();
-    notifyChange(LibraryChangeKind::Content, {resourceId});
-    return true;
+    Resource updated = it.value();
+    updated.deleted = true;
+    updated.updatedAt = QDateTime::currentDateTimeUtc();
+    return upsertResource(updated);
 }
 
 bool InMemoryLibraryRepository::restoreResource(const QString &resourceId)
 {
-    auto it = resources_.find(resourceId);
-    if (it == resources_.end()) {
+    const auto it = resources_.constFind(resourceId);
+    if (it == resources_.cend()) {
+        lastError_ = QStringLiteral("Resource not found");
         return false;
     }
-
-    it->deleted = false;
-    it->updatedAt = QDateTime::currentDateTimeUtc();
-    notifyChange(LibraryChangeKind::Content, {resourceId});
-    return true;
+    Resource updated = it.value();
+    updated.deleted = false;
+    updated.updatedAt = QDateTime::currentDateTimeUtc();
+    return upsertResource(updated);
 }
 
 bool InMemoryLibraryRepository::softDeleteAnchor(const QString &resourceId, const Anchor &anchor)
 {
-    auto it = resources_.find(resourceId);
-    if (it == resources_.end()) {
+    const auto it = resources_.constFind(resourceId);
+    if (it == resources_.cend()) {
+        lastError_ = QStringLiteral("Resource not found");
         return false;
     }
 
+    Resource updated = it.value();
     const Anchor normalized = anchor;
-    for (Anchor &storedAnchor : it->anchors) {
+    for (Anchor &storedAnchor : updated.anchors) {
         if (!sameAnchorIdentity(storedAnchor, normalized)) {
             continue;
         }
         storedAnchor.deleted = true;
         storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
-        it->updatedAt = storedAnchor.updatedAt;
-        notifyChange(LibraryChangeKind::Content, {resourceId});
-        return true;
+        updated.updatedAt = storedAnchor.updatedAt;
+        return upsertResource(updated);
     }
+    lastError_ = QStringLiteral("Anchor not found");
     return false;
 }
 
 bool InMemoryLibraryRepository::restoreAnchor(const QString &resourceId, const Anchor &anchor)
 {
-    auto it = resources_.find(resourceId);
-    if (it == resources_.end()) {
+    const auto it = resources_.constFind(resourceId);
+    if (it == resources_.cend()) {
+        lastError_ = QStringLiteral("Resource not found");
         return false;
     }
 
+    Resource updated = it.value();
     const Anchor normalized = anchor;
-    for (Anchor &storedAnchor : it->anchors) {
+    for (Anchor &storedAnchor : updated.anchors) {
         if (!sameAnchorIdentity(storedAnchor, normalized)) {
             continue;
         }
         storedAnchor.deleted = false;
         storedAnchor.updatedAt = QDateTime::currentDateTimeUtc();
-        it->updatedAt = storedAnchor.updatedAt;
-        notifyChange(LibraryChangeKind::Content, {resourceId});
-        return true;
+        updated.updatedAt = storedAnchor.updatedAt;
+        return upsertResource(updated);
     }
+    lastError_ = QStringLiteral("Anchor not found");
     return false;
 }
 
 bool InMemoryLibraryRepository::clearResources()
 {
+    lastError_.clear();
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    for (const Resource &resource : std::as_const(resources_)) {
+        addIdentityReplacement(identityUpdates, resource, std::nullopt);
+    }
+    lastIdentityConflict_.reset();
+    if (!identityRegistry_->replaceObjects(identityUpdates.values(), &lastIdentityConflict_)) {
+        lastError_ = identityFailureMessage(lastIdentityConflict_,
+                                            QStringLiteral("Unable to clear global identity registry"));
+        return false;
+    }
     resources_.clear();
     usage_.clear();
     anchorUsage_.clear();
@@ -480,6 +576,8 @@ bool InMemoryLibraryRepository::clearResources()
 
 bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
 {
+    lastError_.clear();
+    lastIdentityConflict_.reset();
     QHash<QString, Resource> resources = mutation.clearExistingResources
         ? QHash<QString, Resource>{}
         : resources_;
@@ -494,6 +592,7 @@ bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
     for (const QString &resourceIdValue : mutation.permanentlyDeleteResourceIds) {
         const QString resourceId = resourceIdValue.trimmed();
         if (resourceId.isEmpty() || !resources.contains(resourceId)) {
+            lastError_ = QStringLiteral("Batch resource was not found: %1").arg(resourceIdValue);
             return false;
         }
         resources.remove(resourceId);
@@ -513,6 +612,7 @@ bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
 
     for (const Resource &resource : mutation.upserts) {
         if (resource.id.trimmed().isEmpty()) {
+            lastError_ = QStringLiteral("Resource id is required");
             return false;
         }
         resources.insert(resource.id, normalizedResource(resource));
@@ -523,6 +623,7 @@ bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
 
     for (const ResourcePinUpdate &update : mutation.resourcePinUpdates) {
         if (!resources.contains(update.resourceId)) {
+            lastError_ = QStringLiteral("Batch resource was not found: %1").arg(update.resourceId);
             return false;
         }
         ResourceUsage value = usage.value(update.resourceId);
@@ -532,6 +633,32 @@ bool InMemoryLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
         if (!changedIds.contains(update.resourceId)) {
             changedIds.append(update.resourceId);
         }
+    }
+
+    QSet<QString> touchedIds;
+    if (mutation.clearExistingResources) {
+        for (auto it = resources_.cbegin(); it != resources_.cend(); ++it) {
+            touchedIds.insert(it.key());
+        }
+    }
+    for (const QString &id : mutation.permanentlyDeleteResourceIds) touchedIds.insert(id.trimmed());
+    for (const Resource &resource : mutation.upserts) touchedIds.insert(resource.id);
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    for (const QString &id : std::as_const(touchedIds)) {
+        const auto before = resources_.constFind(id);
+        const auto after = resources.constFind(id);
+        addIdentityReplacement(identityUpdates,
+                               before == resources_.cend()
+                                   ? std::nullopt
+                                   : std::optional<Resource>(before.value()),
+                               after == resources.cend()
+                                   ? std::nullopt
+                                   : std::optional<Resource>(after.value()));
+    }
+    if (!identityRegistry_->replaceObjects(identityUpdates.values(), &lastIdentityConflict_)) {
+        lastError_ = identityFailureMessage(lastIdentityConflict_,
+                                            QStringLiteral("Unable to update global identity registry"));
+        return false;
     }
 
     resources_ = std::move(resources);
@@ -705,6 +832,22 @@ std::optional<AnchorUsage> InMemoryLibraryRepository::anchorUsage(const QString 
         }
     }
     return std::nullopt;
+}
+
+QString InMemoryLibraryRepository::lastError() const
+{
+    return lastError_;
+}
+
+std::optional<GlobalIdentityConflict> InMemoryLibraryRepository::lastIdentityConflict() const
+{
+    return lastIdentityConflict_;
+}
+
+QList<GlobalIdentityConflict> InMemoryLibraryRepository::identityConflicts() const
+{
+    return identityRegistry_ ? identityRegistry_->conflicts()
+                             : QList<GlobalIdentityConflict>{};
 }
 
 quint64 InMemoryLibraryRepository::changeRevision() const

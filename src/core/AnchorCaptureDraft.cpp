@@ -14,12 +14,16 @@ QStringList cleanedValues(const QStringList &values, bool tags)
 {
     QStringList result;
     for (QString value : values) {
-        value = value.trimmed();
-        if (tags) {
-            while (value.startsWith(QLatin1Char('#'))) {
-                value.remove(0, 1);
-                value = value.trimmed();
+        if (!tags) {
+            if (!value.trimmed().isEmpty()) {
+                result.append(value);
             }
+            continue;
+        }
+        value = value.trimmed();
+        while (value.startsWith(QLatin1Char('#'))) {
+            value.remove(0, 1);
+            value = value.trimmed();
         }
         if (!value.isEmpty() && !result.contains(value, Qt::CaseInsensitive)) {
             result.append(value);
@@ -120,8 +124,8 @@ AnchorCaptureDraft anchorCaptureDraftFromPdfRequest(
             : QStringLiteral("sumatrapdf.page");
     }
     draft.locatorJson = pdfLocatorJson(capture);
-    draft.suggestedName = request.name.trimmed();
-    if (draft.suggestedName.isEmpty()) {
+    draft.suggestedName = request.name;
+    if (draft.suggestedName.trimmed().isEmpty()) {
         const QString fileName = QFileInfo(request.file).fileName();
         draft.suggestedName = draft.locatorType == QLatin1String("sumatrapdf.search")
             ? QStringLiteral("%1: %2").arg(fileName, request.searchText.simplified().left(48))
@@ -159,7 +163,7 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
         : draft.targetFile.trimmed();
     const QString fileName = QFileInfo(resource.location).fileName();
     resource.title = fileName.isEmpty()
-        ? draft.suggestedName.trimmed()
+        ? QStringLiteral("Anchor target: %1").arg(draft.suggestedName)
         : fileName;
     resource.updatedAt = now;
 
@@ -167,7 +171,7 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
     anchor.id = QStringLiteral("%1#%2")
                     .arg(resource.id,
                          QUuid::createUuid().toString(QUuid::WithoutBraces));
-    anchor.name = draft.suggestedName.trimmed();
+    anchor.name = draft.suggestedName;
     anchor.targetApp = draft.targetApp.trimmed();
     anchor.targetFile = draft.targetFile.trimmed();
     anchor.targetUri = draft.targetUri.trimmed();
@@ -183,7 +187,9 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
     if (!repository_.upsertResource(resource)) {
         result.resource = resource;
         result.anchor = anchor;
-        result.error = QStringLiteral("Unable to save captured Anchor");
+        result.error = repository_.lastError().trimmed().isEmpty()
+            ? QStringLiteral("Unable to save captured Anchor")
+            : repository_.lastError();
         return result;
     }
 

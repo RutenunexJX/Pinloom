@@ -167,14 +167,18 @@ void appendUnique(QStringList &values, const QString &value)
     }
 }
 
-QStringList editorValues(const QString &text)
+QStringList editorValues(const QString &text, bool retainIdentityDuplicates = false)
 {
     QStringList values;
     QString separated = text;
     separated.replace(QLatin1Char('\r'), QLatin1Char(','));
     separated.replace(QLatin1Char('\n'), QLatin1Char(','));
     for (const QString &part : separated.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-        appendUnique(values, part);
+        if (retainIdentityDuplicates) {
+            if (!part.trimmed().isEmpty()) values.append(part);
+        } else {
+            appendUnique(values, part);
+        }
     }
     return values;
 }
@@ -1634,7 +1638,7 @@ void AnchorLibraryWindow::applyFilter()
         name->setFlags(name->flags() & ~Qt::ItemIsEditable);
         if (file->resource.deleted) name->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
         fileTable_->setItem(row, FileNameColumn, name);
-        auto *aliasesItem = new QTableWidgetItem(aliases.join(QStringLiteral(", ")));
+        auto *aliasesItem = new QTableWidgetItem(aliases.join(QLatin1Char(',')));
         if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileAliasesColumn, aliasesItem);
         auto *location = new QTableWidgetItem(fileLocationLabel(*file));
@@ -1729,7 +1733,7 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
             const QStringList tags = pending != pendingInlineEdits_.constEnd() && pending->tagsDirty
                 ? pending->tags
                 : entry.anchor.tags;
-            auto *aliasesItem = new QTableWidgetItem(aliases.join(QStringLiteral(", ")));
+            auto *aliasesItem = new QTableWidgetItem(aliases.join(QLatin1Char(',')));
             aliasesItem->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
             aliasesItem->setData(ResourceIdRole, entry.resourceId);
             if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
@@ -2118,7 +2122,7 @@ void AnchorLibraryWindow::handleFileItemChanged(QTableWidgetItem *item)
     if (!file) return;
     InlineFileEdit edit = pendingFileInlineEdits_.value(key);
     edit.fileKey = key;
-    edit.aliases = editorValues(item->text());
+    edit.aliases = editorValues(item->text(), true);
     edit.aliasesDirty = edit.aliases != file->resource.aliases;
     if (edit.tags.isEmpty() && !edit.tagsDirty) edit.tags = file->resource.tags;
     if (edit.aliasesDirty) {
@@ -2148,7 +2152,7 @@ void AnchorLibraryWindow::handleAnchorItemChanged(QTableWidgetItem *item)
     InlineAnchorEdit edit = pendingInlineEdits_.value(key);
     edit.resourceId = entry->resourceId;
     edit.anchorIdentity = anchorIdentityKey(entry->anchor);
-    edit.aliases = editorValues(item->text());
+    edit.aliases = editorValues(item->text(), true);
     edit.aliasesDirty = edit.aliases != entry->anchor.aliases;
     if (edit.tags.isEmpty() && !edit.tagsDirty) edit.tags = entry->anchor.tags;
     if (edit.aliasesDirty) {

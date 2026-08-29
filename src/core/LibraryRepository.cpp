@@ -2,6 +2,21 @@
 
 namespace Pinloom {
 
+QString ILibraryRepository::lastError() const
+{
+    return {};
+}
+
+std::optional<GlobalIdentityConflict> ILibraryRepository::lastIdentityConflict() const
+{
+    return std::nullopt;
+}
+
+QList<GlobalIdentityConflict> ILibraryRepository::identityConflicts() const
+{
+    return {};
+}
+
 quint64 ILibraryRepository::changeRevision() const
 {
     return 0;

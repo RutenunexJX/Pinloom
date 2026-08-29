@@ -203,7 +203,7 @@ void ManualPdfAnchorDialog::setRequest(const ManualPdfAnchorCreationRequest &req
     if (request.zoom > 0.0) {
         zoomSpin_->setValue(request.zoom);
     }
-    aliasesEdit_->setText(request.aliases.join(QStringLiteral(", ")));
+    aliasesEdit_->setText(request.aliases.join(QLatin1Char(',')));
     tagsEdit_->setText(request.tags.join(QStringLiteral(", ")));
     pinnedCheck_->setChecked(request.pinned);
     updateSummary();

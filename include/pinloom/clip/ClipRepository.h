@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/Anchor.h"
+#include "pinloom/core/GlobalIdentity.h"
 
 #include <QDateTime>
 #include <QList>
@@ -105,6 +106,7 @@ struct ClipIdentityValidationResult {
     QString conflictingClipId;
     QString conflictingValue;
     QString error;
+    std::optional<GlobalIdentityConflict> conflict;
 };
 
 ClipIdentityValidationResult validateClipIdentity(const QList<Clip> &clips,
@@ -114,6 +116,9 @@ ClipIdentityValidationResult validateClipIdentity(const QList<Clip> &clips,
 
 class InMemoryClipRepository {
 public:
+    explicit InMemoryClipRepository(
+        SharedInMemoryGlobalIdentityRegistry identityRegistry = {});
+
     ClipCaptureResult captureText(const QString &text,
                                   const ClipCapturePolicy &policy = {},
                                   const QString &sourceApp = {},
@@ -138,8 +143,14 @@ public:
     QList<Clip> temporaryClips() const;
     QList<Clip> savedClips() const;
     std::optional<Clip> findClip(const QString &id) const;
+    QString lastError() const;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict() const;
+    QList<GlobalIdentityConflict> identityConflicts() const;
 
 private:
+    SharedInMemoryGlobalIdentityRegistry identityRegistry_;
+    QString lastError_;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict_;
     QList<Clip> clips_;
 };
 
@@ -148,10 +159,12 @@ public:
     SqliteClipRepository();
     ~SqliteClipRepository();
 
-    bool open(const QString &path);
+    bool open(const QString &path, const QString &identityRegistryPath = {});
     bool initialize();
     bool isOpen() const;
     QString lastError() const;
+    std::optional<GlobalIdentityConflict> lastIdentityConflict() const;
+    QList<GlobalIdentityConflict> identityConflicts() const;
 
     ClipCaptureResult captureText(const QString &text,
                                   const ClipCapturePolicy &policy = {},
@@ -187,7 +200,10 @@ private:
     bool recordMigration(int version, const QString &name);
     int schemaVersion() const;
     bool migrateToVersion2();
+    bool migrateIdentityIndexToVersion4();
     bool ensureSearchSchema();
+    bool attachGlobalIdentityRegistry();
+    bool rebuildGlobalIdentityRegistry();
     bool rebuildMetadataIndex(const Clip &clip);
     bool rebuildAllMetadataIndexes();
     bool hasContentHash(const QString &contentHash) const;
@@ -198,7 +214,9 @@ private:
 
     QString connectionName_;
     QSqlDatabase database_;
+    QString identityRegistryPath_;
     mutable QString lastError_;
+    mutable std::optional<GlobalIdentityConflict> lastIdentityConflict_;
 };
 
 QString clipTargetApp();

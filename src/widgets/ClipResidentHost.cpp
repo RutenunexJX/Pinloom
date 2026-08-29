@@ -175,7 +175,7 @@ ClipResidentHostResult ClipResidentRuntimeFactory::createHost(
         }
 
         auto repository = std::make_unique<SqliteClipRepository>();
-        if (!repository->open(databasePath)) {
+        if (!repository->open(databasePath, options.sqliteIdentityRegistryPath)) {
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to open clip SQLite database")));
         }
@@ -248,7 +248,7 @@ ClipResidentHostResult ClipResidentRuntimeFactory::createDefaultPlatformHost(
         }
 
         auto repository = std::make_unique<SqliteClipRepository>();
-        if (!repository->open(databasePath)) {
+        if (!repository->open(databasePath, options.sqliteIdentityRegistryPath)) {
             return failedHostResult(
                 normalizedError(repository->lastError(), QStringLiteral("Unable to open clip SQLite database")));
         }

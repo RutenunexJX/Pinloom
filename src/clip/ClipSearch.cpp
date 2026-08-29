@@ -336,6 +336,9 @@ ClipSearchService::ClipSearchService(InMemoryClipRepository &repository)
                         },
                         [&repository](const QString &clipId, const QDateTime &now) {
                             return repository.restoreClip(clipId, now);
+                        },
+                        [&repository]() {
+                            return repository.lastError();
                         })
 {
 }

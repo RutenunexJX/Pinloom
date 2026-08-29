@@ -163,7 +163,9 @@ int main(int argc, char *argv[])
 
     Pinloom::SqliteLibraryRepository repository;
     const QString databasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom.sqlite3"));
-    if (!repository.open(databasePath)) {
+    const QString identityRegistryPath =
+        QDir(appDataPath).filePath(QStringLiteral("pinloom_identity.sqlite3"));
+    if (!repository.open(databasePath, identityRegistryPath)) {
         QMessageBox::critical(nullptr,
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to open Pinloom database:\n%1").arg(repository.lastError()));
@@ -216,6 +218,7 @@ int main(int argc, char *argv[])
     Pinloom::ClipResidentRuntimeFactoryOptions clipOptions;
     clipOptions.repositoryKind = Pinloom::ClipResidentRepositoryKind::SQLite;
     clipOptions.sqliteDatabasePath = QDir(appDataPath).filePath(QStringLiteral("pinloom_clip.sqlite3"));
+    clipOptions.sqliteIdentityRegistryPath = identityRegistryPath;
     clipOptions.runtimeOptions.insertionOptions.restoreOriginalClipboardOnSuccess =
         runtimeSettings.clipRestoreOriginalClipboardOnInsert;
 
@@ -247,6 +250,29 @@ int main(int argc, char *argv[])
         QMessageBox::warning(nullptr,
                              QStringLiteral("Pinloom Clip"),
                              QStringLiteral("Pinloom Clip could not initialize:\n%1").arg(clipHostResult.error));
+    }
+
+    QString startupIdentityWarning;
+    const QList<Pinloom::GlobalIdentityConflict> startupIdentityConflicts =
+        clipHost && clipHost->sqliteRepository()
+        ? clipHost->sqliteRepository()->identityConflicts()
+        : repository.identityConflicts();
+    if (!startupIdentityConflicts.isEmpty()) {
+        QStringList conflictLines;
+        const qsizetype visibleConflictCount = std::min<qsizetype>(
+            20, startupIdentityConflicts.size());
+        for (int index = 0; index < visibleConflictCount; ++index) {
+            conflictLines.append(startupIdentityConflicts.at(index).message());
+        }
+        if (startupIdentityConflicts.size() > visibleConflictCount) {
+            conflictLines.append(QStringLiteral("%1 additional conflict(s) are not shown.")
+                                     .arg(startupIdentityConflicts.size() - visibleConflictCount));
+        }
+        startupIdentityWarning = QStringLiteral(
+            "Pinloom found historical File, Clip, or Anchor name/alias conflicts. "
+            "Existing data remains readable, but conflicting identities cannot be saved or restored "
+            "until each listed object is renamed.\n\n%1")
+                                     .arg(conflictLines.join(QStringLiteral("\n\n")));
     }
 
     QList<Pinloom::ApplicationDataBackupItem> backupItems;
@@ -282,6 +308,15 @@ int main(int argc, char *argv[])
     if (!startupDataWarning.isEmpty()) {
         window.setRecentError(QStringLiteral("Application data backup failed"),
                               startupDataWarning);
+    }
+    if (!startupIdentityWarning.isEmpty()) {
+        window.setRecentError(QStringLiteral("Global name/alias conflicts"),
+                              startupIdentityWarning);
+        if (!startHidden) {
+            QMessageBox::warning(&window,
+                                 QStringLiteral("Pinloom Name/Alias Conflicts"),
+                                 startupIdentityWarning);
+        }
     }
 
     const auto obsidianConfigForSettings = [](const Pinloom::PinloomAppSettings &settings) {
@@ -452,7 +487,7 @@ int main(int argc, char *argv[])
 
         clip.name = metadata.name.trimmed().isEmpty()
             ? automaticClipName(selection.text)
-            : metadata.name.trimmed();
+            : metadata.name;
         clip.tags = metadata.tags;
         clip.sourceApp = selection.context.processName;
         clip.sourceWindowTitle = selection.context.windowTitle;
@@ -1356,15 +1391,18 @@ int main(int argc, char *argv[])
         return tag;
     };
     const auto appendUniqueValue = [](QStringList &values, const QString &value) {
-        const QString trimmed = value.trimmed();
-        if (!trimmed.isEmpty() && !values.contains(trimmed, Qt::CaseInsensitive)) {
-            values.append(trimmed);
+        if (!value.trimmed().isEmpty() && !values.contains(value, Qt::CaseInsensitive)) {
+            values.append(value);
         }
     };
     const auto valuesFromCommaText = [&appendUniqueValue, &cleanTag](const QString &text, bool tags) {
         QStringList values;
         for (const QString &value : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-            appendUniqueValue(values, tags ? cleanTag(value) : value);
+            if (tags) {
+                appendUniqueValue(values, cleanTag(value));
+            } else if (!value.trimmed().isEmpty()) {
+                values.append(value);
+            }
         }
         return values;
     };
@@ -1385,7 +1423,7 @@ int main(int argc, char *argv[])
         dialog.setWindowTitle(windowTitle);
         auto *form = new QFormLayout(&dialog);
         auto *nameEdit = new QLineEdit(name, &dialog);
-        auto *aliasesEdit = new QLineEdit(aliases.join(QStringLiteral(", ")), &dialog);
+        auto *aliasesEdit = new QLineEdit(aliases.join(QLatin1Char(',')), &dialog);
         auto *tagsEdit = new QLineEdit(tags.join(QStringLiteral(", ")), &dialog);
         auto *pinnedCheck = new QCheckBox(QStringLiteral("Pinned"), &dialog);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
@@ -1401,7 +1439,7 @@ int main(int argc, char *argv[])
             return std::nullopt;
         }
         MetadataEdit edit;
-        edit.name = nameEdit->text().trimmed();
+        edit.name = nameEdit->text();
         edit.aliases = valuesFromCommaText(aliasesEdit->text(), false);
         edit.tags = valuesFromCommaText(tagsEdit->text(), true);
         edit.pinned = pinnedCheck->isChecked();
@@ -1418,7 +1456,8 @@ int main(int argc, char *argv[])
                                                    windowTitle,
                                                    label,
                                                    QLineEdit::Normal,
-                                                   values.join(QStringLiteral(", ")),
+                                                   values.join(tags ? QStringLiteral(", ")
+                                                                    : QStringLiteral(",")),
                                                    &accepted);
         if (!accepted) {
             return std::nullopt;
@@ -1594,7 +1633,7 @@ int main(int argc, char *argv[])
                                                            QStringLiteral("Name"),
                                                            QLineEdit::Normal,
                                                            clip->name,
-                                                           &accepted).trimmed();
+                                                           &accepted);
                 if (!accepted) {
                     if (status) {
                         *status = QStringLiteral("Rename canceled");
@@ -1669,7 +1708,7 @@ int main(int argc, char *argv[])
                                                             QStringLiteral("Alias"),
                                                             QLineEdit::Normal,
                                                             QString(),
-                                                            &accepted).trimmed();
+                                                            &accepted);
                 if (!accepted) {
                     if (status) {
                         *status = QStringLiteral("Add alias canceled");
@@ -1758,9 +1797,11 @@ int main(int argc, char *argv[])
                 : repository.restoreResource(target.resourceId);
             if (!restored) {
                 if (status) {
-                    *status = target.anchor.has_value()
-                        ? QStringLiteral("Unable to restore anchor")
-                        : QStringLiteral("Unable to restore resource");
+                    *status = repository.lastError().trimmed().isEmpty()
+                        ? (target.anchor.has_value()
+                               ? QStringLiteral("Unable to restore anchor")
+                               : QStringLiteral("Unable to restore resource"))
+                        : repository.lastError();
                 }
                 return false;
             }
@@ -1831,14 +1872,14 @@ int main(int argc, char *argv[])
                                                        QStringLiteral("Name"),
                                                        QLineEdit::Normal,
                                                        targetTitle(target),
-                                                       &accepted).trimmed();
+                                                       &accepted);
             if (!accepted) {
                 if (status) {
                     *status = QStringLiteral("Rename canceled");
                 }
                 return false;
             }
-            if (name.isEmpty()) {
+            if (name.trimmed().isEmpty()) {
                 if (status) {
                     *status = QStringLiteral("Name is required");
                 }
@@ -1864,7 +1905,9 @@ int main(int argc, char *argv[])
             resource->updatedAt = QDateTime::currentDateTimeUtc();
             if (!repository.upsertResource(resource.value())) {
                 if (status) {
-                    *status = QStringLiteral("Unable to rename resource");
+                    *status = repository.lastError().trimmed().isEmpty()
+                        ? QStringLiteral("Unable to rename resource")
+                        : repository.lastError();
                 }
                 return false;
             }
@@ -1894,7 +1937,7 @@ int main(int argc, char *argv[])
             }
             if (target.anchor.has_value()) {
                 return updateAnchorMetadata(target,
-                                            targetTitle(target),
+                                            target.anchor->name,
                                             aliases.value(),
                                             target.anchor->tags,
                                             target.anchor->pinned,
@@ -1912,7 +1955,9 @@ int main(int argc, char *argv[])
             resource->updatedAt = QDateTime::currentDateTimeUtc();
             if (!repository.upsertResource(resource.value())) {
                 if (status) {
-                    *status = QStringLiteral("Unable to update resource aliases");
+                    *status = repository.lastError().trimmed().isEmpty()
+                        ? QStringLiteral("Unable to update resource aliases")
+                        : repository.lastError();
                 }
                 return false;
             }
@@ -1942,7 +1987,7 @@ int main(int argc, char *argv[])
             }
             if (target.anchor.has_value()) {
                 return updateAnchorMetadata(target,
-                                            targetTitle(target),
+                                            target.anchor->name,
                                             target.anchor->aliases,
                                             tags.value(),
                                             target.anchor->pinned,
@@ -1960,7 +2005,9 @@ int main(int argc, char *argv[])
             resource->updatedAt = QDateTime::currentDateTimeUtc();
             if (!repository.upsertResource(resource.value())) {
                 if (status) {
-                    *status = QStringLiteral("Unable to update resource tags");
+                    *status = repository.lastError().trimmed().isEmpty()
+                        ? QStringLiteral("Unable to update resource tags")
+                        : repository.lastError();
                 }
                 return false;
             }
@@ -1986,7 +2033,7 @@ int main(int argc, char *argv[])
                                                         QStringLiteral("Alias"),
                                                         QLineEdit::Normal,
                                                         QString(),
-                                                        &accepted).trimmed();
+                                                        &accepted);
             if (!accepted) {
                 if (status) {
                     *status = QStringLiteral("Add alias canceled");
@@ -2001,7 +2048,7 @@ int main(int argc, char *argv[])
                     return false;
                 }
                 return updateAnchorMetadata(target,
-                                            targetTitle(target),
+                                            target.anchor->name,
                                             aliases,
                                             target.anchor->tags,
                                             target.anchor->pinned,
@@ -2049,7 +2096,7 @@ int main(int argc, char *argv[])
                     return false;
                 }
                 return updateAnchorMetadata(target,
-                                            targetTitle(target),
+                                            target.anchor->name,
                                             target.anchor->aliases,
                                             tags,
                                             target.anchor->pinned,
@@ -2310,11 +2357,18 @@ int main(int argc, char *argv[])
             QUuid::createUuid().toString(QUuid::WithoutBraces);
         const QString anchorId =
             QUuid::createUuid().toString(QUuid::WithoutBraces);
-        QString title = request.title.trimmed();
-        if (title.isEmpty()) {
+        QString title = request.title;
+        if (title.trimmed().isEmpty()) {
             title = QFileInfo(request.absoluteFilePath).fileName()
                 + QStringLiteral(":%1").arg(request.startLine);
         }
+        const QString sourceLabel = request.relativeFilePath.trimmed().isEmpty()
+            ? QFileInfo(request.absoluteFilePath).fileName()
+            : request.relativeFilePath;
+        const QString resourceTitle = QStringLiteral("Source %1:%2:%3")
+                                          .arg(sourceLabel)
+                                          .arg(request.startLine)
+                                          .arg(request.startColumn);
 
         QJsonObject locator{
             {QStringLiteral("type"), QStringLiteral("zeroslack.source")},
@@ -2350,7 +2404,7 @@ int main(int argc, char *argv[])
         Pinloom::Resource resource;
         resource.id = resourceId;
         resource.kind = Pinloom::ResourceKind::TextSnippet;
-        resource.title = title;
+        resource.title = resourceTitle;
         resource.location = request.absoluteFilePath;
         resource.tags = anchor.tags;
         if (!request.moduleName.isEmpty())

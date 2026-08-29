@@ -89,7 +89,7 @@ std::optional<PinloomSourceAnchorRequest> sourceAnchorRequestFromJson(
     const QJsonObject &object)
 {
     PinloomSourceAnchorRequest request;
-    request.title = object.value(QStringLiteral("title")).toString().trimmed();
+    request.title = object.value(QStringLiteral("title")).toString();
     request.content = object.value(QStringLiteral("content")).toString();
     request.workspaceRoot =
         object.value(QStringLiteral("workspaceRoot")).toString().trimmed();

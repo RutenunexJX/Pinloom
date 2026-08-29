@@ -1039,7 +1039,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     nameResource.location = QStringLiteral("name.pinloom");
     Anchor nameAnchor;
     nameAnchor.locatorType = QStringLiteral("manual");
-    nameAnchor.name = QStringLiteral("shared");
+    nameAnchor.name = QStringLiteral("shared name");
     nameResource.anchors = {nameAnchor};
     QVERIFY(repository.upsertResource(nameResource));
 
@@ -1051,7 +1051,7 @@ void CoreSmokeTest::ranksAnchorLocatorMatchesByNameAliasTagAndMetadata()
     Anchor aliasAnchor;
     aliasAnchor.locatorType = QStringLiteral("manual");
     aliasAnchor.name = QStringLiteral("alias carrier");
-    aliasAnchor.aliases = {QStringLiteral("shared")};
+    aliasAnchor.aliases = {QStringLiteral("shared alias")};
     aliasResource.anchors = {aliasAnchor};
     QVERIFY(repository.upsertResource(aliasResource));
 
@@ -1452,6 +1452,12 @@ void CoreSmokeTest::managesAnchorLibraryMetadataTagsPathsAndDuplicates()
     anchorUpdate.pinned = true;
     AnchorLibraryOperationResult result =
         service.updateAnchorMetadata({primary.id, overview}, anchorUpdate);
+    QVERIFY(!result.success);
+    QVERIFY(result.message.contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
+    QCOMPARE(repository.findResource(primary.id)->anchors.first().name,
+             QStringLiteral("Overview"));
+    anchorUpdate.aliases = {QStringLiteral("architecture")};
+    result = service.updateAnchorMetadata({primary.id, overview}, anchorUpdate);
     QVERIFY2(result.success, qPrintable(result.message));
     std::optional<Resource> storedPrimary = repository.findResource(primary.id);
     QVERIFY(storedPrimary.has_value());
@@ -1499,13 +1505,30 @@ void CoreSmokeTest::managesAnchorLibraryMetadataTagsPathsAndDuplicates()
     QVERIFY2(result.success, qPrintable(result.message));
     QVERIFY(!repository.findResource(primary.id)->anchors.first().deleted);
 
-    ResourceMetadataUpdate fileUpdate;
-    fileUpdate.title = QStringLiteral("Managed PDF");
-    fileUpdate.aliases = {QStringLiteral("managed")};
-    fileUpdate.tags = {QStringLiteral("library")};
-    result = service.updateResourceMetadata({primary.id, duplicate.id}, fileUpdate);
+    ResourceMetadataUpdate conflictingFileUpdate;
+    conflictingFileUpdate.title = QStringLiteral("Managed PDF");
+    conflictingFileUpdate.aliases = {QStringLiteral("managed")};
+    conflictingFileUpdate.tags = {QStringLiteral("library")};
+    result = service.updateResourceMetadata(
+        {primary.id, duplicate.id}, conflictingFileUpdate);
+    QVERIFY(!result.success);
+    QVERIFY(result.message.contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
+    QCOMPARE(repository.findResource(primary.id)->title, QStringLiteral("Primary PDF"));
+    QCOMPARE(repository.findResource(duplicate.id)->title, QStringLiteral("Duplicate PDF"));
+
+    ResourceMetadataUpdate primaryFileUpdate;
+    primaryFileUpdate.title = QStringLiteral("Managed Primary PDF");
+    primaryFileUpdate.aliases = {QStringLiteral("managed")};
+    primaryFileUpdate.tags = {QStringLiteral("library")};
+    result = service.updateResourceMetadata({primary.id}, primaryFileUpdate);
     QVERIFY2(result.success, qPrintable(result.message));
-    QCOMPARE(repository.findResource(primary.id)->title, QStringLiteral("Managed PDF"));
+    ResourceMetadataUpdate duplicateFileUpdate;
+    duplicateFileUpdate.title = QStringLiteral("Managed Duplicate PDF");
+    duplicateFileUpdate.aliases = {QStringLiteral("managed duplicate")};
+    duplicateFileUpdate.tags = {QStringLiteral("library")};
+    result = service.updateResourceMetadata({duplicate.id}, duplicateFileUpdate);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(repository.findResource(primary.id)->title, QStringLiteral("Managed Primary PDF"));
     QCOMPARE(repository.findResource(duplicate.id)->tags, QStringList{QStringLiteral("library")});
 
     result = service.relinkResources({primary.id, duplicate.id}, replacementPath);
@@ -1568,6 +1591,7 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     region.tags = {QStringLiteral("legacy")};
     Anchor duplicateRegion = region;
     duplicateRegion.id = QStringLiteral("design#region-copy");
+    duplicateRegion.name = QStringLiteral("Power stage duplicate");
 
     Resource design;
     design.id = QStringLiteral("design");
@@ -1579,7 +1603,10 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     Resource duplicateDesign = design;
     duplicateDesign.id = QStringLiteral("design-copy");
     duplicateDesign.title = QStringLiteral("Design PDF copy");
-    duplicateDesign.anchors = {region};
+    Anchor duplicateDesignRegion = region;
+    duplicateDesignRegion.id = QStringLiteral("design-copy#region");
+    duplicateDesignRegion.name = QStringLiteral("Power stage mirror");
+    duplicateDesign.anchors = {duplicateDesignRegion};
 
     InMemoryLibraryRepository repository;
     QVERIFY(repository.upsertResource(design));
@@ -1589,7 +1616,7 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     AnchorLibraryIntegrityReport report = service.inspectIntegrity();
     QCOMPARE(report.missingTargetCount, 2);
     QCOMPARE(report.duplicateResourceCount, 1);
-    QVERIFY(report.duplicateAnchorCount >= 2);
+    QCOMPARE(report.duplicateAnchorCount, 0);
     QVERIFY(report.invalidLocatorCount >= 2);
 
     AnchorLibraryOperationResult result =
@@ -1605,8 +1632,8 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
 
     result = service.deduplicateAnchors({design.id});
     QVERIFY2(result.success, qPrintable(result.message));
-    QCOMPARE(result.affectedCount, 1);
-    QCOMPARE(repository.findResource(design.id)->anchors.size(), 1);
+    QCOMPARE(result.affectedCount, 0);
+    QCOMPARE(repository.findResource(design.id)->anchors.size(), 2);
 
     Anchor storedAnchor = repository.findResource(design.id)->anchors.first();
     result = service.setAnchorsPinned({{design.id, storedAnchor}}, true);
@@ -1650,7 +1677,7 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     storedAnchor = repository.findResource(design.id)->anchors.first();
     result = service.permanentlyDeleteAnchors({{design.id, storedAnchor}});
     QVERIFY2(result.success, qPrintable(result.message));
-    QVERIFY(repository.findResource(design.id)->anchors.isEmpty());
+    QCOMPARE(repository.findResource(design.id)->anchors.size(), 1);
     QVERIFY(!service.canUndo());
 
     Resource metadataTrash = repository.findResource(duplicateDesign.id).value();
@@ -2035,7 +2062,7 @@ void CoreSmokeTest::filtersByRequiredResourceKinds()
     link.kind = ResourceKind::Url;
     link.title = QStringLiteral("UART Link");
     link.location = QStringLiteral("https://docs.example.com/uart");
-    link.anchors = {testAnchor(QStringLiteral("Dock handoff"), QStringLiteral("url.fragment"))};
+    link.anchors = {testAnchor(QStringLiteral("Dock handoff link"), QStringLiteral("url.fragment"))};
     QVERIFY(repository.upsertResource(link));
 
     SearchQuery query;
@@ -2097,7 +2124,7 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
     cold.title = QStringLiteral("Alpha");
     cold.location = QStringLiteral("alpha.md");
     cold.anchors = {
-        testAnchor(QStringLiteral("Power rail"), QStringLiteral("text.heading"), 1)};
+        testAnchor(QStringLiteral("Power rail cold"), QStringLiteral("text.heading"), 1)};
     QVERIFY(repository.upsertResource(cold));
 
     Resource hot;
@@ -2106,7 +2133,7 @@ void CoreSmokeTest::ranksOpenedAnchorsWithinAnchorMatches()
     hot.title = QStringLiteral("Zulu");
     hot.location = QStringLiteral("zulu.md");
     hot.anchors = {
-        testAnchor(QStringLiteral("Power rail"), QStringLiteral("text.heading"), 2)};
+        testAnchor(QStringLiteral("Power rail hot"), QStringLiteral("text.heading"), 2)};
     QVERIFY(repository.upsertResource(hot));
 
     QVERIFY(repository.recordAnchorOpen(hot.id, hot.anchors.first()));

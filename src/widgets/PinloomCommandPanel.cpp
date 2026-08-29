@@ -440,7 +440,11 @@ QStringList valuesFromCommaText(const QString &text, bool tags = false)
 {
     QStringList values;
     for (const QString &value : text.split(QLatin1Char(','), Qt::SkipEmptyParts)) {
-        appendUniqueValue(values, tags ? cleanTag(value) : value);
+        if (tags) {
+            appendUniqueValue(values, cleanTag(value));
+        } else if (!value.trimmed().isEmpty()) {
+            values.append(value);
+        }
     }
     return values;
 }
@@ -449,7 +453,11 @@ QStringList cleanedValues(const QStringList &source, bool tags = false)
 {
     QStringList values;
     for (const QString &value : source) {
-        appendUniqueValue(values, tags ? cleanTag(value) : value);
+        if (tags) {
+            appendUniqueValue(values, cleanTag(value));
+        } else if (!value.trimmed().isEmpty()) {
+            values.append(value);
+        }
     }
     return values;
 }
@@ -508,9 +516,8 @@ QString clipAliasesText(const QStringList &aliases)
 {
     QStringList cleanedAliases;
     for (const QString &alias : aliases) {
-        const QString trimmed = alias.trimmed();
-        if (!trimmed.isEmpty()) {
-            cleanedAliases.append(trimmed);
+        if (!alias.trimmed().isEmpty()) {
+            cleanedAliases.append(alias);
         }
     }
     return cleanedAliases.join(QStringLiteral(", "));
@@ -2340,7 +2347,6 @@ bool PinloomCommandPanel::saveClipFromItem(const QListWidgetItem *item)
     if (request->clipId.trimmed().isEmpty()) {
         request->clipId = result.clipId;
     }
-    request->name = request->name.trimmed();
     request->aliases = cleanedValues(request->aliases);
     request->tags = cleanedValues(request->tags, true);
 
@@ -2350,7 +2356,7 @@ bool PinloomCommandPanel::saveClipFromItem(const QListWidgetItem *item)
         return false;
     }
 
-    const QString savedName = request->name.isEmpty() ? result.preview : request->name;
+    const QString savedName = request->name.trimmed().isEmpty() ? result.preview : request->name;
     openClipSearch(savedName);
     updateStatus(tr("Saved clip \"%1\"").arg(savedName));
     emit clipSaved(result.clipId);
@@ -2497,11 +2503,10 @@ bool PinloomCommandPanel::saveInboxFromCommand()
         if (request.filePath.trimmed().isEmpty()) {
             request.filePath = filePath;
         }
-        request.name = request.name.trimmed();
         request.aliases = cleanedValues(request.aliases);
         request.tags = cleanedValues(request.tags, true);
 
-        if (request.name.isEmpty()) {
+        if (request.name.trimmed().isEmpty()) {
             request.name = defaultInboxFileName(request.filePath);
         }
 
