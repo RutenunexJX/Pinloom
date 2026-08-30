@@ -18,12 +18,20 @@ struct PdfCaptureRect {
 struct PdfCaptureRequest {
     QString targetApp = QStringLiteral("SumatraPDF");
     QString targetFile;
+    QString documentIdentity;
     QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    PdfCaptureRect mediaBox;
+    PdfCaptureRect cropBox;
+    int rotation = 0;
+    double userUnit = 1.0;
+    // Runtime observation used while capturing. It is not authoritative and
+    // must not be serialized into new locators.
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
+    QString adapterId = QStringLiteral("sumatrapdf");
     QString searchText;
     QString contextBefore;
     QString contextAfter;
@@ -39,6 +47,10 @@ struct AnchorCaptureResult {
     QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    PdfCaptureRect mediaBox;
+    PdfCaptureRect cropBox;
+    int rotation = 0;
+    double userUnit = 1.0;
     double zoom = -1.0;
     QString unit;
     QString source;

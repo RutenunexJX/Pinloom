@@ -2,6 +2,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
 #include "pinloom/widgets/PinloomOpenService.h"
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -427,16 +428,19 @@ void HostBridgeTest::hostOpenUsesSharedPdfAnchorPresenter()
 
     RecordingPdfPresenter presenter;
     int directLaunchCount = 0;
-    PinloomOpenServiceOptions openOptions;
-    openOptions.sumatraPdfExecutablePathProvider = []() {
+    SumatraPdfViewerAdapterOptions adapterOptions;
+    adapterOptions.executablePathProvider = []() {
         return QStringLiteral("C:/Tools/SumatraPDF.exe");
     };
-    openOptions.sumatraPdfLaunchHandler = [&directLaunchCount](
-                                               const SumatraPdfCommand &, QString *) {
+    adapterOptions.launchHandler = [&directLaunchCount](
+                                       const SumatraPdfCommand &, QString *) {
         ++directLaunchCount;
         return true;
     };
-    openOptions.pdfAnchorPresenter = &presenter;
+    adapterOptions.pdfAnchorPresenter = &presenter;
+    SumatraPdfViewerAdapter adapter(repository, adapterOptions);
+    PinloomOpenServiceOptions openOptions;
+    openOptions.pdfViewerAdapter = &adapter;
     PinloomOpenService openService(repository, openOptions);
 
     PinloomHostBridgeCallbacks callbacks;

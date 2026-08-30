@@ -1,5 +1,6 @@
 #pragma once
 
+#include "pinloom/core/ForegroundApplicationContext.h"
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 
@@ -9,16 +10,6 @@
 #include <QStringList>
 
 namespace Pinloom {
-
-struct ForegroundAppWindowContext {
-    QString windowTitle;
-    QString processName;
-    QString processPath;
-    quintptr windowHandle = 0;
-    quint32 processId = 0;
-
-    bool isValid() const;
-};
 
 struct SumatraPdfViewState {
     QString documentPath;
@@ -61,7 +52,6 @@ private:
     ViewStateProvider viewStateProvider_;
 };
 
-ForegroundAppWindowContext currentForegroundAppWindowContext();
 bool isSumatraPdfForegroundWindow(const ForegroundAppWindowContext &context);
 QString normalizedSumatraPdfDocumentTitleKey(const QString &documentTitle);
 bool isSumatraPdfFullPdfPath(const QString &filePath);

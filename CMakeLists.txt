@@ -31,6 +31,7 @@ add_library(pinloom_core STATIC
     include/pinloom/core/ApplicationDataBackup.h
     include/pinloom/core/ExcelCommand.h
     include/pinloom/core/ExplorerFileSelection.h
+    include/pinloom/core/ForegroundApplicationContext.h
     include/pinloom/core/GlobalIdentity.h
     include/pinloom/core/InboxFileCapture.h
     include/pinloom/core/InMemoryLibraryRepository.h
@@ -165,6 +166,9 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/AnchorLibraryWindow.h
     include/pinloom/widgets/PdfLocatorPreviewRenderer.h
     include/pinloom/widgets/PdfAnchorPresenter.h
+    include/pinloom/widgets/PdfRegionSelectionOverlay.h
+    include/pinloom/widgets/PdfViewerAdapter.h
+    include/pinloom/widgets/SumatraPdfViewerAdapter.h
     include/pinloom/widgets/ClipResidentHost.h
     include/pinloom/widgets/ClipResidentRuntime.h
     include/pinloom/widgets/ClipTrayPresenter.h
@@ -184,7 +188,6 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/PinloomPanel.h
     include/pinloom/widgets/PinloomSettingsDialog.h
     include/pinloom/widgets/PinloomVisualTheme.h
-    include/pinloom/widgets/SumatraPdfRegionCaptureOverlay.h
     include/pinloom/widgets/PinloomSingleInstance.h
     include/pinloom/widgets/TextPreviewDialog.h
     src/widgets/AnchorLocatorPreviewWidget.cpp
@@ -197,6 +200,8 @@ add_library(pinloom_widgets STATIC
     src/widgets/AnchorLibraryWindow.cpp
     src/widgets/PdfLocatorPreviewRenderer.cpp
     src/widgets/PdfAnchorPresenter.cpp
+    src/widgets/PdfRegionSelectionOverlay.cpp
+    src/widgets/PdfViewerAdapter.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
@@ -211,7 +216,6 @@ add_library(pinloom_widgets STATIC
     src/widgets/PinloomPanel.cpp
     src/widgets/PinloomSettingsDialog.cpp
     src/widgets/PinloomVisualTheme.cpp
-    src/widgets/SumatraPdfRegionCaptureOverlay.cpp
     src/widgets/PinloomSingleInstance.cpp
     src/widgets/TextPreviewDialog.cpp
 )
@@ -386,6 +390,18 @@ target_link_libraries(pinloom_pdf_anchor_presenter_test
 )
 
 pinloom_add_test(pinloom_pdf_anchor_presenter_test)
+
+add_executable(pinloom_pdf_viewer_adapter_test
+    tests/pdf_viewer_adapter_test.cpp
+)
+
+target_link_libraries(pinloom_pdf_viewer_adapter_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_pdf_viewer_adapter_test)
 
 add_executable(pinloom_host_bridge_test
     tests/host_bridge_test.cpp

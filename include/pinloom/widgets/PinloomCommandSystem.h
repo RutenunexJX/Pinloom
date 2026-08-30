@@ -38,7 +38,10 @@ enum class PinloomCommandId {
     RestoreSearch,
     RootLibrary,
     Settings,
-    Diagnostics
+    Diagnostics,
+    // Internal command used by host/deep-link activation. It is intentionally
+    // absent from user-visible registry rows.
+    OpenIdentity
 };
 
 struct PinloomCommandDefinition {

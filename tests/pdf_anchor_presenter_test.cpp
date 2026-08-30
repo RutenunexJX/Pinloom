@@ -1,6 +1,7 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/PdfAnchorPresenter.h"
 #include "pinloom/widgets/PinloomOpenService.h"
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 
 #include <QCryptographicHash>
 #include <QElapsedTimer>
@@ -340,15 +341,19 @@ void PdfAnchorPresenterTest::openServiceOffersExplicitOriginalPdfFallback()
 
     FailingPresenter presenter;
     QList<SumatraPdfCommand> launches;
-    PinloomOpenServiceOptions options;
-    options.sumatraPdfExecutablePathProvider = []() {
+    SumatraPdfViewerAdapterOptions adapterOptions;
+    adapterOptions.executablePathProvider = []() {
         return QStringLiteral("C:/Tools/SumatraPDF.exe");
     };
-    options.pdfAnchorPresenter = &presenter;
-    options.sumatraPdfLaunchHandler = [&launches](const SumatraPdfCommand &command, QString *) {
+    adapterOptions.pdfAnchorPresenter = &presenter;
+    adapterOptions.launchHandler = [&launches](const SumatraPdfCommand &command,
+                                               QString *) {
         launches.append(command);
         return true;
     };
+    SumatraPdfViewerAdapter adapter(repository, adapterOptions);
+    PinloomOpenServiceOptions options;
+    options.pdfViewerAdapter = &adapter;
     options.pdfOriginalFallbackPrompt = [](const QString &, int, const QString &) {
         return true;
     };

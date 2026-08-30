@@ -27,11 +27,12 @@
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomOpenService.h"
 #include "pinloom/widgets/PinloomPanel.h"
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/PinloomSingleInstance.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
-#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
+#include "pinloom/widgets/PdfRegionSelectionOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QAction>
@@ -2700,35 +2701,7 @@ void WidgetSmokeTest::dataDirectoryChangeMigratesOnNextStartup()
 
 void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
 {
-    QList<SumatraPdfDdeMousePosition> positions;
-    SumatraPdfDdeMousePosition start;
-    start.page = 12;
-    start.x = 420.0;
-    start.y = 860.0;
-    positions.append(start);
-    SumatraPdfDdeMousePosition end;
-    end.page = 12;
-    end.x = 780.0;
-    end.y = 920.0;
-    positions.append(end);
-
-    SumatraPdfRegionCaptureOverlay *activeOverlay = nullptr;
-    bool hiddenForEverySample = true;
-    SumatraPdfRegionCaptureOverlay overlay(
-        0,
-        [&positions, &activeOverlay, &hiddenForEverySample]() {
-            hiddenForEverySample = hiddenForEverySample
-                && activeOverlay
-                && !activeOverlay->isVisible();
-            if (positions.isEmpty()) {
-                SumatraPdfDdeMousePosition missing;
-                missing.error = QStringLiteral("missing test position");
-                return missing;
-            }
-            return positions.takeFirst();
-        });
-    activeOverlay = &overlay;
-    overlay.setGeometry(100, 100, 500, 300);
+    PdfRegionSelectionOverlay overlay(QRect(100, 100, 500, 300));
     overlay.show();
     QVERIFY(QTest::qWaitForWindowExposed(&overlay));
 
@@ -2737,109 +2710,64 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()
     QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
 
     QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
-    QVERIFY(hiddenForEverySample);
-    const SumatraPdfRegionCaptureResult result = overlay.captureResult();
-    QVERIFY2(result.success(), qPrintable(result.region.error));
-    QCOMPARE(result.region.page, 12);
-    QCOMPARE(result.region.rect.left, 420.0);
-    QCOMPARE(result.region.rect.top, 860.0);
-    QCOMPARE(result.region.rect.right, 780.0);
-    QCOMPARE(result.region.rect.bottom, 920.0);
+    const PdfRegionSelectionResult result = overlay.selectionResult();
+    QVERIFY2(result.selected(), qPrintable(result.diagnostics));
+    QCOMPARE(result.screenRect.topLeft(), QPoint(180, 190));
+    QCOMPARE(result.screenRect.bottomRight(), QPoint(420, 310));
 }
 
 void WidgetSmokeTest::sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels()
 {
-    QList<SumatraPdfDdeMousePosition> positions;
-    SumatraPdfDdeMousePosition start;
-    start.page = 12;
-    start.x = 120.0;
-    start.y = 160.0;
-    positions.append(start);
-    SumatraPdfDdeMousePosition end;
-    end.page = 13;
-    end.x = 220.0;
-    end.y = 260.0;
-    positions.append(end);
-
-    SumatraPdfRegionCaptureOverlay overlay(
-        0,
-        [&positions]() {
-            if (positions.isEmpty()) {
-                SumatraPdfDdeMousePosition missing;
-                missing.error = QStringLiteral("missing test position");
-                return missing;
-            }
-            return positions.takeFirst();
+    int checks = 0;
+    PdfRegionSelectionOverlay overlay(
+        QRect(100, 100, 500, 300),
+        [&checks]() {
+            ++checks;
+            return checks >= 2
+                ? QStringLiteral("PDF viewer closed during capture")
+                : QString();
         });
-    overlay.setGeometry(100, 100, 500, 300);
     overlay.show();
     QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+    QTRY_VERIFY_WITH_TIMEOUT(!overlay.isVisible(), 1000);
+    const PdfRegionSelectionResult failed = overlay.selectionResult();
+    QCOMPARE(failed.state, PdfRegionSelectionState::Canceled);
+    QCOMPARE(failed.diagnostics,
+             QStringLiteral("PDF viewer closed during capture"));
 
-    QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(80, 90));
-    QTest::mouseRelease(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(320, 210));
-    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Accepted));
-    QVERIFY(!overlay.isVisible());
-    const SumatraPdfRegionCaptureResult failed = overlay.captureResult();
-    QVERIFY(!failed.success());
-    QVERIFY(!failed.canceled);
-    QVERIFY(!failed.usedFallback);
-    QCOMPARE(failed.diagnostics, QStringLiteral("PDF region must stay on one page"));
-    QCOMPARE(failed.region.error, QStringLiteral("PDF region must stay on one page"));
-
-    SumatraPdfRegionCaptureOverlay unavailableOverlay(
-        0,
-        []() {
-            SumatraPdfDdeMousePosition missing;
-            missing.error = QStringLiteral("DDE unavailable");
-            return missing;
-        },
-        nullptr,
-        7,
-        125.0);
-    unavailableOverlay.setGeometry(100, 100, 500, 300);
-    unavailableOverlay.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&unavailableOverlay));
-    QTest::mousePress(&unavailableOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(40, 50));
-    QTest::mouseRelease(&unavailableOverlay, Qt::LeftButton, Qt::NoModifier, QPoint(260, 180));
-    QCOMPARE(unavailableOverlay.result(), static_cast<int>(QDialog::Accepted));
-    const SumatraPdfRegionCaptureResult unavailable = unavailableOverlay.captureResult();
-    QVERIFY(!unavailable.success());
-    QVERIFY(!unavailable.canceled);
-    QVERIFY(!unavailable.usedFallback);
-    QCOMPARE(unavailable.region.error, QStringLiteral("DDE unavailable"));
-
-    SumatraPdfRegionCaptureOverlay canceledOverlay(0);
-    canceledOverlay.setGeometry(100, 100, 500, 300);
+    PdfRegionSelectionOverlay canceledOverlay(
+        QRect(100, 100, 500, 300));
     canceledOverlay.show();
     QVERIFY(QTest::qWaitForWindowExposed(&canceledOverlay));
     QTest::keyClick(&canceledOverlay, Qt::Key_Escape);
     QCOMPARE(canceledOverlay.result(), static_cast<int>(QDialog::Rejected));
-    QVERIFY(canceledOverlay.captureResult().canceled);
+    QVERIFY(canceledOverlay.selectionResult().canceled());
+
+    PdfRegionSelectionOverlay smallOverlay(
+        QRect(100, 100, 500, 300));
+    smallOverlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&smallOverlay));
+    QTest::mousePress(&smallOverlay, Qt::LeftButton,
+                      Qt::NoModifier, QPoint(20, 20));
+    QTest::mouseRelease(&smallOverlay, Qt::LeftButton,
+                        Qt::NoModifier, QPoint(21, 21));
+    QCOMPARE(smallOverlay.selectionResult().state,
+             PdfRegionSelectionState::Failed);
+    QVERIFY(smallOverlay.selectionResult().diagnostics.contains(
+        QStringLiteral("too small")));
 }
 
 void WidgetSmokeTest::sumatraPdfRegionOverlayTimesOutWithExplicitFailure()
 {
-    SumatraPdfRegionCaptureOverlay overlay(
-        0,
-        []() {
-            SumatraPdfDdeMousePosition position;
-            position.error = QStringLiteral("unused timeout provider");
-            return position;
-        },
-        nullptr,
-        1,
-        -1.0,
-        100);
-    overlay.setGeometry(100, 100, 500, 300);
+    PdfRegionSelectionOverlay overlay(
+        QRect(100, 100, 500, 300), {}, nullptr, 100);
     overlay.show();
     QVERIFY(QTest::qWaitForWindowExposed(&overlay));
     QTRY_VERIFY_WITH_TIMEOUT(!overlay.isVisible(), 1000);
     QCOMPARE(overlay.result(), static_cast<int>(QDialog::Rejected));
-    const SumatraPdfRegionCaptureResult result = overlay.captureResult();
-    QVERIFY(!result.success());
-    QVERIFY(!result.canceled);
-    QVERIFY(result.region.error.contains(QStringLiteral("timed out")));
-    QCOMPARE(result.diagnostics, result.region.error);
+    const PdfRegionSelectionResult result = overlay.selectionResult();
+    QVERIFY(result.timedOut());
+    QVERIFY(result.diagnostics.contains(QStringLiteral("timed out")));
 }
 
 void WidgetSmokeTest::panelUsesInjectedRepository()
@@ -5239,10 +5167,13 @@ void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFul
     QCOMPARE(results.size(), 1);
     QVERIFY(results.first().matchedAnchor.has_value());
     QCOMPARE(results.first().matchedAnchor->targetFile, resource.location);
-    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"page\":26")));
-    QVERIFY(results.first().matchedAnchor->locatorJson.contains(QStringLiteral("\"zoom\":300")));
-    QVERIFY(results.first().matchedAnchor->locatorJson.contains(
-        QStringLiteral("\"source\":\"foreground-sumatrapdf-viewstate\"")));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        results.first().matchedAnchor->locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
+    QCOMPARE(locator.value(QStringLiteral("page")).toInt(), 26);
+    QVERIFY(!locator.contains(QStringLiteral("zoom")));
+    QCOMPARE(locator.value(QStringLiteral("source")).toString(),
+             QStringLiteral("foreground-sumatrapdf-viewstate"));
 }
 
 void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
@@ -7523,15 +7454,20 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
     bool launched = false;
     SumatraPdfCommand capturedCommand;
     QStringList statusNotifications;
-    PinloomPanelOptions options;
-    options.applicationLaunchSettings.sumatraPdfExecutablePath =
-        QStringLiteral("C:/Tools/SumatraPDF.exe");
-    options.sumatraPdfLaunchHandler = [&](const SumatraPdfCommand &command, QString *error) {
+    SumatraPdfViewerAdapterOptions adapterOptions;
+    adapterOptions.executablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    adapterOptions.launchHandler = [&](const SumatraPdfCommand &command,
+                                       QString *error) {
         Q_UNUSED(error);
         launched = true;
         capturedCommand = command;
         return true;
     };
+    SumatraPdfViewerAdapter adapter(repository, adapterOptions);
+    PinloomPanelOptions options;
+    options.pdfViewerAdapter = &adapter;
     options.statusChangedHandler = [&](const QString &statusText) {
         statusNotifications.append(statusText);
     };
@@ -7548,7 +7484,9 @@ void WidgetSmokeTest::panelLaunchesSumatraPdfAnchorWithInjectedExecutor()
                           QStringLiteral("-page"),
                           QStringLiteral("12"),
                           resource.location}));
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened SumatraPDF target"));
+    QTRY_COMPARE_WITH_TIMEOUT(panel.statusText(),
+                              QStringLiteral("Opened PDF target"),
+                              1000);
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
     const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
@@ -7583,14 +7521,18 @@ void WidgetSmokeTest::panelDelegatesRectangleAnchorToInjectedPresenter()
 
     PanelRecordingPdfPresenter presenter;
     int directLaunchCount = 0;
-    PinloomPanelOptions options;
-    options.applicationLaunchSettings.sumatraPdfExecutablePath =
-        QStringLiteral("C:/Tools/SumatraPDF.exe");
-    options.pdfAnchorPresenter = &presenter;
-    options.sumatraPdfLaunchHandler = [&](const SumatraPdfCommand &, QString *) {
+    SumatraPdfViewerAdapterOptions adapterOptions;
+    adapterOptions.executablePathProvider = []() {
+        return QStringLiteral("C:/Tools/SumatraPDF.exe");
+    };
+    adapterOptions.pdfAnchorPresenter = &presenter;
+    adapterOptions.launchHandler = [&](const SumatraPdfCommand &, QString *) {
         ++directLaunchCount;
         return true;
     };
+    SumatraPdfViewerAdapter adapter(repository, adapterOptions);
+    PinloomPanelOptions options;
+    options.pdfViewerAdapter = &adapter;
     PinloomPanel panel(repository, options);
     panel.setSearchText(anchor.name);
     QVERIFY(panel.selectFirstResult());
@@ -8329,10 +8271,11 @@ void WidgetSmokeTest::panelReportsMissingSumatraPdfExecutable()
     QVERIFY(repository.upsertResource(resource));
 
     QStringList statusNotifications;
+    SumatraPdfViewerAdapterOptions adapterOptions;
+    adapterOptions.executablePathProvider = []() { return QString(); };
+    SumatraPdfViewerAdapter adapter(repository, adapterOptions);
     PinloomPanelOptions options;
-    options.sumatraPdfExecutablePathProvider = []() {
-        return QString();
-    };
+    options.pdfViewerAdapter = &adapter;
     options.statusChangedHandler = [&](const QString &statusText) {
         statusNotifications.append(statusText);
     };

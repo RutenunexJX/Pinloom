@@ -30,6 +30,13 @@ struct PdfPageGeometry {
     bool isValid() const;
 };
 
+struct PdfPageGeometryResult {
+    PdfPageGeometry geometry;
+    QString error;
+
+    bool success() const;
+};
+
 struct PdfAnnotatedCopyRequest {
     QString sourceFilePath;
     QString cacheDirectory;
@@ -54,6 +61,8 @@ struct PdfAnnotatedCopyResult {
 };
 
 QString defaultPdfAnchorPresentationCacheDirectory();
+PdfPageGeometryResult inspectPdfPageGeometry(const QString &sourceFilePath,
+                                             int pageNumber);
 PdfSourceFingerprint fingerprintPdfSource(const QString &sourceFilePath);
 QByteArray pdfAnchorPresentationCacheKey(const PdfAnnotatedCopyRequest &request,
                                          const PdfSourceFingerprint &fingerprint);

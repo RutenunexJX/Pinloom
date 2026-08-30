@@ -11,12 +11,18 @@ namespace Pinloom {
 struct ManualPdfAnchorCreationRequest {
     QString name;
     QString file;
+    QString documentIdentity;
     QString locatorType;
     int page = -1;
     PdfCaptureRect rect;
+    PdfCaptureRect mediaBox;
+    PdfCaptureRect cropBox;
+    int rotation = 0;
+    double userUnit = 1.0;
     double zoom = -1.0;
     QString unit = QStringLiteral("pt");
     QString source = QStringLiteral("manual");
+    QString adapterId = QStringLiteral("sumatrapdf");
     QString targetApp = QStringLiteral("SumatraPDF");
     QString searchText;
     QString contextBefore;

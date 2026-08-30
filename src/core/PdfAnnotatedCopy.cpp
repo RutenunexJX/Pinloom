@@ -2057,6 +2057,11 @@ bool PdfPageGeometry::isValid() const
         && std::isfinite(userUnit) && userUnit > 0.0;
 }
 
+bool PdfPageGeometryResult::success() const
+{
+    return error.isEmpty() && geometry.isValid();
+}
+
 bool PdfAnnotatedCopyResult::success() const
 {
     return error.isEmpty() && !outputFilePath.trimmed().isEmpty();
@@ -2069,6 +2074,36 @@ QString defaultPdfAnchorPresentationCacheDirectory()
         root = QDir::tempPath() + QStringLiteral("/Pinloom");
     }
     return QDir(root).filePath(QStringLiteral("pdf-anchor-presentations"));
+}
+
+PdfPageGeometryResult inspectPdfPageGeometry(const QString &sourceFilePath,
+                                             int pageNumber)
+{
+    PdfPageGeometryResult result;
+    if (sourceFilePath.trimmed().isEmpty()) {
+        result.error = QStringLiteral("PDF source file is missing");
+        return result;
+    }
+    if (pageNumber <= 0) {
+        result.error = QStringLiteral("PDF page number must be positive");
+        return result;
+    }
+
+    PdfDocument document;
+    if (!document.open(sourceFilePath.trimmed(), &result.error)) {
+        return result;
+    }
+    PdfValue pageReference;
+    PdfObject pageObject;
+    if (!document.findPage(pageNumber,
+                           &pageReference,
+                           &pageObject,
+                           &result.geometry,
+                           nullptr,
+                           &result.error)) {
+        return result;
+    }
+    return result;
 }
 
 PdfSourceFingerprint fingerprintPdfSource(const QString &sourceFilePath)

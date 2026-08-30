@@ -100,12 +100,18 @@ AnchorCaptureDraft anchorCaptureDraftFromPdfRequest(
     PdfCaptureRequest capture;
     capture.targetApp = request.targetApp;
     capture.targetFile = request.file;
+    capture.documentIdentity = request.documentIdentity;
     capture.locatorType = request.locatorType;
     capture.page = request.page;
     capture.rect = request.rect;
+    capture.mediaBox = request.mediaBox;
+    capture.cropBox = request.cropBox;
+    capture.rotation = request.rotation;
+    capture.userUnit = request.userUnit;
     capture.zoom = request.zoom;
     capture.unit = request.unit;
     capture.source = request.source;
+    capture.adapterId = request.adapterId;
     capture.searchText = request.searchText;
     capture.contextBefore = request.contextBefore;
     capture.contextAfter = request.contextAfter;

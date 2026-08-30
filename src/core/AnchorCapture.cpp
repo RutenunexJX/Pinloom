@@ -1,5 +1,6 @@
 #include "pinloom/core/AnchorCapture.h"
 
+#include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -68,6 +69,10 @@ AnchorCaptureResult resultForRequest(const PdfCaptureRequest &request,
     result.locatorType = effectiveLocatorType(request);
     result.page = request.page;
     result.rect = request.rect;
+    result.mediaBox = request.mediaBox;
+    result.cropBox = request.cropBox;
+    result.rotation = request.rotation;
+    result.userUnit = request.userUnit;
     result.zoom = request.zoom;
     result.unit = effectiveUnit(request);
     result.source = effectiveSource(request, source);
@@ -132,6 +137,14 @@ AnchorCaptureResult ManualPdfRectCaptureProvider::capture(const PdfCaptureReques
         result.error = QStringLiteral("SumatraPDF capture zoom is invalid");
         return result;
     }
+    if (request.rotation % 90 != 0) {
+        result.error = QStringLiteral("PDF page rotation must be a multiple of 90 degrees");
+        return result;
+    }
+    if (!std::isfinite(request.userUnit) || request.userUnit <= 0.0) {
+        result.error = QStringLiteral("PDF page user unit is invalid");
+        return result;
+    }
 
     Anchor anchor;
     anchor.name = rectRequest.anchorName;
@@ -153,16 +166,38 @@ QString pdfRectLocatorJson(const PdfCaptureRequest &request)
     return pdfLocatorJson(rectRequest);
 }
 
+int normalizedRotation(int rotation)
+{
+    const int normalized = (rotation % 360 + 360) % 360;
+    return normalized == 90 || normalized == 180 || normalized == 270
+        ? normalized
+        : 0;
+}
+
+QString effectiveDocumentIdentity(const PdfCaptureRequest &request)
+{
+    const QString explicitIdentity = request.documentIdentity.trimmed();
+    if (!explicitIdentity.isEmpty()) return explicitIdentity;
+    return QDir::cleanPath(
+        QDir::fromNativeSeparators(request.targetFile.trimmed()));
+}
+
 QString pdfLocatorJson(const PdfCaptureRequest &request)
 {
     QJsonObject locator;
     locator.insert(QStringLiteral("type"), effectiveLocatorType(request));
+    locator.insert(QStringLiteral("version"), 3);
+    const QString documentIdentity = effectiveDocumentIdentity(request);
+    if (!documentIdentity.isEmpty()) {
+        locator.insert(QStringLiteral("document"),
+                       QJsonObject{{QStringLiteral("identity"),
+                                    documentIdentity}});
+    }
     locator.insert(QStringLiteral("page"), request.page);
     const QString locatorType = effectiveLocatorType(request);
     if (locatorType == QLatin1String("sumatrapdf.rect")) {
         locator.insert(QStringLiteral("rect"), rectArray(request.rect));
         locator.insert(QStringLiteral("unit"), effectiveUnit(request));
-        locator.insert(QStringLiteral("version"), 2);
         locator.insert(QStringLiteral("coordinateSpace"),
                        QStringLiteral("page-top-left"));
     } else if (locatorType == QLatin1String("sumatrapdf.search")) {
@@ -184,10 +219,27 @@ QString pdfLocatorJson(const PdfCaptureRequest &request)
             locator.insert(QStringLiteral("unit"), effectiveUnit(request));
         }
     }
-    locator.insert(QStringLiteral("source"), effectiveSource(request, QStringLiteral("manual")));
-    if (request.zoom > 0.0) {
-        locator.insert(QStringLiteral("zoom"), request.zoom);
+    locator.insert(QStringLiteral("rotation"),
+                   normalizedRotation(request.rotation));
+    if (request.mediaBox.isValid()) {
+        locator.insert(QStringLiteral("mediaBox"),
+                       rectArray(request.mediaBox));
     }
+    if (request.cropBox.isValid()) {
+        locator.insert(QStringLiteral("cropBox"),
+                       rectArray(request.cropBox));
+    }
+    if (std::isfinite(request.userUnit) && request.userUnit > 0.0) {
+        locator.insert(QStringLiteral("userUnit"), request.userUnit);
+    }
+    const QString source = effectiveSource(request, QStringLiteral("manual"));
+    locator.insert(QStringLiteral("source"), source);
+    locator.insert(QStringLiteral("provenance"),
+                   QJsonObject{{QStringLiteral("adapter"),
+                                request.adapterId.trimmed().isEmpty()
+                                    ? QStringLiteral("sumatrapdf")
+                                    : request.adapterId.trimmed().toLower()},
+                               {QStringLiteral("source"), source}});
 
     return QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
 }
@@ -221,6 +273,14 @@ AnchorCaptureResult captureManualPdfAnchor(const PdfCaptureRequest &request)
     }
     if (result.zoom > 0.0 && !std::isfinite(result.zoom)) {
         result.error = QStringLiteral("SumatraPDF capture zoom is invalid");
+        return result;
+    }
+    if (request.rotation % 90 != 0) {
+        result.error = QStringLiteral("PDF page rotation must be a multiple of 90 degrees");
+        return result;
+    }
+    if (!std::isfinite(request.userUnit) || request.userUnit <= 0.0) {
+        result.error = QStringLiteral("PDF page user unit is invalid");
         return result;
     }
 

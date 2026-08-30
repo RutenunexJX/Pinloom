@@ -16,7 +16,6 @@
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/NativeAnchorCapture.h"
-#include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/core/Version.h"
@@ -41,7 +40,7 @@
 #include "pinloom/widgets/PinloomSingleInstance.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
-#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -52,6 +51,7 @@
 #include <QDialog>
 #include <QDialogButtonBox>
 #include <QDir>
+#include <QEventLoop>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
@@ -67,7 +67,6 @@
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyleHints>
-#include <QThread>
 #include <QTimer>
 #include <QToolTip>
 #include <QUrl>
@@ -659,9 +658,22 @@ int main(int argc, char *argv[])
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
     Pinloom::ForegroundTextTarget lastForegroundTextTarget;
     QMainWindow *commandWindowForForegroundCapture = nullptr;
-    Pinloom::SumatraPdfForegroundCaptureProvider foregroundPdfCaptureProvider(
-        repository,
-        Pinloom::captureSumatraPdfViewState);
+    Pinloom::SumatraPdfViewerAdapterOptions pdfViewerOptions;
+    pdfViewerOptions.applicationLaunchSettings = applicationLaunchSettings;
+    pdfViewerOptions.executablePathProvider = sumatraPdfExecutablePathProvider;
+    pdfViewerOptions.fileConfirmationHandler =
+        [](const QString &documentTitle, QWidget *parent) {
+            return QFileDialog::getOpenFileName(
+                parent,
+                documentTitle.trimmed().isEmpty()
+                    ? QStringLiteral("Confirm PDF File")
+                    : QStringLiteral("Confirm PDF File: %1")
+                          .arg(documentTitle),
+                QString(),
+                QStringLiteral("PDF files (*.pdf);;All files (*)"));
+        };
+    Pinloom::SumatraPdfViewerAdapter pdfViewerAdapter(
+        repository, std::move(pdfViewerOptions), &app);
     Pinloom::NativeAnchorCaptureAdapter nativeAnchorCaptureAdapter;
     Pinloom::AnchorCaptureCommitService anchorCaptureCommitService(repository);
 
@@ -712,117 +724,59 @@ int main(int argc, char *argv[])
         return true;
     };
 
-    const auto foregroundPdfAnchorCaptureRequestProvider =
-        [&foregroundPdfCaptureProvider,
-         &lastForegroundContext,
-         &commandWindowForForegroundCapture](QString *status)
-        -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
-        const bool useLastForegroundContext =
-            commandWindowForForegroundCapture
+    const auto pdfViewerCaptureRequest =
+        [&lastForegroundContext,
+         &lastForegroundTextTarget,
+         &commandWindowForForegroundCapture]() {
+        Pinloom::PdfViewerCaptureRequest request;
+        const bool useRememberedTarget = commandWindowForForegroundCapture
             && commandWindowForForegroundCapture->isVisible()
             && lastForegroundContext.isValid();
-        const Pinloom::ForegroundAppWindowContext context =
-            useLastForegroundContext
-                ? lastForegroundContext
-                : Pinloom::currentForegroundAppWindowContext();
-        const Pinloom::SumatraPdfForegroundCaptureResult result =
-            foregroundPdfCaptureProvider.capture(context);
+        if (useRememberedTarget) {
+            request.context = lastForegroundContext;
+            request.textTarget = lastForegroundTextTarget;
+        }
+        request.parent = commandWindowForForegroundCapture;
+        return request;
+    };
+    const auto foregroundPdfAnchorCaptureRequestProvider =
+        [&pdfViewerAdapter,
+         &pdfViewerCaptureRequest,
+         &commandWindowForForegroundCapture](QString *status)
+        -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
+        const Pinloom::PdfViewerCaptureRequest captureRequest =
+            pdfViewerCaptureRequest();
+        const bool restoreCommandWindow = commandWindowForForegroundCapture
+            && commandWindowForForegroundCapture->isVisible();
+        if (restoreCommandWindow) {
+            commandWindowForForegroundCapture->hide();
+            QApplication::processEvents();
+        }
+        const Pinloom::PdfViewerCaptureResult result =
+            pdfViewerAdapter.captureRectangle(captureRequest);
+        if (restoreCommandWindow) {
+            commandWindowForForegroundCapture->show();
+            commandWindowForForegroundCapture->raise();
+            commandWindowForForegroundCapture->activateWindow();
+        }
         if (status) {
-            *status = result.status;
+            *status = result.message;
+            if (!result.diagnostics.trimmed().isEmpty()
+                && result.diagnostics.trimmed() != result.message.trimmed()) {
+                status->append(QStringLiteral(": ")
+                                   + result.diagnostics.trimmed());
+            }
         }
-        const auto captureRegion =
-            [&](Pinloom::ManualPdfAnchorCreationRequest request)
-                -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
-            const bool restoreCommandWindow = commandWindowForForegroundCapture
-                && commandWindowForForegroundCapture->isVisible();
-            if (restoreCommandWindow) {
-                commandWindowForForegroundCapture->hide();
-                QApplication::processEvents();
-            }
-
-            const Pinloom::SumatraPdfRegionCaptureResult region =
-                Pinloom::captureSumatraPdfRegion(context.windowHandle,
-                                                request.page,
-                                                result.viewState.zoom);
-
-            if (restoreCommandWindow) {
-                commandWindowForForegroundCapture->show();
-                commandWindowForForegroundCapture->raise();
-                commandWindowForForegroundCapture->activateWindow();
-            }
-
-            if (!region.success()) {
-                const QString failure = region.region.error.trimmed().isEmpty()
-                    ? QStringLiteral("Unable to read reliable PDF rectangle coordinates")
-                    : region.region.error.trimmed();
-                if (!region.canceled) {
-                    QMessageBox::warning(commandWindowForForegroundCapture,
-                                         QStringLiteral("PDF Rectangle Capture Failed"),
-                                         failure);
-                }
-                if (status) {
-                    *status = region.canceled
-                        ? QStringLiteral("PDF region capture canceled")
-                        : QStringLiteral("PDF rectangle capture failed: %1")
-                              .arg(failure);
-                }
-                return std::nullopt;
-            }
-
-            request.locatorType = QStringLiteral("sumatrapdf.rect");
-            request.page = region.region.page;
-            request.rect = region.region.rect;
-            request.source = region.usedFallback
-                ? QStringLiteral("foreground-sumatrapdf-region-fallback")
-                : QStringLiteral("foreground-sumatrapdf-region");
-            if (status) {
-                *status = region.usedFallback
-                    ? QStringLiteral("Captured SumatraPDF region on page %1 using resilient coordinate fallback")
-                          .arg(request.page)
-                    : QStringLiteral("Captured SumatraPDF region on page %1")
-                          .arg(request.page);
-            }
-            return request;
-        };
-        if (!result.success() && result.needsFileConfirmation) {
-            QWidget *parent = commandWindowForForegroundCapture;
-            const QString selectedFile = QFileDialog::getOpenFileName(
-                parent,
-                QStringLiteral("Confirm PDF File"),
-                QString(),
-                QStringLiteral("PDF files (*.pdf);;All files (*)"));
-            if (selectedFile.trimmed().isEmpty()) {
-                if (status) {
-                    *status = QStringLiteral("PDF selection canceled for PDF document \"%1\"")
-                                  .arg(result.documentTitle);
-                }
-                return std::nullopt;
-            }
-
-            const Pinloom::SumatraPdfForegroundCaptureResult confirmed =
-                Pinloom::sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
-                    result.documentTitle,
-                    selectedFile,
-                    result.viewState);
-            if (!confirmed.success()) {
-                if (status) {
-                    *status = confirmed.status;
-                }
-                return std::nullopt;
-            }
-
-            return captureRegion(confirmed.request);
-        }
-        if (!result.success()) {
-            return std::nullopt;
-        }
-        return captureRegion(result.request);
+        return result.succeeded()
+            ? std::optional<Pinloom::ManualPdfAnchorCreationRequest>(
+                  result.anchorRequest)
+            : std::nullopt;
     };
     Pinloom::PinloomEntrySearchService entrySearchService(repository, clipSearchHandler);
     Pinloom::PinloomOpenServiceOptions openServiceOptions;
     openServiceOptions.clipInsertionHandler = clipInsertionHandler;
     openServiceOptions.applicationLaunchSettings = applicationLaunchSettings;
-    openServiceOptions.sumatraPdfExecutablePathProvider = sumatraPdfExecutablePathProvider;
+    openServiceOptions.pdfViewerAdapter = &pdfViewerAdapter;
     openServiceOptions.pdfOriginalFallbackPrompt =
         [&window](const QString &sourceFilePath, int page, const QString &reason) {
         QMessageBox message(&window);
@@ -874,107 +828,56 @@ int main(int argc, char *argv[])
     };
 
     const auto captureForegroundPdfTextAnchor =
-        [&foregroundPdfCaptureProvider,
-         &lastForegroundContext,
-         &lastForegroundTextTarget,
-         &commandWindowForForegroundCapture,
+        [&pdfViewerAdapter,
+         &pdfViewerCaptureRequest,
          &confirmAndCommitAnchorDraft](QString *status) {
-        const bool useRememberedTarget = commandWindowForForegroundCapture
-            && commandWindowForForegroundCapture->isVisible()
-            && lastForegroundContext.isValid();
-        const Pinloom::ForegroundAppWindowContext context = useRememberedTarget
-            ? lastForegroundContext
-            : Pinloom::currentForegroundAppWindowContext();
-        Pinloom::SumatraPdfForegroundCaptureResult foreground =
-            foregroundPdfCaptureProvider.capture(context);
-        if (!foreground.success() && foreground.needsFileConfirmation) {
-            const QString selectedFile = QFileDialog::getOpenFileName(
-                commandWindowForForegroundCapture,
-                QStringLiteral("Confirm PDF File"),
-                QString(),
-                QStringLiteral("PDF files (*.pdf);;All files (*)"));
-            if (selectedFile.trimmed().isEmpty()) {
-                if (status) *status = QStringLiteral("PDF text Anchor capture canceled");
-                return false;
-            }
-            foreground = Pinloom::sumatraPdfForegroundCaptureResultForConfirmedPdfFile(
-                foreground.documentTitle,
-                selectedFile,
-                foreground.viewState);
-        }
-        if (!foreground.success()) {
+        const Pinloom::PdfViewerCaptureResult captured =
+            pdfViewerAdapter.captureText(pdfViewerCaptureRequest());
+        if (!captured.succeeded()) {
             if (status) {
-                *status = foreground.status.trimmed().isEmpty()
-                    ? QStringLiteral("Open or focus a SumatraPDF PDF before Text Anchor")
-                    : foreground.status.trimmed();
+                *status = captured.message;
+                if (!captured.diagnostics.trimmed().isEmpty()
+                    && captured.diagnostics.trimmed()
+                           != captured.message.trimmed()) {
+                    status->append(QStringLiteral(": ")
+                                       + captured.diagnostics.trimmed());
+                }
             }
             return false;
         }
-
-        const Pinloom::TextSelectionCaptureResult selection =
-            Pinloom::captureTextSelectionFromTarget(
-                context,
-                useRememberedTarget
-                    ? lastForegroundTextTarget
-                    : Pinloom::captureForegroundTextTarget());
-        if (!selection.hasSelectedText()) {
-            if (status) {
-                *status = selection.diagnostics.trimmed().isEmpty()
-                    ? QStringLiteral("Select PDF text before opening Pinloom")
-                    : selection.diagnostics.trimmed();
-            }
-            return false;
-        }
-
-        Pinloom::ManualPdfAnchorCreationRequest request = foreground.request;
-        request.locatorType = QStringLiteral("sumatrapdf.search");
-        request.searchText = selection.text.simplified();
-        request.name = request.searchText.left(64);
-        request.source = QStringLiteral("foreground-sumatrapdf-selection");
         return confirmAndCommitAnchorDraft(
-            Pinloom::anchorCaptureDraftFromPdfRequest(request), status);
+            Pinloom::anchorCaptureDraftFromPdfRequest(
+                captured.anchorRequest),
+            status);
     };
 
     const auto captureForegroundPdfTextClip =
-        [&lastForegroundContext,
-         &lastForegroundTextTarget,
+        [&pdfViewerAdapter,
+         &pdfViewerCaptureRequest,
          &commandWindowForForegroundCapture,
          &availableClipTags,
          &automaticClipName,
          &archiveSelectedText](QString *status) {
-        const bool useRememberedTarget = commandWindowForForegroundCapture
-            && commandWindowForForegroundCapture->isVisible()
-            && lastForegroundContext.isValid();
-        const Pinloom::ForegroundAppWindowContext context = useRememberedTarget
-            ? lastForegroundContext
-            : Pinloom::currentForegroundAppWindowContext();
-        if (!Pinloom::isSumatraPdfForegroundWindow(context)) {
+        Pinloom::PdfViewerCaptureRequest request = pdfViewerCaptureRequest();
+        request.requirePageGeometry = false;
+        const Pinloom::PdfViewerCaptureResult captured =
+            pdfViewerAdapter.captureText(request);
+        if (!captured.succeeded()) {
             if (status) {
-                *status = QStringLiteral(
-                    "Open or focus a SumatraPDF PDF before PDF Text Clip");
+                *status = captured.message;
+                if (!captured.diagnostics.trimmed().isEmpty()
+                    && captured.diagnostics.trimmed()
+                           != captured.message.trimmed()) {
+                    status->append(QStringLiteral(": ")
+                                       + captured.diagnostics.trimmed());
+                }
             }
             return false;
         }
-
-        Pinloom::TextSelectionCaptureResult selection =
-            Pinloom::captureTextSelectionFromTarget(
-                context,
-                useRememberedTarget
-                    ? lastForegroundTextTarget
-                    : Pinloom::captureForegroundTextTarget());
-        if (!selection.hasSelectedText()) {
-            if (status) {
-                *status = selection.diagnostics.trimmed().isEmpty()
-                    ? QStringLiteral("Select PDF text before opening Pinloom")
-                    : selection.diagnostics.trimmed();
-            }
-            return false;
-        }
-        selection.source = QStringLiteral("foreground-sumatrapdf-selection");
 
         Pinloom::ClipCaptureDialog dialog(
-            selection.text,
-            automaticClipName(selection.text),
+            captured.textSelection.text,
+            automaticClipName(captured.textSelection.text),
             availableClipTags(),
             commandWindowForForegroundCapture);
         if (dialog.exec() != QDialog::Accepted) {
@@ -983,13 +886,16 @@ int main(int argc, char *argv[])
             }
             return false;
         }
-        return archiveSelectedText(selection, dialog.metadata(), status);
+        return archiveSelectedText(captured.textSelection,
+                                   dialog.metadata(),
+                                   status);
     };
 
     const auto captureRememberedApplicationAnchor =
         [&lastForegroundContext,
          &commandWindowForForegroundCapture,
          &nativeAnchorCaptureAdapter,
+         &pdfViewerAdapter,
          &captureForegroundPdfAnchor,
          &confirmAndCommitAnchorDraft](QString *status) {
         const Pinloom::ForegroundAppWindowContext context =
@@ -998,7 +904,7 @@ int main(int argc, char *argv[])
                 && lastForegroundContext.isValid()
             ? lastForegroundContext
             : Pinloom::currentForegroundAppWindowContext();
-        if (Pinloom::isSumatraPdfForegroundWindow(context)) {
+        if (pdfViewerAdapter.supportsContext(context)) {
             return captureForegroundPdfAnchor(status);
         }
         const Pinloom::NativeAnchorCaptureResult captured =
@@ -1092,9 +998,9 @@ int main(int argc, char *argv[])
             if (status) *status = openService.statusText();
             return QPixmap{};
         }
-        QApplication::processEvents();
-        QThread::msleep(120);
-        QApplication::processEvents();
+        QEventLoop previewDelay;
+        QTimer::singleShot(120, &previewDelay, &QEventLoop::quit);
+        previewDelay.exec(QEventLoop::ExcludeUserInputEvents);
         const Pinloom::ForegroundAppWindowContext context =
             Pinloom::currentForegroundAppWindowContext();
         QScreen *screen = QApplication::screenAt(QCursor::pos());
@@ -1112,9 +1018,9 @@ int main(int argc, char *argv[])
         return screenshot;
     };
     anchorLibraryOptions.locatorRecaptureHandler =
-        [&openService, &window, &foregroundPdfCaptureProvider](const Pinloom::AnchorLibraryFile &file,
-                                                               const Pinloom::AnchorLibraryAnchor &entry,
-                                                               QString *status)
+        [&openService, &window, &pdfViewerAdapter](const Pinloom::AnchorLibraryFile &file,
+                                                  const Pinloom::AnchorLibraryAnchor &entry,
+                                                  QString *status)
         -> std::optional<Pinloom::AnchorLocatorUpdate> {
         const Pinloom::Resource resource = file.resource;
         const Pinloom::Anchor anchor = entry.anchor;
@@ -1124,65 +1030,94 @@ int main(int argc, char *argv[])
         target.resourceKind = resource.kind;
         target.title = anchor.name.trimmed().isEmpty() ? resource.title : anchor.name;
         target.location = resource.location;
-        target.anchor = anchor;
+        Pinloom::Anchor pageAnchor = anchor;
+        pageAnchor.locatorType = QStringLiteral("sumatrapdf.page");
+        pageAnchor.locatorJson = QString::fromUtf8(
+            QJsonDocument(QJsonObject{
+                {QStringLiteral("type"), QStringLiteral("sumatrapdf.page")},
+                {QStringLiteral("page"), Pinloom::anchorLocatorPage(anchor)}})
+                .toJson(QJsonDocument::Compact));
+        target.anchor = pageAnchor;
         if (!openService.open(target, &window)) {
             if (status) *status = openService.statusText();
             return std::nullopt;
         }
-        QApplication::processEvents();
-        QThread::msleep(120);
-        QApplication::processEvents();
-        const Pinloom::ForegroundAppWindowContext context =
-            Pinloom::currentForegroundAppWindowContext();
-        const Pinloom::SumatraPdfForegroundCaptureResult foreground =
-            foregroundPdfCaptureProvider.capture(context);
-        if (!foreground.success()) {
-            if (status) *status = foreground.status;
-            return std::nullopt;
-        }
-        const Pinloom::SumatraPdfRegionCaptureResult region =
-            Pinloom::captureSumatraPdfRegion(context.windowHandle,
-                                            foreground.request.page,
-                                            foreground.viewState.zoom);
-        if (!region.success()) {
-            const QString failure = region.region.error.trimmed().isEmpty()
-                ? QStringLiteral("Unable to read reliable PDF rectangle coordinates")
-                : region.region.error.trimmed();
-            if (!region.canceled) {
-                QMessageBox::warning(&window,
-                                     QStringLiteral("PDF Rectangle Capture Failed"),
-                                     failure);
+        bool navigationFinished = false;
+        bool navigationSucceeded = false;
+        bool waitTimedOut = false;
+        QEventLoop navigationWait;
+        const auto inspectNavigationStatus =
+            [&](const QString &navigationStatus) {
+            if (navigationStatus.startsWith(QStringLiteral("Opening PDF"))) {
+                return;
             }
+            navigationFinished = true;
+            navigationSucceeded = navigationStatus.startsWith(
+                QStringLiteral("Opened "));
+            navigationWait.quit();
+        };
+        const QMetaObject::Connection statusConnection = QObject::connect(
+            &openService,
+            &Pinloom::PinloomOpenService::statusChanged,
+            &navigationWait,
+            inspectNavigationStatus);
+        QTimer navigationTimeout;
+        navigationTimeout.setSingleShot(true);
+        QObject::connect(&navigationTimeout, &QTimer::timeout,
+                         &navigationWait, [&]() {
+            waitTimedOut = true;
+            navigationWait.quit();
+        });
+        inspectNavigationStatus(openService.statusText());
+        if (!navigationFinished) {
+            navigationTimeout.start(6000);
+            navigationWait.exec();
+        }
+        QObject::disconnect(statusConnection);
+        if (waitTimedOut) {
+            pdfViewerAdapter.cancelPending();
             if (status) {
-                *status = region.canceled
-                    ? QStringLiteral("PDF locator recapture canceled")
-                    : QStringLiteral("PDF rectangle capture failed: %1")
-                          .arg(failure);
+                *status = QStringLiteral(
+                    "PDF navigation timed out before locator recapture");
             }
             return std::nullopt;
         }
-        Pinloom::PdfCaptureRequest request;
-        request.targetApp = QStringLiteral("SumatraPDF");
-        request.targetFile = foreground.request.file.trimmed().isEmpty()
-            ? resource.location
-            : foreground.request.file;
-        request.locatorType = QStringLiteral("sumatrapdf.rect");
-        request.page = region.region.page;
-        request.rect = region.region.rect;
-        request.zoom = foreground.viewState.zoom;
-        request.source = QStringLiteral("anchor-library-recapture");
-        request.anchorName = anchor.name;
-        const Pinloom::AnchorCaptureResult captured = Pinloom::captureManualPdfAnchor(request);
-        if (!captured.success()) {
-            if (status) *status = captured.error;
+        if (!navigationSucceeded) {
+            if (status) *status = openService.statusText();
             return std::nullopt;
         }
+        Pinloom::PdfViewerCaptureRequest captureRequest;
+        captureRequest.context = Pinloom::currentForegroundAppWindowContext();
+        captureRequest.parent = &window;
+        Pinloom::PdfViewerCaptureResult captured =
+            pdfViewerAdapter.captureRectangle(captureRequest);
+        if (!captured.succeeded()) {
+            if (status) {
+                *status = captured.message;
+                if (!captured.diagnostics.trimmed().isEmpty()
+                    && captured.diagnostics.trimmed()
+                           != captured.message.trimmed()) {
+                    status->append(QStringLiteral(": ")
+                                       + captured.diagnostics.trimmed());
+                }
+            }
+            return std::nullopt;
+        }
+        captured.anchorRequest.name = anchor.name;
+        captured.anchorRequest.source =
+            QStringLiteral("anchor-library-recapture");
+        const Pinloom::AnchorCaptureDraft draft =
+            Pinloom::anchorCaptureDraftFromPdfRequest(
+                captured.anchorRequest);
         Pinloom::AnchorLocatorUpdate update;
-        update.targetApp = captured.targetApp;
-        update.targetFile = captured.targetFile;
-        update.locatorType = captured.locatorType;
-        update.locatorJson = captured.anchor.locatorJson;
-        if (status) *status = QStringLiteral("Captured SumatraPDF page %1 rectangle").arg(captured.page);
+        update.targetApp = draft.targetApp;
+        update.targetFile = draft.targetFile;
+        update.locatorType = draft.locatorType;
+        update.locatorJson = draft.locatorJson;
+        if (status) {
+            *status = QStringLiteral("Captured PDF page %1 rectangle")
+                          .arg(captured.anchorRequest.page);
+        }
         return update;
     };
     std::unique_ptr<Pinloom::AnchorLibraryWindow> anchorLibraryWindow;
@@ -2504,7 +2439,7 @@ int main(int argc, char *argv[])
             previewOptions);
     };
 
-    const auto openHostIdentity =
+    const auto resolveAndOpenHostIdentity =
         [resolveHostDocument, activateOpenTarget](
             const Pinloom::PinloomHostIdentity &identity,
             QString *status) {
@@ -2538,6 +2473,59 @@ int main(int argc, char *argv[])
         return activateOpenTarget(
             Pinloom::openTargetFromEntry(document->entry), status);
     };
+
+    commandDispatcher.registerHandler(
+        Pinloom::PinloomCommandId::OpenIdentity,
+        [resolveAndOpenHostIdentity](
+            const Pinloom::PinloomCommandInvocation &invocation) {
+            Pinloom::PinloomHostIdentity identity;
+            identity.entryId = invocation.arguments
+                                   .value(QStringLiteral("entryId"))
+                                   .toString();
+            identity.resourceId = invocation.arguments
+                                      .value(QStringLiteral("resourceId"))
+                                      .toString();
+            identity.anchorId = invocation.arguments
+                                    .value(QStringLiteral("anchorId"))
+                                    .toString();
+            identity.clipId = invocation.arguments
+                                  .value(QStringLiteral("clipId"))
+                                  .toString();
+            if (!identity.isValid()) {
+                return Pinloom::PinloomCommandDispatchResult::failure(
+                    QStringLiteral("Invalid Pinloom identity"));
+            }
+            QString status;
+            const bool opened = resolveAndOpenHostIdentity(identity, &status);
+            return Pinloom::pinloomCommandResultFromBoolean(
+                opened,
+                status,
+                QStringLiteral("Opened Pinloom identity"),
+                QStringLiteral("Unable to open Pinloom identity"));
+        });
+    const auto openHostIdentity =
+        [&commandDispatcher](const Pinloom::PinloomHostIdentity &identity,
+                             QString *status) {
+            Pinloom::PinloomCommandInvocation invocation;
+            invocation.arguments.insert(QStringLiteral("entryId"),
+                                        identity.entryId);
+            invocation.arguments.insert(QStringLiteral("resourceId"),
+                                        identity.resourceId);
+            invocation.arguments.insert(QStringLiteral("anchorId"),
+                                        identity.anchorId);
+            invocation.arguments.insert(QStringLiteral("clipId"),
+                                        identity.clipId);
+            const Pinloom::PinloomCommandDispatchResult result =
+                commandDispatcher.dispatch(
+                    Pinloom::PinloomCommandId::OpenIdentity,
+                    invocation);
+            if (status) {
+                *status = result.message.trimmed().isEmpty()
+                    ? result.diagnostics.trimmed()
+                    : result.message.trimmed();
+            }
+            return result.completed();
+        };
 
     Pinloom::PinloomHostBridgeCallbacks hostCallbacks;
     hostCallbacks.search =

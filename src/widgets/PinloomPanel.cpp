@@ -1,11 +1,12 @@
 #include "pinloom/widgets/PinloomPanel.h"
 
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
+
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/ResourceNormalization.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
-#include "pinloom/widgets/SumatraPdfRegionCaptureOverlay.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QApplication>
@@ -741,21 +742,23 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     , repository_(repository)
     , options_(std::move(options))
 {
+    pdfViewerAdapter_ = options_.pdfViewerAdapter;
+    if (!pdfViewerAdapter_) {
+        SumatraPdfViewerAdapterOptions adapterOptions;
+        adapterOptions.applicationLaunchSettings =
+            options_.applicationLaunchSettings;
+        adapterOptions.presentationCacheDirectory =
+            options_.pdfPresentationCacheDirectory;
+        ownedPdfViewerAdapter_ =
+            std::make_unique<SumatraPdfViewerAdapter>(
+                repository_, std::move(adapterOptions), this);
+        pdfViewerAdapter_ = ownedPdfViewerAdapter_.get();
+    }
     PinloomOpenServiceOptions openOptions;
     openOptions.applicationLaunchSettings = options_.applicationLaunchSettings;
-    openOptions.sumatraPdfExecutablePathProvider =
-        options_.sumatraPdfExecutablePathProvider;
-    openOptions.sumatraPdfLaunchHandler = options_.sumatraPdfLaunchHandler;
-    openOptions.sumatraPdfStateProvider = options_.sumatraPdfStateProvider;
-    openOptions.sumatraPdfVerificationTimeoutMilliseconds =
-        options_.sumatraPdfVerificationTimeoutMilliseconds;
-    openOptions.sumatraPdfVerificationPollMilliseconds =
-        options_.sumatraPdfVerificationPollMilliseconds;
-    openOptions.pdfPresentationGenerationTimeoutMilliseconds =
-        options_.pdfPresentationGenerationTimeoutMilliseconds;
     openOptions.pdfPresentationCacheDirectory =
         options_.pdfPresentationCacheDirectory;
-    openOptions.pdfAnchorPresenter = options_.pdfAnchorPresenter;
+    openOptions.pdfViewerAdapter = pdfViewerAdapter_;
     openService_ = std::make_unique<PinloomOpenService>(
         repository_, std::move(openOptions), this);
     connect(openService_.get(),
@@ -1978,8 +1981,10 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return false;
     }
 
-    if (target.anchor.has_value() && isSumatraPdfAnchor(target.anchor.value())) {
-        return activateSumatraPdfTarget(target);
+    if (target.anchor.has_value()
+        && pdfViewerAdapter_
+        && pdfViewerAdapter_->supportsAnchor(target.anchor.value())) {
+        return activatePdfTarget(target);
     }
 
     const int anchorLine = target.anchor.has_value()
@@ -2199,10 +2204,10 @@ bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
 #endif
 }
 
-bool PinloomPanel::activateSumatraPdfTarget(const PinloomOpenTarget &target)
+bool PinloomPanel::activatePdfTarget(const PinloomOpenTarget &target)
 {
     if (!openService_) {
-        updateStatus(tr("SumatraPDF open service is unavailable"));
+        updateStatus(tr("PDF viewer adapter is unavailable"));
         return false;
     }
     const bool opened = openService_->open(target, this);

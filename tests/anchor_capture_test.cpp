@@ -27,6 +27,8 @@ private slots:
     void buildsManualSumatraPdfPageAnchor();
     void reportsMissingSumatraPdfCaptureInputs();
     void keepsSumatraPdfLocatorJsonStable();
+    void storesCanonicalPageGeometryWithoutRuntimeZoom();
+    void readsLegacyLocatorWithoutRewritingIt();
     void buildsAnchorCompatibleWithSumatraPdfExecutor();
     void savesManualPdfRectAnchorInRepository();
     void searchesCreatedManualPdfRectAnchorByNameAliasAndTag();
@@ -169,8 +171,15 @@ void AnchorCaptureTest::buildsManualSumatraPdfPageAnchor()
     QVERIFY(!result.rect.isValid());
     QCOMPARE(result.anchor.locatorType, QStringLiteral("sumatrapdf.page"));
     QVERIFY(!anchorLocatorRegion(result.anchor).has_value());
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"page\":12,\"source\":\"foreground-sumatrapdf-viewstate\",\"type\":\"sumatrapdf.page\",\"zoom\":250}"));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        result.anchor.locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
+    QCOMPARE(locator.value(QStringLiteral("page")).toInt(), 12);
+    QCOMPARE(locator.value(QStringLiteral("rotation")).toInt(), 0);
+    QCOMPARE(locator.value(QStringLiteral("document")).toObject()
+                 .value(QStringLiteral("identity")).toString(),
+             QStringLiteral("E:/docs/clock.pdf"));
+    QVERIFY(!locator.contains(QStringLiteral("zoom")));
 }
 
 void AnchorCaptureTest::reportsMissingSumatraPdfCaptureInputs()
@@ -199,8 +208,72 @@ void AnchorCaptureTest::keepsSumatraPdfLocatorJsonStable()
     const AnchorCaptureResult result = captureManualPdfRectAnchor(validRectRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"coordinateSpace\":\"page-top-left\",\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"version\":2,\"zoom\":250}"));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        result.anchor.locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
+    QCOMPARE(locator.value(QStringLiteral("coordinateSpace")).toString(),
+             QStringLiteral("page-top-left"));
+    QCOMPARE(locator.value(QStringLiteral("rect")).toArray().size(), 4);
+    QCOMPARE(locator.value(QStringLiteral("unit")).toString(),
+             QStringLiteral("pt"));
+    QCOMPARE(locator.value(QStringLiteral("provenance")).toObject()
+                 .value(QStringLiteral("adapter")).toString(),
+             QStringLiteral("sumatrapdf"));
+    QVERIFY(!locator.contains(QStringLiteral("zoom")));
+}
+
+void AnchorCaptureTest::storesCanonicalPageGeometryWithoutRuntimeZoom()
+{
+    PdfCaptureRequest request = validRectRequest();
+    request.documentIdentity = QStringLiteral("sha256:stable-document-id");
+    request.mediaBox = {0, 0, 612, 792};
+    request.cropBox = {18, 24, 594, 768};
+    request.rotation = 90;
+    request.userUnit = 1.5;
+    request.adapterId = QStringLiteral("SumatraPDF");
+    request.source = QStringLiteral("sumatrapdf-adapter-region");
+
+    const AnchorCaptureResult result = captureManualPdfRectAnchor(request);
+
+    QVERIFY2(result.success(), qPrintable(result.error));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        result.anchor.locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
+    QCOMPARE(locator.value(QStringLiteral("document")).toObject()
+                 .value(QStringLiteral("identity")).toString(),
+             QStringLiteral("sha256:stable-document-id"));
+    QCOMPARE(locator.value(QStringLiteral("mediaBox")).toArray(),
+             QJsonArray({0, 0, 612, 792}));
+    QCOMPARE(locator.value(QStringLiteral("cropBox")).toArray(),
+             QJsonArray({18, 24, 594, 768}));
+    QCOMPARE(locator.value(QStringLiteral("rotation")).toInt(), 90);
+    QCOMPARE(locator.value(QStringLiteral("userUnit")).toDouble(), 1.5);
+    QCOMPARE(locator.value(QStringLiteral("provenance")).toObject()
+                 .value(QStringLiteral("adapter")).toString(),
+             QStringLiteral("sumatrapdf"));
+    QVERIFY(!locator.contains(QStringLiteral("zoom")));
+}
+
+void AnchorCaptureTest::readsLegacyLocatorWithoutRewritingIt()
+{
+    Anchor anchor;
+    anchor.name = QStringLiteral("Legacy rectangle");
+    anchor.targetApp = QStringLiteral("SumatraPDF");
+    anchor.targetFile = QStringLiteral("E:/docs/legacy.pdf");
+    anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    const QString legacyLocator = QStringLiteral(
+        R"({"type":"sumatrapdf.rect","version":2,"page":8,"rect":[12,24,112,84],"zoom":225,"unit":"pt"})");
+    anchor.locatorJson = legacyLocator;
+
+    const SumatraPdfCommandResult command = buildSumatraPdfCommand(
+        anchor, QString(), QStringLiteral("C:/Tools/SumatraPDF.exe"));
+
+    QVERIFY2(command.success(), qPrintable(command.error));
+    QCOMPARE(command.command.page, 8);
+    QCOMPARE(command.command.zoom, 225.0);
+    QCOMPARE(command.command.highlightRect, QRectF(12, 24, 100, 60));
+    QVERIFY(command.command.arguments.contains(QStringLiteral("-zoom")));
+    QCOMPARE(anchor.locatorJson, legacyLocator);
 }
 
 void AnchorCaptureTest::buildsAnchorCompatibleWithSumatraPdfExecutor()
@@ -219,8 +292,6 @@ void AnchorCaptureTest::buildsAnchorCompatibleWithSumatraPdfExecutor()
              QStringList({QStringLiteral("-reuse-instance"),
                           QStringLiteral("-page"),
                           QStringLiteral("12"),
-                          QStringLiteral("-zoom"),
-                          QStringLiteral("250"),
                           QStringLiteral("-scroll"),
                           QStringLiteral("420,860"),
                           QStringLiteral("E:/docs/clock.pdf")}));
@@ -291,8 +362,10 @@ void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithSumatraPdfExecut
         service.createManualPdfRectAnchor(validCreationRequest());
 
     QVERIFY2(result.success(), qPrintable(result.error));
-    QCOMPARE(result.anchor.locatorJson,
-             QStringLiteral("{\"coordinateSpace\":\"page-top-left\",\"page\":12,\"rect\":[420,860,780,920],\"source\":\"manual\",\"type\":\"sumatrapdf.rect\",\"unit\":\"pt\",\"version\":2,\"zoom\":250}"));
+    const QJsonObject locator = QJsonDocument::fromJson(
+        result.anchor.locatorJson.toUtf8()).object();
+    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
+    QVERIFY(!locator.contains(QStringLiteral("zoom")));
     QVERIFY(isSumatraPdfAnchor(result.anchor));
 
     const SumatraPdfCommandResult command =
@@ -304,13 +377,11 @@ void AnchorCaptureTest::createsManualPdfRectAnchorCompatibleWithSumatraPdfExecut
              QStringList({QStringLiteral("-reuse-instance"),
                           QStringLiteral("-page"),
                           QStringLiteral("12"),
-                          QStringLiteral("-zoom"),
-                          QStringLiteral("250"),
                           QStringLiteral("-scroll"),
                           QStringLiteral("420,860"),
                           QStringLiteral("E:/docs/clock.pdf")}));
     QCOMPARE(command.command.page, 12);
-    QCOMPARE(command.command.zoom, 250.0);
+    QVERIFY(command.command.zoom <= 0.0);
     QCOMPARE(command.command.highlightRect, QRectF(420.0, 860.0, 360.0, 60.0));
 }
 

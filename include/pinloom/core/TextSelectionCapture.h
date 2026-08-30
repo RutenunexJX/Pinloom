@@ -1,6 +1,6 @@
 #pragma once
 
-#include "pinloom/core/SumatraPdfForegroundCapture.h"
+#include "pinloom/core/ForegroundApplicationContext.h"
 
 #include <QPoint>
 #include <QDateTime>

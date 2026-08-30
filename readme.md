@@ -60,26 +60,31 @@ metadata; relationship-graph storage remains outside the runtime.
 ## Priority Executors
 
 1. SumatraPDF
-   - Unified PDF host for v1.
-   - Supports page, zoom, text search, and rectangle-derived scroll targets
-     through SumatraPDF command-line arguments.
+   - The first implementation of the viewer-neutral `PdfViewerAdapter`
+     boundary. Capture, activation, viewer IPC, coordinate conversion, launch,
+     navigation verification, cancellation, and timeout handling stay inside
+     this adapter.
+   - Supports page, text search, and rectangle-derived scroll targets through
+     SumatraPDF command-line arguments. Stored legacy zoom values remain
+     readable, but new locators do not persist live viewer zoom.
    - Text PDFs and scanned PDFs are treated the same: the user names an anchor
      against a foreground or selected PDF context and Pinloom stores page plus
      rectangle.
-   - The Command Window capture path uses SumatraPDF 3.7 DDE. When
+   - The SumatraPDF adapter uses SumatraPDF 3.7 DDE. When
      `Shift+Space` is pressed, Pinloom remembers the foreground SumatraPDF
-     window and obtains the active PDF full path, page, and zoom.
+     window and obtains the active PDF identity, page, and runtime view state.
    - Anchor Library Preview uses the official SumatraPDF 3.7
      `sumatrapdf-tool.exe` beside `SumatraPDF.exe` to render a page directly.
      Rectangle anchors are cropped to their marked content with a small context
      margin; Preview does not open or screenshot the reader window.
-   - `anchor;new` hides the Command Window and opens a transparent capture layer over
-     SumatraPDF. Drag a rectangle inside one PDF page; right-click or press
-     `Esc` to cancel. Pinloom stores the two DDE page coordinates directly.
+   - `anchor;new` hides the Command Window and opens a viewer-neutral capture
+     layer over the adapter-provided window geometry. Drag a rectangle inside
+     one PDF page; right-click or press `Esc` to cancel. The adapter converts
+     screen positions to PDF page coordinates and records page geometry.
    - Example locator:
 
 ```json
-{"type":"sumatrapdf.rect","page":12,"rect":[420,860,780,920],"zoom":250,"unit":"pt"}
+{"type":"sumatrapdf.rect","version":3,"document":{"identity":"E:/docs/clock.pdf"},"page":12,"rect":[420,860,780,920],"unit":"pt","coordinateSpace":"page-top-left","rotation":0,"mediaBox":[0,0,612,792],"cropBox":[0,0,612,792],"userUnit":1,"source":"sumatrapdf-adapter-region","provenance":{"adapter":"sumatrapdf","source":"sumatrapdf-adapter-region"}}
 ```
 
 2. Excel
@@ -116,12 +121,12 @@ The current codebase already has useful foundations:
   horizontal search box with an optional compact result list. It searches
   anchors and Saved Clips, with management controls kept off the default
   surface.
-- SumatraPDF jump execution now has a tested command builder for page,
-  rectangle, and search locators, launcher activation integration, and
-  executable path resolution through `PINLOOM_SUMATRAPDF_PATH`, common install
-  paths, or host injection. Rectangle locators scroll to the stored left/top
-  coordinate. Pinloom displays a short-lived, click-through highlight over the
-  target rectangle after SumatraPDF finishes the jump.
+- PDF operations now enter through `PdfViewerAdapter`. The SumatraPDF adapter
+  owns foreground discovery, DDE state, page-coordinate sampling, launch, and
+  navigation verification; Command Window, library, host, and deep-link paths
+  use the same dispatcher/open-service route. Rectangle anchors use an
+  annotated-copy presenter, so the mark is part of a temporary PDF preview
+  rather than a desktop overlay.
 
 The mismatch is intentional technical debt for the reset:
 
@@ -343,10 +348,14 @@ drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. Capture also has a bounded timeout and reports
 cross-page, coordinate sampling, and timeout failures explicitly. The dialog
-shows the full PDF path, page, rectangle,
-zoom, and DDE capture source. Opening the anchor returns to the stored page and
-rectangle. The locator stores PDF page coordinates in points with
-`coordinateSpace: page-top-left`; it never persists desktop pixels. Rectangle
+shows the full PDF path, page, rectangle, runtime zoom, and capture source.
+Opening the anchor returns to the stored page and rectangle. Version 3 locators
+store document identity, page-space coordinates, media/crop boxes, rotation,
+user unit, and adapter provenance with `coordinateSpace: page-top-left`; they
+persist neither desktop pixels nor live zoom. Existing locators, including
+legacy zoom/rectangle spellings, remain readable and are not rewritten in the
+background. A successful edit or recapture writes the current version.
+Rectangle
 jumps generate a temporary annotated PDF copy and launch it only after the
 expected preview file and page are verified. The original PDF is not modified,
 and the annotation remains attached to PDF content when the viewer scrolls,

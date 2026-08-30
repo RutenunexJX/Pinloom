@@ -6,12 +6,12 @@
 #include "pinloom/core/LibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/PowerPointCommand.h"
-#include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/WordCommand.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomEntry.h"
 #include "pinloom/widgets/PinloomOpenService.h"
+#include "pinloom/widgets/PdfViewerAdapter.h"
 
 #include <QDateTime>
 #include <QList>
@@ -49,15 +49,8 @@ struct PinloomPanelOptions {
     std::function<std::optional<ManualPdfAnchorCreationRequest>(QWidget *parent)> manualPdfAnchorDialogHandler;
     ApplicationLaunchSettings applicationLaunchSettings;
     std::function<bool(const ExcelJumpCommand &command, QString *error)> excelLaunchHandler;
-    std::function<QString()> sumatraPdfExecutablePathProvider;
-    std::function<bool(const SumatraPdfCommand &command, QString *error)> sumatraPdfLaunchHandler;
-    std::function<SumatraPdfDdeFileState(int timeoutMilliseconds)>
-        sumatraPdfStateProvider;
-    int sumatraPdfVerificationTimeoutMilliseconds = 4200;
-    int sumatraPdfVerificationPollMilliseconds = 180;
-    int pdfPresentationGenerationTimeoutMilliseconds = 15000;
     QString pdfPresentationCacheDirectory;
-    PdfAnchorPresenter *pdfAnchorPresenter = nullptr;
+    PdfViewerAdapter *pdfViewerAdapter = nullptr;
     std::function<bool(const PowerPointJumpCommand &command, QString *error)> powerPointLaunchHandler;
     std::function<bool(const VisioJumpCommand &command, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &command, QString *error)> wordLaunchHandler;
@@ -163,7 +156,7 @@ private:
     bool activateCurrentLauncherItem();
     bool activateLauncherItem(QListWidgetItem *item);
     bool activateExcelTarget(const PinloomOpenTarget &target);
-    bool activateSumatraPdfTarget(const PinloomOpenTarget &target);
+    bool activatePdfTarget(const PinloomOpenTarget &target);
     bool activatePowerPointTarget(const PinloomOpenTarget &target);
     bool activateVisioTarget(const PinloomOpenTarget &target);
     bool activateWordTarget(const PinloomOpenTarget &target);
@@ -172,6 +165,8 @@ private:
 
     ILibraryRepository &repository_;
     PinloomPanelOptions options_;
+    std::unique_ptr<PdfViewerAdapter> ownedPdfViewerAdapter_;
+    PdfViewerAdapter *pdfViewerAdapter_ = nullptr;
     std::unique_ptr<PinloomOpenService> openService_;
     QStringList requiredTags_;
     QStringList requiredLocationPrefixes_;
