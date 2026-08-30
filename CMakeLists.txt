@@ -367,6 +367,18 @@ target_link_libraries(pinloom_widget_smoke_test
 
 pinloom_add_test(pinloom_widget_smoke_test)
 
+add_executable(pinloom_visual_theme_test
+    tests/visual_theme_test.cpp
+)
+
+target_link_libraries(pinloom_visual_theme_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_visual_theme_test)
+
 add_executable(pinloom_command_system_test
     tests/command_system_test.cpp
 )

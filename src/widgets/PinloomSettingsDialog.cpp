@@ -215,6 +215,8 @@ void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSe
 PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings, QWidget *parent)
     : QDialog(parent)
 {
+    setObjectName(QStringLiteral("pinloomSettingsDialog"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Settings"));
 
     auto *form = new QFormLayout(this);
@@ -224,6 +226,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     pdfPathLayout->setContentsMargins(0, 0, 0, 0);
     sumatraPdfPathEdit_ = new QLineEdit(settings.sumatraPdfExecutablePath, pdfPathRow);
     sumatraPdfPathEdit_->setObjectName(QStringLiteral("sumatraPdfPathEdit"));
+    sumatraPdfPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     auto *browsePdfButton = new QPushButton(tr("Browse"), pdfPathRow);
     browsePdfButton->setObjectName(QStringLiteral("browseSumatraPdfButton"));
     pdfPathLayout->addWidget(sumatraPdfPathEdit_, 1);
@@ -231,6 +234,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 
     sumatraPdfStatusLabel_ = new QLabel(sumatraPdfStatusText(settings.sumatraPdfExecutablePath), this);
     sumatraPdfStatusLabel_->setObjectName(QStringLiteral("sumatraPdfStatusLabel"));
+    sumatraPdfStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     sumatraPdfStatusLabel_->setWordWrap(true);
 
     auto *obsidianVaultRow = new QWidget(this);
@@ -238,6 +242,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     obsidianVaultLayout->setContentsMargins(0, 0, 0, 0);
     obsidianVaultPathEdit_ = new QLineEdit(settings.obsidianVaultPath, obsidianVaultRow);
     obsidianVaultPathEdit_->setObjectName(QStringLiteral("obsidianVaultPathEdit"));
+    obsidianVaultPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     auto *browseObsidianButton = new QPushButton(tr("Browse"), obsidianVaultRow);
     browseObsidianButton->setObjectName(QStringLiteral("browseObsidianVaultButton"));
     obsidianVaultLayout->addWidget(obsidianVaultPathEdit_, 1);
@@ -245,11 +250,13 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
 
     obsidianArchiveDirectoryEdit_ = new QLineEdit(settings.obsidianArchiveDirectory, this);
     obsidianArchiveDirectoryEdit_->setObjectName(QStringLiteral("obsidianArchiveDirectoryEdit"));
+    obsidianArchiveDirectoryEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
 
     obsidianStatusLabel_ = new QLabel(obsidianStatusText(settings.obsidianVaultPath,
                                                          settings.obsidianArchiveDirectory),
                                       this);
     obsidianStatusLabel_->setObjectName(QStringLiteral("obsidianStatusLabel"));
+    obsidianStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     obsidianStatusLabel_->setWordWrap(true);
 
     auto *dataDirectoryRow = new QWidget(this);
@@ -257,6 +264,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     dataDirectoryLayout->setContentsMargins(0, 0, 0, 0);
     dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, dataDirectoryRow);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
+    dataDirectoryEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     auto *browseDataDirectoryButton = new QPushButton(tr("Browse"), dataDirectoryRow);
     browseDataDirectoryButton->setObjectName(QStringLiteral("browseDataDirectoryButton"));
     dataDirectoryLayout->addWidget(dataDirectoryEdit_, 1);
@@ -267,6 +275,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
            "This is a local database directory. Do not let multiple computers open a live-synchronized copy."),
         this);
     dataDirectoryStatusLabel_->setObjectName(QStringLiteral("dataDirectoryStatusLabel"));
+    dataDirectoryStatusLabel_->setProperty("pinloomNotice", QStringLiteral("warning"));
     dataDirectoryStatusLabel_->setWordWrap(true);
 
     auto *defaultLibraryRootRow = new QWidget(this);
@@ -275,6 +284,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     defaultLibraryRootPathEdit_ =
         new QLineEdit(settings.defaultLibraryRootPath, defaultLibraryRootRow);
     defaultLibraryRootPathEdit_->setObjectName(QStringLiteral("defaultLibraryRootPathEdit"));
+    defaultLibraryRootPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     defaultLibraryRootPathEdit_->setClearButtonEnabled(true);
     defaultLibraryRootPathEdit_->setPlaceholderText(tr("No default root"));
     auto *browseDefaultLibraryRootButton =
@@ -287,6 +297,7 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
         new QLabel(defaultLibraryRootStatusText(settings.defaultLibraryRootPath), this);
     defaultLibraryRootStatusLabel_->setObjectName(
         QStringLiteral("defaultLibraryRootStatusLabel"));
+    defaultLibraryRootStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     defaultLibraryRootStatusLabel_->setWordWrap(true);
 
     clipMaxTemporaryClipsSpin_ = new QSpinBox(this);
@@ -329,10 +340,13 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
                               settings.clipSensitiveTextMarkers),
         this);
     clipPrivacyStatusLabel_->setObjectName(QStringLiteral("clipPrivacyStatusLabel"));
+    clipPrivacyStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     clipPrivacyStatusLabel_->setWordWrap(true);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("settingsButtons"));
+    buttons->button(QDialogButtonBox::Ok)->setProperty(
+        "pinloomControl", QStringLiteral("primary"));
 
     form->addRow(tr("SumatraPDF"), pdfPathRow);
     form->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);

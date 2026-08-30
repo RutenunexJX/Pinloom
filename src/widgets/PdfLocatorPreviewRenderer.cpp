@@ -1,4 +1,5 @@
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include "pinloom/core/SumatraPdfCommand.h"
 
@@ -231,7 +232,8 @@ QImage cropPdfLocatorPreviewImage(const QImage &pageImage,
         QPainter painter(&cropped);
         painter.setRenderHint(QPainter::Antialiasing, true);
         const qreal penWidth = std::max<qreal>(2.0, scale * 1.5);
-        painter.setPen(QPen(QColor(QStringLiteral("#d19a00")), penWidth));
+        painter.setPen(QPen(pinloomVisualTokens(activePinloomVisualScheme()).warning,
+                            penWidth));
         const QRectF highlighted = selectionPixels.translated(-crop.left(), -crop.top())
                                        .intersected(QRectF(cropped.rect()))
                                        .adjusted(penWidth / 2.0,

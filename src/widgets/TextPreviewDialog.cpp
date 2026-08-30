@@ -1,4 +1,5 @@
 #include "pinloom/widgets/TextPreviewDialog.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QFile>
 #include <QFileInfo>
@@ -19,12 +20,17 @@ TextPreviewDialog::TextPreviewDialog(QString filePath, int targetLine, QWidget *
     , filePath_(std::move(filePath))
     , targetLine_(targetLine)
 {
+    setObjectName(QStringLiteral("textPreviewDialog"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(QFileInfo(filePath_).fileName());
     resize(900, 640);
 
     auto *layout = new QVBoxLayout(this);
     auto *label = new QLabel(QStringLiteral("%1 : line %2").arg(filePath_).arg(targetLine_), this);
+    label->setProperty("pinloomTextRole", QStringLiteral("technical"));
     editor_ = new QPlainTextEdit(this);
+    editor_->setProperty("pinloomTextRole", QStringLiteral("technical"));
+    editor_->setAccessibleName(tr("Text file preview"));
     editor_->setReadOnly(true);
     editor_->setLineWrapMode(QPlainTextEdit::NoWrap);
 
@@ -61,7 +67,9 @@ void TextPreviewDialog::highlightTargetLine()
 
     QTextEdit::ExtraSelection selection;
     selection.cursor = cursor;
-    selection.format.setBackground(QColor(255, 238, 153));
+    QColor highlight = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+    highlight.setAlpha(48);
+    selection.format.setBackground(highlight);
     selection.format.setProperty(QTextFormat::FullWidthSelection, true);
     editor_->setExtraSelections({selection});
 }

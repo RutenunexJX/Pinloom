@@ -108,18 +108,21 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("libraryRootWindow"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Root Library %1").arg(pinloomVersionLabel()));
     setMinimumSize(980, 620);
     resize(1280, 760);
 
     auto *central = new QWidget(this);
+    central->setProperty("pinloomRole", QStringLiteral("canvas"));
     auto *layout = new QVBoxLayout(central);
-    layout->setContentsMargins(12, 10, 12, 10);
+    layout->setContentsMargins(12, 12, 12, 12);
     layout->setSpacing(8);
 
     auto *toolbar = new QHBoxLayout;
     auto *addButton = new QToolButton(central);
     addButton->setObjectName(QStringLiteral("libraryRootAddButton"));
+    addButton->setProperty("pinloomControl", QStringLiteral("compact"));
     addButton->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
     addButton->setText(tr("Add root"));
     addButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -128,14 +131,17 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
                                         tr("Remove root"),
                                         central);
     removeRootButton_->setObjectName(QStringLiteral("libraryRootRemoveButton"));
+    removeRootButton_->setProperty("accent", QStringLiteral("destructive"));
     auto *openButton = new QPushButton(style()->standardIcon(QStyle::SP_DialogOpenButton),
                                        tr("Open"),
                                        central);
     openButton->setObjectName(QStringLiteral("libraryRootOpenButton"));
     auto *refreshButton = new QToolButton(central);
     refreshButton->setObjectName(QStringLiteral("libraryRootRefreshButton"));
+    refreshButton->setProperty("pinloomControl", QStringLiteral("icon"));
     refreshButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshButton->setToolTip(tr("Refresh roots and the current directory"));
+    refreshButton->setAccessibleName(refreshButton->toolTip());
     toolbar->addWidget(addButton);
     toolbar->addWidget(removeRootButton_);
     toolbar->addWidget(openButton);
@@ -147,6 +153,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     splitter->setObjectName(QStringLiteral("libraryRootSplitter"));
     rootTable_ = new QTableWidget(splitter);
     rootTable_->setObjectName(QStringLiteral("libraryRootTable"));
+    rootTable_->setAccessibleName(tr("Registered Pinloom roots"));
     rootTable_->setColumnCount(4);
     rootTable_->setHorizontalHeaderLabels({tr("Root"), tr("Location"), tr("Tags"), tr("State")});
     rootTable_->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -159,11 +166,13 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     rootTable_->horizontalHeader()->setSectionResizeMode(3, QHeaderView::ResizeToContents);
 
     auto *browser = new QWidget(splitter);
+    browser->setProperty("pinloomRole", QStringLiteral("panel"));
     auto *browserLayout = new QVBoxLayout(browser);
     browserLayout->setContentsMargins(0, 0, 0, 0);
-    browserLayout->setSpacing(7);
+    browserLayout->setSpacing(8);
     searchEdit_ = new QLineEdit(browser);
     searchEdit_->setObjectName(QStringLiteral("libraryRootSearchEdit"));
+    searchEdit_->setAccessibleName(tr("Filter current root"));
     searchEdit_->setPlaceholderText(tr("Filter the current root by file or folder name"));
     searchEdit_->setClearButtonEnabled(true);
     browserLayout->addWidget(searchEdit_);
@@ -175,6 +184,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     filterModel_->setSourceModel(fileModel_);
     tree_ = new QTreeView(browser);
     tree_->setObjectName(QStringLiteral("libraryRootFileTree"));
+    tree_->setAccessibleName(tr("Files and folders in current root"));
     tree_->setModel(filterModel_);
     tree_->setSelectionBehavior(QAbstractItemView::SelectRows);
     tree_->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -188,13 +198,16 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     browserLayout->addWidget(tree_, 1);
 
     auto *metadata = new QWidget(splitter);
+    metadata->setProperty("pinloomRole", QStringLiteral("panel"));
     auto *metadataLayout = new QVBoxLayout(metadata);
-    metadataLayout->setContentsMargins(10, 0, 0, 0);
+    metadataLayout->setContentsMargins(12, 0, 0, 0);
     metadataLayout->setSpacing(8);
     auto *metadataTitle = new QLabel(tr("Selected item"), metadata);
     metadataTitle->setObjectName(QStringLiteral("libraryRootMetadataTitle"));
+    metadataTitle->setProperty("pinloomTextRole", QStringLiteral("panelTitle"));
     pathLabel_ = new QLabel(metadata);
     pathLabel_->setObjectName(QStringLiteral("libraryRootSelectedPath"));
+    pathLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     pathLabel_->setWordWrap(true);
     pathLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     metadataLayout->addWidget(metadataTitle);
@@ -216,6 +229,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
                                   tr("Save metadata"),
                                   metadata);
     saveButton_->setObjectName(QStringLiteral("libraryRootSaveButton"));
+    saveButton_->setProperty("pinloomControl", QStringLiteral("primary"));
     metadataLayout->addWidget(saveButton_);
     metadataLayout->addStretch(1);
 
@@ -228,6 +242,8 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
 
     statusLabel_ = new QLabel(central);
     statusLabel_->setObjectName(QStringLiteral("libraryRootStatusLabel"));
+    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    statusLabel_->setAccessibleName(tr("Root Library status"));
     statusLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     layout->addWidget(statusLabel_);
     setCentralWidget(central);
@@ -246,18 +262,6 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
             QRegularExpression(QRegularExpression::escape(text.trimmed()),
                                QRegularExpression::CaseInsensitiveOption));
     });
-
-    setStyleSheet(QStringLiteral(
-        "QMainWindow#libraryRootWindow { background: #edf4f1; color: #172421; }"
-        "QTableWidget, QTreeView { background: #ffffff; alternate-background-color: #f6faf8; "
-        "border: 1px solid #b7c9c2; outline: 0; }"
-        "QTableWidget::item:selected, QTreeView::item:selected { background: #2f7668; color: white; }"
-        "QHeaderView::section { background: #dce9e4; border: 0; border-right: 1px solid #b7c9c2; "
-        "border-bottom: 1px solid #a6bbb3; padding: 6px; font-weight: 600; }"
-        "QLineEdit { background: white; border: 1px solid #a7bbb3; border-radius: 3px; padding: 6px; }"
-        "QLineEdit:focus { border: 2px solid #2f7668; }"
-        "QLabel#libraryRootMetadataTitle { color: #17584e; font-size: 16px; font-weight: 600; }"
-        "QLabel#libraryRootStatusLabel { border-left: 3px solid #2f7668; padding: 4px 7px; }"));
 
     refresh();
 }

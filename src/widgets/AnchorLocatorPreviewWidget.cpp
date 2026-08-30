@@ -1,4 +1,5 @@
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -194,7 +195,7 @@ void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
         return;
     }
     if (!errorMessage_.isEmpty()) {
-        painter.setPen(QColor(QStringLiteral("#9d3340")));
+        painter.setPen(pinloomVisualTokens(activePinloomVisualScheme()).error);
         painter.drawText(content.adjusted(14, 14, -14, -14),
                          Qt::AlignCenter | Qt::TextWordWrap,
                          errorMessage_);

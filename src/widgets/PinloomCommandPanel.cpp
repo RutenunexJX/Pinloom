@@ -4,6 +4,7 @@
 #include "pinloom/clip/ClipAction.h"
 
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -22,7 +23,6 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QLinearGradient>
 #include <QListWidget>
 #include <QListWidgetItem>
 #include <QMenu>
@@ -189,34 +189,24 @@ PinloomCommandTheme themeForTarget(const PinloomOpenTarget &target)
     return PinloomCommandTheme::Neutral;
 }
 
-QString themeResourcePath(PinloomCommandTheme theme)
+QColor themeAccent(PinloomCommandTheme theme,
+                   PinloomVisualScheme scheme)
 {
+    const bool dark = scheme == PinloomVisualScheme::Dark;
     switch (theme) {
     case PinloomCommandTheme::Anchor:
-        return QStringLiteral(":/pinloom/themes/command-anchor.png");
+        return QColor(dark ? QStringLiteral("#60A5FA")
+                           : QStringLiteral("#2563EB"));
     case PinloomCommandTheme::Clip:
-        return QStringLiteral(":/pinloom/themes/command-clip.png");
+        return QColor(dark ? QStringLiteral("#2DD4BF")
+                           : QStringLiteral("#0F766E"));
     case PinloomCommandTheme::Inbox:
-        return QStringLiteral(":/pinloom/themes/command-inbox.png");
+        return QColor(dark ? QStringLiteral("#FBBF24")
+                           : QStringLiteral("#B45309"));
     case PinloomCommandTheme::Neutral:
-        return QStringLiteral(":/pinloom/themes/command-neutral.png");
+        return pinloomVisualTokens(scheme).accent;
     }
-    return QStringLiteral(":/pinloom/themes/command-neutral.png");
-}
-
-QColor themeAccent(PinloomCommandTheme theme)
-{
-    switch (theme) {
-    case PinloomCommandTheme::Anchor:
-        return QColor(QStringLiteral("#2563eb"));
-    case PinloomCommandTheme::Clip:
-        return QColor(QStringLiteral("#0f766e"));
-    case PinloomCommandTheme::Inbox:
-        return QColor(QStringLiteral("#b45309"));
-    case PinloomCommandTheme::Neutral:
-        return QColor(QStringLiteral("#59636f"));
-    }
-    return QColor(QStringLiteral("#59636f"));
+    return pinloomVisualTokens(scheme).accent;
 }
 
 QString compactValue(QString value, int maxLength = 96)
@@ -929,47 +919,58 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     }
 
     setObjectName(QStringLiteral("pinloomCommandPanel"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Command %1").arg(pinloomVersionLabel()));
     setAcceptDrops(true);
     setAutoFillBackground(false);
     resize(760, preferredWindowHeight_);
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 10, 10, 8);
-    layout->setSpacing(6);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
 
+    const PinloomVisualMetrics visualMetrics = pinloomVisualMetrics();
     commandEdit_ = new QLineEdit(this);
     commandEdit_->setObjectName(QStringLiteral("commandSearchEdit"));
+    commandEdit_->setAccessibleName(tr("Pinloom command and search"));
+    commandEdit_->setAccessibleDescription(
+        tr("Search Pinloom or enter a command. Use Up and Down to navigate results."));
     commandEdit_->setPlaceholderText(tr("Search Anchor, Clip, Inbox, or File"));
     commandEdit_->setClearButtonEnabled(true);
     commandEdit_->setAcceptDrops(true);
-    commandEdit_->setFixedHeight(42);
+    commandEdit_->setFixedHeight(visualMetrics.primaryControlHeight);
 
     versionLabel_ = new QLabel(pinloomVersionLabel(), this);
     versionLabel_->setObjectName(QStringLiteral("commandVersionLabel"));
+    versionLabel_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     versionLabel_->setAlignment(Qt::AlignCenter);
-    versionLabel_->setFixedHeight(42);
+    versionLabel_->setFixedHeight(visualMetrics.primaryControlHeight);
     versionLabel_->setMinimumWidth(versionLabel_->fontMetrics().horizontalAdvance(versionLabel_->text()) + 16);
     versionLabel_->setToolTip(tr("Pinloom %1").arg(pinloomVersionLabel()));
 
     clipLibraryButton_ = new QToolButton(this);
     clipLibraryButton_->setObjectName(QStringLiteral("commandClipLibraryButton"));
+    clipLibraryButton_->setProperty("pinloomControl", QStringLiteral("icon"));
     clipLibraryButton_->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
     clipLibraryButton_->setToolTip(tr("Open Clip Library"));
-    clipLibraryButton_->setFixedSize(42, 42);
+    clipLibraryButton_->setFixedSize(visualMetrics.primaryControlHeight,
+                                     visualMetrics.primaryControlHeight);
     clipLibraryButton_->setVisible(false);
 
     quickActionRow_ = new QWidget(this);
     quickActionRow_->setObjectName(QStringLiteral("commandQuickActionRow"));
     auto *quickLayout = new QHBoxLayout(quickActionRow_);
     quickLayout->setContentsMargins(0, 0, 0, 0);
-    quickLayout->setSpacing(6);
+    quickLayout->setSpacing(8);
     auto *quickLabel = new QLabel(tr("Capture"), quickActionRow_);
     quickLabel->setObjectName(QStringLiteral("commandQuickActionLabel"));
+    quickLabel->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     quickLayout->addWidget(quickLabel);
 
     rectangleAnchorButton_ = new QToolButton(quickActionRow_);
     rectangleAnchorButton_->setObjectName(QStringLiteral("commandRectangleAnchorButton"));
+    rectangleAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
+    rectangleAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
     rectangleAnchorButton_->setText(tr("PDF Rectangle Anchor"));
     rectangleAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     rectangleAnchorButton_->setToolTip(tr("Capture a rectangle in the remembered SumatraPDF document"));
@@ -980,6 +981,8 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     textAnchorButton_ = new QToolButton(quickActionRow_);
     textAnchorButton_->setObjectName(QStringLiteral("commandTextAnchorButton"));
+    textAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
+    textAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
     textAnchorButton_->setText(tr("PDF Text Anchor"));
     textAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     textAnchorButton_->setToolTip(tr("Capture selected text in the remembered SumatraPDF document"));
@@ -990,6 +993,8 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     pdfTextClipButton_ = new QToolButton(quickActionRow_);
     pdfTextClipButton_->setObjectName(QStringLiteral("commandPdfTextClipButton"));
+    pdfTextClipButton_->setProperty("pinloomControl", QStringLiteral("compact"));
+    pdfTextClipButton_->setMinimumHeight(visualMetrics.compactControlHeight);
     pdfTextClipButton_->setText(tr("PDF Text Clip"));
     pdfTextClipButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     pdfTextClipButton_->setToolTip(tr("Save selected text from the remembered SumatraPDF document as a Clip"));
@@ -1001,6 +1006,10 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
+    resultList_->setProperty("pinloomRole", QStringLiteral("raised"));
+    resultList_->setAccessibleName(tr("Pinloom command and search results"));
+    resultList_->setAccessibleDescription(
+        tr("Use Up and Down to select, Enter to activate, and Right Arrow for actions."));
     resultList_->setAlternatingRowColors(true);
     resultList_->setUniformItemSizes(true);
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1008,6 +1017,8 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("commandStatusLabel"));
+    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    statusLabel_->setAccessibleName(tr("Pinloom command status"));
     statusLabel_->setWordWrap(true);
     installStatusContextMenu(statusLabel_, this, [this]() {
         return statusText_;
@@ -1015,7 +1026,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     auto *inputRow = new QHBoxLayout;
     inputRow->setContentsMargins(0, 0, 0, 0);
-    inputRow->setSpacing(6);
+    inputRow->setSpacing(8);
     inputRow->addWidget(commandEdit_, 1);
     inputRow->addWidget(versionLabel_);
     inputRow->addWidget(clipLibraryButton_);
@@ -1359,16 +1370,25 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
     return QWidget::eventFilter(watched, event);
 }
 
+void PinloomCommandPanel::changeEvent(QEvent *event)
+{
+    QWidget::changeEvent(event);
+    if (!event) return;
+    if (event->type() == QEvent::ApplicationPaletteChange) {
+        appliedThemeKey_.clear();
+        setTheme(theme_);
+    }
+}
+
 void PinloomCommandPanel::paintEvent(QPaintEvent *event)
 {
     QWidget::paintEvent(event);
 
     QPainter painter(this);
-    QLinearGradient background(0.0, 0.0, static_cast<qreal>(width()), 0.0);
-    background.setColorAt(0.0, QColor(QStringLiteral("#f5f7fb")));
-    background.setColorAt(1.0, QColor(QStringLiteral("#eef2f7")));
-    painter.fillRect(rect(), background);
-    painter.fillRect(QRect(0, 0, 4, height()), themeAccent(theme_));
+    const PinloomVisualScheme scheme = activePinloomVisualScheme();
+    const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
+    painter.fillRect(rect(), tokens.canvas);
+    painter.fillRect(QRect(0, 0, 4, height()), themeAccent(theme_, scheme));
 }
 
 void PinloomCommandPanel::dragEnterEvent(QDragEnterEvent *event)
@@ -1734,80 +1754,112 @@ void PinloomCommandPanel::activateResultItem(QListWidgetItem *item)
 
 void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
 {
-    if (theme_ == theme && !styleSheet().isEmpty()) {
+    const PinloomVisualScheme scheme = activePinloomVisualScheme();
+    const QString themeKey = QStringLiteral("%1:%2")
+                                 .arg(static_cast<int>(theme))
+                                 .arg(static_cast<int>(scheme));
+    if (appliedThemeKey_ == themeKey && !styleSheet().isEmpty()) {
         return;
     }
 
     theme_ = theme;
-    backgroundPixmap_ = QPixmap{};
-    const QString accent = themeAccent(theme_).name();
+    appliedThemeKey_ = themeKey;
+    const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
+    const QString accent = themeAccent(theme_, scheme).name(QColor::HexRgb);
+    const QString panel = tokens.panel.name(QColor::HexRgb);
+    const QString raised = tokens.raisedSurface.name(QColor::HexRgb);
+    const QString alternate = tokens.alternateSurface.name(QColor::HexRgb);
+    const QString border = tokens.border.name(QColor::HexRgb);
+    const QString text = tokens.text.name(QColor::HexRgb);
+    const QString muted = tokens.mutedText.name(QColor::HexRgb);
+    const QString hover = tokens.hoverSurface.name(QColor::HexRgb);
+    const QString disabledSurface = tokens.disabledSurface.name(QColor::HexRgb);
+    const QString disabledText = tokens.disabledText.name(QColor::HexRgb);
+    const QString focus = tokens.focus.name(QColor::HexRgb);
+    const QString selectionText = tokens.selectionText.name(QColor::HexRgb);
+    const QString selection = tokens.selection.name(QColor::HexRgb);
     setStyleSheet(QStringLiteral(
-        "QWidget#pinloomCommandPanel { color: #20252b; }"
+        "QWidget#pinloomCommandPanel { color: %2; }"
         "QLineEdit#commandSearchEdit {"
-        "  background-color: #ffffff;"
-        "  border: 1px solid #c7d0dc;"
+        "  background-color: %3;"
+        "  border: 1px solid %4;"
         "  border-radius: 8px;"
-        "  color: #171a1f;"
+        "  color: %2;"
         "  font-size: 14px;"
-        "  padding: 6px 12px;"
-        "  selection-background-color: %1;"
-        "  selection-color: white;"
+        "  padding: 4px 12px;"
+        "  selection-background-color: %12;"
+        "  selection-color: %5;"
         "}"
-        "QLineEdit#commandSearchEdit:focus { border: 2px solid %1; }"
+        "QLineEdit#commandSearchEdit:focus { border: 2px solid %6; }"
         "QToolButton#commandClipLibraryButton {"
-        "  background-color: #ffffff;"
-        "  border: 1px solid #c7d0dc;"
+        "  background-color: %3;"
+        "  border: 1px solid %4;"
         "  border-radius: 8px;"
-        "  padding: 7px;"
+        "  padding: 4px;"
         "}"
-        "QToolButton#commandClipLibraryButton:hover { background-color: #eef3f8; }"
+        "QToolButton#commandClipLibraryButton:hover { background-color: %7; }"
         "QWidget#commandQuickActionRow { background: transparent; }"
-        "QLabel#commandQuickActionLabel { color: #657181; font-size: 11px; padding: 0 4px; }"
-        "QToolButton#commandRectangleAnchorButton, QToolButton#commandTextAnchorButton {"
-        "  background-color: #ffffff;"
-        "  border: 1px solid #c7d0dc;"
+        "QLabel#commandQuickActionLabel { color: %8; font-size: 11px; padding: 0 4px; }"
+        "QToolButton#commandRectangleAnchorButton, QToolButton#commandTextAnchorButton,"
+        "QToolButton#commandPdfTextClipButton {"
+        "  background-color: %3;"
+        "  border: 1px solid %4;"
         "  border-radius: 6px;"
-        "  color: #263241;"
-        "  min-height: 26px;"
-        "  padding: 2px 10px;"
+        "  color: %2;"
+        "  min-height: 28px;"
+        "  padding: 0 8px;"
         "}"
-        "QToolButton#commandRectangleAnchorButton:hover, QToolButton#commandTextAnchorButton:hover {"
-        "  background-color: #edf3ff; border-color: %1; color: %1;"
+        "QToolButton#commandRectangleAnchorButton:hover, QToolButton#commandTextAnchorButton:hover,"
+        "QToolButton#commandPdfTextClipButton:hover {"
+        "  background-color: %7; border-color: %1; color: %1;"
         "}"
-        "QToolButton#commandRectangleAnchorButton:focus, QToolButton#commandTextAnchorButton:focus {"
-        "  border: 2px solid %1;"
+        "QToolButton#commandRectangleAnchorButton:focus, QToolButton#commandTextAnchorButton:focus,"
+        "QToolButton#commandPdfTextClipButton:focus {"
+        "  border: 2px solid %6;"
         "}"
-        "QToolButton:disabled { color: #9aa4b2; background-color: #f1f3f6; border-color: #d8dee7; }"
+        "QToolButton:disabled { color: %9; background-color: %10; border-color: %4; }"
         "QLabel#commandVersionLabel {"
-        "  color: #657181;"
+        "  color: %8;"
         "  font-size: 11px;"
         "  padding: 0 2px;"
         "}"
         "QListWidget#commandResultList {"
-        "  background-color: #ffffff;"
-        "  alternate-background-color: #f7f9fc;"
-        "  border: 1px solid #cfd7e2;"
+        "  background-color: %3;"
+        "  alternate-background-color: %11;"
+        "  border: 1px solid %4;"
         "  border-radius: 8px;"
-        "  color: #20252b;"
+        "  color: %2;"
         "  outline: 0;"
         "}"
         "QListWidget#commandResultList::item {"
-        "  border-bottom: 1px solid #e7ebf1;"
-        "  padding: 6px 9px;"
+        "  border-bottom: 1px solid %4;"
+        "  padding: 8px;"
         "}"
-        "QListWidget#commandResultList::item:hover { background-color: #eef3f8; }"
+        "QListWidget#commandResultList::item:hover { background-color: %7; }"
         "QListWidget#commandResultList::item:selected {"
-        "  background-color: %1;"
-        "  color: white;"
+        "  background-color: %12;"
+        "  color: %5;"
         "}"
         "QLabel#commandStatusLabel {"
-        "  background-color: #ffffff;"
+        "  background-color: %13;"
         "  border-left: 3px solid %1;"
         "  border-radius: 4px;"
-        "  color: #30363d;"
-        "  padding: 4px 7px;"
+        "  color: %2;"
+        "  padding: 4px 8px;"
         "}"
-    ).arg(accent));
+    ).arg(accent,
+          text,
+          panel,
+          border,
+          selectionText,
+          focus,
+          hover,
+          muted,
+          disabledText,
+          disabledSurface,
+          alternate,
+          selection,
+          raised));
     update();
 }
 

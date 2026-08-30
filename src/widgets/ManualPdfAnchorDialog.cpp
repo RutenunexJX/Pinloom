@@ -37,15 +37,21 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(QWidget *parent)
 ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationRequest &initialRequest, QWidget *parent)
     : QDialog(parent)
 {
+    setObjectName(QStringLiteral("manualPdfAnchorDialog"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Capture PDF Anchor"));
 
     auto *form = new QFormLayout(this);
 
     nameEdit_ = new QLineEdit(this);
     nameEdit_->setObjectName(QStringLiteral("manualPdfAnchorNameEdit"));
+    nameEdit_->setAccessibleName(tr("Anchor name"));
 
     summaryLabel_ = new QLabel(this);
     summaryLabel_->setObjectName(QStringLiteral("manualPdfAnchorSummaryLabel"));
+    summaryLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    summaryLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
+    summaryLabel_->setAccessibleName(tr("Captured PDF locator summary"));
     summaryLabel_->setWordWrap(true);
 
     advancedToggleButton_ = new QPushButton(tr("Advanced locator fallback"), this);
@@ -54,11 +60,14 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationReques
 
     advancedWidget_ = new QWidget(this);
     advancedWidget_->setObjectName(QStringLiteral("manualPdfAnchorAdvancedWidget"));
+    advancedWidget_->setProperty("pinloomRole", QStringLiteral("panel"));
     auto *advancedForm = new QFormLayout(advancedWidget_);
     advancedForm->setContentsMargins(0, 0, 0, 0);
 
     fileEdit_ = new QLineEdit(this);
     fileEdit_->setObjectName(QStringLiteral("manualPdfAnchorFileEdit"));
+    fileEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
+    fileEdit_->setAccessibleName(tr("PDF file"));
     auto *browseButton = new QPushButton(tr("Browse"), this);
     browseButton->setObjectName(QStringLiteral("manualPdfAnchorBrowseButton"));
     auto *fileLayout = new QHBoxLayout();
@@ -95,13 +104,17 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationReques
 
     aliasesEdit_ = new QLineEdit(this);
     aliasesEdit_->setObjectName(QStringLiteral("manualPdfAnchorAliasesEdit"));
+    aliasesEdit_->setAccessibleName(tr("Anchor aliases"));
     tagsEdit_ = new QLineEdit(this);
     tagsEdit_->setObjectName(QStringLiteral("manualPdfAnchorTagsEdit"));
+    tagsEdit_->setAccessibleName(tr("Anchor tags"));
     pinnedCheck_ = new QCheckBox(tr("Pinned"), this);
     pinnedCheck_->setObjectName(QStringLiteral("manualPdfAnchorPinnedCheck"));
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("manualPdfAnchorButtons"));
+    buttons->button(QDialogButtonBox::Ok)->setProperty(
+        "pinloomControl", QStringLiteral("primary"));
 
     form->addRow(tr("Name"), nameEdit_);
     form->addRow(tr("Captured locator"), summaryLabel_);

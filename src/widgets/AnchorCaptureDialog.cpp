@@ -59,20 +59,24 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     , initialDraft_(draft)
 {
     setObjectName(QStringLiteral("anchorCaptureDialog"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Confirm Anchor"));
     setModal(true);
     resize(560, 360);
 
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(20, 18, 20, 18);
+    root->setContentsMargins(20, 20, 20, 20);
     root->setSpacing(12);
 
     auto *title = new QLabel(tr("Confirm captured position"), this);
     title->setObjectName(QStringLiteral("anchorCaptureTitle"));
+    title->setProperty("pinloomTextRole", QStringLiteral("title"));
     root->addWidget(title);
 
     targetLabel_ = new QLabel(this);
     targetLabel_->setObjectName(QStringLiteral("anchorCaptureTarget"));
+    targetLabel_->setProperty("pinloomRole", QStringLiteral("raised"));
+    targetLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     targetLabel_->setWordWrap(true);
     const QString target = draft.targetFile.trimmed().isEmpty()
         ? draft.targetUri.trimmed()
@@ -83,12 +87,14 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
 
     locatorLabel_ = new QLabel(compactLocatorSummary(draft), this);
     locatorLabel_->setObjectName(QStringLiteral("anchorCaptureLocator"));
+    locatorLabel_->setProperty("pinloomRole", QStringLiteral("raised"));
+    locatorLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     locatorLabel_->setWordWrap(true);
     root->addWidget(locatorLabel_);
 
     auto *form = new QFormLayout;
     form->setHorizontalSpacing(12);
-    form->setVerticalSpacing(10);
+    form->setVerticalSpacing(8);
     nameEdit_ = new QLineEdit(draft.suggestedName, this);
     nameEdit_->setObjectName(QStringLiteral("anchorCaptureNameEdit"));
     aliasesEdit_ = new QLineEdit(draft.aliases.join(QLatin1Char(',')), this);
@@ -118,30 +124,24 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
             : tr("Source: %1").arg(draft.provenance.trimmed()),
         this);
     provenanceLabel_->setObjectName(QStringLiteral("anchorCaptureProvenance"));
+    provenanceLabel_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     provenanceLabel_->setWordWrap(true);
     root->addWidget(provenanceLabel_);
 
     validationLabel_ = new QLabel(this);
     validationLabel_->setObjectName(QStringLiteral("anchorCaptureValidation"));
+    validationLabel_->setProperty("pinloomNotice", QStringLiteral("error"));
+    validationLabel_->setAccessibleName(tr("Anchor validation status"));
     validationLabel_->setWordWrap(true);
     root->addWidget(validationLabel_);
 
     buttons_ = new QDialogButtonBox(
         QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     buttons_->setObjectName(QStringLiteral("anchorCaptureButtons"));
+    if (QPushButton *saveButton = buttons_->button(QDialogButtonBox::Save)) {
+        saveButton->setProperty("pinloomControl", QStringLiteral("primary"));
+    }
     root->addWidget(buttons_);
-
-    setStyleSheet(QStringLiteral(
-        "QDialog#anchorCaptureDialog { background: #f5f7fb; color: #202936; }"
-        "QLabel#anchorCaptureTitle { font-size: 18px; font-weight: 600; color: #172033; }"
-        "QLabel#anchorCaptureTarget, QLabel#anchorCaptureLocator {"
-        " background: #ffffff; border: 1px solid #d4dbe5; border-radius: 8px; padding: 10px; }"
-        "QLabel#anchorCaptureProvenance { color: #687487; }"
-        "QLabel#anchorCaptureValidation { color: #b42318; }"
-        "QLineEdit { min-height: 30px; border: 1px solid #c8d1dd; border-radius: 6px;"
-        " padding: 0 8px; background: #ffffff; }"
-        "QLineEdit:focus { border: 2px solid #2563eb; }"
-        "QPushButton { min-height: 30px; padding: 0 14px; border-radius: 6px; }"));
 
     connect(nameEdit_, &QLineEdit::textChanged,
             this, &AnchorCaptureDialog::updateAcceptance);

@@ -6,7 +6,6 @@
 #include "pinloom/widgets/PinloomCommandSystem.h"
 #include "pinloom/widgets/PinloomEntry.h"
 
-#include <QPixmap>
 #include <QWidget>
 #include <functional>
 #include <memory>
@@ -126,6 +125,7 @@ signals:
 
 protected:
     bool eventFilter(QObject *watched, QEvent *event) override;
+    void changeEvent(QEvent *event) override;
     void paintEvent(QPaintEvent *event) override;
     void dragEnterEvent(QDragEnterEvent *event) override;
     void dragMoveEvent(QDragMoveEvent *event) override;
@@ -175,7 +175,7 @@ private:
     PinloomOpenTarget actionSourceTarget_;
     int actionSourceRow_ = -1;
     PinloomCommandTheme theme_ = PinloomCommandTheme::Neutral;
-    QPixmap backgroundPixmap_;
+    QString appliedThemeKey_;
     bool compact_ = true;
     bool clipPickerMode_ = false;
     int preferredWindowHeight_ = 62;

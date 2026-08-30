@@ -1898,6 +1898,10 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     };
 
     AnchorLibraryWindow window(options);
+    QColor dirtyInlineColor = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+    dirtyInlineColor.setAlpha(48);
+    QColor savedInlineColor = pinloomVisualTokens(activePinloomVisualScheme()).success;
+    savedInlineColor.setAlpha(48);
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
     auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
@@ -1944,8 +1948,11 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QCOMPARE(appFilter->findText(QStringLiteral("PDF")), -1);
     QVERIFY(appFilter->findText(QStringLiteral("SumatraPDF")) >= 0);
     const QString libraryTheme = window.styleSheet();
-    QVERIFY(libraryTheme.contains(QStringLiteral("#edf2f3")));
-    QVERIFY(!libraryTheme.contains(QStringLiteral("#24282c")));
+    QVERIFY(libraryTheme.isEmpty());
+    QCOMPARE(window.property("pinloomRole").toString(), QStringLiteral("canvas"));
+    QCOMPARE(window.findChild<QWidget *>(QStringLiteral("anchorLibraryInspector"))
+                 ->property("pinloomRole").toString(),
+             QStringLiteral("panel"));
 
     int regionRow = -1;
     int pageRow = -1;
@@ -1993,7 +2000,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
 
     QTableWidgetItem *fileAliasItem = fileTable->item(0, 1);
     fileAliasItem->setText(QStringLiteral("edited file alias, filing alias"));
-    QCOMPARE(fileAliasItem->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QCOMPARE(fileAliasItem->background().color(), dirtyInlineColor);
 
     const QRect fileTagCell = fileTable->visualItemRect(fileTable->item(0, 5));
     QTest::mouseClick(fileTable->viewport(), Qt::LeftButton, Qt::NoModifier, fileTagCell.center());
@@ -2012,7 +2019,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     createFileTag->click();
     QTRY_VERIFY(fileTable->item(0, 5)->data(Qt::UserRole + 5).toStringList()
                     .contains(QStringLiteral("filing")));
-    QCOMPARE(fileTable->item(0, 5)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QCOMPARE(fileTable->item(0, 5)->background().color(), dirtyInlineColor);
     fileTagPopup->close();
     QApplication::processEvents();
 
@@ -2025,8 +2032,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QTRY_COMPARE(repository.findResource(resource.id)->aliases,
                  (QStringList{QStringLiteral("edited file alias"), QStringLiteral(" filing alias")}));
     QVERIFY(repository.findResource(resource.id)->tags.contains(QStringLiteral("filing")));
-    QCOMPARE(fileTable->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
-    QCOMPARE(fileTable->item(0, 5)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QCOMPARE(fileTable->item(0, 1)->background().color(), savedInlineColor);
+    QCOMPARE(fileTable->item(0, 5)->background().color(), savedInlineColor);
 
     fileTable->setCurrentItem(fileTable->item(0, 1));
     fileTable->editItem(fileTable->item(0, 1));
@@ -2066,7 +2073,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         auto *action = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"));
         auto *button = action ? qobject_cast<QToolButton *>(action->defaultWidget()) : nullptr;
         fileMenuVerified = action && action->font().bold() && button
-            && button->styleSheet().contains(QStringLiteral("#c62828"));
+            && button->property("accent").toString() == QLatin1String("destructive");
         if (!snapshotDirectory.isEmpty()) {
             QDir().mkpath(snapshotDirectory);
             menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-file-menu.png")));
@@ -2090,7 +2097,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         auto *button = remove ? qobject_cast<QToolButton *>(remove->defaultWidget()) : nullptr;
         anchorMenuVerified = recapture && recapture->isEnabled()
             && remove && removeAll && remove->font().bold() && removeAll->font().bold()
-            && button && button->styleSheet().contains(QStringLiteral("#c62828"));
+            && button
+            && button->property("accent").toString() == QLatin1String("destructive");
         if (!snapshotDirectory.isEmpty()) {
             menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-anchor-menu.png")));
         }
@@ -2106,7 +2114,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(window.selectAnchorAt(regionRow));
     QTableWidgetItem *aliasItem = anchorTable->item(regionRow, 1);
     aliasItem->setText(QStringLiteral("inline alias, second alias"));
-    QCOMPARE(aliasItem->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QCOMPARE(aliasItem->background().color(), dirtyInlineColor);
 
     const QRect tagCell = anchorTable->visualItemRect(anchorTable->item(regionRow, 2));
     QTest::mouseClick(anchorTable->viewport(), Qt::LeftButton, Qt::NoModifier, tagCell.center());
@@ -2125,7 +2133,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     createTag->click();
     QTRY_VERIFY(anchorTable->item(regionRow, 2)->data(Qt::UserRole + 5).toStringList()
                     .contains(QStringLiteral("delta")));
-    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), dirtyInlineColor);
     popup->close();
     QApplication::processEvents();
 
@@ -2144,8 +2152,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         if (anchorTable->item(row, 0)->text() == QLatin1String("Region")) regionRow = row;
     }
     QVERIFY(regionRow >= 0);
-    QCOMPARE(anchorTable->item(regionRow, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
-    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QCOMPARE(anchorTable->item(regionRow, 1)->background().color(), savedInlineColor);
+    QCOMPARE(anchorTable->item(regionRow, 2)->background().color(), savedInlineColor);
 
     anchorTable->setCurrentItem(anchorTable->item(regionRow, 1));
     anchorTable->editItem(anchorTable->item(regionRow, 1));
@@ -2175,9 +2183,9 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(window.isTrashVisible());
     QVERIFY(window.property("trashMode").toBool());
     const QString trashTheme = window.styleSheet();
-    QVERIFY(trashTheme.contains(QStringLiteral("#24282c")));
-    QVERIFY(trashTheme.contains(QStringLiteral("#8f3440")));
-    QVERIFY(trashTheme != libraryTheme);
+    QCOMPARE(trashTheme, libraryTheme);
+    QCOMPARE(trashButton->property("accent").toString(),
+             QStringLiteral("destructive"));
     QCOMPARE(window.visibleAnchorCount(), 2);
     if (!snapshotDirectory.isEmpty()) {
         QVERIFY(QDir().mkpath(snapshotDirectory));
@@ -2196,8 +2204,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         auto *removeButtonWidget = remove ? qobject_cast<QToolButton *>(remove->defaultWidget()) : nullptr;
         trashAnchorMenuVerified = restore && remove && restore->font().bold() && remove->font().bold()
             && restoreButtonWidget && removeButtonWidget
-            && restoreButtonWidget->styleSheet().contains(QStringLiteral("#2e7d32"))
-            && removeButtonWidget->styleSheet().contains(QStringLiteral("#c62828"));
+            && restoreButtonWidget->property("accent").toString() == QLatin1String("positive")
+            && removeButtonWidget->property("accent").toString() == QLatin1String("destructive");
         if (!snapshotDirectory.isEmpty()) {
             menu->grab().save(QDir(snapshotDirectory).filePath(QStringLiteral("anchor-library-trash-anchor-menu.png")));
         }
@@ -3637,10 +3645,14 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     QCOMPARE(openSourceCalls, 1);
 
     table->item(0, 1)->setText(QStringLiteral("library alias, updated alias"));
-    QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QColor dirtyColor = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+    dirtyColor.setAlpha(48);
+    QCOMPARE(table->item(0, 1)->background().color(), dirtyColor);
     QVERIFY(window.savePendingEdits());
     QVERIFY(repository.findClip(savedId)->aliases.contains(QStringLiteral(" updated alias")));
-    QCOMPARE(table->item(0, 1)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QColor savedColor = pinloomVisualTokens(activePinloomVisualScheme()).success;
+    savedColor.setAlpha(48);
+    QCOMPARE(table->item(0, 1)->background().color(), savedColor);
 
     QTableWidgetItem *tagCell = table->item(0, 2);
     QVERIFY(tagCell);
@@ -3660,10 +3672,10 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     createTag->click();
     tagPopup->close();
     QApplication::processEvents();
-    QCOMPARE(table->item(0, 2)->background().color(), QColor(QStringLiteral("#fff2a8")));
+    QCOMPARE(table->item(0, 2)->background().color(), dirtyColor);
     QVERIFY(window.savePendingEdits());
     QVERIFY(repository.findClip(savedId)->tags.contains(QStringLiteral("new-tag")));
-    QCOMPARE(table->item(0, 2)->background().color(), QColor(QStringLiteral("#bfe8c6")));
+    QCOMPARE(table->item(0, 2)->background().color(), savedColor);
 
     window.setSearchText(QStringLiteral("new-tag;updated"));
     QCOMPARE(window.visibleClipCount(), 1);

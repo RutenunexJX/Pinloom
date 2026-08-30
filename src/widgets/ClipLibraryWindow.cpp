@@ -1,5 +1,6 @@
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/clip/ClipSearch.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QAbstractItemView>
 #include <QApplication>
@@ -101,7 +102,8 @@ public:
             painter->setPen(Qt::NoPen);
             painter->setBrush(color);
             painter->drawRoundedRect(chip, 4, 4);
-            painter->setPen(color.lightness() < 145 ? Qt::white : QColor(QStringLiteral("#202124")));
+            const PinloomVisualTokens tokens = pinloomVisualTokens(activePinloomVisualScheme());
+            painter->setPen(color.lightness() < 145 ? tokens.selectionText : tokens.text);
             painter->drawText(chip.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, tag);
             x += width + 5;
         }
@@ -233,28 +235,33 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("clipLibraryWindow"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Clip Library"));
     setMinimumSize(620, 460);
     resize(1180, 760);
 
     auto *central = new QWidget(this);
+    central->setProperty("pinloomRole", QStringLiteral("canvas"));
     auto *root = new QVBoxLayout(central);
-    root->setContentsMargins(12, 12, 12, 10);
+    root->setContentsMargins(12, 12, 12, 12);
     root->setSpacing(8);
 
     auto *filters = new QHBoxLayout;
     filters->setSpacing(8);
     searchEdit_ = new QLineEdit(central);
     searchEdit_->setObjectName(QStringLiteral("clipLibrarySearchEdit"));
+    searchEdit_->setAccessibleName(tr("Search Clips"));
     searchEdit_->setPlaceholderText(tr("Name or alias; use tag;name to filter by tag"));
     searchEdit_->setClearButtonEnabled(true);
     scopeCombo_ = new QComboBox(central);
     scopeCombo_->setObjectName(QStringLiteral("clipLibraryScopeCombo"));
+    scopeCombo_->setAccessibleName(tr("Clip Library scope"));
     scopeCombo_->addItem(tr("Saved Clips"), static_cast<int>(ClipLibraryScope::Saved));
     scopeCombo_->addItem(tr("Clipboard History"), static_cast<int>(ClipLibraryScope::History));
     scopeCombo_->addItem(tr("Trash"), static_cast<int>(ClipLibraryScope::Trash));
     tagCombo_ = new QComboBox(central);
     tagCombo_->setObjectName(QStringLiteral("clipLibraryTagCombo"));
+    tagCombo_->setAccessibleName(tr("Clip tag filter"));
     tagCombo_->setMinimumWidth(160);
     filters->addWidget(searchEdit_, 1);
     filters->addWidget(scopeCombo_);
@@ -286,7 +293,8 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     table_->setWordWrap(false);
     table_->setTextElideMode(Qt::ElideRight);
     table_->verticalHeader()->setVisible(false);
-    table_->verticalHeader()->setDefaultSectionSize(34);
+    table_->verticalHeader()->setDefaultSectionSize(
+        pinloomVisualMetrics().primaryControlHeight);
     table_->horizontalHeader()->setMinimumSectionSize(52);
     table_->horizontalHeader()->setStretchLastSection(false);
     table_->horizontalHeader()->setSectionResizeMode(ClipNameColumn, QHeaderView::Stretch);
@@ -303,14 +311,17 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 
     auto *preview = new QWidget(splitter);
     preview->setObjectName(QStringLiteral("clipLibraryPreviewPane"));
+    preview->setProperty("pinloomRole", QStringLiteral("panel"));
     auto *previewLayout = new QVBoxLayout(preview);
     previewLayout->setContentsMargins(12, 4, 0, 0);
-    previewLayout->setSpacing(7);
+    previewLayout->setSpacing(8);
     previewTitle_ = new QLabel(tr("Select a Clip"), preview);
     previewTitle_->setObjectName(QStringLiteral("clipLibraryPreviewTitle"));
+    previewTitle_->setProperty("pinloomTextRole", QStringLiteral("panelTitle"));
     previewTitle_->setWordWrap(true);
     previewMetadata_ = new QLabel(preview);
     previewMetadata_->setObjectName(QStringLiteral("clipLibraryPreviewMetadata"));
+    previewMetadata_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     previewMetadata_->setWordWrap(true);
     previewText_ = new QPlainTextEdit(preview);
     previewText_->setObjectName(QStringLiteral("clipLibraryPreview"));
@@ -329,24 +340,21 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 
     statusLabel_ = new QLabel(central);
     statusLabel_->setObjectName(QStringLiteral("clipLibraryStatusLabel"));
+    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    statusLabel_->setAccessibleName(tr("Clip Library status"));
     root->addWidget(statusLabel_);
     setCentralWidget(central);
 
-    setStyleSheet(QStringLiteral(
-        "QMainWindow#clipLibraryWindow { background: #eef4f2; color: #182421; }"
-        "QLineEdit, QComboBox { min-height: 30px; background: #ffffff; border: 1px solid #a8bbb5; padding: 2px 7px; }"
-        "QLineEdit:focus, QComboBox:focus { border: 2px solid #0f766e; }"
-        "QTableWidget { background: #ffffff; alternate-background-color: #f3f7f6; border: 1px solid #b7c7c2; color: #182421; }"
-        "QHeaderView::section { background: #dce9e5; color: #173f38; border: 0; border-right: 1px solid #b7c7c2; padding: 7px; font-weight: 600; }"
-        "QTableWidget::item:selected { background: #197a70; color: #ffffff; }"
-        "QWidget#clipLibraryPreviewPane { border-left: 1px solid #b7c7c2; }"
-        "QLabel#clipLibraryPreviewTitle { color: #0b4e47; font-size: 16px; font-weight: 600; }"
-        "QLabel#clipLibraryPreviewMetadata { color: #4a5c57; }"
-        "QPlainTextEdit#clipLibraryPreview { background: #ffffff; border: 1px solid #b7c7c2; padding: 8px; font-size: 13px; }"
-        "QLabel#clipLibraryStatusLabel { color: #465a55; padding: 2px 1px; }"));
-
     connect(searchEdit_, &QLineEdit::textChanged, this, &ClipLibraryWindow::refreshRows);
     connect(scopeCombo_, &QComboBox::currentIndexChanged, this, [this]() {
+        setProperty("trashMode", scope() == ClipLibraryScope::Trash);
+        for (QWidget *widget : findChildren<QWidget *>()) {
+            widget->style()->unpolish(widget);
+            widget->style()->polish(widget);
+            widget->update();
+        }
+        style()->unpolish(this);
+        style()->polish(this);
         rebuildTagFilter(clips_);
         refreshRows();
     });
@@ -905,9 +913,13 @@ void ClipLibraryWindow::applyInlineCellState(int row, int column, const QString 
     }
     const int state = inlineCellStates_.value(inlineCellKey(clipId, column), InlineCellClean);
     if (state == InlineCellDirty) {
-        item->setBackground(QColor(QStringLiteral("#fff2a8")));
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+        color.setAlpha(48);
+        item->setBackground(color);
     } else if (state == InlineCellSaved) {
-        item->setBackground(QColor(QStringLiteral("#bfe8c6")));
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).success;
+        color.setAlpha(48);
+        item->setBackground(color);
     } else {
         item->setBackground(QBrush());
     }
@@ -1036,7 +1048,7 @@ void ClipLibraryWindow::openTagEditor(int row)
     popup->setFrameShape(QFrame::StyledPanel);
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
     auto *query = new QLineEdit(popup);
     query->setObjectName(QStringLiteral("clipLibraryTagEditorFilter"));

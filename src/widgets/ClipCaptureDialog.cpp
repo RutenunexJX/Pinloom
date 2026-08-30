@@ -55,6 +55,7 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
     : QDialog(parent)
 {
     setObjectName(QStringLiteral("clipCaptureDialog"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Save Clip"));
     setWindowModality(Qt::ApplicationModal);
     setWindowFlag(Qt::WindowStaysOnTopHint, true);
@@ -62,15 +63,17 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
     resize(520, 330);
 
     auto *root = new QVBoxLayout(this);
-    root->setContentsMargins(18, 16, 18, 16);
-    root->setSpacing(10);
+    root->setContentsMargins(16, 16, 16, 16);
+    root->setSpacing(12);
 
     auto *title = new QLabel(tr("Save selected text"), this);
     title->setObjectName(QStringLiteral("clipCaptureTitle"));
+    title->setProperty("pinloomTextRole", QStringLiteral("title"));
     root->addWidget(title);
 
     previewEdit_ = new QPlainTextEdit(selectedText, this);
     previewEdit_->setObjectName(QStringLiteral("clipCapturePreview"));
+    previewEdit_->setProperty("pinloomRole", QStringLiteral("raised"));
     previewEdit_->setReadOnly(true);
     previewEdit_->setMaximumHeight(140);
     root->addWidget(previewEdit_);
@@ -78,7 +81,7 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
     auto *form = new QFormLayout;
     form->setContentsMargins(0, 0, 0, 0);
     form->setHorizontalSpacing(12);
-    form->setVerticalSpacing(9);
+    form->setVerticalSpacing(8);
     nameEdit_ = new QLineEdit(suggestedName, this);
     nameEdit_->setObjectName(QStringLiteral("clipCaptureNameEdit"));
     nameEdit_->setClearButtonEnabled(true);
@@ -98,6 +101,9 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
 
     buttons_ = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     buttons_->setObjectName(QStringLiteral("clipCaptureButtons"));
+    if (QPushButton *saveButton = buttons_->button(QDialogButtonBox::Save)) {
+        saveButton->setProperty("pinloomControl", QStringLiteral("primary"));
+    }
     root->addWidget(buttons_);
 
     connect(buttons_, &QDialogButtonBox::accepted, this, &QDialog::accept);
@@ -108,14 +114,6 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
             saveButton->setEnabled(!name.trimmed().isEmpty());
         }
     });
-
-    setStyleSheet(QStringLiteral(
-        "QDialog#clipCaptureDialog { background: #eef4f2; color: #182421; }"
-        "QLabel#clipCaptureTitle { color: #0b4e47; font-size: 17px; font-weight: 600; }"
-        "QLineEdit, QPlainTextEdit, QToolButton#clipCaptureTagsButton { background: #ffffff; border: 1px solid #a8bbb5; border-radius: 4px; padding: 6px 8px; }"
-        "QLineEdit:focus, QPlainTextEdit:focus, QToolButton#clipCaptureTagsButton:focus { border: 2px solid #0f766e; }"
-        "QPlainTextEdit#clipCapturePreview { color: #344b46; }"
-        "QPushButton { min-width: 84px; min-height: 30px; }"));
 
     updateTagButton();
     nameEdit_->selectAll();
@@ -154,18 +152,12 @@ void ClipCaptureDialog::openTagPicker()
 
     auto *popup = new QFrame(this, Qt::Popup);
     popup->setObjectName(QStringLiteral("clipCaptureTagPicker"));
+    popup->setProperty("pinloomRole", QStringLiteral("raised"));
     popup->setAttribute(Qt::WA_DeleteOnClose);
     popup->setFrameShape(QFrame::StyledPanel);
-    popup->setStyleSheet(QStringLiteral(
-        "QFrame#clipCaptureTagPicker { background: #f7fbfa; border: 1px solid #8eaaa3; }"
-        "QLineEdit { background: white; border: 1px solid #9db4ae; padding: 5px 7px; }"
-        "QListWidget { background: white; border: 1px solid #b4c6c1; outline: 0; }"
-        "QListWidget::item { padding: 5px 7px; }"
-        "QToolButton { min-width: 30px; min-height: 30px; font-weight: 700; }"));
-
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
     queryRow->setContentsMargins(0, 0, 0, 0);
     auto *query = new QLineEdit(popup);
@@ -174,6 +166,7 @@ void ClipCaptureDialog::openTagPicker()
     query->setClearButtonEnabled(true);
     auto *create = new QToolButton(popup);
     create->setObjectName(QStringLiteral("clipCaptureCreateTagButton"));
+    create->setProperty("pinloomControl", QStringLiteral("icon"));
     create->setText(QStringLiteral("+"));
     create->setToolTip(tr("Create and select this tag"));
     queryRow->addWidget(query, 1);

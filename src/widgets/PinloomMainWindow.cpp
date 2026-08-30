@@ -92,6 +92,9 @@ QString pinloomResidentDiagnosticsText(const PinloomResidentStatus &status,
 PinloomMainWindow::PinloomMainWindow(QWidget *parent)
     : QMainWindow(parent)
 {
+    setObjectName(QStringLiteral("pinloomMainWindow"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
+    statusBar()->setAccessibleName(tr("Pinloom resident status"));
     configureMenu();
     statusBar()->showMessage(pinloomResidentStatusSummary(residentStatus_));
 }
@@ -152,10 +155,13 @@ QString PinloomMainWindow::diagnosticsText() const
 void PinloomMainWindow::showDiagnosticsDialog()
 {
     QDialog dialog(this);
+    dialog.setProperty("pinloomRole", QStringLiteral("canvas"));
     dialog.setWindowTitle(tr("Pinloom Diagnostics"));
     auto *layout = new QVBoxLayout(&dialog);
     auto *text = new QPlainTextEdit(diagnosticsText(), &dialog);
     text->setObjectName(QStringLiteral("diagnosticsTextEdit"));
+    text->setProperty("pinloomTextRole", QStringLiteral("technical"));
+    text->setAccessibleName(tr("Pinloom diagnostics"));
     text->setReadOnly(true);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
     auto *copyButton = buttons->addButton(tr("Copy"), QDialogButtonBox::ActionRole);

@@ -4,6 +4,7 @@
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QAbstractItemView>
 #include <QAction>
@@ -337,7 +338,8 @@ public:
             painter->setPen(Qt::NoPen);
             painter->setBrush(color);
             painter->drawRoundedRect(chip, 4, 4);
-            painter->setPen(color.lightness() < 145 ? Qt::white : QColor(QStringLiteral("#202124")));
+            const PinloomVisualTokens tokens = pinloomVisualTokens(activePinloomVisualScheme());
+            painter->setPen(color.lightness() < 145 ? tokens.selectionText : tokens.text);
             painter->drawText(chip.adjusted(8, 0, -8, 0), Qt::AlignVCenter | Qt::AlignLeft, tag);
             x += width + 5;
         }
@@ -372,7 +374,7 @@ private:
 QWidgetAction *addToneMenuAction(QMenu *menu,
                                  const QString &objectName,
                                  const QString &text,
-                                 const QColor &color,
+                                 const QString &accent,
                                  QObject *context,
                                  std::function<void()> handler)
 {
@@ -385,13 +387,12 @@ QWidgetAction *addToneMenuAction(QMenu *menu,
     auto *button = new QToolButton(menu);
     button->setObjectName(objectName + QStringLiteral("Button"));
     button->setText(text);
+    button->setFont(font);
     button->setToolButtonStyle(Qt::ToolButtonTextOnly);
     button->setAutoRaise(true);
     button->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    button->setStyleSheet(QStringLiteral(
-        "QToolButton { color: %1; font-weight: 700; text-align: left; border: 0; padding: 6px 22px; }"
-        "QToolButton:hover { background: rgba(128, 128, 128, 40); }")
-                              .arg(color.name()));
+    button->setProperty("accent", accent);
+    button->setAccessibleName(text);
     action->setDefaultWidget(button);
     menu->addAction(action);
     QObject::connect(action, &QAction::triggered, context, [menu, handler = std::move(handler)]() {
@@ -503,25 +504,33 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("anchorLibraryWindow"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Anchor Library"));
     setMinimumSize(920, 600);
     resize(1380, 820);
 
     auto *central = new QWidget(this);
     central->setObjectName(QStringLiteral("anchorLibraryCentral"));
+    central->setProperty("pinloomRole", QStringLiteral("canvas"));
+    const PinloomVisualMetrics metrics = pinloomVisualMetrics();
     auto *layout = new QVBoxLayout(central);
-    layout->setContentsMargins(10, 10, 10, 8);
-    layout->setSpacing(7);
+    layout->setContentsMargins(metrics.panelHeaderPadding,
+                               metrics.panelHeaderPadding,
+                               metrics.panelHeaderPadding,
+                               metrics.panelHeaderPadding);
+    layout->setSpacing(metrics.baseSpacing * 2);
 
     auto *queryRow = new QHBoxLayout;
-    queryRow->setSpacing(6);
+    queryRow->setSpacing(8);
     filterEdit_ = new QLineEdit(central);
     filterEdit_->setObjectName(QStringLiteral("anchorLibraryFilterEdit"));
     filterEdit_->setPlaceholderText(tr("Search marked files, anchors, tags, paths, and locators"));
     filterEdit_->setClearButtonEnabled(true);
+    filterEdit_->setAccessibleName(tr("Search Anchor Library"));
     savedViewCombo_ = new QComboBox(central);
     savedViewCombo_->setObjectName(QStringLiteral("anchorLibrarySavedViewCombo"));
     savedViewCombo_->setMinimumWidth(145);
+    savedViewCombo_->setAccessibleName(tr("Saved view"));
     scopeCombo_ = new QComboBox(central);
     scopeCombo_->setObjectName(QStringLiteral("anchorLibraryScopeCombo"));
     scopeCombo_->addItem(tr("All marked files"), static_cast<int>(AnchorLibraryScope::All));
@@ -532,11 +541,13 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     scopeCombo_->addItem(tr("Invalid locators"), static_cast<int>(AnchorLibraryScope::InvalidLocator));
     scopeCombo_->addItem(tr("Recently modified"), static_cast<int>(AnchorLibraryScope::RecentlyModified));
     scopeCombo_->addItem(tr("Recently deleted"), static_cast<int>(AnchorLibraryScope::RecentlyDeleted));
+    scopeCombo_->setAccessibleName(tr("Library scope"));
     refreshButton_ = new QToolButton(central);
     refreshButton_->setObjectName(QStringLiteral("anchorLibraryRefreshButton"));
     refreshButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshButton_->setToolTip(tr("Refresh library"));
     refreshButton_->setAccessibleName(refreshButton_->toolTip());
+    refreshButton_->setProperty("pinloomControl", QStringLiteral("icon"));
     trashButton_ = new QToolButton(central);
     trashButton_->setObjectName(QStringLiteral("anchorLibraryTrashButton"));
     trashButton_->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
@@ -557,30 +568,37 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     tagFilterCombo_ = new QComboBox(central);
     tagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryTagFilterCombo"));
     tagFilterCombo_->setMinimumWidth(120);
+    tagFilterCombo_->setAccessibleName(tr("File tag filter"));
     anchorTagFilterCombo_ = new QComboBox(central);
     anchorTagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryAnchorTagFilterCombo"));
     anchorTagFilterCombo_->setMinimumWidth(120);
+    anchorTagFilterCombo_->setAccessibleName(tr("Anchor tag filter"));
     kindFilterCombo_ = new QComboBox(central);
     kindFilterCombo_->setObjectName(QStringLiteral("anchorLibraryKindFilterCombo"));
+    kindFilterCombo_->setAccessibleName(tr("File type filter"));
     appFilterCombo_ = new QComboBox(central);
     appFilterCombo_->setObjectName(QStringLiteral("anchorLibraryAppFilterCombo"));
     appFilterCombo_->setMinimumWidth(120);
+    appFilterCombo_->setAccessibleName(tr("Source application filter"));
     directoryFilterEdit_ = new QLineEdit(central);
     directoryFilterEdit_->setObjectName(QStringLiteral("anchorLibraryDirectoryFilterEdit"));
     directoryFilterEdit_->setPlaceholderText(tr("Directory"));
     directoryFilterEdit_->setClearButtonEnabled(true);
+    directoryFilterEdit_->setAccessibleName(tr("Directory filter"));
     timeFilterCombo_ = new QComboBox(central);
     timeFilterCombo_->setObjectName(QStringLiteral("anchorLibraryTimeFilterCombo"));
     timeFilterCombo_->addItem(tr("Any time"), 0);
     timeFilterCombo_->addItem(tr("Last 7 days"), 7);
     timeFilterCombo_->addItem(tr("Last 30 days"), 30);
     timeFilterCombo_->addItem(tr("Last 90 days"), 90);
+    timeFilterCombo_->setAccessibleName(tr("Modified time filter"));
     usageFilterCombo_ = new QComboBox(central);
     usageFilterCombo_->setObjectName(QStringLiteral("anchorLibraryUsageFilterCombo"));
     usageFilterCombo_->addItem(tr("Any usage"), static_cast<int>(UsageFilter::Any));
     usageFilterCombo_->addItem(tr("Pinned"), static_cast<int>(UsageFilter::Pinned));
     usageFilterCombo_->addItem(tr("Recently opened"), static_cast<int>(UsageFilter::RecentlyOpened));
     usageFilterCombo_->addItem(tr("Never opened"), static_cast<int>(UsageFilter::NeverOpened));
+    usageFilterCombo_->setAccessibleName(tr("Usage filter"));
     filterRow->addWidget(tagFilterCombo_, 0, 0);
     filterRow->addWidget(anchorTagFilterCombo_, 0, 1);
     filterRow->addWidget(kindFilterCombo_, 0, 2);
@@ -592,7 +610,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     filterRow->setColumnStretch(3, 1);
 
     auto *actionRow = new QHBoxLayout;
-    actionRow->setSpacing(6);
+    actionRow->setSpacing(8);
     restoreButton_ = new QToolButton(central);
     restoreButton_->setObjectName(QStringLiteral("anchorLibraryRestoreButton"));
     restoreButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
@@ -667,6 +685,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     fileTable_ = new QTableWidget(tablesSplitter);
     fileTable_->setObjectName(QStringLiteral("anchorLibraryFileTable"));
+    fileTable_->setAccessibleName(tr("Marked files"));
+    fileTable_->setAccessibleDescription(tr("Files in the current Anchor Library scope"));
     fileTable_->setColumnCount(FileColumnCount);
     fileTable_->setHorizontalHeaderLabels({tr("File"), tr("File aliases"), tr("Location"),
                                            tr("Type"), tr("Anchors"), tr("File tags"),
@@ -697,6 +717,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     anchorTable_ = new QTableWidget(tablesSplitter);
     anchorTable_->setObjectName(QStringLiteral("anchorLibraryAnchorTable"));
+    anchorTable_->setAccessibleName(tr("Anchors"));
+    anchorTable_->setAccessibleDescription(tr("Anchors for the selected marked file"));
     anchorTable_->setColumnCount(AnchorColumnCount);
     anchorTable_->setHorizontalHeaderLabels({tr("Anchor"), tr("Anchor aliases"), tr("Anchor tags"), tr("Type"),
                                              tr("Updated"), tr("Opens"), tr("Last opened"), tr("Validity")});
@@ -735,11 +757,14 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     auto *inspectorScroll = new QScrollArea(mainSplitter);
     inspectorScroll->setObjectName(QStringLiteral("anchorLibraryInspectorScroll"));
+    inspectorScroll->setProperty("pinloomRole", QStringLiteral("panel"));
+    inspectorScroll->setAccessibleName(tr("Anchor inspector"));
     inspectorScroll->setWidgetResizable(true);
     inspectorScroll->setMinimumWidth(320);
     inspectorScroll->setMaximumWidth(520);
     auto *inspector = new QWidget(inspectorScroll);
     inspector->setObjectName(QStringLiteral("anchorLibraryInspector"));
+    inspector->setProperty("pinloomRole", QStringLiteral("panel"));
     auto *inspectorLayout = new QVBoxLayout(inspector);
     inspectorLayout->setContentsMargins(8, 8, 8, 8);
     inspectorLayout->setSpacing(0);
@@ -755,6 +780,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     statusLabel_ = new QLabel(central);
     statusLabel_->setObjectName(QStringLiteral("anchorLibraryStatusLabel"));
+    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    statusLabel_->setAccessibleName(tr("Library status"));
     layout->addLayout(queryRow);
     layout->addLayout(filterRow);
     layout->addLayout(actionRow);
@@ -2085,9 +2112,17 @@ void AnchorLibraryWindow::applyFileInlineCellState(int row, int column, const QS
     QTableWidgetItem *item = fileTable_->item(row, column);
     if (!item) return;
     const int state = fileInlineCellStates_.value(inlineFileCellKey(key, column), InlineCellClean);
-    if (state == InlineCellDirty) item->setBackground(QColor(QStringLiteral("#fff2a8")));
-    else if (state == InlineCellSaved) item->setBackground(QColor(QStringLiteral("#bfe8c6")));
-    else item->setBackground(QBrush());
+    if (state == InlineCellDirty) {
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+        color.setAlpha(48);
+        item->setBackground(color);
+    } else if (state == InlineCellSaved) {
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).success;
+        color.setAlpha(48);
+        item->setBackground(color);
+    } else {
+        item->setBackground(QBrush());
+    }
 }
 
 void AnchorLibraryWindow::applyInlineCellState(int row, int column, const QString &key)
@@ -2095,9 +2130,17 @@ void AnchorLibraryWindow::applyInlineCellState(int row, int column, const QStrin
     QTableWidgetItem *item = anchorTable_->item(row, column);
     if (!item) return;
     const int state = inlineCellStates_.value(inlineCellKey(key, column), InlineCellClean);
-    if (state == InlineCellDirty) item->setBackground(QColor(QStringLiteral("#fff2a8")));
-    else if (state == InlineCellSaved) item->setBackground(QColor(QStringLiteral("#bfe8c6")));
-    else item->setBackground(QBrush());
+    if (state == InlineCellDirty) {
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).warning;
+        color.setAlpha(48);
+        item->setBackground(color);
+    } else if (state == InlineCellSaved) {
+        QColor color = pinloomVisualTokens(activePinloomVisualScheme()).success;
+        color.setAlpha(48);
+        item->setBackground(color);
+    } else {
+        item->setBackground(QBrush());
+    }
 }
 
 void AnchorLibraryWindow::updateInlineEditStatus()
@@ -2311,7 +2354,7 @@ void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
     popup->setFrameShape(QFrame::StyledPanel);
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
-    layout->setSpacing(6);
+    layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
     auto *query = new QLineEdit(popup);
     query->setObjectName(fileTags ? QStringLiteral("anchorLibraryFileTagEditorFilter")
@@ -2491,14 +2534,14 @@ void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
         auto *restoreMetadata = addToneMenuAction(&menu,
                                                   QStringLiteral("anchorLibraryRestoreFileMetadataAction"),
                                                   QStringLiteral("恢复该文件的 Alias 和 Tag"),
-                                                  QColor(QStringLiteral("#2e7d32")),
+                                                  QStringLiteral("positive"),
                                                   this,
                                                   [this]() { restoreSelectedFiles(); });
         restoreMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
         auto *restoreAnchors = addToneMenuAction(&menu,
                                                  QStringLiteral("anchorLibraryRestoreAllFileAnchorsAction"),
                                                  QStringLiteral("恢复该文件中的所有 Anchor"),
-                                                 QColor(QStringLiteral("#2e7d32")),
+                                                 QStringLiteral("positive"),
                                                  this,
                                                  [this]() { restoreAllAnchorsForSelectedFiles(); });
         restoreAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
@@ -2506,14 +2549,14 @@ void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
         auto *deleteMetadata = addToneMenuAction(&menu,
                                                  QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
                                                  QStringLiteral("永久删除该文件的 Alias 和 Tag"),
-                                                 QColor(QStringLiteral("#c62828")),
+                                                 QStringLiteral("destructive"),
                                                  this,
                                                  [this]() { permanentlyClearSelectedFileMetadata(); });
         deleteMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
         auto *deleteAnchors = addToneMenuAction(&menu,
                                                 QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction"),
                                                 QStringLiteral("永久删除该文件的所有 Anchor"),
-                                                QColor(QStringLiteral("#c62828")),
+                                                QStringLiteral("destructive"),
                                                 this,
                                                 [this]() { permanentlyDeleteAllAnchorsForSelectedFiles(); });
         deleteAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
@@ -2521,7 +2564,7 @@ void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"),
                           QStringLiteral("删除所有 Anchor"),
-                          QColor(QStringLiteral("#c62828")),
+                          QStringLiteral("destructive"),
                           this,
                           [this]() { deleteAllAnchorsForSelectedFiles(); });
     }
@@ -2539,13 +2582,13 @@ void AnchorLibraryWindow::showAnchorContextMenu(const QPoint &position)
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryRestoreAnchorAction"),
                           QStringLiteral("恢复"),
-                          QColor(QStringLiteral("#2e7d32")),
+                          QStringLiteral("positive"),
                           this,
                           [this]() { restoreSelectedAnchors(); });
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryDeleteAnchorPermanentlyAction"),
                           QStringLiteral("永久删除"),
-                          QColor(QStringLiteral("#c62828")),
+                          QStringLiteral("destructive"),
                           this,
                           [this]() { permanentlyDeleteSelectedAnchors(); });
     } else {
@@ -2567,13 +2610,13 @@ void AnchorLibraryWindow::showAnchorContextMenu(const QPoint &position)
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryDeleteAnchorAction"),
                           QStringLiteral("删除"),
-                          QColor(QStringLiteral("#c62828")),
+                          QStringLiteral("destructive"),
                           this,
                           [this]() { deleteSelectedAnchors(); });
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryDeleteAllAnchorsAction"),
                           QStringLiteral("删除所有"),
-                          QColor(QStringLiteral("#c62828")),
+                          QStringLiteral("destructive"),
                           this,
                           [this]() { deleteAllAnchorsForSelectedFiles(); });
     }
@@ -2587,14 +2630,14 @@ void AnchorLibraryWindow::showPermanentFileDeleteMenu()
     auto *deleteMetadata = addToneMenuAction(&menu,
                                              QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
                                              QStringLiteral("永久删除该文件的 Alias 和 Tag"),
-                                             QColor(QStringLiteral("#c62828")),
+                                             QStringLiteral("destructive"),
                                              this,
                                              [this]() { permanentlyClearSelectedFileMetadata(); });
     deleteMetadata->setEnabled(selectedFile() && selectedFile()->resource.deleted);
     auto *deleteAnchors = addToneMenuAction(&menu,
                                             QStringLiteral("anchorLibraryDeleteAllFileAnchorsPermanentlyAction"),
                                             QStringLiteral("永久删除该文件的所有 Anchor"),
-                                            QColor(QStringLiteral("#c62828")),
+                                            QStringLiteral("destructive"),
                                             this,
                                             [this]() { permanentlyDeleteAllAnchorsForSelectedFiles(); });
     deleteAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
@@ -2608,33 +2651,16 @@ void AnchorLibraryWindow::applyLibraryTheme()
     trashButton_->setChecked(trash);
     trashButton_->setToolTip(trash ? tr("Return to All marked files") : tr("Open Trash"));
     trashButton_->setAccessibleName(trashButton_->toolTip());
+    trashButton_->setProperty("accent", trash ? QStringLiteral("destructive") : QString());
     setProperty("trashMode", trash);
-    if (!trash) {
-        setStyleSheet(QStringLiteral(
-            "QMainWindow#anchorLibraryWindow, QWidget#anchorLibraryCentral { background: #edf2f3; color: #223036; }"
-            "QWidget#anchorLibraryInspector, QScrollArea#anchorLibraryInspectorScroll { background: #f8faf9; color: #223036; border: 0; }"
-            "QTableWidget { background: #ffffff; alternate-background-color: #f1f6f5; color: #202b30; gridline-color: #c8d4d5; selection-background-color: #34766f; selection-color: white; border: 1px solid #bccacc; }"
-            "QHeaderView::section { background: #dce8e6; color: #23413f; border: 0; border-right: 1px solid #bdcdcc; border-bottom: 1px solid #b4c5c4; padding: 5px; }"
-            "QLineEdit, QComboBox, QPlainTextEdit { background: #ffffff; color: #202b30; border: 1px solid #a9bbbd; padding: 3px; selection-background-color: #34766f; }"
-            "QLineEdit:focus, QComboBox:focus, QPlainTextEdit:focus { border-color: #34766f; }"
-            "QToolButton, QPushButton { background: #f8fbfa; color: #243438; border: 1px solid #afbec0; padding: 4px 7px; }"
-            "QToolButton:hover, QPushButton:hover { background: #dcebe8; border-color: #7fa39f; }"
-            "QToolButton#anchorLibraryTrashButton { background: #e7ecee; color: #38484e; border-color: #b5c2c5; }"
-            "QLabel, QCheckBox { color: #223036; }"
-            "QLabel#anchorLibraryStatusLabel { color: #53676c; }"
-            "QSplitter::handle { background: #cbd6d7; }"));
-        return;
+    for (QWidget *widget : findChildren<QWidget *>()) {
+        widget->style()->unpolish(widget);
+        widget->style()->polish(widget);
+        widget->update();
     }
-    setStyleSheet(QStringLiteral(
-        "QMainWindow#anchorLibraryWindow, QWidget#anchorLibraryCentral { background: #24282c; color: #f2f3f4; }"
-        "QWidget#anchorLibraryInspector, QScrollArea#anchorLibraryInspectorScroll { background: #2b3035; color: #f2f3f4; border: 0; }"
-        "QTableWidget { background: #30353a; alternate-background-color: #292e33; color: #f2f3f4; gridline-color: #4a5056; selection-background-color: #7b3038; selection-color: white; }"
-        "QHeaderView::section { background: #3a4046; color: #f2f3f4; border: 0; border-right: 1px solid #515860; padding: 5px; }"
-        "QLineEdit, QComboBox, QPlainTextEdit { background: #f5f6f7; color: #202124; border: 1px solid #697078; padding: 3px; }"
-        "QToolButton, QPushButton { background: #3b4147; color: #f2f3f4; border: 1px solid #596169; padding: 4px 7px; }"
-        "QToolButton:hover, QPushButton:hover { background: #4a5158; }"
-        "QToolButton#anchorLibraryTrashButton { background: #8f3440; border-color: #b65360; font-weight: 700; }"
-        "QLabel, QCheckBox { color: #f2f3f4; }"));
+    style()->unpolish(this);
+    style()->polish(this);
+    update();
 }
 
 void AnchorLibraryWindow::promptAnchorTagUpdate(bool remove)

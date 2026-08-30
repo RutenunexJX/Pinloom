@@ -7,6 +7,7 @@
 #include "pinloom/core/ResourceNormalization.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/TextPreviewDialog.h"
 
 #include <QApplication>
@@ -742,6 +743,8 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     , repository_(repository)
     , options_(std::move(options))
 {
+    setObjectName(QStringLiteral("pinloomPanel"));
+    setProperty("pinloomRole", QStringLiteral("canvas"));
     pdfViewerAdapter_ = options_.pdfViewerAdapter;
     if (!pdfViewerAdapter_) {
         SumatraPdfViewerAdapterOptions adapterOptions;
@@ -767,8 +770,8 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
             [this](const QString &status) { updateStatus(status); });
 
     auto *layout = new QVBoxLayout(this);
-    layout->setContentsMargins(10, 8, 10, 8);
-    layout->setSpacing(6);
+    layout->setContentsMargins(8, 8, 8, 8);
+    layout->setSpacing(8);
 
     auto *resultToolbar = new QHBoxLayout();
     resultToolbar->setContentsMargins(0, 0, 0, 0);
@@ -776,9 +779,11 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     searchEdit_->setObjectName(QStringLiteral("searchEdit"));
     searchEdit_->setPlaceholderText(tr("Search anchors and Saved Clips"));
     searchEdit_->setClearButtonEnabled(true);
-    searchEdit_->setMinimumHeight(34);
+    searchEdit_->setMinimumHeight(pinloomVisualMetrics().regularControlHeight);
+    searchEdit_->setAccessibleName(tr("Search Pinloom"));
     openButton_ = new QPushButton(tr("Jump"), this);
     openButton_->setObjectName(QStringLiteral("openButton"));
+    openButton_->setProperty("pinloomControl", QStringLiteral("primary"));
     addAliasButton_ = new QPushButton(tr("Add Alias"), this);
     addAliasButton_->setObjectName(QStringLiteral("addAliasButton"));
     addAnchorButton_ = new QPushButton(tr("Add Anchor"), this);
@@ -794,6 +799,8 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 
     resultList_ = new QListWidget(this);
     resultList_->setObjectName(QStringLiteral("resultList"));
+    resultList_->setProperty("pinloomRole", QStringLiteral("raised"));
+    resultList_->setAccessibleName(tr("Pinloom search results"));
     resultList_->setAlternatingRowColors(true);
     resultList_->setUniformItemSizes(true);
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -803,6 +810,8 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     resultList_->installEventFilter(this);
     statusLabel_ = new QLabel(this);
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
+    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
+    statusLabel_->setAccessibleName(tr("Pinloom status"));
     installStatusContextMenu(statusLabel_, this, [this]() {
         return statusText_;
     });

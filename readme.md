@@ -127,6 +127,11 @@ The current codebase already has useful foundations:
   use the same dispatcher/open-service route. Rectangle anchors use an
   annotated-copy presenter, so the mark is part of a temporary PDF preview
   rather than a desktop overlay.
+- The Qt surfaces share semantic light/dark tokens for canvas, panels, text,
+  selection, focus, success, warning, and error. Layouts use a 4 px base grid,
+  28/32/36 px control roles, visible keyboard focus, and system reduced-motion
+  preferences. Anchor, Clip, and Inbox command namespaces retain distinct,
+  contrast-checked accents without using gradients.
 
 The mismatch is intentional technical debt for the reset:
 
@@ -319,8 +324,9 @@ Right-click file rows to delete all contained Anchors, or right-click Anchor
 rows to recapture a PDF rectangle, delete the selection, or delete every Anchor
 in the current file. `Ctrl+A`
 selects all Anchor rows and Delete executes the applicable delete action. The
-library uses a light work theme, while the Trash button opens a distinct dark
-themed view. Its file and Anchor context menus
+library follows the current system light or dark scheme. Trash remains in that
+scheme but uses the shared error surface and destructive accent, so changing
+scope does not invert the entire interface. Its file and Anchor context menus
 restore or permanently delete file Alias/Tag metadata and Anchors independently.
 Moving records to Trash never deletes the source file. Permanent deletion cannot
 be undone and creates an automatic SQLite safety backup when the application
