@@ -16,12 +16,18 @@ The primary entry point is `Shift+Space`:
   insertion.
 - `clip;new` lists temporary history items that can be promoted to Saved Clips.
 - `clip;library` opens Saved, History, and Trash management.
+- `clip;pdf-text` captures the selected text from the SumatraPDF target that
+  was remembered before the Command Window opened. The same operation is
+  available as the `PDF Text Clip` button below the input.
 - The tray `Show Clipboard` action opens the direct Clip Picker.
 - Dropping plain text on the Command Window opens the same Saved Clip metadata
   flow, including name and tag selection.
 
-Semicolon-separated `domain;action` is the canonical command grammar. Colon
-and legacy space forms remain accepted only for transition compatibility.
+Semicolon-separated `domain;action` is the canonical command grammar. The
+command registry exposes one visible row per stable command ID; aliases are
+input-only compatibility forms and never create duplicate rows. Colon forms
+remain accepted for transition compatibility. Whitespace domain/action forms
+are ordinary unified-search text.
 
 The intended PowerToys mapping is Caps Lock to `F24`. Pinloom uses `F24` as a
 private Hyper carrier; the former `Ctrl+Alt+Shift+backtick` carrier remains a

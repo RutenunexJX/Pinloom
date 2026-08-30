@@ -99,6 +99,10 @@ struct PinloomHostBridgeCallbacks {
 QString defaultPinloomHostBridgeServerName();
 PinloomHostIdentity pinloomHostIdentityForEntry(const PinloomEntry &entry);
 QUrl pinloomHostUri(const PinloomHostIdentity &identity);
+std::optional<PinloomHostIdentity> pinloomHostIdentityFromUri(
+    const QUrl &uri);
+std::optional<PinloomHostIdentity> pinloomHostIdentityFromUri(
+    const QString &uri);
 QJsonObject pinloomHostIdentityToJson(const PinloomHostIdentity &identity);
 std::optional<PinloomHostIdentity> pinloomHostIdentityFromJson(
     const QJsonObject &object);

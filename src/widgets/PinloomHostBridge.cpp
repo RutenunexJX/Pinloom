@@ -183,6 +183,7 @@ bool PinloomHostIdentity::isValid() const
 {
     return !entryId.trimmed().isEmpty()
         || !resourceId.trimmed().isEmpty()
+        || !anchorId.trimmed().isEmpty()
         || !clipId.trimmed().isEmpty();
 }
 
@@ -232,17 +233,82 @@ QUrl pinloomHostUri(const PinloomHostIdentity &identity)
     if (!identity.isValid()) return {};
     QUrl uri;
     uri.setScheme(QStringLiteral("pinloom"));
-    uri.setHost(QStringLiteral("entry"));
-    uri.setPath(QStringLiteral("/") + identity.entryId);
+    if (!identity.anchorId.trimmed().isEmpty()) {
+        uri.setHost(QStringLiteral("anchor"));
+        uri.setPath(QStringLiteral("/") + identity.anchorId.trimmed());
+    } else if (!identity.clipId.trimmed().isEmpty()) {
+        uri.setHost(QStringLiteral("clip"));
+        uri.setPath(QStringLiteral("/") + identity.clipId.trimmed());
+    } else {
+        uri.setHost(QStringLiteral("entry"));
+        const QString entryId = identity.entryId.trimmed().isEmpty()
+            ? QStringLiteral("resource:%1").arg(identity.resourceId.trimmed())
+            : identity.entryId.trimmed();
+        uri.setPath(QStringLiteral("/") + entryId);
+    }
     QUrlQuery query;
-    if (!identity.resourceId.isEmpty())
+    if (uri.host() == QLatin1String("entry")
+        && !identity.resourceId.trimmed().isEmpty())
         query.addQueryItem(QStringLiteral("resource"), identity.resourceId);
-    if (!identity.anchorId.isEmpty())
+    if (uri.host() == QLatin1String("entry")
+        && !identity.anchorId.trimmed().isEmpty())
         query.addQueryItem(QStringLiteral("anchor"), identity.anchorId);
-    if (!identity.clipId.isEmpty())
+    if (uri.host() == QLatin1String("entry")
+        && !identity.clipId.trimmed().isEmpty())
         query.addQueryItem(QStringLiteral("clip"), identity.clipId);
     uri.setQuery(query);
     return uri;
+}
+
+std::optional<PinloomHostIdentity> pinloomHostIdentityFromUri(
+    const QUrl &uri)
+{
+    if (!uri.isValid()
+        || uri.scheme().compare(QStringLiteral("pinloom"),
+                                Qt::CaseInsensitive) != 0
+        || !uri.userInfo().isEmpty()
+        || uri.port(-1) != -1
+        || !uri.fragment().isEmpty()) {
+        return std::nullopt;
+    }
+
+    QString id = uri.path(QUrl::FullyDecoded);
+    if (id.startsWith(QLatin1Char('/'))) {
+        id.remove(0, 1);
+    }
+    if (id.trimmed().isEmpty() || id.contains(QLatin1Char('/'))) {
+        return std::nullopt;
+    }
+
+    PinloomHostIdentity identity;
+    const QUrlQuery query(uri);
+    const QString host = uri.host().toCaseFolded();
+    if (host == QLatin1String("anchor")) {
+        identity.anchorId = id;
+        identity.resourceId = query.queryItemValue(QStringLiteral("resource"));
+    } else if (host == QLatin1String("clip")) {
+        identity.clipId = id;
+    } else if (host == QLatin1String("entry")) {
+        identity.entryId = id;
+        identity.resourceId = query.queryItemValue(QStringLiteral("resource"));
+        identity.anchorId = query.queryItemValue(QStringLiteral("anchor"));
+        identity.clipId = query.queryItemValue(QStringLiteral("clip"));
+    } else {
+        return std::nullopt;
+    }
+    identity.entryId = identity.entryId.trimmed();
+    identity.resourceId = identity.resourceId.trimmed();
+    identity.anchorId = identity.anchorId.trimmed();
+    identity.clipId = identity.clipId.trimmed();
+    return identity.isValid()
+        ? std::optional<PinloomHostIdentity>(identity)
+        : std::nullopt;
+}
+
+std::optional<PinloomHostIdentity> pinloomHostIdentityFromUri(
+    const QString &uri)
+{
+    return pinloomHostIdentityFromUri(QUrl(uri, QUrl::StrictMode));
 }
 
 QJsonObject pinloomHostIdentityToJson(const PinloomHostIdentity &identity)
@@ -685,6 +751,12 @@ QJsonObject PinloomHostBridgeServer::processRequest(
         if (!document.has_value()) {
             return errorResponse(request, QStringLiteral("not_found"),
                                  QStringLiteral("Pinloom entry no longer exists"));
+        }
+        if (document->entry.deleted) {
+            return errorResponse(
+                request,
+                QStringLiteral("deleted"),
+                QStringLiteral("Pinloom entry is deleted; restore it before opening"));
         }
         return successResponse(request, pinloomHostDocumentToJson(*document));
     }

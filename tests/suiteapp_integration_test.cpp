@@ -48,6 +48,64 @@ private slots:
                  QStringLiteral("authoritative content"));
     }
 
+    void resolvesStableAnchorAndClipDeepLinks()
+    {
+        QList<Pinloom::PinloomHostIdentity> identities;
+        Pinloom::PinloomHostBridgeCallbacks callbacks;
+        callbacks.resolve = [&identities](const Pinloom::PinloomHostIdentity& identity)
+            -> std::optional<Pinloom::PinloomHostDocument> {
+            identities.append(identity);
+            Pinloom::PinloomHostDocument document;
+            document.entry.id = !identity.anchorId.isEmpty()
+                ? QStringLiteral("anchor:") + identity.anchorId
+                : QStringLiteral("clip:") + identity.clipId;
+            document.entry.name = QStringLiteral("Stable deep link");
+            return document;
+        };
+        Pinloom::PinloomSuiteIntegration integration(std::move(callbacks));
+
+        QJsonObject response = integration.processRequestForTesting(
+            SuiteApp::makeRequest(
+                QStringLiteral("resource.resolve"),
+                {{QStringLiteral("uri"),
+                  QStringLiteral("pinloom://anchor/anchor-42")}}));
+        QVERIFY(response.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(identities.last().anchorId, QStringLiteral("anchor-42"));
+        QVERIFY(identities.last().resourceId.isEmpty());
+
+        response = integration.processRequestForTesting(
+            SuiteApp::makeRequest(
+                QStringLiteral("resource.resolve"),
+                {{QStringLiteral("uri"),
+                  QStringLiteral("pinloom://clip/clip-42")}}));
+        QVERIFY(response.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(identities.last().clipId, QStringLiteral("clip-42"));
+    }
+
+    void rejectsDeletedDeepLinkExplicitly()
+    {
+        Pinloom::PinloomHostBridgeCallbacks callbacks;
+        callbacks.resolve = [](const Pinloom::PinloomHostIdentity& identity)
+            -> std::optional<Pinloom::PinloomHostDocument> {
+            Pinloom::PinloomHostDocument document;
+            document.entry.id = QStringLiteral("clip:") + identity.clipId;
+            document.entry.clipId = identity.clipId;
+            document.entry.name = QStringLiteral("Deleted Clip");
+            document.entry.deleted = true;
+            return document;
+        };
+        Pinloom::PinloomSuiteIntegration integration(std::move(callbacks));
+        const QJsonObject response = integration.processRequestForTesting(
+            SuiteApp::makeRequest(
+                QStringLiteral("resource.resolve"),
+                {{QStringLiteral("uri"),
+                  QStringLiteral("pinloom://clip/deleted-clip")}}));
+        QVERIFY(!response.value(QStringLiteral("ok")).toBool());
+        QCOMPARE(response.value(QStringLiteral("error")).toObject()
+                     .value(QStringLiteral("code")).toString(),
+                 QStringLiteral("resource_deleted"));
+    }
+
     void queuesUiOpenAfterResponding()
     {
         bool opened = false;

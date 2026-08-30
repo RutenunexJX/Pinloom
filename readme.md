@@ -245,6 +245,11 @@ The explicit command namespaces remain available. Canonical commands use
 resolves to `anchor;library`. Colon-separated commands remain accepted as a
 transition compatibility form. Whitespace-separated legacy forms are ordinary
 unified-search text and are not interpreted as commands. Type `c` to see Clip commands.
+Each command has one stable registry ID and one canonical visible row. Input
+aliases are accepted by the parser but are not rendered as extra commands.
+Command rows, quick-action buttons, the Pinloom menu, and tray Settings and
+Diagnostics actions execute through the same dispatcher. Dispatcher results
+distinguish completed, canceled, and failed operations.
 Type `clip;search` to search all insertable Clip rows (temporary history plus Saved
 Clips), or `clip;search <query>` to search by name, alias, tag, preview, or content;
 Enter inserts the selected row into the foreground app. Type `clip;new` to choose a
@@ -271,6 +276,9 @@ Deleting an Obsidian-backed Clip writes `pinloom_state: "deleted"` before
 moving the SQLite row to Trash. Restoring writes `saved`. Permanent removal
 keeps the Markdown file, marks it `forgotten`, and removes only Pinloom's local
 index row, so a later vault scan cannot recreate the Clip.
+Use `clip;pdf-text`, or the `PDF Text Clip` button below the command input, to
+save the selected text from the remembered SumatraPDF document through the
+same metadata confirmation and Saved Clip persistence path as `F24+S`.
 
 Type `anchor` or an ordered abbreviation such as `an` to see anchor commands. Use
 `anchor;library` to open the Anchor Library, which lists every file
@@ -333,19 +341,24 @@ The recommended SumatraPDF flow is: open or
 focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor;new`,
 drag a rectangle inside one PDF page, enter the anchor name plus optional
 aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
-mode is active to cancel. The dialog shows the full PDF path, page, rectangle,
+mode is active to cancel. Capture also has a bounded timeout and reports
+cross-page, coordinate sampling, and timeout failures explicitly. The dialog
+shows the full PDF path, page, rectangle,
 zoom, and DDE capture source. Opening the anchor returns to the stored page and
-scroll position. Pinloom verifies the active file/page/zoom, retries a missed
-jump once through DDE, and reports a bounded verification failure rather than
-silently accepting page 1. Rectangle highlights remain registered while the
-target PDF is open, coexist by Anchor, hide outside the target page/window, and
-restore when the target becomes visible again. SumatraPDF 3.7 or
-newer is required for the `GetFileState()` and `GetMousePos()` DDE requests used
-by this workflow.
+rectangle. The locator stores PDF page coordinates in points with
+`coordinateSpace: page-top-left`; it never persists desktop pixels. Rectangle
+jumps generate a temporary annotated PDF copy and launch it only after the
+expected preview file and page are verified. The original PDF is not modified,
+and the annotation remains attached to PDF content when the viewer scrolls,
+zooms, or moves. Generation and navigation are asynchronous and bounded;
+superseded or canceled requests cannot launch stale previews. SumatraPDF 3.7
+or newer is required for the DDE requests used by capture.
 
-The command window keeps `Rectangle Anchor` and `Text Anchor` actions directly
-below the `Shift+Space` input. Text Anchor captures selected SumatraPDF text as
-a page-hinted `sumatrapdf.search` locator. `anchor;new` also dispatches to the
+The command window keeps `PDF Rectangle Anchor`, `PDF Text Anchor`, and
+`PDF Text Clip` actions directly below the `Shift+Space` input. Text Anchor
+captures selected SumatraPDF text as a page-hinted `sumatrapdf.search` locator.
+The same operations are available as `anchor;rectangle`, `anchor;text`, and
+`clip;pdf-text`. `anchor;new` also dispatches to the
 remembered Word, Visio, or Excel window: Word uses bookmarks, Visio uses a shape
 UniqueID, and Excel uses an exact defined name or absolute worksheet range.
 Any required document mutation is shown in the shared confirmation dialog and
@@ -404,16 +417,21 @@ override. The script produces only a directly runnable `Pinloom` directory with
 the required Qt/MinGW runtime and SQLite driver. It does not create an installer,
 ZIP archive, checksum manifest, launcher script, or user database.
 
-Internally, the Command Window now routes ordinary work through
-`command -> entry/action -> result`: commands search `PinloomEntry` objects,
-actions return `success`, `message`, `diagnostics`, and a `next UI hint`, and
-the Qt UI is only one caller of that protocol. This keeps the path reusable for
-future hosts such as ZeroSlack without adding a new framework.
+Internally, the Command Window routes ordinary work through
+`registry command ID -> dispatcher -> structured result`. Commands search
+`PinloomEntry` objects; execution returns a completed, canceled, or failed
+state plus `message`, `diagnostics`, and a `next UI hint`. The Qt UI is one
+caller of that protocol.
 
 ## Suite application protocol
 
-Pinloom is the authoritative `suite-app/v1` owner of `pinloom://entry/...`
-resources. It exposes `pinloom.entry.open` and
+Pinloom is the authoritative `suite-app/v1` owner of `pinloom://` resources.
+Canonical stable object links are `pinloom://anchor/<stable-id>` and
+`pinloom://clip/<stable-id>`; legacy `pinloom://entry/...` links remain
+read-compatible for File/Resource and existing integrations. Passing a link
+to `pinloom_app.exe` opens it in the primary resident instance. Malformed,
+missing, and deleted object links report explicit errors; deleted objects must
+be restored before opening. Pinloom exposes `pinloom.entry.open` and
 `pinloom.source-anchor.create`, plus the model Surface
 `pinloom.entry.preview`. Source-anchor creation goes through Pinloom's existing
 repository and host callbacks; another application never reads the Pinloom

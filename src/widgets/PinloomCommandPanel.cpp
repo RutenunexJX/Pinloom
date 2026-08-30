@@ -53,6 +53,7 @@ namespace {
 
 constexpr int CommandActionRole = Qt::UserRole + 80;
 constexpr int CommandSearchTextRole = Qt::UserRole + 81;
+constexpr int CommandIdRole = Qt::UserRole + 82;
 constexpr int ClipIdRole = Qt::UserRole + 83;
 constexpr int ClipDisplayNameRole = Qt::UserRole + 84;
 constexpr int ClipPreviewRole = Qt::UserRole + 85;
@@ -141,28 +142,9 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
     });
 }
 
-enum class CommandNamespace {
-    None,
-    Clip,
-    Anchor,
-    Inbox,
-    Library,
-    Root
-};
-
-enum class CommandAction {
-    None,
-    ClipSearch,
-    ClipNew,
-    ClipLibrary,
-    AnchorNew,
-    AnchorLibrary,
-    InboxNew,
-    InboxSearch,
-    OpenSearch,
-    RestoreSearch,
-    RootLibrary
-};
+using CommandNamespace = PinloomCommandNamespace;
+using CommandAction = PinloomCommandId;
+using CommandState = PinloomParsedCommand;
 
 enum class CommandRowAction {
     Unknown = 0,
@@ -170,183 +152,10 @@ enum class CommandRowAction {
     OpenUnifiedTarget,
     ClipInsert,
     ClipSave,
-    ClipLibrary,
-    AnchorCapture,
-    AnchorLibrary,
     InboxSave,
-    RootLibrary,
+    RegisteredCommand,
     UnifiedTargetAction
 };
-
-struct CommandState {
-    CommandNamespace commandNamespace = CommandNamespace::None;
-    CommandAction action = CommandAction::None;
-    QString query;
-};
-
-struct CommandDomainDefinition {
-    CommandNamespace commandNamespace = CommandNamespace::None;
-    QString canonical;
-    QStringList aliases;
-};
-
-struct CommandDefinition {
-    CommandNamespace commandNamespace = CommandNamespace::None;
-    CommandAction action = CommandAction::None;
-    QString actionName;
-};
-
-struct DirectCommandDefinition {
-    QString form;
-    CommandNamespace commandNamespace = CommandNamespace::None;
-    CommandAction action = CommandAction::None;
-};
-
-const QList<CommandDomainDefinition> &commandDomains()
-{
-    static const QList<CommandDomainDefinition> domains{
-        {CommandNamespace::Clip, QStringLiteral("clip"), {QStringLiteral("c")}},
-        {CommandNamespace::Anchor, QStringLiteral("anchor"), {QStringLiteral("k")}},
-        {CommandNamespace::Inbox, QStringLiteral("inbox"), {QStringLiteral("i")}},
-        {CommandNamespace::Library, QStringLiteral("library"), {QStringLiteral("l")}},
-        {CommandNamespace::Root, QStringLiteral("root"), {QStringLiteral("r")}}
-    };
-    return domains;
-}
-
-const QList<CommandDefinition> &commandDefinitions()
-{
-    static const QList<CommandDefinition> definitions{
-        {CommandNamespace::Clip,
-         CommandAction::ClipSearch,
-         QStringLiteral("search")},
-        {CommandNamespace::Clip,
-         CommandAction::ClipNew,
-         QStringLiteral("new")},
-        {CommandNamespace::Clip,
-         CommandAction::ClipLibrary,
-         QStringLiteral("library")},
-        {CommandNamespace::Anchor,
-         CommandAction::AnchorNew,
-         QStringLiteral("new")},
-        {CommandNamespace::Anchor,
-         CommandAction::AnchorLibrary,
-         QStringLiteral("library")},
-        {CommandNamespace::Inbox,
-         CommandAction::InboxNew,
-         QStringLiteral("new")},
-        {CommandNamespace::Inbox,
-         CommandAction::InboxSearch,
-         QStringLiteral("search")},
-        {CommandNamespace::Library,
-         CommandAction::OpenSearch,
-         QStringLiteral("search")},
-        {CommandNamespace::Library,
-         CommandAction::RestoreSearch,
-         QStringLiteral("restore")},
-        {CommandNamespace::Root,
-         CommandAction::RootLibrary,
-         QStringLiteral("library")}
-    };
-    return definitions;
-}
-
-const QList<DirectCommandDefinition> &directCommandDefinitions()
-{
-    static const QList<DirectCommandDefinition> definitions{
-        {QStringLiteral("s"), CommandNamespace::Library, CommandAction::OpenSearch},
-        {QStringLiteral("search"), CommandNamespace::Library, CommandAction::OpenSearch},
-        {QStringLiteral("restore"), CommandNamespace::Library, CommandAction::RestoreSearch},
-        {QStringLiteral("trash"), CommandNamespace::Library, CommandAction::RestoreSearch}
-    };
-    return definitions;
-}
-
-int orderedSubsequenceScore(const QString &pattern, const QString &candidate)
-{
-    const QString foldedPattern = pattern.trimmed().toCaseFolded();
-    const QString foldedCandidate = candidate.trimmed().toCaseFolded();
-    if (foldedPattern.isEmpty() || foldedCandidate.isEmpty()) {
-        return -1;
-    }
-    if (foldedPattern == foldedCandidate) {
-        return 100000;
-    }
-
-    QList<int> positions;
-    positions.reserve(foldedPattern.size());
-    int cursor = 0;
-    for (const QChar character : foldedPattern) {
-        const int position = foldedCandidate.indexOf(character, cursor);
-        if (position < 0) {
-            return -1;
-        }
-        positions.append(position);
-        cursor = position + 1;
-    }
-
-    int score = foldedPattern.size() * 1000 - foldedCandidate.size();
-    if (!positions.isEmpty() && positions.first() == 0) {
-        score += 20000;
-    }
-    if (foldedCandidate.startsWith(foldedPattern)) {
-        score += 10000;
-    }
-    for (int index = 1; index < positions.size(); ++index) {
-        const int gap = positions.at(index) - positions.at(index - 1) - 1;
-        score += gap == 0 ? 500 : -gap * 20;
-    }
-    return score;
-}
-
-std::optional<CommandNamespace> matchCommandDomain(const QString &pattern)
-{
-    int bestScore = -1;
-    std::optional<CommandNamespace> bestMatch;
-    bool ambiguous = false;
-    for (const CommandDomainDefinition &domain : commandDomains()) {
-        int score = orderedSubsequenceScore(pattern, domain.canonical);
-        for (const QString &alias : domain.aliases) {
-            if (pattern.compare(alias, Qt::CaseInsensitive) == 0) {
-                score = std::max(score, 90000);
-            }
-        }
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = domain.commandNamespace;
-            ambiguous = false;
-        } else if (score >= 0 && score == bestScore
-                   && bestMatch.has_value()
-                   && bestMatch.value() != domain.commandNamespace) {
-            ambiguous = true;
-        }
-    }
-    return bestScore >= 0 && !ambiguous ? bestMatch : std::nullopt;
-}
-
-std::optional<CommandAction> matchCommandAction(CommandNamespace commandNamespace,
-                                                const QString &pattern)
-{
-    int bestScore = -1;
-    std::optional<CommandAction> bestMatch;
-    bool ambiguous = false;
-    for (const CommandDefinition &definition : commandDefinitions()) {
-        if (definition.commandNamespace != commandNamespace) {
-            continue;
-        }
-        const int score = orderedSubsequenceScore(pattern, definition.actionName);
-        if (score > bestScore) {
-            bestScore = score;
-            bestMatch = definition.action;
-            ambiguous = false;
-        } else if (score >= 0 && score == bestScore
-                   && bestMatch.has_value()
-                   && bestMatch.value() != definition.action) {
-            ambiguous = true;
-        }
-    }
-    return bestScore >= 0 && !ambiguous ? bestMatch : std::nullopt;
-}
 
 PinloomCommandTheme themeForNamespace(CommandNamespace commandNamespace)
 {
@@ -360,6 +169,7 @@ PinloomCommandTheme themeForNamespace(CommandNamespace commandNamespace)
     case CommandNamespace::None:
     case CommandNamespace::Library:
     case CommandNamespace::Root:
+    case CommandNamespace::Application:
         return PinloomCommandTheme::Neutral;
     }
     return PinloomCommandTheme::Neutral;
@@ -824,88 +634,9 @@ QString commandTargetToolTip(const PinloomOpenTarget &target)
     return lines.join(QLatin1Char('\n'));
 }
 
-int skipSpaces(const QString &text, int index)
-{
-    while (index < text.size() && text.at(index).isSpace()) {
-        ++index;
-    }
-    return index;
-}
-
-QString readCommandToken(const QString &text, int *index)
-{
-    if (!index) {
-        return {};
-    }
-
-    int cursor = skipSpaces(text, *index);
-    const int start = cursor;
-    while (cursor < text.size() && !text.at(cursor).isSpace()) {
-        ++cursor;
-    }
-
-    *index = cursor;
-    return text.mid(start, cursor - start);
-}
-
 CommandState parseCommandState(const QString &text)
 {
-    const QString trimmed = text.trimmed();
-    if (trimmed.isEmpty()) {
-        return {};
-    }
-
-    const QString folded = trimmed.toCaseFolded();
-    for (const DirectCommandDefinition &definition : directCommandDefinitions()) {
-        const QString foldedForm = definition.form.toCaseFolded();
-        if (folded == foldedForm
-            || folded.startsWith(foldedForm + QLatin1Char(' '))) {
-            CommandState state;
-            state.commandNamespace = definition.commandNamespace;
-            state.action = definition.action;
-            state.query = trimmed.mid(definition.form.size()).trimmed();
-            return state;
-        }
-    }
-
-    int tokenEnd = 0;
-    const QString commandToken = readCommandToken(trimmed, &tokenEnd);
-    int separator = commandToken.indexOf(QLatin1Char(';'));
-    if (separator < 0) {
-        separator = commandToken.indexOf(QLatin1Char(':'));
-    }
-    if (separator >= 0) {
-        const QString domainPattern = commandToken.left(separator);
-        const QString actionPattern = commandToken.mid(separator + 1);
-        const std::optional<CommandNamespace> commandNamespace = matchCommandDomain(domainPattern);
-        if (!commandNamespace.has_value()) {
-            return {};
-        }
-
-        CommandState state;
-        state.commandNamespace = commandNamespace.value();
-        state.query = trimmed.mid(tokenEnd).trimmed();
-        if (!actionPattern.isEmpty()) {
-            const std::optional<CommandAction> action = matchCommandAction(state.commandNamespace,
-                                                                           actionPattern);
-            if (action.has_value()) {
-                state.action = action.value();
-            }
-        }
-        return state;
-    }
-
-    if (!trimmed.mid(tokenEnd).trimmed().isEmpty()) {
-        return {};
-    }
-    const std::optional<CommandNamespace> commandNamespace = matchCommandDomain(commandToken);
-    if (!commandNamespace.has_value()) {
-        return {};
-    }
-
-    CommandState state;
-    state.commandNamespace = commandNamespace.value();
-    return state;
+    return PinloomCommandRegistry::parse(text);
 }
 
 CommandRowAction rowActionForItem(const QListWidgetItem *item)
@@ -1126,6 +857,60 @@ bool canExpandResultActions(const QListWidgetItem *item)
 
 } // namespace
 
+void PinloomCommandPanel::configureOwnedCommandDispatcher()
+{
+    ownedCommandDispatcher_ = std::make_unique<PinloomCommandDispatcher>();
+    commandDispatcher_ = ownedCommandDispatcher_.get();
+    const auto addBooleanHandler =
+        [this](CommandAction id,
+               const std::function<bool(QString *)> &handler,
+               const QString &successFallback,
+               const QString &failureFallback) {
+            if (!handler) {
+                return;
+            }
+            commandDispatcher_->registerHandler(
+                id,
+                [handler, successFallback, failureFallback](const PinloomCommandInvocation &) {
+                    QString status;
+                    const bool succeeded = handler(&status);
+                    return pinloomCommandResultFromBoolean(
+                        succeeded, status, successFallback, failureFallback);
+                });
+        };
+
+    addBooleanHandler(CommandAction::ClipLibrary,
+                      options_.clipLibraryHandler,
+                      tr("Opened Clip Library"),
+                      tr("Unable to open Clip Library"));
+    addBooleanHandler(CommandAction::ClipPdfText,
+                      options_.pdfTextClipCaptureHandler,
+                      tr("Captured PDF text Clip"),
+                      tr("PDF Text Clip is unavailable for the remembered target"));
+    addBooleanHandler(CommandAction::AnchorNew,
+                      options_.anchorCaptureHandler,
+                      tr("Captured anchor"),
+                      tr("No anchor context available"));
+    addBooleanHandler(CommandAction::AnchorPdfRectangle,
+                      options_.rectangleAnchorCaptureHandler
+                          ? options_.rectangleAnchorCaptureHandler
+                          : options_.anchorCaptureHandler,
+                      tr("Captured PDF rectangle Anchor"),
+                      tr("PDF Rectangle Anchor is unavailable for the remembered target"));
+    addBooleanHandler(CommandAction::AnchorPdfText,
+                      options_.textAnchorCaptureHandler,
+                      tr("Captured PDF text Anchor"),
+                      tr("PDF Text Anchor is unavailable for the remembered target"));
+    addBooleanHandler(CommandAction::AnchorLibrary,
+                      options_.anchorLibraryHandler,
+                      tr("Opened Anchor Library"),
+                      tr("Unable to open Anchor Library"));
+    addBooleanHandler(CommandAction::RootLibrary,
+                      options_.libraryRootHandler,
+                      tr("Opened Root Library"),
+                      tr("Unable to open Root Library"));
+}
+
 PinloomCommandPanel::PinloomCommandPanel(QWidget *parent)
     : PinloomCommandPanel(PinloomCommandPanelOptions{}, parent)
 {
@@ -1137,6 +922,11 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 {
     static const int themeResourcesInitialized = initializePinloomThemeResources();
     Q_UNUSED(themeResourcesInitialized);
+
+    commandDispatcher_ = options_.commandDispatcher;
+    if (!commandDispatcher_) {
+        configureOwnedCommandDispatcher();
+    }
 
     setObjectName(QStringLiteral("pinloomCommandPanel"));
     setWindowTitle(tr("Pinloom Command %1").arg(pinloomVersionLabel()));
@@ -1180,21 +970,33 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
 
     rectangleAnchorButton_ = new QToolButton(quickActionRow_);
     rectangleAnchorButton_->setObjectName(QStringLiteral("commandRectangleAnchorButton"));
-    rectangleAnchorButton_->setText(tr("Rectangle Anchor"));
+    rectangleAnchorButton_->setText(tr("PDF Rectangle Anchor"));
     rectangleAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     rectangleAnchorButton_->setToolTip(tr("Capture a rectangle in the remembered SumatraPDF document"));
-    rectangleAnchorButton_->setEnabled(
-        static_cast<bool>(options_.rectangleAnchorCaptureHandler)
-        || static_cast<bool>(options_.anchorCaptureHandler));
+    rectangleAnchorButton_->setAccessibleName(tr("PDF Rectangle Anchor"));
+    rectangleAnchorButton_->setEnabled(commandDispatcher_
+        && commandDispatcher_->hasHandler(CommandAction::AnchorPdfRectangle));
     quickLayout->addWidget(rectangleAnchorButton_);
 
     textAnchorButton_ = new QToolButton(quickActionRow_);
     textAnchorButton_->setObjectName(QStringLiteral("commandTextAnchorButton"));
-    textAnchorButton_->setText(tr("Text Anchor"));
+    textAnchorButton_->setText(tr("PDF Text Anchor"));
     textAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
     textAnchorButton_->setToolTip(tr("Capture selected text in the remembered SumatraPDF document"));
-    textAnchorButton_->setEnabled(static_cast<bool>(options_.textAnchorCaptureHandler));
+    textAnchorButton_->setAccessibleName(tr("PDF Text Anchor"));
+    textAnchorButton_->setEnabled(commandDispatcher_
+        && commandDispatcher_->hasHandler(CommandAction::AnchorPdfText));
     quickLayout->addWidget(textAnchorButton_);
+
+    pdfTextClipButton_ = new QToolButton(quickActionRow_);
+    pdfTextClipButton_->setObjectName(QStringLiteral("commandPdfTextClipButton"));
+    pdfTextClipButton_->setText(tr("PDF Text Clip"));
+    pdfTextClipButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    pdfTextClipButton_->setToolTip(tr("Save selected text from the remembered SumatraPDF document as a Clip"));
+    pdfTextClipButton_->setAccessibleName(tr("PDF Text Clip"));
+    pdfTextClipButton_->setEnabled(commandDispatcher_
+        && commandDispatcher_->hasHandler(CommandAction::ClipPdfText));
+    quickLayout->addWidget(pdfTextClipButton_);
     quickLayout->addStretch(1);
 
     resultList_ = new QListWidget(this);
@@ -1236,8 +1038,17 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
             &QToolButton::clicked,
             this,
             &PinloomCommandPanel::triggerTextAnchorCapture);
+    connect(pdfTextClipButton_,
+            &QToolButton::clicked,
+            this,
+            &PinloomCommandPanel::triggerPdfTextClipCapture);
     connect(resultList_, &QListWidget::itemActivated, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
+
+    QWidget::setTabOrder(commandEdit_, rectangleAnchorButton_);
+    QWidget::setTabOrder(rectangleAnchorButton_, textAnchorButton_);
+    QWidget::setTabOrder(textAnchorButton_, pdfTextClipButton_);
+    QWidget::setTabOrder(pdfTextClipButton_, resultList_);
 
     setTheme(PinloomCommandTheme::Neutral);
     refreshResults();
@@ -1505,7 +1316,8 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
         const int key = keyEvent->key();
 
         if (showingResultActions_
-            && (key == Qt::Key_Left || key == Qt::Key_Escape)
+            && (key == Qt::Key_Escape
+                || (key == Qt::Key_Left && watched == resultList_))
             && modifiers == Qt::NoModifier) {
             returnToResultList();
             return true;
@@ -1513,6 +1325,11 @@ bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
         if (!showingResultActions_
             && key == Qt::Key_Right
             && modifiers == Qt::NoModifier) {
+            if (watched == commandEdit_
+                && (commandEdit_->hasSelectedText()
+                    || commandEdit_->cursorPosition() < commandEdit_->text().size())) {
+                return QWidget::eventFilter(watched, event);
+            }
             return showActionsForCurrentResult();
         }
         if (watched == resultList_
@@ -1597,6 +1414,8 @@ void PinloomCommandPanel::refreshResults()
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setData(CommandActionRole, static_cast<int>(action));
         item->setData(CommandSearchTextRole, nextCommandText);
+        item->setData(CommandIdRole,
+                      static_cast<int>(PinloomCommandRegistry::parse(nextCommandText).action));
     };
     const auto appendClipResults = [this, &listedClipIds](const QList<ClipSearchResult> &clipResults,
                                                           CommandRowAction action) {
@@ -1634,6 +1453,17 @@ void PinloomCommandPanel::refreshResults()
         }
         appendUnifiedResults(targets);
     };
+    const auto appendNamespaceCommands =
+        [&appendCommandResult](CommandNamespace commandNamespace) {
+            for (const PinloomCommandDefinition &definition
+                 : PinloomCommandRegistry::definitionsForNamespace(commandNamespace)) {
+                appendCommandResult(CommandRowAction::OpenCommand,
+                                    definition.canonical,
+                                    definition.title,
+                                    definition.verb,
+                                    definition.detail);
+            }
+        };
 
     constexpr int resultLimit = 100;
     const QString plainQuery = commandEdit_->text().trimmed();
@@ -1661,21 +1491,7 @@ void PinloomCommandPanel::refreshResults()
         appendUnifiedEntries(options_.deletedEntrySearchHandler(command.query));
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::None) {
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("clip;search"),
-                            tr("Clip Search"),
-                            tr("Open"),
-                            tr("clip;search <query> - search Clip name, alias, tag, or content"));
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("clip;new"),
-                            tr("New Saved Clip"),
-                            tr("Open"),
-                            tr("clip;new - save a recent clipboard history item"));
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("clip;library"),
-                            tr("Clip Library"),
-                            tr("Open"),
-                            tr("clip;library - browse and manage saved Clips"));
+        appendNamespaceCommands(CommandNamespace::Clip);
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::ClipSearch
                && options_.clipSearchHandler) {
@@ -1726,63 +1542,61 @@ void PinloomCommandPanel::refreshResults()
                           CommandRowAction::ClipSave);
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::ClipLibrary) {
-        appendCommandResult(CommandRowAction::ClipLibrary,
-                            QStringLiteral("clip;library"),
-                            tr("Clip Library"),
-                            tr("Open"),
-                            tr("Browse Saved Clips, clipboard history, and Clip Trash"));
+        const PinloomCommandDefinition definition =
+            PinloomCommandRegistry::definition(command.action).value();
+        appendCommandResult(CommandRowAction::RegisteredCommand,
+                            definition.canonical,
+                            definition.title,
+                            definition.verb,
+                            definition.detail);
+    } else if (command.commandNamespace == CommandNamespace::Clip
+               && command.action == CommandAction::ClipPdfText) {
+        const PinloomCommandDefinition definition =
+            PinloomCommandRegistry::definition(command.action).value();
+        appendCommandResult(CommandRowAction::RegisteredCommand,
+                            definition.canonical,
+                            definition.title,
+                            definition.verb,
+                            definition.detail);
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::None) {
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("anchor;new"),
-                            tr("New Anchor / Capture Anchor"),
-                            tr("Open"),
-                            tr("anchor;new - capture the remembered app position"));
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("anchor;library"),
-                            tr("Anchor Library"),
-                            tr("Open"),
-                            tr("anchor;library - organize all marked files"));
+        appendNamespaceCommands(CommandNamespace::Anchor);
     } else if (command.commandNamespace == CommandNamespace::Anchor
-               && command.action == CommandAction::AnchorNew) {
-        appendCommandResult(CommandRowAction::AnchorCapture,
-                            QStringLiteral("anchor;new"),
-                            tr("New Anchor / Capture Anchor"),
-                            tr("Capture"),
-                            tr("anchor;new - capture the remembered app position"));
-    } else if (command.commandNamespace == CommandNamespace::Anchor
-               && command.action == CommandAction::AnchorLibrary) {
-        appendCommandResult(CommandRowAction::AnchorLibrary,
-                            QStringLiteral("anchor;library"),
-                            tr("Anchor Library"),
-                             tr("Open"),
-                             tr("Browse and organize all files with anchors"));
+               && (command.action == CommandAction::AnchorNew
+                   || command.action == CommandAction::AnchorPdfRectangle
+                   || command.action == CommandAction::AnchorPdfText
+                   || command.action == CommandAction::AnchorLibrary)) {
+        const PinloomCommandDefinition definition =
+            PinloomCommandRegistry::definition(command.action).value();
+        appendCommandResult(CommandRowAction::RegisteredCommand,
+                            definition.canonical,
+                            definition.title,
+                            definition.verb,
+                            definition.detail);
     } else if (command.commandNamespace == CommandNamespace::Root
                && command.action == CommandAction::None) {
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("root;library"),
-                            tr("Root Library"),
-                            tr("Open"),
-                            tr("root;library - browse registered roots and tag their contents"));
+        appendNamespaceCommands(CommandNamespace::Root);
     } else if (command.commandNamespace == CommandNamespace::Root
                && command.action == CommandAction::RootLibrary) {
-        appendCommandResult(CommandRowAction::RootLibrary,
-                            QStringLiteral("root;library"),
-                            tr("Root Library"),
-                            tr("Open"),
-                            tr("Browse all registered root directories"));
+        const PinloomCommandDefinition definition =
+            PinloomCommandRegistry::definition(command.action).value();
+        appendCommandResult(CommandRowAction::RegisteredCommand,
+                            definition.canonical,
+                            definition.title,
+                            definition.verb,
+                            definition.detail);
+    } else if (command.commandNamespace == CommandNamespace::Application
+               && command.action != CommandAction::None) {
+        const PinloomCommandDefinition definition =
+            PinloomCommandRegistry::definition(command.action).value();
+        appendCommandResult(CommandRowAction::RegisteredCommand,
+                            definition.canonical,
+                            definition.title,
+                            definition.verb,
+                            definition.detail);
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::None) {
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("inbox;new"),
-                            tr("Add Inbox Item"),
-                            tr("Open"),
-                            tr("inbox;new - tag or archive a dropped item or Explorer selection"));
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("inbox;search"),
-                            tr("Inbox Search"),
-                            tr("Open"),
-                            tr("inbox;search <query> - search archived Inbox files"));
+        appendNamespaceCommands(CommandNamespace::Inbox);
     } else if (command.commandNamespace == CommandNamespace::Inbox
                && command.action == CommandAction::InboxNew) {
         appendCommandResult(CommandRowAction::InboxSave,
@@ -1800,16 +1614,7 @@ void PinloomCommandPanel::refreshResults()
                             tr("restore <query> - restore search is not configured"));
     } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::None) {
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("library;search"),
-                            tr("Library Search"),
-                            tr("Open"),
-                            tr("library;search <query> - search all active entries"));
-        appendCommandResult(CommandRowAction::OpenCommand,
-                            QStringLiteral("library;restore"),
-                            tr("Restore Deleted Entry"),
-                            tr("Open"),
-                            tr("library;restore <query> - search deleted entries"));
+        appendNamespaceCommands(CommandNamespace::Library);
     }
 
     if (resultList_->count() > 0) {
@@ -1846,12 +1651,21 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::ClipLibrary) {
         updateStatus(tr("Open Clip Library pending"));
+    } else if (command.commandNamespace == CommandNamespace::Clip
+               && command.action == CommandAction::ClipPdfText) {
+        updateStatus(tr("Capture selected PDF text as Clip pending"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::None) {
         updateStatus(tr("Anchor commands"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorNew) {
         updateStatus(tr("Capture anchor current app context pending"));
+    } else if (command.commandNamespace == CommandNamespace::Anchor
+               && command.action == CommandAction::AnchorPdfRectangle) {
+        updateStatus(tr("Capture PDF rectangle Anchor pending"));
+    } else if (command.commandNamespace == CommandNamespace::Anchor
+               && command.action == CommandAction::AnchorPdfText) {
+        updateStatus(tr("Capture PDF text Anchor pending"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorLibrary) {
         updateStatus(tr("Open Anchor Library pending"));
@@ -1897,6 +1711,13 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Library
                && command.action == CommandAction::None) {
         updateStatus(tr("Library commands"));
+    } else if (command.commandNamespace == CommandNamespace::Application
+               && command.action != CommandAction::None) {
+        const std::optional<PinloomCommandDefinition> definition =
+            PinloomCommandRegistry::definition(command.action);
+        updateStatus(definition.has_value()
+                         ? tr("Run %1 pending").arg(definition->title)
+                         : tr("Unknown command"));
     } else {
         updateStatus(tr("Unknown command"));
     }
@@ -2084,20 +1905,12 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
     if (action == CommandRowAction::ClipSave) {
         return saveClipFromItem(item);
     }
-    if (action == CommandRowAction::ClipLibrary) {
-        return openClipLibrary();
-    }
-    if (action == CommandRowAction::AnchorCapture) {
-        return captureAnchor();
-    }
-    if (action == CommandRowAction::AnchorLibrary) {
-        return openAnchorLibrary();
-    }
     if (action == CommandRowAction::InboxSave) {
         return saveInboxFromCommand();
     }
-    if (action == CommandRowAction::RootLibrary) {
-        return openLibraryRoots();
+    if (action == CommandRowAction::RegisteredCommand) {
+        return dispatchCommand(static_cast<CommandAction>(
+            item->data(CommandIdRole).toInt()));
     }
     if (action == CommandRowAction::UnifiedTargetAction) {
         return activateResultActionFromItem(item);
@@ -2286,12 +2099,14 @@ bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *it
         const PinloomEntry entry = entryFromOpenTarget(target);
         const PinloomCommandActionResult result =
             options_.unifiedEntryCommandHandler(this, entry, action);
-        const QString fallback = result.success
+        const QString fallback = result.completed()
             ? tr("Completed action \"%1\"").arg(action.label)
-            : tr("Unable to run action \"%1\"").arg(action.label);
+            : (result.cancelled()
+                   ? tr("Canceled action \"%1\"").arg(action.label)
+                   : tr("Unable to run action \"%1\"").arg(action.label));
         const QString status = commandActionResultStatus(result, fallback);
         updateStatus(status.trimmed().isEmpty() ? fallback : status.trimmed());
-        return result.success;
+        return result.completed();
     }
     if (action.id == QLatin1String(PrimaryResultActionId)) {
         return activateUnifiedTarget(target);
@@ -2363,103 +2178,70 @@ bool PinloomCommandPanel::saveClipFromItem(const QListWidgetItem *item)
     return true;
 }
 
-bool PinloomCommandPanel::captureAnchor()
-{
-    emit anchorCaptureRequested();
-    if (!options_.anchorCaptureHandler) {
-        updateStatus(tr("No anchor context available"));
-        return false;
-    }
-
-    QString status;
-    const bool captured = options_.anchorCaptureHandler(&status);
-    if (status.trimmed().isEmpty()) {
-        status = captured ? tr("Captured anchor") : tr("No anchor context available");
-    }
-    updateStatus(status.trimmed());
-    return captured;
-}
-
 bool PinloomCommandPanel::triggerRectangleAnchorCapture()
 {
-    const auto &handler = options_.rectangleAnchorCaptureHandler
-        ? options_.rectangleAnchorCaptureHandler
-        : options_.anchorCaptureHandler;
-    return runQuickAnchorCapture(handler,
-                                 tr("Rectangle Anchor is unavailable for the remembered target"),
-                                 tr("Captured rectangle Anchor"));
+    return dispatchCommand(CommandAction::AnchorPdfRectangle);
 }
 
 bool PinloomCommandPanel::triggerTextAnchorCapture()
 {
-    return runQuickAnchorCapture(options_.textAnchorCaptureHandler,
-                                 tr("Text Anchor is unavailable for the remembered target"),
-                                 tr("Captured text Anchor"));
+    return dispatchCommand(CommandAction::AnchorPdfText);
 }
 
-bool PinloomCommandPanel::runQuickAnchorCapture(
-    const std::function<bool(QString *status)> &handler,
-    const QString &unavailableStatus,
-    const QString &successStatus)
+bool PinloomCommandPanel::triggerPdfTextClipCapture()
 {
-    emit anchorCaptureRequested();
-    if (!handler) {
-        updateStatus(unavailableStatus);
-        return false;
-    }
-
-    QString status;
-    const bool captured = handler(&status);
-    updateStatus(status.trimmed().isEmpty()
-                     ? (captured ? successStatus : unavailableStatus)
-                     : status.trimmed());
-    return captured;
+    return dispatchCommand(CommandAction::ClipPdfText);
 }
 
 bool PinloomCommandPanel::openClipLibrary()
 {
-    emit clipLibraryRequested();
-    if (!options_.clipLibraryHandler) {
-        updateStatus(tr("Clip Library is not configured"));
-        return false;
-    }
-
-    QString status;
-    const bool opened = options_.clipLibraryHandler(&status);
-    updateStatus(status.trimmed().isEmpty()
-                     ? (opened ? tr("Opened Clip Library") : tr("Unable to open Clip Library"))
-                     : status.trimmed());
-    return opened;
+    return dispatchCommand(CommandAction::ClipLibrary);
 }
 
-bool PinloomCommandPanel::openAnchorLibrary()
+bool PinloomCommandPanel::dispatchCommand(CommandAction id)
 {
-    if (!options_.anchorLibraryHandler) {
-        updateStatus(tr("Anchor Library is not configured"));
+    if (id == CommandAction::ClipLibrary) {
+        emit clipLibraryRequested();
+    } else if (id == CommandAction::AnchorNew
+               || id == CommandAction::AnchorPdfRectangle
+               || id == CommandAction::AnchorPdfText) {
+        emit anchorCaptureRequested();
+    } else if (id == CommandAction::RootLibrary) {
+        emit libraryRootRequested();
+    }
+
+    if (!commandDispatcher_) {
+        updateStatus(tr("Command dispatcher is not configured"));
         return false;
     }
 
-    QString status;
-    const bool opened = options_.anchorLibraryHandler(&status);
-    updateStatus(status.trimmed().isEmpty()
-                     ? (opened ? tr("Opened Anchor Library") : tr("Unable to open Anchor Library"))
-                     : status.trimmed());
-    return opened;
-}
-
-bool PinloomCommandPanel::openLibraryRoots()
-{
-    emit libraryRootRequested();
-    if (!options_.libraryRootHandler) {
-        updateStatus(tr("Root Library is not configured"));
-        return false;
+    PinloomCommandInvocation invocation;
+    invocation.parent = this;
+    const PinloomCommandDispatchResult result =
+        commandDispatcher_->dispatch(id, invocation);
+    const std::optional<PinloomCommandDefinition> definition =
+        PinloomCommandRegistry::definition(id);
+    const QString title = definition.has_value()
+        ? definition->title
+        : tr("command");
+    QStringList lines;
+    if (!result.message.trimmed().isEmpty()) {
+        lines.append(result.message.trimmed());
+    } else if (result.completed()) {
+        lines.append(tr("Completed %1").arg(title));
+    } else if (result.cancelled()) {
+        lines.append(tr("Canceled %1").arg(title));
+    } else {
+        lines.append(tr("Unable to run %1").arg(title));
     }
-    QString status;
-    const bool opened = options_.libraryRootHandler(&status);
-    updateStatus(status.trimmed().isEmpty()
-                     ? (opened ? tr("Opened Root Library") : tr("Unable to open Root Library"))
-                     : status.trimmed());
-    return opened;
+    if (!result.diagnostics.trimmed().isEmpty()) {
+        lines.append(tr("Diagnostics: %1").arg(result.diagnostics.trimmed()));
+    }
+    if (!result.nextUiHint.trimmed().isEmpty()) {
+        lines.append(tr("Next: %1").arg(result.nextUiHint.trimmed()));
+    }
+    updateStatus(lines.join(QLatin1Char('\n')));
+    return result.completed();
 }
 
 bool PinloomCommandPanel::saveInboxFromCommand()

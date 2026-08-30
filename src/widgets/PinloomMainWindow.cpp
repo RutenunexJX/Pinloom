@@ -196,7 +196,6 @@ void PinloomMainWindow::configureMenu()
 
     connect(settingsAction, &QAction::triggered, this, &PinloomMainWindow::settingsRequested);
     connect(diagnosticsAction, &QAction::triggered, this, &PinloomMainWindow::diagnosticsRequested);
-    connect(diagnosticsAction, &QAction::triggered, this, &PinloomMainWindow::showDiagnosticsDialog);
     connect(quitAction, &QAction::triggered, this, &PinloomMainWindow::quitRequested);
 }
 

@@ -117,6 +117,7 @@ private slots:
     void generatesAndLaunchesPageOnlyPreviewWithoutBlocking();
     void timeoutReleasesHungVerification();
     void newerRequestSupersedesOldResultWithoutLaunchingIt();
+    void cancellationClosesPendingPresentationWithoutLaunching();
     void isolatesSequentialAnchorsAndCacheKeys();
     void openServiceOffersExplicitOriginalPdfFallback();
 };
@@ -252,6 +253,36 @@ void PdfAnchorPresenterTest::newerRequestSupersedesOldResultWithoutLaunchingIt()
     QVERIFY(secondResults.first().success());
     QCOMPARE(launches.size(), 1);
     QCOMPARE(launches.first().filePath, secondResults.first().previewFilePath);
+}
+
+void PdfAnchorPresenterTest::cancellationClosesPendingPresentationWithoutLaunching()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString source = directory.filePath(QStringLiteral("cancel.pdf"));
+    QVERIFY(writePdf(source));
+    QList<SumatraPdfCommand> launches;
+    SumatraAnnotatedCopyPresenterOptions options;
+    options.launchHandler = [&launches](const SumatraPdfCommand &command, QString *) {
+        launches.append(command);
+        return true;
+    };
+    SumatraAnnotatedCopyPresenter presenter(options);
+    QList<PdfAnchorPresentationResult> results;
+    PdfAnchorPresentationCallbacks callbacks;
+    callbacks.completed = [&results](const PdfAnchorPresentationResult &result) {
+        results.append(result);
+    };
+    QVERIFY(presenter.present(
+        presentationRequest(source, directory.filePath(QStringLiteral("cache")),
+                            QStringLiteral("cancel"), QRectF(10, 20, 80, 40)),
+        callbacks).accepted());
+    presenter.cancelPending();
+    QCOMPARE(results.size(), 1);
+    QVERIFY(results.first().superseded);
+    QCOMPARE(presenter.activeRequestCount(), 0);
+    QTest::qWait(100);
+    QVERIFY(launches.isEmpty());
 }
 
 void PdfAnchorPresenterTest::isolatesSequentialAnchorsAndCacheKeys()

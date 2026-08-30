@@ -175,6 +175,7 @@ add_library(pinloom_widgets STATIC
     include/pinloom/widgets/MainPanelHotkey.h
     include/pinloom/widgets/ManualPdfAnchorDialog.h
     include/pinloom/widgets/PinloomCommandPanel.h
+    include/pinloom/widgets/PinloomCommandSystem.h
     include/pinloom/widgets/PinloomMainWindow.h
     include/pinloom/widgets/PinloomEntry.h
     include/pinloom/widgets/PinloomEntrySearchService.h
@@ -201,6 +202,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/MainPanelHotkey.cpp
     src/widgets/ManualPdfAnchorDialog.cpp
     src/widgets/PinloomCommandPanel.cpp
+    src/widgets/PinloomCommandSystem.cpp
     src/widgets/PinloomMainWindow.cpp
     src/widgets/PinloomEntry.cpp
     src/widgets/PinloomEntrySearchService.cpp
@@ -360,6 +362,18 @@ target_link_libraries(pinloom_widget_smoke_test
 )
 
 pinloom_add_test(pinloom_widget_smoke_test)
+
+add_executable(pinloom_command_system_test
+    tests/command_system_test.cpp
+)
+
+target_link_libraries(pinloom_command_system_test
+    PRIVATE
+        pinloom_widgets
+        Qt6::Test
+)
+
+pinloom_add_test(pinloom_command_system_test)
 
 add_executable(pinloom_pdf_anchor_presenter_test
     tests/pdf_anchor_presenter_test.cpp

@@ -161,16 +161,13 @@ void GlobalIdentityTest::normalizesWithTrimNfkcAndCaseFoldWithoutCollapsingInter
              QStringLiteral("file id"));
     const QUrl clipLocator(globalIdentityLocator(GlobalIdentityObjectType::Clip,
                                                  QStringLiteral("clip id")));
-    QCOMPARE(QUrlQuery(clipLocator).queryItemValue(QStringLiteral("clip")),
-             QStringLiteral("clip id"));
+    QCOMPARE(clipLocator.host(), QStringLiteral("clip"));
+    QCOMPARE(clipLocator.path(QUrl::FullyDecoded), QStringLiteral("/clip id"));
     const QUrl anchorLocator(globalIdentityLocator(GlobalIdentityObjectType::Anchor,
                                                    QStringLiteral("anchor id"),
                                                    QStringLiteral("parent id")));
-    const QUrlQuery anchorQuery(anchorLocator);
-    QCOMPARE(anchorQuery.queryItemValue(QStringLiteral("resource")),
-             QStringLiteral("parent id"));
-    QCOMPARE(anchorQuery.queryItemValue(QStringLiteral("anchor")),
-             QStringLiteral("anchor id"));
+    QCOMPARE(anchorLocator.host(), QStringLiteral("anchor"));
+    QCOMPARE(anchorLocator.path(QUrl::FullyDecoded), QStringLiteral("/anchor id"));
 }
 
 void GlobalIdentityTest::inMemoryRejectsCompleteCrossObjectMatrixWithStructuredConflicts()

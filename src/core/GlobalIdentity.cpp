@@ -559,27 +559,29 @@ QString globalIdentityLocator(GlobalIdentityObjectType type,
                               const QString &objectId,
                               const QString &parentId)
 {
-    QString entryId;
+    Q_UNUSED(parentId);
+    QString host;
+    QString pathId;
     QUrlQuery query;
     switch (type) {
     case GlobalIdentityObjectType::File:
-        entryId = QStringLiteral("resource:%1").arg(objectId);
+        host = QStringLiteral("entry");
+        pathId = QStringLiteral("resource:%1").arg(objectId);
         query.addQueryItem(QStringLiteral("resource"), objectId);
         break;
     case GlobalIdentityObjectType::Clip:
-        entryId = QStringLiteral("clip:%1").arg(objectId);
-        query.addQueryItem(QStringLiteral("clip"), objectId);
+        host = QStringLiteral("clip");
+        pathId = objectId;
         break;
     case GlobalIdentityObjectType::Anchor:
-        entryId = QStringLiteral("anchor:%1").arg(objectId);
-        query.addQueryItem(QStringLiteral("resource"), parentId);
-        query.addQueryItem(QStringLiteral("anchor"), objectId);
+        host = QStringLiteral("anchor");
+        pathId = objectId;
         break;
     }
     QUrl locator;
     locator.setScheme(QStringLiteral("pinloom"));
-    locator.setHost(QStringLiteral("entry"));
-    locator.setPath(QStringLiteral("/") + entryId);
+    locator.setHost(host);
+    locator.setPath(QStringLiteral("/") + pathId);
     locator.setQuery(query);
     return locator.toString(QUrl::FullyEncoded);
 }

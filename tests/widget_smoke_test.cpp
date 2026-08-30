@@ -119,6 +119,7 @@ private slots:
     void dataDirectoryChangeMigratesOnNextStartup();
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
     void sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels();
+    void sumatraPdfRegionOverlayTimesOutWithExplicitFailure();
     void panelUsesInjectedRepository();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
@@ -1087,6 +1088,7 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
         QStringLiteral("Version: %1").arg(pinloomVersionLabel())));
 
     int settingsSignals = 0;
+    int diagnosticsSignals = 0;
     int quitSignals = 0;
     QObject::connect(&window, &PinloomMainWindow::settingsRequested, [&]() {
         ++settingsSignals;
@@ -1094,14 +1096,21 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     QObject::connect(&window, &PinloomMainWindow::quitRequested, [&]() {
         ++quitSignals;
     });
+    QObject::connect(&window, &PinloomMainWindow::diagnosticsRequested, [&]() {
+        ++diagnosticsSignals;
+    });
 
     auto *settingsAction = window.findChild<QAction *>(QStringLiteral("settingsAction"));
+    auto *diagnosticsAction = window.findChild<QAction *>(QStringLiteral("diagnosticsAction"));
     auto *quitAction = window.findChild<QAction *>(QStringLiteral("quitAction"));
     QVERIFY(settingsAction);
+    QVERIFY(diagnosticsAction);
     QVERIFY(quitAction);
     settingsAction->trigger();
+    diagnosticsAction->trigger();
     quitAction->trigger();
     QCOMPARE(settingsSignals, 1);
+    QCOMPARE(diagnosticsSignals, 1);
     QCOMPARE(quitSignals, 1);
 }
 
@@ -2808,6 +2817,31 @@ void WidgetSmokeTest::sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels()
     QVERIFY(canceledOverlay.captureResult().canceled);
 }
 
+void WidgetSmokeTest::sumatraPdfRegionOverlayTimesOutWithExplicitFailure()
+{
+    SumatraPdfRegionCaptureOverlay overlay(
+        0,
+        []() {
+            SumatraPdfDdeMousePosition position;
+            position.error = QStringLiteral("unused timeout provider");
+            return position;
+        },
+        nullptr,
+        1,
+        -1.0,
+        100);
+    overlay.setGeometry(100, 100, 500, 300);
+    overlay.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&overlay));
+    QTRY_VERIFY_WITH_TIMEOUT(!overlay.isVisible(), 1000);
+    QCOMPARE(overlay.result(), static_cast<int>(QDialog::Rejected));
+    const SumatraPdfRegionCaptureResult result = overlay.captureResult();
+    QVERIFY(!result.success());
+    QVERIFY(!result.canceled);
+    QVERIFY(result.region.error.contains(QStringLiteral("timed out")));
+    QCOMPARE(result.diagnostics, result.region.error);
+}
+
 void WidgetSmokeTest::panelUsesInjectedRepository()
 {
     InMemoryLibraryRepository repository;
@@ -3039,13 +3073,14 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
     panel.setCommandText(QStringLiteral("c"));
 
     QCOMPARE(clipSearchCalls, 0);
-    QCOMPARE(results->count(), 3);
+    QCOMPARE(results->count(), 4);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("clip;search <query>")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] New Saved Clip -> Open")));
     QVERIFY(results->item(1)->text().contains(QStringLiteral("clip;new")));
     QVERIFY(results->item(2)->text().contains(QStringLiteral("[Command] Clip Library -> Open")));
     QVERIFY(results->item(2)->text().contains(QStringLiteral("clip;library")));
+    QVERIFY(results->item(3)->text().contains(QStringLiteral("clip;pdf-text")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -3740,6 +3775,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     int captureCount = 0;
     int rectangleCaptureCount = 0;
     int textCaptureCount = 0;
+    int pdfTextClipCaptureCount = 0;
     QStringList statusNotifications;
     PinloomCommandPanelOptions options;
     options.statusChangedHandler = [&](const QString &statusText) {
@@ -3766,6 +3802,13 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
         }
         return true;
     };
+    options.pdfTextClipCaptureHandler = [&](QString *status) {
+        ++pdfTextClipCaptureCount;
+        if (status) {
+            *status = QStringLiteral("Captured PDF text Clip via quick action");
+        }
+        return true;
+    };
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
@@ -3777,12 +3820,20 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
         QStringLiteral("commandRectangleAnchorButton"));
     auto *textButton = panel.findChild<QToolButton *>(
         QStringLiteral("commandTextAnchorButton"));
+    auto *pdfTextClipButton = panel.findChild<QToolButton *>(
+        QStringLiteral("commandPdfTextClipButton"));
     QVERIFY(quickRow);
     QVERIFY(rectangleButton);
     QVERIFY(textButton);
+    QVERIFY(pdfTextClipButton);
     QVERIFY(quickRow->isVisibleTo(&panel));
     QVERIFY(rectangleButton->isEnabled());
     QVERIFY(textButton->isEnabled());
+    QVERIFY(pdfTextClipButton->isEnabled());
+    QCOMPARE(rectangleButton->accessibleName(),
+             QStringLiteral("PDF Rectangle Anchor"));
+    QCOMPARE(textButton->accessibleName(), QStringLiteral("PDF Text Anchor"));
+    QCOMPARE(pdfTextClipButton->accessibleName(), QStringLiteral("PDF Text Clip"));
     QVERIFY(panel.preferredWindowHeight() > 62);
 
     QTest::mouseClick(rectangleButton, Qt::LeftButton);
@@ -3791,13 +3842,38 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     QTest::mouseClick(textButton, Qt::LeftButton);
     QCOMPARE(textCaptureCount, 1);
     QCOMPARE(panel.statusText(), QStringLiteral("Captured text via quick action"));
+    QTest::mouseClick(pdfTextClipButton, Qt::LeftButton);
+    QCOMPARE(pdfTextClipCaptureCount, 1);
+    QCOMPARE(panel.statusText(),
+             QStringLiteral("Captured PDF text Clip via quick action"));
+
+    panel.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&panel));
+    commandEdit->setFocus();
+    QTRY_VERIFY(commandEdit->hasFocus());
+    QTest::keyClick(commandEdit, Qt::Key_Tab);
+    QTRY_VERIFY(rectangleButton->hasFocus());
+    QTest::keyClick(rectangleButton, Qt::Key_Space);
+    QCOMPARE(rectangleCaptureCount, 2);
+    QTest::keyClick(rectangleButton, Qt::Key_Tab, Qt::ShiftModifier);
+    QTRY_VERIFY(commandEdit->hasFocus());
+
+    panel.setCommandText(QStringLiteral("anchor;new"));
+    commandEdit->setCursorPosition(3);
+    QTest::keyClick(commandEdit, Qt::Key_Right);
+    QCOMPARE(commandEdit->cursorPosition(), 4);
+    QVERIFY(!panel.isShowingResultActions());
+    QTest::keyClick(commandEdit, Qt::Key_Left);
+    QCOMPARE(commandEdit->cursorPosition(), 3);
 
     panel.setCommandText(QStringLiteral("k"));
 
-    QCOMPARE(results->count(), 2);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Open")));
+    QCOMPARE(results->count(), 4);
+    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Capture")));
     QVERIFY(results->item(0)->text().contains(QStringLiteral("anchor;new")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Anchor Library -> Open")));
+    QVERIFY(results->item(1)->text().contains(QStringLiteral("anchor;rectangle")));
+    QVERIFY(results->item(2)->text().contains(QStringLiteral("anchor;text")));
+    QVERIFY(results->item(3)->text().contains(QStringLiteral("[Command] Anchor Library -> Open")));
     QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -3810,6 +3886,10 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     QCOMPARE(panel.commandText(), QStringLiteral("anchor;new"));
     QCOMPARE(panel.statusText(), QStringLiteral("Captured via test handler"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
+
+    panel.setCommandText(QStringLiteral("clip;pdf-text"));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(pdfTextClipCaptureCount, 2);
 
     PinloomCommandPanelOptions noContextOptions;
     noContextOptions.anchorCaptureHandler = [](QString *status) {
@@ -3851,9 +3931,11 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
     for (const QString &abbreviation : rootAbbreviations) {
         panel.setCommandText(abbreviation);
         QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
-        QCOMPARE(results->count(), 2);
+        QCOMPARE(results->count(), 4);
         QVERIFY(results->item(0)->text().contains(QStringLiteral("New Anchor")));
-        QVERIFY(results->item(1)->text().contains(QStringLiteral("Anchor Library")));
+        QVERIFY(results->item(1)->text().contains(QStringLiteral("Rectangle Anchor")));
+        QVERIFY(results->item(2)->text().contains(QStringLiteral("Text Anchor")));
+        QVERIFY(results->item(3)->text().contains(QStringLiteral("Anchor Library")));
     }
 
     const QStringList structuredAbbreviations{
@@ -4257,7 +4339,7 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
 
     QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
     QCOMPARE(clipCommandSearchCalls, 0);
-    QCOMPARE(results->count(), 3);
+    QCOMPARE(results->count(), 4);
     QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 }
@@ -4371,7 +4453,8 @@ void WidgetSmokeTest::commandPanelRightArrowShowsActionsForUnifiedResultTypes()
         QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
         QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(row).resourceId);
 
-        QTest::keyClick(commandEdit, Qt::Key_Left);
+        results->setFocus();
+        QTest::keyClick(results, Qt::Key_Left);
         QVERIFY(!panel.isShowingResultActions());
         QCOMPARE(results->count(), 4);
         QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
@@ -4401,7 +4484,7 @@ void WidgetSmokeTest::commandPanelActionListExecutesSelectedProviderAction()
             result.message = QStringLiteral("Fake provider refused tag");
             return result;
         }
-        result.success = true;
+        result.state = PinloomCommandExecutionState::Completed;
         result.message = QStringLiteral("Ran %1").arg(action.id);
         return result;
     };
@@ -4452,15 +4535,16 @@ void WidgetSmokeTest::commandPanelActionListExecutesRemoveWithInjectedConfirmati
         actionIds.append(action.id);
         PinloomCommandActionResult result;
         if (action.id != QLatin1String("remove")) {
-            result.success = true;
+            result.state = PinloomCommandExecutionState::Completed;
             return result;
         }
         if (!confirmRemove) {
+            result.state = PinloomCommandExecutionState::Cancelled;
             result.message = QStringLiteral("Remove canceled by fake confirmation");
             return result;
         }
         removedResourceIds.append(target.resourceId);
-        result.success = true;
+        result.state = PinloomCommandExecutionState::Completed;
         result.message = QStringLiteral("Removed by fake handler");
         return result;
     };
@@ -4513,8 +4597,11 @@ void WidgetSmokeTest::commandPanelRestoreCommandUsesDeletedEntrySearchHandler()
         [&](QWidget *, const PinloomEntry &entry, const PinloomCommandResultAction &action) {
         actionIds.append(action.id);
         PinloomCommandActionResult result;
-        result.success = action.id == QLatin1String("restore") && entry.deleted;
-        result.message = result.success
+        const bool restored = action.id == QLatin1String("restore") && entry.deleted;
+        result.state = restored
+            ? PinloomCommandExecutionState::Completed
+            : PinloomCommandExecutionState::Failed;
+        result.message = restored
             ? QStringLiteral("Restored %1").arg(entry.name)
             : QStringLiteral("Unexpected action");
         return result;
@@ -4566,7 +4653,6 @@ void WidgetSmokeTest::commandPanelStructuredEntryActionResultReportsDiagnostics(
     options.unifiedEntryCommandHandler =
         [](QWidget *, const PinloomEntry &, const PinloomCommandResultAction &) {
         PinloomCommandActionResult result;
-        result.success = false;
         result.message = QStringLiteral("Rename failed");
         result.diagnostics = QStringLiteral("repository write lock");
         result.nextUiHint = QStringLiteral("keep-actions-open");
@@ -4620,7 +4706,6 @@ void WidgetSmokeTest::commandPanelRightArrowPrimaryUsesStructuredEntryCommandHan
         ++structuredCalls;
         actionIds.append(action.id);
         PinloomCommandActionResult result;
-        result.success = false;
         result.message = QStringLiteral("Structured primary failed for %1").arg(entry.name);
         result.diagnostics = QStringLiteral("structured diagnostics");
         result.nextUiHint = QStringLiteral("keep-actions-open");
@@ -4674,7 +4759,8 @@ void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
     QVERIFY(panel.selectResultAt(3));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QTest::keyClick(commandEdit, Qt::Key_Left);
+    results->setFocus();
+    QTest::keyClick(results, Qt::Key_Left);
     QVERIFY(!panel.isShowingResultActions());
     QCOMPARE(results->count(), 4);
     QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(3).resourceId);
@@ -4695,7 +4781,7 @@ void WidgetSmokeTest::commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts()
         [&](QWidget *, const PinloomEntry &, const PinloomCommandResultAction &) {
         ++actionCalls;
         PinloomCommandActionResult result;
-        result.success = true;
+        result.state = PinloomCommandExecutionState::Completed;
         return result;
     };
 
@@ -4909,7 +4995,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
         actionEntries.append(entry);
         actionIds.append(action.id);
         PinloomCommandActionResult result;
-        result.success = true;
+        result.state = PinloomCommandExecutionState::Completed;
         result.message = QStringLiteral("Entry action %1").arg(action.id);
         return result;
     };

@@ -35,7 +35,8 @@ public:
         MousePositionProvider mousePositionProvider = {},
         QWidget *parent = nullptr,
         int fallbackPage = 1,
-        double fallbackZoom = -1.0);
+        double fallbackZoom = -1.0,
+        int captureTimeoutMilliseconds = 30000);
 
     SumatraPdfRegionCaptureResult captureResult() const;
 
@@ -68,11 +69,13 @@ private:
     bool usingDefaultMousePositionProvider_ = false;
     int fallbackPage_ = 1;
     double fallbackZoom_ = -1.0;
+    QTimer *captureTimer_ = nullptr;
 };
 
 SumatraPdfRegionCaptureResult captureSumatraPdfRegion(
     quintptr targetWindowHandle,
     int fallbackPage = 1,
-    double fallbackZoom = -1.0);
+    double fallbackZoom = -1.0,
+    int captureTimeoutMilliseconds = 30000);
 
 } // namespace Pinloom

@@ -97,12 +97,85 @@ class HostBridgeTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void stableDeepLinksRoundTripAndRejectMalformedIds();
+    void rejectsDeletedIdentityExplicitly();
     void servesVersionedSearchResolveAndOpen();
     void resolvesPdfRectangleWithBoundedLocalPreview();
     void hostOpenUsesSharedPdfAnchorPresenter();
     void createsValidatedSourceAnchor();
     void hostSourceAnchorWriteReturnsGlobalIdentityConflict();
 };
+
+void HostBridgeTest::stableDeepLinksRoundTripAndRejectMalformedIds()
+{
+    PinloomHostIdentity anchor;
+    anchor.entryId = QStringLiteral("anchor:anchor-a");
+    anchor.resourceId = QStringLiteral("resource-a");
+    anchor.anchorId = QStringLiteral("anchor-a");
+    QCOMPARE(pinloomHostUri(anchor).toString(QUrl::FullyEncoded),
+             QStringLiteral("pinloom://anchor/anchor-a"));
+    const std::optional<PinloomHostIdentity> parsedAnchor =
+        pinloomHostIdentityFromUri(QStringLiteral("pinloom://anchor/anchor-a"));
+    QVERIFY(parsedAnchor.has_value());
+    QCOMPARE(parsedAnchor->anchorId, QStringLiteral("anchor-a"));
+    QVERIFY(parsedAnchor->resourceId.isEmpty());
+
+    PinloomHostIdentity clip;
+    clip.entryId = QStringLiteral("clip:clip-a");
+    clip.clipId = QStringLiteral("clip-a");
+    QCOMPARE(pinloomHostUri(clip).toString(QUrl::FullyEncoded),
+             QStringLiteral("pinloom://clip/clip-a"));
+    const std::optional<PinloomHostIdentity> parsedClip =
+        pinloomHostIdentityFromUri(QStringLiteral("pinloom://clip/clip-a"));
+    QVERIFY(parsedClip.has_value());
+    QCOMPARE(parsedClip->clipId, QStringLiteral("clip-a"));
+
+    const std::optional<PinloomHostIdentity> legacy =
+        pinloomHostIdentityFromUri(QStringLiteral(
+            "pinloom://entry/anchor:anchor-a?resource=resource-a&anchor=anchor-a"));
+    QVERIFY(legacy.has_value());
+    QCOMPARE(legacy->resourceId, QStringLiteral("resource-a"));
+    QCOMPARE(legacy->anchorId, QStringLiteral("anchor-a"));
+
+    QVERIFY(!pinloomHostIdentityFromUri(
+        QStringLiteral("pinloom://anchor/")).has_value());
+    QVERIFY(!pinloomHostIdentityFromUri(
+        QStringLiteral("pinloom://anchor/a/b")).has_value());
+    QVERIFY(!pinloomHostIdentityFromUri(
+        QStringLiteral("https://anchor/anchor-a")).has_value());
+}
+
+void HostBridgeTest::rejectsDeletedIdentityExplicitly()
+{
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.resolve = [](const PinloomHostIdentity &identity)
+        -> std::optional<PinloomHostDocument> {
+        PinloomHostDocument document;
+        document.entry.id = QStringLiteral("clip:") + identity.clipId;
+        document.entry.clipId = identity.clipId;
+        document.entry.name = QStringLiteral("Deleted Clip");
+        document.entry.deleted = true;
+        return document;
+    };
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-host-deleted-test-%1-%2")
+        .arg(QCoreApplication::applicationPid())
+        .arg(QDateTime::currentMSecsSinceEpoch());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY2(server.start(), qPrintable(server.lastError()));
+
+    PinloomHostIdentity identity;
+    identity.clipId = QStringLiteral("deleted-clip");
+    const QJsonObject response = exchange(
+        options.serverName,
+        request(QStringLiteral("resolve"),
+                QJsonObject{{QStringLiteral("identity"),
+                             pinloomHostIdentityToJson(identity)}}));
+    QVERIFY(!response.value(QStringLiteral("ok")).toBool());
+    QCOMPARE(response.value(QStringLiteral("error")).toObject()
+                 .value(QStringLiteral("code")).toString(),
+             QStringLiteral("deleted"));
+}
 
 void HostBridgeTest::servesVersionedSearchResolveAndOpen()
 {
@@ -166,8 +239,8 @@ void HostBridgeTest::servesVersionedSearchResolveAndOpen()
     QCOMPARE(entries.size(), 1);
     const QJsonObject serialized = entries.first().toObject();
     QCOMPARE(serialized.value(QStringLiteral("title")).toString(), entry.name);
-    QVERIFY(serialized.value(QStringLiteral("uri")).toString().startsWith(
-        QStringLiteral("pinloom://entry/anchor:anchor-a")));
+    QCOMPARE(serialized.value(QStringLiteral("uri")).toString(),
+             QStringLiteral("pinloom://anchor/anchor-a"));
 
     const QJsonObject identity = serialized.value(QStringLiteral("identity")).toObject();
     response = exchange(

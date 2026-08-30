@@ -7,7 +7,6 @@
 #include <QCoreApplication>
 #include <QJsonArray>
 #include <QTimer>
-#include <QUrlQuery>
 
 namespace Pinloom {
 
@@ -17,27 +16,6 @@ constexpr auto kOpenAction = "pinloom.entry.open";
 constexpr auto kCreateSourceAnchorAction = "pinloom.source-anchor.create";
 constexpr auto kPreviewSurface = "pinloom.entry.preview";
 
-std::optional<PinloomHostIdentity> identityFromUri(const QString& text)
-{
-    const QUrl uri(text, QUrl::StrictMode);
-    if (!uri.isValid()
-        || uri.scheme().compare(QStringLiteral("pinloom"),
-                                Qt::CaseInsensitive) != 0
-        || uri.host().compare(QStringLiteral("entry"),
-                              Qt::CaseInsensitive) != 0) {
-        return std::nullopt;
-    }
-    PinloomHostIdentity identity;
-    identity.entryId = uri.path().mid(1);
-    const QUrlQuery query(uri);
-    identity.resourceId = query.queryItemValue(QStringLiteral("resource"));
-    identity.anchorId = query.queryItemValue(QStringLiteral("anchor"));
-    identity.clipId = query.queryItemValue(QStringLiteral("clip"));
-    return identity.isValid()
-        ? std::optional<PinloomHostIdentity>(identity)
-        : std::nullopt;
-}
-
 std::optional<PinloomHostIdentity> identityFromParams(
     const QJsonObject& params)
 {
@@ -45,7 +23,7 @@ std::optional<PinloomHostIdentity> identityFromParams(
     if (uri.isEmpty())
         uri = params.value(QStringLiteral("uri")).toString();
     if (!uri.isEmpty())
-        return identityFromUri(uri);
+        return pinloomHostIdentityFromUri(uri);
     const QJsonObject arguments =
         params.value(QStringLiteral("arguments")).toObject();
     return pinloomHostIdentityFromJson(
@@ -197,7 +175,7 @@ QJsonObject PinloomSuiteIntegration::processRequest(
     if (!identity.has_value()) {
         return SuiteApp::errorResponse(
             request, QStringLiteral("invalid_resource"),
-            QStringLiteral("A valid pinloom://entry resource is required"));
+            QStringLiteral("A valid pinloom://entry, pinloom://anchor, or pinloom://clip resource is required"));
     }
     if (!callbacks_.resolve) {
         return SuiteApp::errorResponse(
@@ -210,6 +188,11 @@ QJsonObject PinloomSuiteIntegration::processRequest(
         return SuiteApp::errorResponse(
             request, QStringLiteral("resource_not_found"),
             QStringLiteral("Pinloom entry no longer exists"));
+    }
+    if (document->entry.deleted) {
+        return SuiteApp::errorResponse(
+            request, QStringLiteral("resource_deleted"),
+            QStringLiteral("Pinloom entry is deleted; restore it before opening"));
     }
     const QJsonObject model = pinloomHostDocumentToJson(*document);
     if (method == QStringLiteral("resource.resolve"))

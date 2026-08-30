@@ -320,7 +320,8 @@ SumatraPdfRegionCaptureOverlay::SumatraPdfRegionCaptureOverlay(
     MousePositionProvider mousePositionProvider,
     QWidget *parent,
     int fallbackPage,
-    double fallbackZoom)
+    double fallbackZoom,
+    int captureTimeoutMilliseconds)
     : QDialog(parent,
               Qt::Window
                   | Qt::FramelessWindowHint
@@ -332,6 +333,7 @@ SumatraPdfRegionCaptureOverlay::SumatraPdfRegionCaptureOverlay(
     , fallbackZoom_(std::isfinite(fallbackZoom) && fallbackZoom > 0.0
                         ? fallbackZoom
                         : -1.0)
+    , captureTimer_(new QTimer(this))
 {
     if (!mousePositionProvider_) {
         mousePositionProvider_ = []() {
@@ -346,6 +348,23 @@ SumatraPdfRegionCaptureOverlay::SumatraPdfRegionCaptureOverlay(
     setCursor(Qt::CrossCursor);
     setMouseTracking(true);
     setGeometry(targetClientGeometry(targetWindowHandle_));
+
+    captureTimer_->setSingleShot(true);
+    captureTimer_->setInterval(std::max(1, captureTimeoutMilliseconds));
+    connect(captureTimer_, &QTimer::timeout, this,
+            [this, captureTimeoutMilliseconds]() {
+                dragging_ = false;
+                result_.canceled = false;
+                result_.usedFallback = false;
+                result_.region = {};
+                result_.region.error = QStringLiteral(
+                    "PDF region capture timed out after %1 ms")
+                                           .arg(std::max(1,
+                                                         captureTimeoutMilliseconds));
+                result_.diagnostics = result_.region.error;
+                QDialog::reject();
+            });
+    captureTimer_->start();
 }
 
 SumatraPdfRegionCaptureResult SumatraPdfRegionCaptureOverlay::captureResult() const
@@ -402,6 +421,7 @@ void SumatraPdfRegionCaptureOverlay::mouseReleaseEvent(QMouseEvent *event)
 
     dragCurrent_ = event->position().toPoint();
     dragging_ = false;
+    captureTimer_->stop();
     const QPoint globalStart = mapToGlobal(dragStart_);
     const QPoint globalEnd = mapToGlobal(dragCurrent_);
     const auto positions = sampleRegionPositions(globalStart, globalEnd);
@@ -435,6 +455,7 @@ void SumatraPdfRegionCaptureOverlay::paintEvent(QPaintEvent *)
 
 void SumatraPdfRegionCaptureOverlay::reject()
 {
+    captureTimer_->stop();
     result_.canceled = true;
     QDialog::reject();
 }
@@ -612,7 +633,8 @@ void SumatraPdfRegionCaptureOverlay::showCaptureError(const QString &message)
 
 SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandle,
                                                       int fallbackPage,
-                                                      double fallbackZoom)
+                                                      double fallbackZoom,
+                                                      int captureTimeoutMilliseconds)
 {
     SumatraPdfRegionCaptureResult result;
     activateTargetWindow(targetWindowHandle);
@@ -620,7 +642,8 @@ SumatraPdfRegionCaptureResult captureSumatraPdfRegion(quintptr targetWindowHandl
                                            {},
                                            nullptr,
                                            fallbackPage,
-                                           fallbackZoom);
+                                           fallbackZoom,
+                                           captureTimeoutMilliseconds);
     if (overlay.geometry().isEmpty()) {
         result.region.error = QStringLiteral("SumatraPDF window geometry is unavailable");
         return result;

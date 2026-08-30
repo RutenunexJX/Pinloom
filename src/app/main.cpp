@@ -70,8 +70,10 @@
 #include <QThread>
 #include <QTimer>
 #include <QToolTip>
+#include <QUrl>
 #include <QUuid>
 #include <algorithm>
+#include <functional>
 #include <memory>
 #include <optional>
 
@@ -93,13 +95,23 @@ int main(int argc, char *argv[])
 
     const QStringList startupArguments = QCoreApplication::arguments();
     const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
+    QString startupDeepLink;
+    for (const QString &argument : startupArguments.mid(1)) {
+        const QUrl candidate(argument, QUrl::StrictMode);
+        if (candidate.scheme().compare(QStringLiteral("pinloom"),
+                                       Qt::CaseInsensitive) == 0) {
+            startupDeepLink = argument;
+            break;
+        }
+    }
 
     Pinloom::PinloomSingleInstanceOptions instanceOptions;
     instanceOptions.serverName = Pinloom::defaultPinloomSingleInstanceServerName();
     instanceOptions.activationTimeoutMs = 300;
-    instanceOptions.activationMessage = startHidden
-        ? QStringLiteral("resident")
-        : QStringLiteral("activate");
+    instanceOptions.activationMessage = !startupDeepLink.isEmpty()
+        ? startupDeepLink
+        : (startHidden ? QStringLiteral("resident")
+                       : QStringLiteral("activate"));
     Pinloom::PinloomSingleInstanceGuard instanceGuard(instanceOptions, &app);
     const Pinloom::PinloomSingleInstanceStartResult instanceStart = instanceGuard.start();
     if (instanceStart.isSecondary()) {
@@ -923,6 +935,57 @@ int main(int argc, char *argv[])
             Pinloom::anchorCaptureDraftFromPdfRequest(request), status);
     };
 
+    const auto captureForegroundPdfTextClip =
+        [&lastForegroundContext,
+         &lastForegroundTextTarget,
+         &commandWindowForForegroundCapture,
+         &availableClipTags,
+         &automaticClipName,
+         &archiveSelectedText](QString *status) {
+        const bool useRememberedTarget = commandWindowForForegroundCapture
+            && commandWindowForForegroundCapture->isVisible()
+            && lastForegroundContext.isValid();
+        const Pinloom::ForegroundAppWindowContext context = useRememberedTarget
+            ? lastForegroundContext
+            : Pinloom::currentForegroundAppWindowContext();
+        if (!Pinloom::isSumatraPdfForegroundWindow(context)) {
+            if (status) {
+                *status = QStringLiteral(
+                    "Open or focus a SumatraPDF PDF before PDF Text Clip");
+            }
+            return false;
+        }
+
+        Pinloom::TextSelectionCaptureResult selection =
+            Pinloom::captureTextSelectionFromTarget(
+                context,
+                useRememberedTarget
+                    ? lastForegroundTextTarget
+                    : Pinloom::captureForegroundTextTarget());
+        if (!selection.hasSelectedText()) {
+            if (status) {
+                *status = selection.diagnostics.trimmed().isEmpty()
+                    ? QStringLiteral("Select PDF text before opening Pinloom")
+                    : selection.diagnostics.trimmed();
+            }
+            return false;
+        }
+        selection.source = QStringLiteral("foreground-sumatrapdf-selection");
+
+        Pinloom::ClipCaptureDialog dialog(
+            selection.text,
+            automaticClipName(selection.text),
+            availableClipTags(),
+            commandWindowForForegroundCapture);
+        if (dialog.exec() != QDialog::Accepted) {
+            if (status) {
+                *status = QStringLiteral("PDF Text Clip capture canceled");
+            }
+            return false;
+        }
+        return archiveSelectedText(selection, dialog.metadata(), status);
+    };
+
     const auto captureRememberedApplicationAnchor =
         [&lastForegroundContext,
          &commandWindowForForegroundCapture,
@@ -1165,10 +1228,10 @@ int main(int argc, char *argv[])
     };
     std::unique_ptr<Pinloom::ClipLibraryWindow> clipLibraryWindow;
 
-    auto showSettingsDialog = [&]() {
+    auto showSettingsDialog = [&]() -> bool {
         Pinloom::PinloomSettingsDialog dialog(runtimeSettings, &window);
         if (dialog.exec() != QDialog::Accepted) {
-            return;
+            return false;
         }
 
         Pinloom::PinloomAppSettings editedSettings = dialog.settings();
@@ -1217,14 +1280,16 @@ int main(int argc, char *argv[])
                 runtimeSettings.clipRestoreOriginalClipboardOnInsert;
             clipHost->runtime()->insertionService().setOptions(insertionOptions);
         }
+        return true;
     };
-    QObject::connect(&window, &Pinloom::PinloomMainWindow::settingsRequested, &window, showSettingsDialog);
     QObject::connect(&window, &Pinloom::PinloomMainWindow::quitRequested, &app, &QApplication::quit);
 
     commandWindowForForegroundCapture = &window;
     activeClipInsertionWindow = &window;
 
+    Pinloom::PinloomCommandDispatcher commandDispatcher;
     Pinloom::PinloomCommandPanelOptions commandOptions;
+    commandOptions.commandDispatcher = &commandDispatcher;
     commandOptions.statusChangedHandler = [&window](const QString &status) {
         const QString lower = status.toLower();
         if (lower.contains(QStringLiteral("unable"))
@@ -1282,6 +1347,7 @@ int main(int argc, char *argv[])
     commandOptions.anchorCaptureHandler = captureRememberedApplicationAnchor;
     commandOptions.rectangleAnchorCaptureHandler = captureForegroundPdfAnchor;
     commandOptions.textAnchorCaptureHandler = captureForegroundPdfTextAnchor;
+    commandOptions.pdfTextClipCaptureHandler = captureForegroundPdfTextClip;
     commandOptions.anchorLibraryHandler = [&anchorLibraryWindow,
                                            &anchorLibraryOptions,
                                            &window](QString *status) {
@@ -1367,6 +1433,98 @@ int main(int argc, char *argv[])
         }
         return archiveSelectedText(selection, dialog.metadata(), status);
     };
+    const auto registerBooleanCommand =
+        [&commandDispatcher, &window](Pinloom::PinloomCommandId id,
+                                      const std::function<bool(QString *)> &handler,
+                                      const QString &successFallback,
+                                      const QString &failureFallback) {
+            QString registrationError;
+            const bool registered = commandDispatcher.registerHandler(
+                id,
+                [handler, successFallback, failureFallback](
+                    const Pinloom::PinloomCommandInvocation &) {
+                    QString status;
+                    const bool succeeded = handler && handler(&status);
+                    return Pinloom::pinloomCommandResultFromBoolean(
+                        succeeded, status, successFallback, failureFallback);
+                },
+                &registrationError);
+            if (!registered) {
+                window.setRecentError(QStringLiteral("Command registration failed"),
+                                      registrationError);
+            }
+        };
+    registerBooleanCommand(Pinloom::PinloomCommandId::ClipLibrary,
+                           commandOptions.clipLibraryHandler,
+                           QStringLiteral("Opened Clip Library"),
+                           QStringLiteral("Unable to open Clip Library"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::ClipPdfText,
+                           commandOptions.pdfTextClipCaptureHandler,
+                           QStringLiteral("Captured PDF text Clip"),
+                           QStringLiteral("PDF Text Clip is unavailable for the remembered target"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorNew,
+                           commandOptions.anchorCaptureHandler,
+                           QStringLiteral("Captured Anchor"),
+                           QStringLiteral("No Anchor context is available"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorPdfRectangle,
+                           commandOptions.rectangleAnchorCaptureHandler,
+                           QStringLiteral("Captured PDF rectangle Anchor"),
+                           QStringLiteral("PDF Rectangle Anchor is unavailable for the remembered target"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorPdfText,
+                           commandOptions.textAnchorCaptureHandler,
+                           QStringLiteral("Captured PDF text Anchor"),
+                           QStringLiteral("PDF Text Anchor is unavailable for the remembered target"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorLibrary,
+                           commandOptions.anchorLibraryHandler,
+                           QStringLiteral("Opened Anchor Library"),
+                           QStringLiteral("Unable to open Anchor Library"));
+    registerBooleanCommand(Pinloom::PinloomCommandId::RootLibrary,
+                           commandOptions.libraryRootHandler,
+                           QStringLiteral("Opened Root Library"),
+                           QStringLiteral("Unable to open Root Library"));
+    commandDispatcher.registerHandler(
+        Pinloom::PinloomCommandId::Settings,
+        [&showSettingsDialog](const Pinloom::PinloomCommandInvocation &) {
+            return showSettingsDialog()
+                ? Pinloom::PinloomCommandDispatchResult::complete(
+                      QStringLiteral("Settings saved"))
+                : Pinloom::PinloomCommandDispatchResult::cancel(
+                      QStringLiteral("Settings canceled"));
+        });
+    commandDispatcher.registerHandler(
+        Pinloom::PinloomCommandId::Diagnostics,
+        [&window](const Pinloom::PinloomCommandInvocation &) {
+            window.showDiagnosticsDialog();
+            return Pinloom::PinloomCommandDispatchResult::complete(
+                QStringLiteral("Diagnostics closed"));
+        });
+    const auto dispatchWindowCommand =
+        [&commandDispatcher, &window](Pinloom::PinloomCommandId id) {
+            Pinloom::PinloomCommandInvocation invocation;
+            invocation.parent = &window;
+            const Pinloom::PinloomCommandDispatchResult result =
+                commandDispatcher.dispatch(id, invocation);
+            if (result.failed()) {
+                const QString message = result.message.trimmed().isEmpty()
+                    ? QStringLiteral("Pinloom command failed")
+                    : result.message.trimmed();
+                window.setRecentError(QStringLiteral("Command failed"), message);
+                window.statusBar()->showMessage(message, 6000);
+            }
+            return result;
+        };
+    QObject::connect(&window,
+                     &Pinloom::PinloomMainWindow::settingsRequested,
+                     &window,
+                     [&dispatchWindowCommand]() {
+                         dispatchWindowCommand(Pinloom::PinloomCommandId::Settings);
+                     });
+    QObject::connect(&window,
+                     &Pinloom::PinloomMainWindow::diagnosticsRequested,
+                     &window,
+                     [&dispatchWindowCommand]() {
+                         dispatchWindowCommand(Pinloom::PinloomCommandId::Diagnostics);
+                     });
     const auto targetTitle = [](const Pinloom::PinloomOpenTarget &target) {
         if (target.anchor.has_value()) {
             const QString anchorName = target.anchor->name.trimmed();
@@ -2240,15 +2398,15 @@ int main(int argc, char *argv[])
                              const Pinloom::PinloomEntry &entry,
                              const Pinloom::PinloomCommandResultAction &action) {
         const Pinloom::PinloomEntry enriched = enrichEntryForCommandAction(entry);
-        Pinloom::PinloomCommandActionResult result;
         QString status;
-        result.success = executeEntryAction(parent, enriched, action, &status);
-        result.message = status.trimmed().isEmpty()
-            ? (result.success
-                   ? QStringLiteral("Completed action \"%1\"").arg(action.label)
-                   : QStringLiteral("Unable to run action \"%1\"").arg(action.label))
-            : status.trimmed();
-        if (!result.success) {
+        const bool succeeded = executeEntryAction(parent, enriched, action, &status);
+        Pinloom::PinloomCommandActionResult result =
+            Pinloom::pinloomCommandResultFromBoolean(
+                succeeded,
+                status,
+                QStringLiteral("Completed action \"%1\"").arg(action.label),
+                QStringLiteral("Unable to run action \"%1\"").arg(action.label));
+        if (!result.completed()) {
             result.diagnostics = entryActionDiagnostics(enriched, action);
             result.nextUiHint = QStringLiteral("keep actions open");
         } else if (action.id == QLatin1String("remove") || action.id == QLatin1String("restore")) {
@@ -2297,9 +2455,28 @@ int main(int argc, char *argv[])
             return document;
         }
 
-        if (identity.resourceId.trimmed().isEmpty()) return std::nullopt;
+        QString resourceId = identity.resourceId.trimmed();
+        if (resourceId.isEmpty() && !identity.anchorId.trimmed().isEmpty()) {
+            Pinloom::SearchQuery allResources;
+            allResources.includeDeleted = true;
+            allResources.limit = 0;
+            for (const Pinloom::SearchResult &result
+                 : repository.search(allResources)) {
+                const auto anchorMatch = std::find_if(
+                    result.resource.anchors.cbegin(),
+                    result.resource.anchors.cend(),
+                    [&identity](const Pinloom::Anchor &candidate) {
+                        return candidate.id == identity.anchorId;
+                    });
+                if (anchorMatch != result.resource.anchors.cend()) {
+                    resourceId = result.resource.id;
+                    break;
+                }
+            }
+        }
+        if (resourceId.isEmpty()) return std::nullopt;
         const std::optional<Pinloom::Resource> resource =
-            repository.findResource(identity.resourceId);
+            repository.findResource(resourceId);
         if (!resource.has_value()) return std::nullopt;
 
         std::optional<Pinloom::Anchor> anchor;
@@ -2327,6 +2504,41 @@ int main(int argc, char *argv[])
             previewOptions);
     };
 
+    const auto openHostIdentity =
+        [resolveHostDocument, activateOpenTarget](
+            const Pinloom::PinloomHostIdentity &identity,
+            QString *status) {
+        const std::optional<Pinloom::PinloomHostDocument> document =
+            resolveHostDocument(identity);
+        if (!document.has_value()) {
+            if (status) {
+                *status = !identity.anchorId.trimmed().isEmpty()
+                    ? QStringLiteral("Pinloom Anchor %1 does not exist")
+                          .arg(identity.anchorId)
+                    : (!identity.clipId.trimmed().isEmpty()
+                           ? QStringLiteral("Pinloom Clip %1 does not exist")
+                                 .arg(identity.clipId)
+                           : QStringLiteral("Pinloom entry no longer exists"));
+            }
+            return false;
+        }
+        if (document->entry.deleted) {
+            if (status) {
+                const QString kind = !identity.anchorId.trimmed().isEmpty()
+                    ? QStringLiteral("Anchor")
+                    : (!identity.clipId.trimmed().isEmpty()
+                           ? QStringLiteral("Clip")
+                           : QStringLiteral("entry"));
+                *status = QStringLiteral(
+                    "Pinloom %1 is deleted; restore it before opening")
+                              .arg(kind);
+            }
+            return false;
+        }
+        return activateOpenTarget(
+            Pinloom::openTargetFromEntry(document->entry), status);
+    };
+
     Pinloom::PinloomHostBridgeCallbacks hostCallbacks;
     hostCallbacks.search =
         [&entrySearchService](const QString &query, int limit) {
@@ -2335,19 +2547,7 @@ int main(int argc, char *argv[])
             return entrySearchService.search(query, options);
         };
     hostCallbacks.resolve = resolveHostDocument;
-    hostCallbacks.open =
-        [resolveHostDocument, activateOpenTarget](
-            const Pinloom::PinloomHostIdentity &identity,
-            QString *status) {
-            const std::optional<Pinloom::PinloomHostDocument> document =
-                resolveHostDocument(identity);
-            if (!document.has_value()) {
-                if (status) *status = QStringLiteral("Pinloom entry no longer exists");
-                return false;
-            }
-            return activateOpenTarget(
-                Pinloom::openTargetFromEntry(document->entry), status);
-        };
+    hostCallbacks.open = openHostIdentity;
     hostCallbacks.createSourceAnchor =
         [&repository](const Pinloom::PinloomSourceAnchorRequest &request,
                       QString *status)
@@ -2452,6 +2652,7 @@ int main(int argc, char *argv[])
 #endif
 
     Pinloom::ClipQuickPickerOptions quickPickerOptions;
+    quickPickerOptions.panelOptions.commandDispatcher = &commandDispatcher;
     quickPickerOptions.panelOptions.clipSearchHandler = commandOptions.clipSearchHandler;
     quickPickerOptions.panelOptions.clipInsertionHandler = commandOptions.clipInsertionHandler;
     quickPickerOptions.panelOptions.clipLibraryHandler = commandOptions.clipLibraryHandler;
@@ -2473,24 +2674,62 @@ int main(int argc, char *argv[])
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &window);
     window.setCentralWidget(commandPanel);
 
+    const auto handleInstanceActivation =
+        [&window,
+         commandPanel,
+         &clipQuickPicker,
+         &activeClipInsertionWindow,
+         &pendingClipInsertionTarget,
+         &openHostIdentity](const QString &message) {
+        const QString trimmedMessage = message.trimmed();
+        if (trimmedMessage.compare(QStringLiteral("resident"),
+                                   Qt::CaseInsensitive) == 0) {
+            return;
+        }
+
+        clipQuickPicker.dismiss();
+        activeClipInsertionWindow = &window;
+        pendingClipInsertionTarget.reset();
+
+        const QUrl candidate(trimmedMessage, QUrl::StrictMode);
+        if (candidate.scheme().compare(QStringLiteral("pinloom"),
+                                       Qt::CaseInsensitive) == 0) {
+            const std::optional<Pinloom::PinloomHostIdentity> identity =
+                Pinloom::pinloomHostIdentityFromUri(candidate);
+            QString status;
+            const bool opened = identity.has_value()
+                && openHostIdentity(identity.value(), &status);
+            if (!identity.has_value()) {
+                status = QStringLiteral("Invalid Pinloom deep link: %1")
+                             .arg(trimmedMessage);
+            }
+            if (status.trimmed().isEmpty()) {
+                status = opened
+                    ? QStringLiteral("Opened Pinloom deep link")
+                    : QStringLiteral("Unable to open Pinloom deep link");
+            }
+            window.statusBar()->showMessage(status, 8000);
+            if (!opened) {
+                window.setRecentError(QStringLiteral("Deep link failed"), status);
+                commandPanel->openCommandSearch();
+                Pinloom::showCommandPanelForHotkey(window, *commandPanel);
+            }
+            return;
+        }
+
+        commandPanel->openCommandSearch();
+        Pinloom::showCommandPanelForHotkey(window, *commandPanel);
+    };
     QObject::connect(&instanceGuard,
                      &Pinloom::PinloomSingleInstanceGuard::activationRequested,
                      &app,
-                     [&window,
-                      commandPanel,
-                      &clipQuickPicker,
-                      &activeClipInsertionWindow,
-                      &pendingClipInsertionTarget](const QString &message) {
-                         if (message.trimmed().compare(QStringLiteral("resident"), Qt::CaseInsensitive) == 0) {
-                             return;
-                         }
-
-                         clipQuickPicker.dismiss();
-                         activeClipInsertionWindow = &window;
-                         pendingClipInsertionTarget.reset();
-                         commandPanel->openCommandSearch();
-                         Pinloom::showCommandPanelForHotkey(window, *commandPanel);
-                     });
+                     handleInstanceActivation);
+    if (!startupDeepLink.isEmpty()) {
+        QTimer::singleShot(0, &app,
+                           [handleInstanceActivation, startupDeepLink]() {
+                               handleInstanceActivation(startupDeepLink);
+                           });
+    }
 
     if (clipHost && clipHost->runtime()) {
         Pinloom::ClipTrayController &trayController = clipHost->runtime()->trayController();
@@ -2511,14 +2750,14 @@ int main(int argc, char *argv[])
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::settingsRequested,
                          &window,
-                         [&showSettingsDialog]() {
-                             showSettingsDialog();
+                         [&dispatchWindowCommand]() {
+                             dispatchWindowCommand(Pinloom::PinloomCommandId::Settings);
                          });
         QObject::connect(&trayController,
                          &Pinloom::ClipTrayController::diagnosticsRequested,
                          &window,
-                         [&window]() {
-                             window.showDiagnosticsDialog();
+                         [&dispatchWindowCommand]() {
+                             dispatchWindowCommand(Pinloom::PinloomCommandId::Diagnostics);
                          });
         if (!clipHost->start()) {
             window.setRecentError(QStringLiteral("Pinloom Clip could not start"), clipHost->lastError());
