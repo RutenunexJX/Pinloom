@@ -1,11 +1,6 @@
 # Pinloom Goal
 
-## Completed delivery (2026-08-25)
-
-The command, native Anchor capture, persistent PDF highlight, and competition
-UI work in [`UI_IMPLEMENTATION_PLAN.md`](UI_IMPLEMENTATION_PLAN.md) and the
-active change set in `plan.md` is implemented. The configured test suite passes
-7/7. Packaging is excluded.
+Current version: `0.4.0`
 
 ## Core Goal
 
@@ -71,7 +66,7 @@ This is a deterministic launcher, not a general content discovery system.
 
 ## Target Anchor Model
 
-The implementation should converge on:
+The canonical Anchor model contains:
 
 ```text
 id
@@ -101,13 +96,12 @@ exact name > alias > tag > recent/pinned > target metadata
 SumatraPDF is the v1 PDF host. Pinloom should not build a PDF reader
 and should not depend on OCR to find anchors in scanned PDFs.
 
-The user creates a PDF anchor manually. Pinloom stores page and rectangle, then
-jumps with SumatraPDF command-line arguments such as `-page`, `-zoom`,
-`-search`, and `-scroll`. SumatraPDF 3.7 DDE provides the active file state and
-mouse positions used for same-page rectangle capture. Pinloom adds its own
-click-through rectangle highlight after a jump. The highlight is tied to its
-target PDF document and Anchor, follows the visible document geometry, and
-remains active until that PDF document or window closes.
+PDF capture uses the implemented SumatraPDF adapter behind `PdfViewerAdapter`.
+Anchors store document identity and page-space rectangle/rotation/crop metadata; screen geometry
+is transient. Native capture and explicit manual creation share confirmation and validation.
+The annotated-copy presenter generates a temporary PDF with the requested mark, validates current
+request identity and then opens it. Pinloom does not maintain a click-through screen highlight as
+the authoritative presentation. Other PDF viewers require an implemented adapter and verified round trip.
 
 ### Excel
 

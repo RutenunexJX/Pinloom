@@ -1,5 +1,7 @@
 # Pinloom
 
+Current version: `0.4.0`; database Schema: `16`.
+
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
 The v1 product is not a general file content indexer, not Everything, not
@@ -457,3 +459,20 @@ Pinloom registers after its host callbacks are ready and returns protocol
 responses before opening modal preview UI, so nested Qt event loops cannot
 block callers. If the Runtime is absent, Pinloom's command, anchor, and clip
 workflows remain independently usable.
+
+
+## Native capture and UI maintenance contract
+
+Capture remembers the foreground target before the Command Window takes focus. A successful capture opens
+the shared confirmation dialog for name, aliases, tags and pinned state; cancellation creates no Anchor.
+Word bookmark creation/saving, Visio UniqueID creation and optional Excel defined-name creation require
+explicit authorization when they mutate a native document. Unsupported, unsaved or protected targets fail
+with a reason instead of producing a generic locator. Excel prefers a matching defined name or exact A1 range.
+
+PDF capture goes through `PdfViewerAdapter`; identity, page-space coordinates, rotation and crop metadata are
+authoritative. The annotated-copy presenter supplies stable highlights. Window geometry is an observation,
+not persisted Anchor identity, and superseded/canceled capture cannot open a stale preview.
+
+Semantic light/dark colors, focus, selection, status and density are shared across command, library,
+settings and confirmation surfaces. State is expressed with text as well as color; native-app launch and
+capture failures retain an actionable explanation near the relevant operation.
