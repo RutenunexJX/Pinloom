@@ -32,7 +32,8 @@ jobs:
           cache: true
 
       - name: Configure
-        run: cmake -S . -B build -A x64
+        # This MSVC job has no matching SuiteUi SDK; exercise the explicit fallback.
+        run: cmake -S . -B build -A x64 -DPINLOOM_ENABLE_SUITEUI=OFF
 
       - name: Build
         run: cmake --build build --config Release --parallel 2

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.1
+    VERSION 0.4.2
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -16,9 +16,11 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
-option(PINLOOM_ENABLE_SUITEUI "Use the optional SuiteUi control renderer" OFF)
+option(PINLOOM_ENABLE_SUITEUI "Use the SuiteUi control renderer by default" ON)
+set(PINLOOM_SUITEUI_NOTICES_DIR "" CACHE INTERNAL "SDK notices for runtime packaging" FORCE)
 if(PINLOOM_ENABLE_SUITEUI)
     find_package(SuiteUi 0.1.1 EXACT CONFIG REQUIRED)
+    set(PINLOOM_SUITEUI_NOTICES_DIR "${SuiteUi_NOTICES_DIR}" CACHE INTERNAL "SDK notices for runtime packaging" FORCE)
 endif()
 
 add_library(pinloom_core STATIC

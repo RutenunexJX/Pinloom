@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.1`; database Schema: `16`.
+Current version: `0.4.2`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -477,21 +477,24 @@ Semantic light/dark colors, focus, selection, status and density are shared acro
 settings and confirmation surfaces. State is expressed with text as well as color; native-app launch and
 capture failures retain an actionable explanation near the relevant operation.
 
-## Optional SuiteUi controls
+## Default SuiteUi controls
 
-`PINLOOM_ENABLE_SUITEUI` defaults to `OFF`. The normal build does not search for
-or link SuiteUi. The opt-in renderer requires the independently installed
+Since 0.4.2, `PINLOOM_ENABLE_SUITEUI` defaults to `ON`, and the formal package uses
+SuiteUi. Existing CMake caches need an explicit ON override. The renderer requires the independently installed
 `SuiteUi 0.1.1 EXACT` package via `SuiteUi_DIR`; application code retains Qt-only
 interfaces. It changes only button/tool-button/checkbox painting. Pinloom owns
 its semantic colors, metrics and primary-action markers, while PDF selection,
 preview and item-view controls retain the original Qt style.
 
-Configure a separate build with `-DPINLOOM_ENABLE_SUITEUI=ON`
+Configure the standard build with `-DPINLOOM_ENABLE_SUITEUI=ON`
 and `-DSuiteUi_DIR=E:/SuiteUi/install/0.1.1-qt6.10.2-mingw13.1-release/lib/cmake/SuiteUi`.
 `PINLOOM_REDUCED_MOTION` retains its existing explicit-override/system-preference
 semantics. An SDK build can select `PINLOOM_UI_STYLE=classic` before startup for
 comparison; other nonempty values besides `suiteui` are rejected explicitly.
 Changing the renderer inside a running process is unsupported.
+Configure `-DPINLOOM_ENABLE_SUITEUI=OFF` for a build without the SDK.
+Existing settings, libraries and schema remain compatible. The release packaging
+script copies and verifies the installed SDK notices; it does not publish the preview executable.
 
 `pinloom_suiteui_controls_test` operates the production capture dialogs and
 checks backend identity, input outcomes, theme switching and view boundaries.

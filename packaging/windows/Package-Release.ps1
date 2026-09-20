@@ -37,6 +37,18 @@ if (([string]::IsNullOrWhiteSpace($PackageName)) -or
 }
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
+$cache = Get-Content -LiteralPath (Join-Path $BuildDirectory "CMakeCache.txt")
+$usesSuiteUi = [bool]($cache -match '^PINLOOM_ENABLE_SUITEUI:BOOL=ON$')
+$sdkNotices = ''
+if ($usesSuiteUi) {
+    $entry = $cache | Where-Object { $_ -match '^PINLOOM_SUITEUI_NOTICES_DIR:INTERNAL=(.+)$' } | Select-Object -First 1
+    if (-not $entry) { throw 'Reconfigure this SDK build to record its notice directory.' }
+    $sdkNotices = $entry.Substring($entry.IndexOf('=') + 1)
+    foreach ($name in @('NOTICE.txt', 'SuiteUi-Apache-2.0.txt', 'Qlementine-MIT.txt', 'Inter-OFL.txt',
+                       'RobotoMono-Apache-2.0.txt', 'UPSTREAM.md', 'font-metadata.json', 'stop-all.patch', 'build-info.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $sdkNotices $name) -PathType Leaf)) { throw "Missing SDK notice: $name" }
+    }
+}
 $deployTool = Join-Path $QtBinDirectory "windeployqt.exe"
 if (-not (Test-Path -LiteralPath $sourceExecutable -PathType Leaf)) {
     throw "Release executable not found: $sourceExecutable"
@@ -92,6 +104,11 @@ New-Item -ItemType Directory -Path $packageDirectory | Out-Null
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
+if ($usesSuiteUi) {
+    $licenseDirectory = Join-Path $packageDirectory 'licenses/SuiteUi'
+    New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
+    Get-ChildItem -LiteralPath $sdkNotices -File | Copy-Item -Destination $licenseDirectory
+}
 & $deployTool `
     --release `
     --compiler-runtime `
@@ -113,6 +130,7 @@ $packageReadme = @(
     "Pinloom v$PackageVersion",
     "",
     "Build profile: Release",
+    "Default UI: $(if ($usesSuiteUi) { 'SuiteUi' } else { 'classic' })",
     "Qt: 6.10.2",
     "Compiler: MinGW 13.1.0",
     "Source revision: $buildState",
@@ -120,6 +138,7 @@ $packageReadme = @(
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
     "Pinloom is a resident application; Shift+Space opens its command window.",
+    "Set PINLOOM_UI_STYLE=classic before startup to use the original controls in an SDK build.",
     "Configure the data directory, default root, SumatraPDF, and Obsidian paths",
     "from Pinloom Settings. User databases are not stored in this release folder."
 )
