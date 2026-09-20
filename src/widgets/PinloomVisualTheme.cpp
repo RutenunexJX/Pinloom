@@ -1,4 +1,7 @@
 #include "pinloom/widgets/PinloomVisualTheme.h"
+#ifdef PINLOOM_ENABLE_SUITEUI
+#include "PinloomSuiteUi.h"
+#endif
 
 #include <QApplication>
 #include <QColor>
@@ -228,14 +231,49 @@ bool pinloomReducedMotionEnabled()
     return false;
 }
 
-QString pinloomVisualThemeStyleSheet(PinloomVisualScheme scheme)
+static QString visualThemeStyleSheet(PinloomVisualScheme scheme, bool suiteUi)
 {
     const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
     const PinloomVisualMetrics metrics = pinloomVisualMetrics();
     const QColor successSurface = mixedColor(tokens.success, tokens.panel, 0.12);
     const QColor warningSurface = mixedColor(tokens.warning, tokens.panel, 0.13);
     const QColor errorSurface = mixedColor(tokens.error, tokens.panel, 0.12);
-    return QStringLiteral(R"QSS(
+    QString buttonRules = QStringLiteral(R"QSS(
+QPushButton, QToolButton {
+  min-height: %8px; background: %3; color: %2;
+  border: 1px solid %5; border-radius: %9px; padding: 0 %16px;
+}
+QToolButton { min-height: %17px; }
+QPushButton:hover, QToolButton:hover { background: %18; border-color: %7; }
+QPushButton:pressed, QToolButton:pressed, QToolButton:checked {
+  background: %19; border-color: %20;
+}
+QPushButton:focus, QToolButton:focus { border: 2px solid %13; }
+QPushButton:disabled, QToolButton:disabled {
+  color: %14; background: %15; border-color: %5;
+}
+QPushButton[pinloomControl="primary"] {
+  min-height: %21px; background: %11; color: %12; border-color: %11;
+  font-weight: 600;
+}
+QPushButton[pinloomControl="primary"]:hover { background: %20; }
+QToolButton[pinloomControl="icon"] { min-width: %17px; padding: 0; }
+)QSS");
+    if (suiteUi) {
+        buttonRules.replace(QStringLiteral("QPushButton"),
+                            QStringLiteral("QPushButton[pinloomSuiteUiClassic=\"true\"]"));
+        buttonRules.replace(QStringLiteral("QToolButton"),
+                            QStringLiteral("QToolButton[pinloomSuiteUiClassic=\"true\"]"));
+        buttonRules.prepend(QStringLiteral(R"QSS(
+QPushButton { min-height: %8px; padding: 0 %16px; color: %2; }
+QToolButton { min-height: %17px; padding: 0 %16px; color: %2; }
+QPushButton[pinloomControl="primary"] { min-height: %21px; font-weight: 600; color: %12; }
+QPushButton:disabled, QToolButton:disabled,
+QPushButton[pinloomControl="primary"]:disabled { color: %14; }
+QToolButton[pinloomControl="icon"] { min-width: %17px; padding: 0; }
+)QSS"));
+    }
+    QString sheet = QStringLiteral(R"QSS(
 QMainWindow, QDialog, QWidget[pinloomRole="canvas"] {
   background: %1; color: %2;
 }
@@ -267,25 +305,7 @@ QLineEdit:disabled, QPlainTextEdit:disabled, QTextEdit:disabled,
 QComboBox:disabled, QSpinBox:disabled, QDoubleSpinBox:disabled {
   color: %14; background: %15; border-color: %5;
 }
-QPushButton, QToolButton {
-  min-height: %8px; background: %3; color: %2;
-  border: 1px solid %5; border-radius: %9px; padding: 0 %16px;
-}
-QToolButton { min-height: %17px; }
-QPushButton:hover, QToolButton:hover { background: %18; border-color: %7; }
-QPushButton:pressed, QToolButton:pressed, QToolButton:checked {
-  background: %19; border-color: %20;
-}
-QPushButton:focus, QToolButton:focus { border: 2px solid %13; }
-QPushButton:disabled, QToolButton:disabled {
-  color: %14; background: %15; border-color: %5;
-}
-QPushButton[pinloomControl="primary"] {
-  min-height: %21px; background: %11; color: %12; border-color: %11;
-  font-weight: 600;
-}
-QPushButton[pinloomControl="primary"]:hover { background: %20; }
-QToolButton[pinloomControl="icon"] { min-width: %17px; padding: 0; }
+@BUTTONS@
 QPushButton[accent="positive"], QToolButton[accent="positive"] {
   color: %22; border-color: %22;
 }
@@ -344,7 +364,9 @@ QMainWindow#clipLibraryWindow[trashMode="true"] QTableWidget::item:selected,
 QToolButton#anchorLibraryTrashButton:checked {
   background: %23; color: %12; border-color: %23;
 }
-)QSS")
+)QSS");
+    sheet.replace(QStringLiteral("@BUTTONS@\n"), buttonRules.mid(1));
+    return sheet
         .arg(cssColor(tokens.canvas))
         .arg(cssColor(tokens.text))
         .arg(cssColor(tokens.panel))
@@ -379,9 +401,20 @@ QToolButton#anchorLibraryTrashButton:checked {
         .arg(cssColor(errorSurface));
 }
 
+QString pinloomVisualThemeStyleSheet(PinloomVisualScheme scheme)
+{
+    return visualThemeStyleSheet(scheme, false);
+}
+
 void applyPinloomVisualTheme(QApplication &application,
                              PinloomVisualScheme scheme)
 {
+#ifdef PINLOOM_ENABLE_SUITEUI
+    SuiteUiAdapter::apply(application, scheme);
+    const bool suiteUi = SuiteUiAdapter::enabled();
+#else
+    constexpr bool suiteUi = false;
+#endif
     const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
     application.setProperty("pinloomVisualScheme",
                             scheme == PinloomVisualScheme::Dark
@@ -407,7 +440,7 @@ void applyPinloomVisualTheme(QApplication &application,
     application.setProperty("pinloomReducedMotion",
                             pinloomReducedMotionEnabled());
     application.setProperty("pinloomBaseSpacing", 4);
-    application.setStyleSheet(pinloomVisualThemeStyleSheet(scheme));
+    application.setStyleSheet(visualThemeStyleSheet(scheme, suiteUi));
 }
 
 void applySystemPinloomVisualTheme(QApplication &application)

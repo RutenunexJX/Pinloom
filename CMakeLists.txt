@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.0
+    VERSION 0.4.1
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -16,6 +16,10 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
+option(PINLOOM_ENABLE_SUITEUI "Use the optional SuiteUi control renderer" OFF)
+if(PINLOOM_ENABLE_SUITEUI)
+    find_package(SuiteUi 0.1.1 EXACT CONFIG REQUIRED)
+endif()
 
 add_library(pinloom_core STATIC
     include/pinloom/core/Anchor.h
@@ -240,6 +244,13 @@ if(SuiteApp_FOUND)
         src/widgets/PinloomSuiteIntegration.cpp)
     target_link_libraries(pinloom_widgets PRIVATE SuiteApp::suiteapp)
 endif()
+if(PINLOOM_ENABLE_SUITEUI)
+    target_sources(pinloom_widgets PRIVATE
+        src/widgets/PinloomSuiteUi.cpp
+        src/widgets/PinloomSuiteUi.h)
+    target_link_libraries(pinloom_widgets PRIVATE SuiteUi::Controls)
+    target_compile_definitions(pinloom_widgets PRIVATE PINLOOM_ENABLE_SUITEUI=1)
+endif()
 
 add_executable(pinloom_app WIN32
     assets/pinloom_app.qrc
@@ -378,6 +389,14 @@ target_link_libraries(pinloom_visual_theme_test
 )
 
 pinloom_add_test(pinloom_visual_theme_test)
+
+add_executable(pinloom_suiteui_controls_test tests/suiteui_controls_test.cpp)
+target_link_libraries(pinloom_suiteui_controls_test PRIVATE pinloom_widgets Qt6::Test)
+target_include_directories(pinloom_suiteui_controls_test PRIVATE src/widgets)
+if(PINLOOM_ENABLE_SUITEUI)
+    target_compile_definitions(pinloom_suiteui_controls_test PRIVATE PINLOOM_ENABLE_SUITEUI=1)
+endif()
+pinloom_add_test(pinloom_suiteui_controls_test)
 
 add_executable(pinloom_command_system_test
     tests/command_system_test.cpp

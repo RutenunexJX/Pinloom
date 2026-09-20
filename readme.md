@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.0`; database Schema: `16`.
+Current version: `0.4.1`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -476,3 +476,27 @@ not persisted Anchor identity, and superseded/canceled capture cannot open a sta
 Semantic light/dark colors, focus, selection, status and density are shared across command, library,
 settings and confirmation surfaces. State is expressed with text as well as color; native-app launch and
 capture failures retain an actionable explanation near the relevant operation.
+
+## Optional SuiteUi controls
+
+`PINLOOM_ENABLE_SUITEUI` defaults to `OFF`. The normal build does not search for
+or link SuiteUi. The opt-in renderer requires the independently installed
+`SuiteUi 0.1.1 EXACT` package via `SuiteUi_DIR`; application code retains Qt-only
+interfaces. It changes only button/tool-button/checkbox painting. Pinloom owns
+its semantic colors, metrics and primary-action markers, while PDF selection,
+preview and item-view controls retain the original Qt style.
+
+Configure a separate build with `-DPINLOOM_ENABLE_SUITEUI=ON`
+and `-DSuiteUi_DIR=E:/SuiteUi/install/0.1.1-qt6.10.2-mingw13.1-release/lib/cmake/SuiteUi`.
+`PINLOOM_REDUCED_MOTION` retains its existing explicit-override/system-preference
+semantics. An SDK build can select `PINLOOM_UI_STYLE=classic` before startup for
+comparison; other nonempty values besides `suiteui` are rejected explicitly.
+Changing the renderer inside a running process is unsupported.
+
+`pinloom_suiteui_controls_test` operates the production capture dialogs and
+checks backend identity, input outcomes, theme switching and view boundaries.
+The Light/Dark × four-scale × classic/animated/reduced comparison uses a
+scrolling test host sized from the available screen. It is offscreen control
+verification, not native desktop DPI or frame-pacing acceptance.
+The SDK carries its Qlementine/Roboto notices and existing upstream patch;
+distributions enabling it must include the SDK's installed license directory.
