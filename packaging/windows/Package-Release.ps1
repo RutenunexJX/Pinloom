@@ -139,6 +139,9 @@ if ($LASTEXITCODE -ne 0) {
     throw "windeployqt failed with exit code $LASTEXITCODE"
 }
 
+@('[Paths]', 'Prefix=.', 'Plugins=.') |
+    Set-Content -LiteralPath (Join-Path $packageDirectory 'qt.conf') -Encoding ASCII
+
 $sqlDriverDirectory = Join-Path $packageDirectory "sqldrivers"
 if (Test-Path -LiteralPath $sqlDriverDirectory -PathType Container) {
     Get-ChildItem -File -LiteralPath $sqlDriverDirectory |
@@ -166,6 +169,7 @@ $packageReadme | Set-Content -LiteralPath (Join-Path $packageDirectory "README.t
 
 $requiredFiles = @(
     "pinloom_app.exe",
+    "qt.conf",
     "Qt6Core.dll",
     "Qt6Gui.dll",
     "Qt6Network.dll",

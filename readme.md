@@ -433,6 +433,7 @@ uncommitted or untracked files. `-AllowDirty` is an explicit diagnostic-only
 override. The script produces only a directly runnable `Pinloom` directory with
 the required Qt/MinGW runtime and SQLite driver. It does not create an installer,
 ZIP archive, checksum manifest, launcher script, or user database.
+The generated `qt.conf` confines Qt plugin lookup to the deployed runtime.
 
 Run `pinloom_app.exe --package-check` to validate the deployed Qt/UI runtime
 and an in-memory SQLite connection. This check exits without opening user
