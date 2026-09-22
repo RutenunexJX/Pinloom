@@ -37,6 +37,10 @@ if (([string]::IsNullOrWhiteSpace($PackageName)) -or
 }
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
+$sourcePdfProbe = Join-Path $BuildDirectory "pinloom_pdf_probe.exe"
+if (-not (Test-Path -LiteralPath $sourcePdfProbe -PathType Leaf)) {
+    throw 'Missing pinloom_pdf_probe.exe; build the PDF capture helper before packaging.'
+}
 $cache = Get-Content -LiteralPath (Join-Path $BuildDirectory "CMakeCache.txt")
 $backendEntry = $cache | Where-Object { $_ -match '^PINLOOM_UI_BACKEND:STRING=(.+)$' } | Select-Object -First 1
 $controlBackend = if ($backendEntry) { $backendEntry.Substring($backendEntry.IndexOf('=') + 1).ToUpperInvariant() }
@@ -116,6 +120,7 @@ if ($ReplaceExisting) {
 
 New-Item -ItemType Directory -Path $packageDirectory | Out-Null
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
+Copy-Item -LiteralPath $sourcePdfProbe -Destination $packageDirectory
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 if ($usesEla) {
@@ -169,6 +174,7 @@ $packageReadme | Set-Content -LiteralPath (Join-Path $packageDirectory "README.t
 
 $requiredFiles = @(
     "pinloom_app.exe",
+    "pinloom_pdf_probe.exe",
     "qt.conf",
     "Qt6Core.dll",
     "Qt6Gui.dll",

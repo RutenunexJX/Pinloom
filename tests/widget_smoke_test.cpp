@@ -24,6 +24,7 @@
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
+#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomOpenService.h"
@@ -50,6 +51,8 @@
 #include <QDragEnterEvent>
 #include <QDropEvent>
 #include <QElapsedTimer>
+#include <QSemaphore>
+#include <QThread>
 #include <QFile>
 #include <QFileInfo>
 #include <QFrame>
@@ -109,6 +112,8 @@ private slots:
     void mainWindowCloseHidesToTray();
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
+    void commandFloatsWithoutExpandingOrInterruptingCapture();
+    void contextMenuDeletesAllGroupedFileAnchorsAndHidesUnmarkedRow();
     void pdfLocatorPreviewCropsRenderedPageToAnchorRegion();
     void pdfLocatorPreviewRendersConfiguredRealPdf();
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
@@ -122,6 +127,7 @@ private slots:
     void sumatraPdfRegionOverlayCapturesDdeRectangle();
     void sumatraPdfRegionOverlayReportsCrossPageFailureAndCancels();
     void sumatraPdfRegionOverlayTimesOutWithExplicitFailure();
+    void regionDragRemainsResponsiveWhileTargetProbeIsBlocked();
     void panelUsesInjectedRepository();
     void panelDefaultsToLauncherSurface();
     void panelSearchesSavedClipsAndEnterInserts();
@@ -1116,6 +1122,153 @@ void WidgetSmokeTest::mainWindowReportsResidentDiagnosticsAndRecentError()
     QCOMPARE(quitSignals, 1);
 }
 
+void WidgetSmokeTest::contextMenuDeletesAllGroupedFileAnchorsAndHidesUnmarkedRow()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("keep-source.txt"));
+    QFile source(path);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("preserved source");
+    source.close();
+    InMemoryLibraryRepository repository;
+    for (int i = 0; i < 2; ++i) {
+        Resource resource;
+        resource.id = QStringLiteral("grouped-%1").arg(i);
+        resource.title = QStringLiteral("File %1").arg(i);
+        resource.location = path;
+        Anchor anchor;
+        anchor.id = QStringLiteral("anchor-%1").arg(i);
+        anchor.name = QStringLiteral("Anchor %1").arg(i);
+        anchor.targetFile = path;
+        anchor.locatorType = QStringLiteral("manual");
+        anchor.locatorJson = QStringLiteral("{}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+    }
+    AnchorLibraryManagementService service(repository);
+    bool confirm = false;
+    AnchorLibraryWindowOptions options;
+    options.repository = &repository;
+    options.managementService = &service;
+    options.confirmationHandler = [&](const QString &, const QString &) { return confirm; };
+    options.filesProvider = [&]() {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const auto &hit : repository.search(query)) {
+            AnchorLibraryFile file;
+            file.resource = hit.resource;
+            for (const auto &anchor : hit.resource.anchors) file.anchors.append({hit.resource.id, anchor});
+            files.append(file);
+        }
+        return files;
+    };
+    AnchorLibraryWindow window(options);
+    window.show();
+    QCOMPARE(window.visibleFileCount(), 1);
+    QVERIFY(window.selectFileAt(0));
+    QCOMPARE(window.visibleAnchorCount(), 2);
+    QVERIFY(!window.deleteAllAnchorsForSelectedFiles());
+    QCOMPARE(window.visibleAnchorCount(), 2);
+    confirm = true;
+    bool invoked = false;
+    QTimer::singleShot(2000, &window, []() {
+        if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) menu->close();
+    });
+    QTimer::singleShot(0, &window, [&]() {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        auto *action = window.findChild<QAction *>(QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"));
+        if (action) { invoked = true; action->trigger(); }
+        if (menu) menu->close();
+    });
+    auto *table = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    QVERIFY(table);
+    table->customContextMenuRequested(table->visualItemRect(table->item(0, 0)).center());
+    QVERIFY(invoked);
+    QCOMPARE(window.visibleFileCount(), 0);
+    QCOMPARE(window.visibleAnchorCount(), 0);
+    QVERIFY(window.statusText().contains(QStringLiteral("2")));
+    QVERIFY(QFileInfo::exists(path));
+    window.showTrash();
+    QCOMPARE(window.visibleFileCount(), 1);
+    QVERIFY(window.selectFileAt(0));
+    QCOMPARE(window.visibleAnchorCount(), 2);
+    QVERIFY(window.restoreAllAnchorsForSelectedFiles());
+    AnchorLibraryWindow reopened(options);
+    QCOMPARE(reopened.visibleFileCount(), 1);
+    QVERIFY(reopened.selectFileAt(0));
+    QCOMPARE(reopened.visibleAnchorCount(), 2);
+    QVERIFY(reopened.deleteAllAnchorsForSelectedFiles());
+    AnchorLibraryWindow reopenedEmpty(options);
+    QCOMPARE(reopenedEmpty.visibleFileCount(), 0);
+    QVERIFY(QFileInfo::exists(path));
+}
+
+void WidgetSmokeTest::commandFloatsWithoutExpandingOrInterruptingCapture()
+{
+    PinloomMainWindow window;
+    window.setLauncherMode(true);
+    int captures[3]{};
+    bool captureSafe = false;
+    bool expandDuringCapture = false;
+    bool expansionDeferred = false;
+    CommandFloatingController *floating = nullptr;
+    PinloomCommandPanelOptions options;
+    options.rectangleAnchorCaptureHandler = [&](QString *) {
+        ++captures[0];
+        captureSafe = floating->isCapturing() && !window.isVisible()
+            && !floating->floatingWindow()->isVisible();
+        if (expandDuringCapture) {
+            expansionDeferred = !floating->requestExpansion() && !window.isVisible();
+        }
+        return true;
+    };
+    options.textAnchorCaptureHandler = [&](QString *) { ++captures[1]; return true; };
+    options.pdfTextClipCaptureHandler = [&](QString *) { ++captures[2]; return true; };
+    auto *panel = new PinloomCommandPanel(options, &window);
+    window.setCentralWidget(panel);
+    floating = new CommandFloatingController(window, *panel);
+    showCommandPanelForHotkey(window, *panel);
+    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QVERIFY(floating->isFloating());
+    QVERIFY(!window.isVisible());
+    QVERIFY(floating->floatingWindow()->isVisible());
+    auto buttons = floating->floatingWindow()->findChildren<QToolButton *>();
+    QCOMPARE(buttons.size(), 3);
+    for (auto *button : buttons) {
+        QCOMPARE(button->toolButtonStyle(), Qt::ToolButtonIconOnly);
+        QVERIFY(!button->icon().isNull());
+        QVERIFY(!button->accessibleName().isEmpty());
+        button->click();
+        QVERIFY(!window.isVisible());
+        QVERIFY(floating->floatingWindow()->isVisible());
+    }
+    QCOMPARE(captures[0], 1);
+    QVERIFY(captureSafe);
+    QCOMPARE(captures[1], 1);
+    QCOMPARE(captures[2], 1);
+    floating->handleApplicationStateChanged(Qt::ApplicationActive);
+    QVERIFY(floating->isFloating());
+    expandDuringCapture = true;
+    buttons.first()->click();
+    QVERIFY(expansionDeferred);
+    QVERIFY(window.isVisible());
+    QVERIFY(!floating->isFloating());
+    QVERIFY(!floating->floatingWindow()->isVisible());
+    Ui::Dialog modal(&window);
+    modal.setModal(true);
+    modal.show();
+    QCoreApplication::processEvents();
+    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QVERIFY(!floating->isFloating());
+    modal.hide();
+    window.hide();
+    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QVERIFY(!floating->floatingWindow()->isVisible());
+}
+
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
 {
     InMemoryLibraryRepository repository;
@@ -1131,8 +1284,8 @@ void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
     auto *versionLabel = commandPanel->findChild<QLabel *>(QStringLiteral("commandVersionLabel"));
     auto *searchEdit = panel->findChild<QLineEdit *>(QStringLiteral("searchEdit"));
     QVERIFY(commandEdit);
-    QVERIFY(versionLabel);
-    QCOMPARE(versionLabel->text(), pinloomVersionLabel());
+    QVERIFY(!versionLabel);
+    QVERIFY(commandPanel->windowTitle().contains(pinloomVersionLabel()));
     QVERIFY(searchEdit);
     commandPanel->setCommandText(QStringLiteral("c"));
     commandEdit->clearFocus();
@@ -2368,7 +2521,7 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
     window.setFilterText(QString());
 
     QVERIFY(repository.setResourcePinned(internalShell.id, true));
-    QTRY_COMPARE(window.visibleFileCount(), 2);
+    QTRY_COMPARE(window.visibleFileCount(), 1);
     QVERIFY(repository.setResourcePinned(internalShell.id, false));
     QTRY_COMPARE(window.visibleFileCount(), 1);
 
@@ -2376,7 +2529,7 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
     retainedOnly.aliases.clear();
     retainedOnly.tags.clear();
     QVERIFY(repository.upsertResource(retainedOnly));
-    QTRY_COMPARE(window.visibleFileCount(), 1);
+    QTRY_COMPARE(window.visibleFileCount(), 0);
     retainedOnly.explicitlyRetained = false;
     QVERIFY(repository.upsertResource(retainedOnly));
     QTRY_COMPARE(window.visibleFileCount(), 0);
@@ -2706,6 +2859,46 @@ void WidgetSmokeTest::dataDirectoryChangeMigratesOnNextStartup()
     QVERIFY(error.contains(QStringLiteral("not empty")));
     QCOMPARE(configuredAppDataDirectory(settings, source), QDir::cleanPath(existing));
     QVERIFY(QFileInfo::exists(conflictFile.fileName()));
+}
+
+void WidgetSmokeTest::regionDragRemainsResponsiveWhileTargetProbeIsBlocked()
+{
+    auto entered = std::make_shared<QSemaphore>();
+    auto release = std::make_shared<QSemaphore>();
+    auto done = std::make_shared<QSemaphore>();
+    auto provider = [entered, release, done]() {
+        entered->release();
+        release->tryAcquire(1, 1500);
+        done->release();
+        return QStringLiteral("late probe failure");
+    };
+    {
+        PdfRegionSelectionOverlay overlay(QRect(100, 100, 500, 300), provider, nullptr, 1200);
+        overlay.show();
+        QTest::mousePress(&overlay, Qt::LeftButton, Qt::NoModifier, QPoint(30, 30));
+        QTRY_VERIFY_WITH_TIMEOUT(entered->available() > 0, 500);
+        QElapsedTimer elapsed;
+        elapsed.start();
+        QTest::mouseMove(&overlay, QPoint(180, 170));
+        QTest::keyClick(&overlay, Qt::Key_Escape);
+        QVERIFY(overlay.selectionResult().canceled());
+        QVERIFY(elapsed.elapsed() < 300);
+    } // A late worker completion must not touch the destroyed dialog.
+    release->release();
+    QVERIFY(done->tryAcquire(1, 500));
+    QCoreApplication::processEvents();
+
+    PdfRegionSelectionOverlay selection(QRect(100, 100, 500, 300), [] {
+        QThread::msleep(300);
+        return QStringLiteral("late failure after selection");
+    });
+    selection.show();
+    QTest::qWait(130);
+    QTest::mousePress(&selection, Qt::LeftButton, Qt::NoModifier, QPoint(20, 20));
+    QTest::mouseRelease(&selection, Qt::LeftButton, Qt::NoModifier, QPoint(120, 120));
+    QVERIFY(selection.selectionResult().selected());
+    QTest::qWait(350);
+    QVERIFY(selection.selectionResult().selected());
 }
 
 void WidgetSmokeTest::sumatraPdfRegionOverlayCapturesDdeRectangle()

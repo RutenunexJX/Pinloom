@@ -1780,8 +1780,10 @@ void CoreSmokeTest::cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots()
     QVERIFY(!shouldProvideAnchorLibraryResource(internalShell, noUsage));
     Resource retainedOnly = retained;
     retainedOnly.anchors.clear();
-    QVERIFY(shouldProvideAnchorLibraryResource(retainedOnly,
-                                               ResourceUsage{retainedOnly.id}));
+    QVERIFY(!shouldProvideAnchorLibraryResource(retainedOnly,
+                                                ResourceUsage{retainedOnly.id}));
+    QVERIFY(!shouldCleanupAnchorLibraryResource(retainedOnly,
+                                                ResourceUsage{retainedOnly.id}, {}));
 }
 
 void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()

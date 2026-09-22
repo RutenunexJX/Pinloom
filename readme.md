@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.3`; database Schema: `16`.
+Current version: `0.4.4`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -209,7 +209,11 @@ fixed `Pinloom` directory so shortcuts can continue to target
 ```
 
 Pinloom starts as a resident app with one global shortcut: `Shift+Space` summons
-the Command Window and focuses one search/command input. Type an ordinary query
+the Command Window and focuses one search/command input. When another application
+takes foreground, the Command Window collapses to a non-activating floating
+toolbar with three Capture icons. Hover/focus does not expand it; `Shift+Space`
+restores the full bar, after any active floating capture/confirmation finishes.
+The version remains in the title bar, not beside Navigate. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
 file/resource results. Result rows are labeled by type such as `[Anchor]`,
 `[Clip]`, `[Inbox]`, and `[File]`; Enter jumps Anchors, inserts Saved Clips into
@@ -324,7 +328,11 @@ irreversible data change invalidates that history.
 
 Right-click file rows to delete all contained Anchors, or right-click Anchor
 rows to recapture a PDF rectangle, delete the selection, or delete every Anchor
-in the current file. `Ctrl+A`
+in the current file. Active file rows disappear when no active Anchor, file Tag
+or file Alias remains; pinned/explicitly-retained state alone does not keep a
+row visible. This hides the row without deleting the source or Trash records.
+Unchanged legacy naming conflicts do not block removing Anchors; creating or
+restoring conflicting names/aliases remains rejected. `Ctrl+A`
 selects all Anchor rows and Delete executes the applicable delete action. The
 library follows the current system light or dark scheme. Trash remains in that
 scheme but uses the shared error surface and destructive accent, so changing
@@ -357,6 +365,11 @@ aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
 mode is active to cancel. Capture also has a bounded timeout and reports
 cross-page, coordinate sampling, and timeout failures explicitly. The dialog
 shows the full PDF path, page, rectangle, runtime zoom, and capture source.
+During a drag, target checks run outside the UI event loop. DDE requests run in
+the bounded `pinloom_pdf_probe.exe` helper, which must remain beside the main
+executable. A hung probe is terminated without terminating the reader; Escape
+and selection painting remain responsive. `--package-check` verifies the helper
+without opening user data or contacting a PDF reader.
 Opening the anchor returns to the stored page and rectangle. Version 3 locators
 store document identity, page-space coordinates, media/crop boxes, rotation,
 user unit, and adapter provenance with `coordinateSpace: page-top-left`; they

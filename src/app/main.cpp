@@ -18,6 +18,7 @@
 #include "pinloom/core/LibraryRoot.h"
 #include "pinloom/core/NativeAnchorCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/core/Version.h"
 #include "pinloom/widgets/ClipResidentHost.h"
@@ -30,6 +31,7 @@
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
+#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
@@ -119,6 +121,11 @@ int main(int argc, char *argv[])
         probe.resize(320, 160);
         probe.ensurePolished();
         if (probe.grab().isNull()) return 3;
+        const auto pdfProbe = Pinloom::requestSumatraPdfDdeCommand(QStringLiteral("ProbeHealth()"), 500);
+        if (!pdfProbe.success() || pdfProbe.text != QLatin1String("ready")) {
+            qCritical().noquote() << QStringLiteral("PDF helper check failed:") << pdfProbe.error;
+            return 4;
+        }
         qInfo().noquote() << QStringLiteral("Pinloom %1 package check passed (%2)")
             .arg(Pinloom::pinloomVersion(), Pinloom::Ui::usesEla() ? QStringLiteral("ELA") : QStringLiteral("CLASSIC"));
         return 0;
@@ -686,7 +693,15 @@ int main(int argc, char *argv[])
     };
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
+    bool floatingCaptureActive = false;
     Pinloom::ForegroundTextTarget lastForegroundTextTarget;
+    const auto rememberForegroundTarget = [&lastForegroundContext, &lastForegroundTextTarget]() {
+        const auto context = Pinloom::currentForegroundAppWindowContext();
+        if (context.isValid() && context.processId != QCoreApplication::applicationPid()) {
+            lastForegroundContext = context;
+            lastForegroundTextTarget = Pinloom::captureForegroundTextTarget();
+        }
+    };
     QMainWindow *commandWindowForForegroundCapture = nullptr;
     Pinloom::SumatraPdfViewerAdapterOptions pdfViewerOptions;
     pdfViewerOptions.applicationLaunchSettings = applicationLaunchSettings;
@@ -757,10 +772,11 @@ int main(int argc, char *argv[])
     const auto pdfViewerCaptureRequest =
         [&lastForegroundContext,
          &lastForegroundTextTarget,
+         &floatingCaptureActive,
          &commandWindowForForegroundCapture]() {
         Pinloom::PdfViewerCaptureRequest request;
         const bool useRememberedTarget = commandWindowForForegroundCapture
-            && commandWindowForForegroundCapture->isVisible()
+            && (commandWindowForForegroundCapture->isVisible() || floatingCaptureActive)
             && lastForegroundContext.isValid();
         if (useRememberedTarget) {
             request.context = lastForegroundContext;
@@ -2692,6 +2708,14 @@ int main(int argc, char *argv[])
 
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &window);
     window.setCentralWidget(commandPanel);
+    auto *floatingController = new Pinloom::CommandFloatingController(window, *commandPanel);
+    QObject::connect(floatingController, &Pinloom::CommandFloatingController::captureStarted,
+                     &window, [&floatingCaptureActive, rememberForegroundTarget]() {
+                         rememberForegroundTarget();
+                         floatingCaptureActive = true;
+                     });
+    QObject::connect(floatingController, &Pinloom::CommandFloatingController::captureFinished,
+                     &window, [&floatingCaptureActive]() { floatingCaptureActive = false; });
 
     const auto handleInstanceActivation =
         [&window,
@@ -2903,15 +2927,16 @@ int main(int argc, char *argv[])
     Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService,
                                                                  [&window,
                                                                   commandPanel,
+                                                                  floatingController,
                                                                   &clipQuickPicker,
                                                                   &activeClipInsertionWindow,
-                                                                  &lastForegroundContext,
-                                                                  &lastForegroundTextTarget,
+                                                                  rememberForegroundTarget,
                                                                   &pendingClipInsertionTarget]() {
-                                                                     lastForegroundContext =
-                                                                         Pinloom::currentForegroundAppWindowContext();
-                                                                     lastForegroundTextTarget =
-                                                                         Pinloom::captureForegroundTextTarget();
+                                                                     if (floatingController->isCapturing()) {
+                                                                         floatingController->requestExpansion();
+                                                                         return;
+                                                                     }
+                                                                     rememberForegroundTarget();
                                                                      clipQuickPicker.dismiss();
                                                                      activeClipInsertionWindow = &window;
                                                                      pendingClipInsertionTarget.reset();

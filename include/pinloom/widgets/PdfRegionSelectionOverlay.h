@@ -10,6 +10,7 @@ class QKeyEvent;
 class QMouseEvent;
 class QPaintEvent;
 class QTimer;
+template<class T> class QFutureWatcher;
 
 namespace Pinloom {
 
@@ -34,6 +35,7 @@ struct PdfRegionSelectionResult {
 // conversion to page coordinates belong to PdfViewerAdapter implementations.
 class PdfRegionSelectionOverlay final : public QDialog {
 public:
+    // Called in a worker: capture values, never UI pointers or borrowed session state.
     using TargetStateProvider = std::function<QString()>;
 
     explicit PdfRegionSelectionOverlay(
@@ -62,9 +64,12 @@ private:
     QPoint dragStart_;
     QPoint dragCurrent_;
     bool dragging_ = false;
+    bool finished_ = false;
+    bool checkInFlight_ = false;
     int minimumSelectionPixels_ = 4;
     QTimer *timeoutTimer_ = nullptr;
     QTimer *targetStateTimer_ = nullptr;
+    QFutureWatcher<QString> *targetCheck_ = nullptr;
 };
 
 } // namespace Pinloom

@@ -738,11 +738,19 @@ PdfViewerCaptureResult SumatraPdfViewerAdapter::captureRectangle(
 
     const PdfViewerObservation observation = result.observation;
     d_->options.activateWindowHandler(observation.windowHandle);
+    const auto windowExists = d_->options.windowExistsProvider;
+    const auto navigation = d_->options.navigationStateProvider
+        ? d_->options.navigationStateProvider
+        : std::function<SumatraPdfDdeFileState(int)>(requestSumatraPdfDdeFileState);
     const PdfRegionSelectionResult selection =
         d_->options.regionSelectionHandler(
             geometry,
-            [privateState = d_.get(), observation]() {
-                return privateState->validateCaptureSession(observation);
+            [windowExists, navigation, observation]() {
+                if (!windowExists(observation.windowHandle)) return QStringLiteral("PDF viewer closed during capture");
+                const auto state = navigation(100);
+                if (!state.success()) return QStringLiteral("PDF viewer state became unavailable: %1").arg(state.error);
+                if (!samePdfPath(state.path, observation.documentPath)) return QStringLiteral("Active PDF changed during capture");
+                return QString();
             },
             request.parent,
             std::clamp(request.timeoutMilliseconds, 1, 120000),

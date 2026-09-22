@@ -161,7 +161,6 @@ private:
     std::unique_ptr<PinloomCommandDispatcher> ownedCommandDispatcher_;
     PinloomCommandDispatcher *commandDispatcher_ = nullptr;
     QLineEdit *commandEdit_ = nullptr;
-    QLabel *versionLabel_ = nullptr;
     QToolButton *clipLibraryButton_ = nullptr;
     QWidget *quickActionRow_ = nullptr;
     QToolButton *rectangleAnchorButton_ = nullptr;

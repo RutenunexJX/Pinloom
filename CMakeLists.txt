@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.3
+    VERSION 0.4.4
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -194,6 +194,8 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/CommandFloatingController.h
+    src/widgets/CommandFloatingController.cpp
     include/pinloom/widgets/PinloomItemViews.h
     src/widgets/PinloomItemViews.cpp
     include/pinloom/widgets/PinloomUiControls.h
@@ -296,6 +298,10 @@ add_executable(pinloom_app WIN32
     src/app/main.cpp
 )
 
+add_executable(pinloom_pdf_probe src/app/PdfDdeProbe.cpp)
+target_link_libraries(pinloom_pdf_probe PRIVATE pinloom_core Qt6::Core)
+add_dependencies(pinloom_app pinloom_pdf_probe)
+
 if(WIN32)
     enable_language(RC)
     target_sources(pinloom_app PRIVATE assets/icons/pinloom.rc)
@@ -332,6 +338,12 @@ function(pinloom_add_test target)
         )
     endif()
 endfunction()
+
+add_executable(pinloom_pdf_probe_test tests/pdf_probe_test.cpp)
+target_link_libraries(pinloom_pdf_probe_test PRIVATE pinloom_core Qt6::Test)
+add_dependencies(pinloom_pdf_probe_test pinloom_pdf_probe)
+pinloom_add_test(pinloom_pdf_probe_test)
+set_tests_properties(pinloom_pdf_probe_test PROPERTIES TIMEOUT 20)
 
 if(PINLOOM_UI_BACKEND STREQUAL "ELA")
     add_executable(pinloom_ela_controls_test tests/ela_controls_test.cpp)

@@ -307,17 +307,10 @@ void addIdentityReplacement(QHash<QString, GlobalIdentityObject> &updates,
                             const std::optional<Resource> &before,
                             const std::optional<Resource> &after)
 {
-    if (before.has_value()) {
-        for (GlobalIdentityObject object : identityObjectsForResource(before.value())) {
-            object.active = false;
-            updates.insert(globalIdentityOwnerKey(object.owner), object);
-        }
-    }
-    if (after.has_value()) {
-        for (const GlobalIdentityObject &object : identityObjectsForResource(after.value())) {
-            updates.insert(globalIdentityOwnerKey(object.owner), object);
-        }
-    }
+    collectGlobalIdentityReplacements(
+        updates,
+        before ? identityObjectsForResource(*before) : QList<GlobalIdentityObject>{},
+        after ? identityObjectsForResource(*after) : QList<GlobalIdentityObject>{});
 }
 
 QString identityFailureMessage(const std::optional<GlobalIdentityConflict> &conflict,

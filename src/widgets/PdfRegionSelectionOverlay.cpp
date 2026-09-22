@@ -4,6 +4,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 #include <QTimer>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
 #include <algorithm>
 
 namespace Pinloom {
@@ -61,12 +63,17 @@ PdfRegionSelectionOverlay::PdfRegionSelectionOverlay(
     timeoutTimer_->start();
 
     targetStateTimer_->setInterval(100);
+    targetCheck_ = new QFutureWatcher<QString>(this);
+    connect(targetCheck_, &QFutureWatcher<QString>::finished, this, [this]() {
+        checkInFlight_ = false;
+        if (finished_) return;
+        const QString diagnostics = targetCheck_->result().trimmed();
+        if (!diagnostics.isEmpty()) finish(PdfRegionSelectionState::Canceled, diagnostics);
+    });
     connect(targetStateTimer_, &QTimer::timeout, this, [this]() {
-        if (!targetStateProvider_) return;
-        const QString diagnostics = targetStateProvider_().trimmed();
-        if (!diagnostics.isEmpty()) {
-            finish(PdfRegionSelectionState::Canceled, diagnostics);
-        }
+        if (!targetStateProvider_ || checkInFlight_ || finished_) return;
+        checkInFlight_ = true;
+        targetCheck_->setFuture(QtConcurrent::run(targetStateProvider_));
     });
     if (targetStateProvider_) targetStateTimer_->start();
 }
@@ -144,6 +151,8 @@ void PdfRegionSelectionOverlay::reject()
 void PdfRegionSelectionOverlay::finish(PdfRegionSelectionState state,
                                        const QString &diagnostics)
 {
+    if (finished_) return;
+    finished_ = true;
     if (timeoutTimer_) timeoutTimer_->stop();
     if (targetStateTimer_) targetStateTimer_->stop();
     dragging_ = false;

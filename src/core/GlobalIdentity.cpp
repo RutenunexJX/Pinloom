@@ -595,6 +595,34 @@ QString defaultGlobalIdentityRegistryPath(const QString &databasePath)
         QStringLiteral("pinloom_identity.sqlite3"));
 }
 
+void collectGlobalIdentityReplacements(
+    QHash<QString, GlobalIdentityObject> &updates,
+    const QList<GlobalIdentityObject> &before,
+    const QList<GlobalIdentityObject> &after)
+{
+    QHash<QString, GlobalIdentityObject> originals;
+    for (const auto &object : before) originals.insert(globalIdentityOwnerKey(object.owner), object);
+    for (const auto &object : after) {
+        const QString key = globalIdentityOwnerKey(object.owner);
+        const auto it = originals.constFind(key);
+        const bool unchanged = it != originals.cend()
+            && it->active == object.active
+            && it->owner.displayName == object.owner.displayName
+            && it->owner.locator == object.owner.locator
+            && it->values.size() == object.values.size()
+            && std::equal(it->values.cbegin(), it->values.cend(), object.values.cbegin(),
+                          [](const auto &a, const auto &b) {
+                              return a.fieldKind == b.fieldKind && a.displayValue == b.displayValue;
+                          });
+        if (!unchanged) updates.insert(key, object);
+        originals.remove(key);
+    }
+    for (auto object : originals) {
+        object.active = false;
+        updates.insert(globalIdentityOwnerKey(object.owner), object);
+    }
+}
+
 bool InMemoryGlobalIdentityRegistry::replaceObjects(
     const QList<GlobalIdentityObject> &objects,
     std::optional<GlobalIdentityConflict> *conflict)

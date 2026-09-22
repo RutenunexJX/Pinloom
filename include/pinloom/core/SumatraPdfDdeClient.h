@@ -49,6 +49,12 @@ struct SumatraPdfDdeRegion {
 SumatraPdfDdeRequestResult requestSumatraPdfDdeCommand(
     const QString &command,
     int timeoutMilliseconds = 3000);
+// The raw DDE entry point is only for the disposable probe process. DdeConnect
+// has no caller-supplied timeout; application code must use the bounded wrapper.
+SumatraPdfDdeRequestResult executeSumatraPdfDdeCommandInProbe(
+    const QString &command, int timeoutMilliseconds);
+SumatraPdfDdeRequestResult runSumatraPdfDdeProbe(
+    const QString &program, const QString &command, int timeoutMilliseconds);
 SumatraPdfDdeFileState parseSumatraPdfDdeFileState(const QString &text);
 SumatraPdfDdeMousePosition parseSumatraPdfDdeMousePosition(const QString &text);
 SumatraPdfDdeRegion sumatraPdfDdeRegionFromMousePositions(

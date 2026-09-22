@@ -1,6 +1,7 @@
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
+#include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/GlobalIdentity.h"
 #include "pinloom/core/InboxFileCapture.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
@@ -12,11 +13,13 @@
 #include <QMutex>
 #include <QMutexLocker>
 #include <QSemaphore>
+#include <QSqlQuery>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUrl>
 #include <QUrlQuery>
 #include <future>
+#include <memory>
 
 using namespace Pinloom;
 
@@ -130,8 +133,12 @@ private slots:
     void inMemoryRejectsSelfDuplicatesAndPreservesDisplayValues();
     void inMemorySupportsSelfEditBatchSwapReleaseReuseAndTrashRestore();
     void sqliteMatchesInMemoryAndKeepsBatchMutationsAtomic();
+    void batchUsesFinalIdentityState_data();
+    void batchUsesFinalIdentityState();
     void sqliteSerializesCrossDatabaseRaces();
     void sqliteMigrationReportsHistoricalConflictsAndAllowsRepair();
+    void deletionIgnoresUnchangedHistoricalIdentityClaims();
+    void sqliteDeletesAnchorsOnLegacyDuplicateFilesAtomically();
     void sqliteDatabaseRestoreRebuildsHistoricalConflicts();
     void serviceWritePathsPreserveDisplayValuesAndSurfaceConflicts();
     void obsidianSyncReceivesRepositoryConflict();
@@ -424,6 +431,51 @@ void GlobalIdentityTest::sqliteMatchesInMemoryAndKeepsBatchMutationsAtomic()
     QVERIFY(clips.integrityCheck());
 }
 
+void GlobalIdentityTest::batchUsesFinalIdentityState_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::newRow("in-memory") << false;
+    QTest::newRow("sqlite") << true;
+}
+
+void GlobalIdentityTest::batchUsesFinalIdentityState()
+{
+    QFETCH(bool, sqlite);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    std::unique_ptr<ILibraryRepository> library;
+    if (sqlite) {
+        auto repository = std::make_unique<SqliteLibraryRepository>();
+        QVERIFY(repository->open(dir.filePath(QStringLiteral("batch.sqlite3"))));
+        QVERIFY(repository->initialize());
+        library = std::move(repository);
+    } else {
+        library = std::make_unique<InMemoryLibraryRepository>();
+    }
+    const Resource original = anchorResource(QStringLiteral("batch"), QStringLiteral("Original anchor"));
+    QVERIFY(library->upsertResource(original));
+    for (bool clear : {true, false}) {
+        LibraryBatchMutation replacement;
+        replacement.clearExistingResources = clear;
+        if (!clear) replacement.permanentlyDeleteResourceIds = {original.id};
+        replacement.upserts = {original};
+        QVERIFY2(library->applyBatch(replacement), qPrintable(library->lastError()));
+        QVERIFY(!library->upsertResource(fileResource(QStringLiteral("duplicate-file"), original.title)));
+        QVERIFY(!library->upsertResource(fileResource(QStringLiteral("duplicate-anchor"), original.anchors.first().name)));
+    }
+    Resource intermediate = original;
+    intermediate.title = QStringLiteral("Intermediate file");
+    intermediate.anchors = anchorResource(QStringLiteral("temporary"), QStringLiteral("Intermediate anchor")).anchors;
+    LibraryBatchMutation repeated;
+    repeated.upserts = {intermediate, original};
+    QVERIFY2(library->applyBatch(repeated), qPrintable(library->lastError()));
+    QCOMPARE(library->findResource(original.id)->title, original.title);
+    QVERIFY(!library->upsertResource(fileResource(QStringLiteral("duplicate-final"), original.title)));
+    QVERIFY(library->upsertResource(fileResource(QStringLiteral("free-intermediate-file"), intermediate.title)));
+    QVERIFY(library->upsertResource(fileResource(QStringLiteral("free-intermediate-anchor"), intermediate.anchors.first().name)));
+    if (sqlite) QVERIFY(static_cast<SqliteLibraryRepository *>(library.get())->integrityCheck());
+}
+
 void GlobalIdentityTest::sqliteSerializesCrossDatabaseRaces()
 {
     QTemporaryDir dir;
@@ -490,6 +542,89 @@ void GlobalIdentityTest::sqliteSerializesCrossDatabaseRaces()
     QVERIFY(loser.conflict.has_value());
     QCOMPARE(loser.conflict->normalizedValue, QStringLiteral("race identity"));
     QVERIFY(loser.error.contains(QStringLiteral("conflicts with"), Qt::CaseInsensitive));
+}
+
+void GlobalIdentityTest::deletionIgnoresUnchangedHistoricalIdentityClaims()
+{
+    auto registry = createInMemoryGlobalIdentityRegistry();
+    InMemoryLibraryRepository library(registry);
+    Resource resource = anchorResource(QStringLiteral("legacy"), QStringLiteral("Legacy anchor"));
+    QVERIFY(library.upsertResource(resource));
+    resource = *library.findResource(resource.id);
+    GlobalIdentityObject imported;
+    imported.owner.objectType = GlobalIdentityObjectType::Clip;
+    imported.owner.objectId = QStringLiteral("legacy-import");
+    imported.owner.displayName = resource.title;
+    imported.values = {{GlobalIdentityFieldKind::Name, resource.title}};
+    registry->rebuildHistoricalObjects({GlobalIdentityObjectType::Clip}, {imported});
+    QVERIFY(!library.identityConflicts().isEmpty());
+    AnchorLibraryManagementService service(library);
+    const auto result = service.setAnchorsDeleted({{resource.id, resource.anchors.first()}}, true);
+    QVERIFY2(result.success, qPrintable(result.message));
+    QVERIFY(library.findResource(resource.id)->anchors.first().deleted);
+    QCOMPARE(library.findResource(resource.id)->title, resource.title);
+    QVERIFY(!library.identityConflicts().isEmpty());
+    QVERIFY(!library.upsertResource(fileResource(QStringLiteral("new-conflict"), resource.title)));
+    auto reused = fileResource(QStringLiteral("reuse"), resource.anchors.first().name);
+    QVERIFY(library.upsertResource(reused));
+    QVERIFY(!service.setAnchorsDeleted({{resource.id, resource.anchors.first()}}, false).success);
+    QVERIFY(library.findResource(resource.id)->anchors.first().deleted);
+    QVERIFY(library.softDeleteResource(reused.id));
+    QVERIFY(service.setAnchorsDeleted({{resource.id, resource.anchors.first()}}, false).success);
+}
+
+void GlobalIdentityTest::sqliteDeletesAnchorsOnLegacyDuplicateFilesAtomically()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("legacy.sqlite3"));
+    const auto first = anchorResource(QStringLiteral("a"), QStringLiteral("Anchor a"));
+    auto second = anchorResource(QStringLiteral("b"), QStringLiteral("Anchor b"));
+    second.location = first.location;
+    {
+        SqliteLibraryRepository library;
+        QVERIFY(library.open(path));
+        QVERIFY(library.initialize());
+        QVERIFY(library.upsertResource(first));
+        QVERIFY(library.upsertResource(second));
+    }
+    const QString connection = QStringLiteral("legacy-deletion-fixture");
+    {
+        auto database = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connection);
+        database.setDatabaseName(path);
+        QVERIFY(database.open());
+        QSqlQuery query(database);
+        QVERIFY(query.exec(QStringLiteral("UPDATE resources SET title = 'Legacy duplicate'")));
+        QVERIFY(query.exec(QStringLiteral("UPDATE anchors SET aliases = name")));
+        database.close();
+    }
+    QSqlDatabase::removeDatabase(connection);
+    {
+        SqliteLibraryRepository library;
+        QVERIFY(library.open(path));
+        QVERIFY(library.initialize());
+        QCOMPARE(library.identityConflicts().size(), 3);
+        AnchorLibraryManagementService service(library);
+        const auto a = *library.findResource(first.id);
+        const auto b = *library.findResource(second.id);
+        const auto result = service.setAnchorsDeleted({{a.id, a.anchors.first()}, {b.id, b.anchors.first()}}, true);
+        QVERIFY2(result.success, qPrintable(result.message));
+        QCOMPARE(result.affectedCount, 2);
+        QVERIFY(library.findResource(a.id)->anchors.first().deleted);
+        QVERIFY(library.findResource(b.id)->anchors.first().deleted);
+        QCOMPARE(library.identityConflicts().size(), 1);
+        QVERIFY(!library.upsertResource(fileResource(QStringLiteral("forbidden"), a.title)));
+        QVERIFY(!service.setAnchorsDeleted({{a.id, a.anchors.first()}, {b.id, b.anchors.first()}}, false).success);
+        QVERIFY(library.findResource(a.id)->anchors.first().deleted);
+        QVERIFY(library.findResource(b.id)->anchors.first().deleted);
+        QVERIFY(library.integrityCheck());
+    }
+    SqliteLibraryRepository reopened;
+    QVERIFY(reopened.open(path));
+    QVERIFY(reopened.initialize());
+    QVERIFY(reopened.findResource(first.id)->anchors.first().deleted);
+    QVERIFY(reopened.findResource(second.id)->anchors.first().deleted);
+    QVERIFY(reopened.integrityCheck());
 }
 
 void GlobalIdentityTest::sqliteMigrationReportsHistoricalConflictsAndAllowsRepair()

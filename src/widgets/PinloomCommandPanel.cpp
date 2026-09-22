@@ -1,5 +1,6 @@
 #include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
+#include "pinloom/widgets/CommandFloatingController.h"
 
 #include "pinloom/core/Version.h"
 #include "pinloom/clip/ClipAction.h"
@@ -941,14 +942,6 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     commandEdit_->setAcceptDrops(true);
     commandEdit_->setFixedHeight(visualMetrics.primaryControlHeight);
 
-    versionLabel_ = Pinloom::Ui::label(pinloomVersionLabel(), this);
-    versionLabel_->setObjectName(QStringLiteral("commandVersionLabel"));
-    versionLabel_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
-    versionLabel_->setAlignment(Qt::AlignCenter);
-    versionLabel_->setFixedHeight(visualMetrics.primaryControlHeight);
-    versionLabel_->setMinimumWidth(versionLabel_->fontMetrics().horizontalAdvance(versionLabel_->text()) + 16);
-    versionLabel_->setToolTip(tr("Pinloom %1").arg(pinloomVersionLabel()));
-
     clipLibraryButton_ = Pinloom::Ui::toolButton(this);
     clipLibraryButton_->setObjectName(QStringLiteral("commandClipLibraryButton"));
     clipLibraryButton_->setProperty("pinloomControl", QStringLiteral("icon"));
@@ -1051,7 +1044,6 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     }
     Ui::installNavigation(navigation, navigationMenu);
     inputRow->addWidget(navigation);
-    inputRow->addWidget(versionLabel_);
     inputRow->addWidget(clipLibraryButton_);
     layout->addLayout(inputRow);
     layout->addWidget(quickActionRow_);
@@ -2576,6 +2568,9 @@ bool PinloomCommandPanel::handleInboxDrop(QEvent *event)
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel)
 {
+    if (auto *controller = commandWindow.findChild<CommandFloatingController *>()) {
+        if (!controller->requestExpansion()) return;
+    }
     const auto margins = commandWindow.contentsMargins();
     const int hostHeight = panel.preferredWindowHeight() + margins.top() + margins.bottom();
     commandWindow.setFixedHeight(hostHeight);

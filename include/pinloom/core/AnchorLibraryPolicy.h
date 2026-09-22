@@ -26,10 +26,12 @@ inline bool hasValidAnchorLibraryAnchor(const Resource &resource, bool includeDe
 inline bool hasAnchorLibraryUserMarker(const Resource &resource,
                                        const ResourceUsage &usage)
 {
-    return !resource.aliases.isEmpty()
-        || !resource.tags.isEmpty()
-        || usage.pinned
-        || resource.explicitlyRetained;
+    Q_UNUSED(usage)
+    const auto hasText = [](const QStringList &values) {
+        return std::any_of(values.cbegin(), values.cend(),
+                           [](const QString &value) { return !value.trimmed().isEmpty(); });
+    };
+    return hasText(resource.aliases) || hasText(resource.tags);
 }
 
 inline bool shouldProvideAnchorLibraryResource(const Resource &resource,

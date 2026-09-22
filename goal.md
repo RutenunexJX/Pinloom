@@ -1,6 +1,6 @@
 # Pinloom Goal
 
-Current version: `0.4.0`
+Current version: `0.4.4`
 
 ## Core Goal
 

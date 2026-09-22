@@ -573,17 +573,10 @@ void addIdentityReplacement(QHash<QString, GlobalIdentityObject> &updates,
                             const std::optional<Resource> &before,
                             const std::optional<Resource> &after)
 {
-    if (before.has_value()) {
-        for (GlobalIdentityObject object : identityObjectsForResource(before.value())) {
-            object.active = false;
-            updates.insert(globalIdentityOwnerKey(object.owner), object);
-        }
-    }
-    if (after.has_value()) {
-        for (const GlobalIdentityObject &object : identityObjectsForResource(after.value())) {
-            updates.insert(globalIdentityOwnerKey(object.owner), object);
-        }
-    }
+    collectGlobalIdentityReplacements(
+        updates,
+        before ? identityObjectsForResource(*before) : QList<GlobalIdentityObject>{},
+        after ? identityObjectsForResource(*after) : QList<GlobalIdentityObject>{});
 }
 
 } // namespace
@@ -770,14 +763,16 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
     }
 
     const Resource storedResource = normalizedResource(resource);
-    const std::optional<Resource> existingResource = findResource(storedResource.id);
-    lastError_.clear();
-    QHash<QString, GlobalIdentityObject> identityUpdates;
-    addIdentityReplacement(identityUpdates, existingResource, storedResource);
-
     if (!beginTransaction()) {
         return false;
     }
+    const std::optional<Resource> existingResource = findResource(storedResource.id);
+    if (!lastError_.isEmpty()) {
+        rollbackTransaction();
+        return false;
+    }
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    addIdentityReplacement(identityUpdates, existingResource, storedResource);
 
     if (!identityUpdatesDeferred_) {
         QString identityError;
@@ -1297,12 +1292,16 @@ bool SqliteLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
 
     lastError_.clear();
     lastIdentityConflict_.reset();
-    QHash<QString, GlobalIdentityObject> identityUpdates;
+    if (!beginTransaction()) return false;
+    QHash<QString, std::optional<Resource>> originals;
+    QHash<QString, std::optional<Resource>> replacements;
     if (mutation.clearExistingResources) {
         for (const Resource &resource : allResourcesForIdentity()) {
-            addIdentityReplacement(identityUpdates, resource, std::nullopt);
+            originals.insert(resource.id, resource);
+            replacements.insert(resource.id, std::nullopt);
         }
         if (!lastError_.isEmpty()) {
+            rollbackTransaction();
             return false;
         }
     }
@@ -1311,24 +1310,32 @@ bool SqliteLibraryRepository::applyBatch(const LibraryBatchMutation &mutation)
         const std::optional<Resource> existing = findResource(resourceId);
         if (!existing.has_value()) {
             setLastError(QStringLiteral("Resource not found: %1").arg(resourceId));
+            rollbackTransaction();
             return false;
         }
-        addIdentityReplacement(identityUpdates, existing, std::nullopt);
+        originals.insert(resourceId, existing);
+        replacements.insert(resourceId, std::nullopt);
     }
     for (const Resource &resource : mutation.upserts) {
         if (resource.id.trimmed().isEmpty()) {
             setLastError(QStringLiteral("Resource id is required"));
+            rollbackTransaction();
             return false;
         }
         const Resource normalized = normalizedResource(resource);
-        addIdentityReplacement(identityUpdates, findResource(normalized.id), normalized);
+        if (!originals.contains(normalized.id)) originals.insert(normalized.id, findResource(normalized.id));
+        replacements.insert(normalized.id, normalized);
+    }
+    if (!lastError_.isEmpty()) {
+        rollbackTransaction();
+        return false;
+    }
+    QHash<QString, GlobalIdentityObject> identityUpdates;
+    for (auto it = replacements.cbegin(); it != replacements.cend(); ++it) {
+        addIdentityReplacement(identityUpdates, originals.value(it.key()), it.value());
     }
 
     ++deferredChangeDepth_;
-    if (!beginTransaction()) {
-        --deferredChangeDepth_;
-        return false;
-    }
 
     QString identityError;
     if (!replaceSqliteGlobalIdentityObjects(database_,

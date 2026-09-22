@@ -1,6 +1,11 @@
 #include "pinloom/core/SumatraPdfDdeClient.h"
 
 #include <QDir>
+#include <QCoreApplication>
+#include <QElapsedTimer>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QProcess>
 #include <QHash>
 #include <QMutex>
 #include <QStringList>
@@ -217,6 +222,59 @@ bool SumatraPdfDdeRegion::success() const
 }
 
 SumatraPdfDdeRequestResult requestSumatraPdfDdeCommand(
+    const QString &command, int timeoutMilliseconds)
+{
+#ifdef Q_OS_WIN
+    const QString program = QDir(QCoreApplication::applicationDirPath())
+                                .filePath(QStringLiteral("pinloom_pdf_probe.exe"));
+#else
+    const QString program = QDir(QCoreApplication::applicationDirPath())
+                                .filePath(QStringLiteral("pinloom_pdf_probe"));
+#endif
+    return runSumatraPdfDdeProbe(program, command, timeoutMilliseconds);
+}
+
+SumatraPdfDdeRequestResult runSumatraPdfDdeProbe(
+    const QString &program, const QString &command, int timeoutMilliseconds)
+{
+    const int timeout = std::clamp(timeoutMilliseconds, 1, 3000);
+    const int totalBudget = 2 * timeout + 500;
+    QElapsedTimer elapsed;
+    elapsed.start();
+    QProcess probe;
+#ifdef Q_OS_WIN
+    probe.setCreateProcessArgumentsModifier([](QProcess::CreateProcessArguments *args) {
+        args->flags |= CREATE_NO_WINDOW;
+    });
+#endif
+    probe.start(program, {QStringLiteral("--request"), command, QString::number(timeout)}, QIODevice::ReadOnly);
+    if (!probe.waitForStarted(std::min(500, totalBudget))) {
+        return {{}, QStringLiteral("Unable to start PDF probe: %1").arg(probe.errorString())};
+    }
+    if (!probe.waitForFinished(std::max(1, totalBudget - int(elapsed.elapsed())))) {
+        probe.kill();
+        probe.waitForFinished(1000);
+        return {{}, QStringLiteral("PDF probe timed out; viewer or external window hook is unresponsive")};
+    }
+    const QByteArray output = probe.readAllStandardOutput();
+    if (probe.exitStatus() != QProcess::NormalExit || probe.exitCode() != 0 || output.size() > 65536) {
+        return {{}, QStringLiteral("PDF probe failed or returned an oversized response")};
+    }
+    QJsonParseError parseError;
+    const auto document = QJsonDocument::fromJson(output, &parseError);
+    if (parseError.error != QJsonParseError::NoError || !document.isObject()
+        || !document.object().value(QStringLiteral("text")).isString()
+        || !document.object().value(QStringLiteral("error")).isString()) {
+        return {{}, QStringLiteral("PDF probe returned an invalid response")};
+    }
+    const auto object = document.object();
+    SumatraPdfDdeRequestResult result{object.value(QStringLiteral("text")).toString(),
+                                    object.value(QStringLiteral("error")).toString()};
+    if (result.text.isEmpty() && result.error.isEmpty()) result.error = QStringLiteral("PDF probe returned no data");
+    return result;
+}
+
+SumatraPdfDdeRequestResult executeSumatraPdfDdeCommandInProbe(
     const QString &command,
     int timeoutMilliseconds)
 {

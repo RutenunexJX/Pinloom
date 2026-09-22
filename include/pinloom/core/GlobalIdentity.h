@@ -65,6 +65,13 @@ QString globalIdentityLocator(GlobalIdentityObjectType type,
                               const QString &parentId = {});
 QString defaultGlobalIdentityRegistryPath(const QString &databasePath);
 
+// Submit only changed owners. Unchanged historical conflicts must not prevent
+// removing another owner's claims (for example, moving its Anchor to Trash).
+void collectGlobalIdentityReplacements(
+    QHash<QString, GlobalIdentityObject> &updates,
+    const QList<GlobalIdentityObject> &before,
+    const QList<GlobalIdentityObject> &after);
+
 class InMemoryGlobalIdentityRegistry final {
 public:
     bool replaceObjects(const QList<GlobalIdentityObject> &objects,

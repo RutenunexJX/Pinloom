@@ -1038,7 +1038,8 @@ bool AnchorLibraryWindow::deleteAllAnchorsForSelectedFiles()
         Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
-    const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, true);
+    AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, true);
+    if (!result.success) result.message = tr("Delete all anchors failed: %1").arg(result.message);
     setOperationResult(result);
     if (result.success) {
         for (const AnchorReference &reference : references) emit anchorDeleted(reference.resourceId, reference.anchor.id);

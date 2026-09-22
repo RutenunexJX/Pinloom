@@ -8,6 +8,7 @@
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
+#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
@@ -599,6 +600,41 @@ private slots:
             }
         QCOMPARE(trayAction.size(), 1);
         QCOMPARE(trayAction.first().first().toString(), QStringLiteral("pause"));
+    }
+    void floatingCaptureGeometryAndAccessibility() {
+        PinloomMainWindow host;
+        host.setLauncherMode(true);
+        PinloomCommandPanelOptions options;
+        options.rectangleAnchorCaptureHandler = [](QString *) { return true; };
+        options.textAnchorCaptureHandler = [](QString *) { return true; };
+        options.pdfTextClipCaptureHandler = [](QString *) { return true; };
+        auto *panel = new PinloomCommandPanel(options, &host);
+        host.setCentralWidget(panel);
+        CommandFloatingController controller(host, *panel);
+        showCommandPanelForHotkey(host, *panel);
+        QVERIFY(!panel->findChild<QLabel *>(QStringLiteral("commandVersionLabel")));
+        snapshot(host, "command-no-right-version");
+        controller.handleApplicationStateChanged(Qt::ApplicationInactive);
+        auto *floating = controller.floatingWindow();
+        QVERIFY(floating->isVisible());
+        QVERIFY(floating->testAttribute(Qt::WA_ShowWithoutActivating));
+        QVERIFY(floating->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
+        const auto buttons = floating->findChildren<QToolButton *>();
+        QCOMPARE(buttons.size(), 3);
+        for (auto *button : buttons) {
+            QVERIFY(button->inherits("ElaToolButton"));
+            QVERIFY(floating->rect().contains(button->geometry()));
+            QCOMPARE(button->toolButtonStyle(), Qt::ToolButtonIconOnly);
+            QVERIFY(!button->icon().isNull());
+            auto *accessible = QAccessible::queryAccessibleInterface(button);
+            QVERIFY(accessible);
+            QCOMPARE(accessible->text(QAccessible::Name), button->accessibleName());
+        }
+        QVERIFY(floating->width() <= 3 * pinloomVisualMetrics().primaryControlHeight + 24);
+        snapshot(*floating, "floating-capture");
+        showCommandPanelForHotkey(host, *panel);
+        QVERIFY(host.isVisible());
+        QVERIFY(!floating->isVisible());
     }
     void navigationParentTeardownWithVisiblePopup() {
         for (int repeat = 0; repeat < 8; ++repeat) {
