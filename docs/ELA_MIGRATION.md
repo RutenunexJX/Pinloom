@@ -22,8 +22,10 @@ Ela's MIT copyright/license and the unmodified Font Awesome Free Solid 6.7.2
 font's SIL OFL 1.1 notice are retained. Any binary distribution must include
 `thirdparty/elawidgettools/LICENSE`, `Font/FontAwesome-LICENSE.txt`, and source
 provenance. The build stages these notices beside the executable, and the
-0.4.3 release script copies them into the portable package. Other AppSuite
-applications and `E:\PinloomRoot\AppPackage` are outside this release's scope.
+0.4.3 release script copies them into the portable package. Deployment replaces
+only `E:\PinloomRoot\AppPackage\AppSuite\Apps\Pinloom` and updates its entries
+in the suite metadata. Other AppSuite applications/runtime and user data remain
+outside this release's scope.
 
 ## Migration inventory
 
@@ -229,8 +231,10 @@ The four Ela migration rounds are published together as release 0.4.3 on `main`,
 following explicit user authorization to commit, push and package. The release
 commit is based on `3dd358d74bc8b0b23f23ca03625a2e4dd610976f`; the package README
 records its exact abbreviated source revision and requires a clean worktree.
-The fixed package target is `E:\Pinloom\artifacts\Pinloom`; prior artifacts are
-retained in a sibling backup directory before replacement. There are no database
+`E:\Pinloom\artifacts\Pinloom` is the staging artifact. The formal package target
+is `E:\PinloomRoot\AppPackage\AppSuite\Apps\Pinloom`; the prior package and suite
+metadata are backed up before replacement. Pinloom's manifest version and file
+checksums are updated without changing other components. There are no database
 migrations or compatibility changes to stored data.
 
 Final validation logs are local build artifacts:

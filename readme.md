@@ -435,6 +435,12 @@ the required Qt/MinGW runtime and SQLite driver. It does not create an installer
 ZIP archive, checksum manifest, launcher script, or user database.
 The generated `qt.conf` confines Qt plugin lookup to the deployed runtime.
 
+`E:\Pinloom\artifacts\Pinloom` is a staging artifact, not the installed release.
+The formal package is `E:\PinloomRoot\AppPackage\AppSuite\Apps\Pinloom`.
+Back up that exact directory before replacing it, preserve its runtime license
+notices, and update only Pinloom's component/version and checksum entries in the
+suite metadata. Other application/runtime directories and user data stay intact.
+
 Run `pinloom_app.exe --package-check` to validate the deployed Qt/UI runtime
 and an in-memory SQLite connection. This check exits without opening user
 settings/databases, contacting the resident instance, showing a window, or
