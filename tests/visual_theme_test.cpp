@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/widgets/LibraryRootWindow.h"
@@ -10,10 +11,10 @@
 #include <QDialogButtonBox>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include "pinloom/widgets/PinloomItemViews.h"
 #include <QPalette>
 #include <QPushButton>
-#include <QTableWidget>
+
 #include <QtTest>
 
 using namespace Pinloom;
@@ -246,13 +247,13 @@ void VisualThemeTest::majorSurfacesExposeRolesAndAccessibleFocusTargets()
 
     auto *commandEdit = commandPanel.findChild<QLineEdit *>(
         QStringLiteral("commandSearchEdit"));
-    auto *commandResults = commandPanel.findChild<QListWidget *>(
+    auto *commandResults = commandPanel.findChild<Pinloom::Ui::List *>(
         QStringLiteral("commandResultList"));
-    auto *clipTable = clipLibrary.findChild<QTableWidget *>(
+    auto *clipTable = clipLibrary.findChild<Pinloom::Ui::Table *>(
         QStringLiteral("clipLibraryTable"));
-    auto *anchorTable = anchorLibrary.findChild<QTableWidget *>(
+    auto *anchorTable = anchorLibrary.findChild<Pinloom::Ui::Table *>(
         QStringLiteral("anchorLibraryAnchorTable"));
-    auto *rootTable = rootLibrary.findChild<QTableWidget *>(
+    auto *rootTable = rootLibrary.findChild<Pinloom::Ui::Table *>(
         QStringLiteral("libraryRootTable"));
     QVERIFY(commandEdit);
     QVERIFY(commandResults);
@@ -272,7 +273,7 @@ void VisualThemeTest::majorSurfacesExposeRolesAndAccessibleFocusTargets()
     QVERIFY(jumpButton);
     QCOMPARE(jumpButton->property("pinloomControl").toString(),
              QStringLiteral("primary"));
-    auto *settingsButtons = settingsDialog.findChild<QDialogButtonBox *>(
+    auto *settingsButtons = settingsDialog.findChild<Pinloom::Ui::DialogButtonBox *>(
         QStringLiteral("settingsButtons"));
     QVERIFY(settingsButtons);
     QCOMPARE(settingsButtons->button(QDialogButtonBox::Ok)

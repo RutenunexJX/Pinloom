@@ -17,8 +17,8 @@ class QDragEnterEvent;
 class QDragMoveEvent;
 class QDropEvent;
 class QLineEdit;
-class QListWidget;
-class QListWidgetItem;
+#include "pinloom/widgets/PinloomItemViews.h"
+
 class QPaintEvent;
 class QToolButton;
 
@@ -133,20 +133,20 @@ protected:
 
 private slots:
     void refreshResults();
-    void activateResultItem(QListWidgetItem *item);
+    void activateResultItem(Pinloom::Ui::ListItem *item);
 
 private:
     void updateStatus(const QString &status);
-    bool activateCommandItem(QListWidgetItem *item);
-    bool insertClipFromItem(const QListWidgetItem *item);
-    bool activateUnifiedTargetFromItem(const QListWidgetItem *item);
-    bool saveClipFromItem(const QListWidgetItem *item);
+    bool activateCommandItem(Pinloom::Ui::ListItem *item);
+    bool insertClipFromItem(const Pinloom::Ui::ListItem *item);
+    bool activateUnifiedTargetFromItem(const Pinloom::Ui::ListItem *item);
+    bool saveClipFromItem(const Pinloom::Ui::ListItem *item);
     bool openClipLibrary();
     bool dispatchCommand(PinloomCommandId id);
     bool saveInboxFromCommand();
     bool activateUnifiedTarget(const PinloomOpenTarget &target);
     QList<PinloomCommandResultAction> actionsForTarget(const PinloomOpenTarget &target) const;
-    bool activateResultActionFromItem(const QListWidgetItem *item);
+    bool activateResultActionFromItem(const Pinloom::Ui::ListItem *item);
     void populateActionResults(const PinloomOpenTarget &target, int sourceRow);
     bool restoreResultSelection(const PinloomOpenTarget &target, int fallbackRow);
     std::optional<PinloomClipSaveRequest> promptClipSaveRequest(const ClipSearchResult &result);
@@ -167,7 +167,7 @@ private:
     QToolButton *rectangleAnchorButton_ = nullptr;
     QToolButton *textAnchorButton_ = nullptr;
     QToolButton *pdfTextClipButton_ = nullptr;
-    QListWidget *resultList_ = nullptr;
+    Pinloom::Ui::List *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;
     QStringList pendingInboxFiles_;

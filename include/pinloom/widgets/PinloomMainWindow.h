@@ -1,6 +1,6 @@
 #pragma once
 
-#include <QMainWindow>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <QString>
 
 class QCloseEvent;
@@ -24,7 +24,7 @@ QString pinloomResidentDiagnosticsText(const PinloomResidentStatus &status,
                                        const QString &recentError,
                                        const QString &recentErrorDetails);
 
-class PinloomMainWindow final : public QMainWindow {
+class PinloomMainWindow final : public Ui::MainWindow {
     Q_OBJECT
 
 public:

@@ -8,7 +8,7 @@
 #include <QColor>
 #include <QCache>
 #include <QHash>
-#include <QMainWindow>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <QPixmap>
 #include <functional>
 #include <optional>
@@ -18,8 +18,8 @@ class QLabel;
 class QLineEdit;
 class QPoint;
 class QSettings;
-class QTableWidget;
-class QTableWidgetItem;
+#include "pinloom/widgets/PinloomItemViews.h"
+
 class QToolButton;
 class QWidget;
 
@@ -61,7 +61,7 @@ struct AnchorLibraryWindowOptions {
     std::function<QString(const AnchorLibraryFile &file)> relinkPathProvider;
 };
 
-class AnchorLibraryWindow final : public QMainWindow {
+class AnchorLibraryWindow final : public Ui::MainWindow {
     Q_OBJECT
 
 public:
@@ -182,15 +182,15 @@ private:
     void showPermanentFileDeleteMenu();
     void openFileTagEditor(int row);
     void openAnchorTagEditor(int row);
-    void openTagEditor(QTableWidget *table,
+    void openTagEditor(Pinloom::Ui::Table *table,
                        int row,
                        int column,
                        const QStringList &selectedTags,
                        QStringList availableTags,
                        bool fileTags,
                        std::function<void(const QStringList &)> updateHandler);
-    void handleFileItemChanged(QTableWidgetItem *item);
-    void handleAnchorItemChanged(QTableWidgetItem *item);
+    void handleFileItemChanged(Pinloom::Ui::TableItem *item);
+    void handleAnchorItemChanged(Pinloom::Ui::TableItem *item);
     void updatePendingFileTags(const QString &key, const QStringList &tags);
     void updatePendingAnchorTags(const QString &key, const QStringList &tags);
     void applyFileInlineCellState(int row, int column, const QString &key);
@@ -237,8 +237,8 @@ private:
     QToolButton *integrityButton_ = nullptr;
     QToolButton *manageButton_ = nullptr;
     QToolButton *undoButton_ = nullptr;
-    QTableWidget *fileTable_ = nullptr;
-    QTableWidget *anchorTable_ = nullptr;
+    Pinloom::Ui::Table *fileTable_ = nullptr;
+    Pinloom::Ui::Table *anchorTable_ = nullptr;
     AnchorLocatorPreviewWidget *locatorPreview_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QString statusText_;

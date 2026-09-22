@@ -1,0 +1,92 @@
+diff --git a/ElaCheckBox.h b/ElaCheckBox.h
+index 05da8bd..b61c1d1 100644
+--- a/ElaCheckBox.h
++++ b/ElaCheckBox.h
+@@ -13,6 +13,8 @@ public:
+     explicit ElaCheckBox(QWidget* parent = nullptr);
+     explicit ElaCheckBox(const QString& text, QWidget* parent = nullptr);
+     ~ElaCheckBox() override;
++private:
++    QStyle* _ownedStyle{nullptr};
+ };
+ 
+ #endif // ELAWORKSPACE_ELAWIDGETTOOLS_ELACHECKBOX_H_
+diff --git a/ElaCheckBox.cpp b/ElaCheckBox.cpp
+index a17efc3..a403e42 100644
+--- a/ElaCheckBox.cpp
++++ b/ElaCheckBox.cpp
+@@ -8,7 +8,8 @@ ElaCheckBox::ElaCheckBox(QWidget* parent)
+     _pBorderRadius = 3;
+     setMouseTracking(true);
+     setObjectName("ElaCheckBox");
+-    setStyle(new ElaCheckBoxStyle(style()));
++    _ownedStyle = new ElaCheckBoxStyle(style());
++    setStyle(_ownedStyle);
+     QFont font = this->font();
+     font.setPixelSize(eApp->getFontPixelSize() + 2);
+     setFont(font);
+@@ -22,5 +23,6 @@ ElaCheckBox::ElaCheckBox(const QString& text, QWidget* parent)
+ 
+ ElaCheckBox::~ElaCheckBox()
+ {
+-    delete this->style();
++    setStyle(nullptr);
++    delete _ownedStyle;
+ }
+diff --git a/private/ElaLineEditPrivate.h b/private/ElaLineEditPrivate.h
+index 8755f4a..48aae28 100644
+--- a/private/ElaLineEditPrivate.h
++++ b/private/ElaLineEditPrivate.h
+@@ -6,6 +6,7 @@
+ #include <QVariantMap>
+ class ElaEvent;
+ class ElaLineEdit;
++class QStyle;
+ class ElaLineEditPrivate : public QObject
+ {
+     Q_OBJECT
+@@ -23,6 +24,7 @@ private:
+     ElaThemeType::ThemeMode _themeMode;
+     ElaEvent* _focusEvent{nullptr};
+     qreal _textSpacing{0.5};
++    QStyle* _ownedStyle{nullptr};
+ };
+ 
+ #endif // ELAWORKSPACE_ELAWIDGETTOOLS_PRIVATE_ELALINEEDITPRIVATE_H_
+diff --git a/ElaLineEdit.cpp b/ElaLineEdit.cpp
+index bd3fbf3..adc3394 100644
+--- a/ElaLineEdit.cpp
++++ b/ElaLineEdit.cpp
+@@ -33,7 +33,8 @@ ElaLineEdit::ElaLineEdit(QWidget* parent)
+     QFont textFont = font();
+     textFont.setLetterSpacing(QFont::AbsoluteSpacing, d->_textSpacing);
+     setFont(textFont);
+-    setStyle(new ElaLineEditStyle(style()));
++    d->_ownedStyle = new ElaLineEditStyle(style());
++    setStyle(d->_ownedStyle);
+     setStyleSheet("#ElaLineEdit{background-color:transparent;padding-left: 10px;}");
+     d->onThemeChanged(eTheme->getThemeMode());
+     connect(eTheme, &ElaTheme::themeModeChanged, d, &ElaLineEditPrivate::onThemeChanged);
+@@ -42,7 +43,9 @@ ElaLineEdit::ElaLineEdit(QWidget* parent)
+ 
+ ElaLineEdit::~ElaLineEdit()
+ {
+-    delete this->style();
++    Q_D(ElaLineEdit);
++    setStyle(nullptr);
++    delete d->_ownedStyle;
+ }
+ 
+ void ElaLineEdit::setIsClearButtonEnable(bool isClearButtonEnable)
+diff --git a/ElaMenu.cpp b/ElaMenu.cpp
+index db86750..ccfbcf3 100644
+--- a/ElaMenu.cpp
++++ b/ElaMenu.cpp
+@@ -32,6 +32,7 @@ ElaMenu::ElaMenu(const QString& title, QWidget* parent)
+ ElaMenu::~ElaMenu()
+ {
+     Q_D(ElaMenu);
++    setStyle(nullptr);
+     delete d->_menuStyle;
+ }
+ 

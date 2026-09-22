@@ -1,4 +1,5 @@
 #include "pinloom/widgets/PinloomVisualTheme.h"
+#include "pinloom/widgets/PinloomUiControls.h"
 #ifdef PINLOOM_ENABLE_SUITEUI
 #include "PinloomSuiteUi.h"
 #endif
@@ -359,8 +360,8 @@ QMainWindow#anchorLibraryWindow[trashMode="true"] QWidget#anchorLibraryCentral,
 QMainWindow#clipLibraryWindow[trashMode="true"] {
   background: %32; color: %2;
 }
-QMainWindow#anchorLibraryWindow[trashMode="true"] QTableWidget::item:selected,
-QMainWindow#clipLibraryWindow[trashMode="true"] QTableWidget::item:selected,
+QMainWindow#anchorLibraryWindow[trashMode="true"] QTableView::item:selected,
+QMainWindow#clipLibraryWindow[trashMode="true"] QTableView::item:selected,
 QToolButton#anchorLibraryTrashButton:checked {
   background: %23; color: %12; border-color: %23;
 }
@@ -420,6 +421,7 @@ void applyPinloomVisualTheme(QApplication &application,
                             scheme == PinloomVisualScheme::Dark
                                 ? QStringLiteral("dark")
                                 : QStringLiteral("light"));
+    Ui::applyElaTheme(application, scheme);
     QPalette palette = application.palette();
     palette.setColor(QPalette::Window, tokens.canvas);
     palette.setColor(QPalette::WindowText, tokens.text);
@@ -440,7 +442,8 @@ void applyPinloomVisualTheme(QApplication &application,
     application.setProperty("pinloomReducedMotion",
                             pinloomReducedMotionEnabled());
     application.setProperty("pinloomBaseSpacing", 4);
-    application.setStyleSheet(visualThemeStyleSheet(scheme, suiteUi));
+    application.setStyleSheet(Ui::scopedStyleSheet(visualThemeStyleSheet(scheme, suiteUi)));
+    Ui::refreshViewPalettes(application);
 }
 
 void applySystemPinloomVisualTheme(QApplication &application)

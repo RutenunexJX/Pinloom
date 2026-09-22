@@ -1,0 +1,198 @@
+diff --git a/ElaPlainTextEdit.cpp b/ElaPlainTextEdit.cpp
+index cc23475..18a4445 100644
+--- a/ElaPlainTextEdit.cpp
++++ b/ElaPlainTextEdit.cpp
+@@ -41,6 +41,7 @@ ElaPlainTextEdit::ElaPlainTextEdit(const QString& text, QWidget* parent)
+ ElaPlainTextEdit::~ElaPlainTextEdit()
+ {
+     Q_D(ElaPlainTextEdit);
++    setStyle(nullptr);
+     delete d->_style;
+ }
+ 
+diff --git a/ElaMenuBar.h b/ElaMenuBar.h
+index ab98502..64e6608 100644
+--- a/ElaMenuBar.h
++++ b/ElaMenuBar.h
+@@ -22,6 +22,8 @@ public:
+ 
+     QAction* addElaIconAction(ElaIconType::IconName icon, const QString& text);
+     QAction* addElaIconAction(ElaIconType::IconName icon, const QString& text, const QKeySequence& shortcut);
++private:
++    QStyle* _ownedStyle{nullptr};
+ };
+ 
+ #endif // ELAWORKSPACE_ELAWIDGETTOOLS_ELAMENUBAR_H_
+diff --git a/ElaMenuBar.cpp b/ElaMenuBar.cpp
+index 2f9cb06..c6563a3 100644
+--- a/ElaMenuBar.cpp
++++ b/ElaMenuBar.cpp
+@@ -12,9 +12,10 @@ ElaMenuBar::ElaMenuBar(QWidget* parent)
+ {
+     setMouseTracking(true);
+     setObjectName("ElaMenuBar");
+-    setStyle(new ElaMenuBarStyle(style()));
++    _ownedStyle = new ElaMenuBarStyle(style());
++    setStyle(_ownedStyle);
+     QToolButton* tool = this->findChild<QToolButton*>();
+-    if (tool->objectName() == "qt_menubar_ext_button")
++    if (tool && tool->objectName() == "qt_menubar_ext_button")
+     {
+         QMenu* oldMenu = tool->menu();
+         ElaMenu* menu = new ElaMenu(this);
+@@ -30,7 +31,8 @@ ElaMenuBar::ElaMenuBar(QWidget* parent)
+ 
+ ElaMenuBar::~ElaMenuBar()
+ {
+-    delete this->style();
++    setStyle(nullptr);
++    delete _ownedStyle;
+ }
+ 
+ QAction* ElaMenuBar::addMenu(QMenu* menu)
+diff --git a/ElaStatusBar.h b/ElaStatusBar.h
+index 12f1f28..1ee2f3c 100644
+--- a/ElaStatusBar.h
++++ b/ElaStatusBar.h
+@@ -11,6 +11,8 @@ class ELA_EXPORT ElaStatusBar : public QStatusBar
+ public:
+     explicit ElaStatusBar(QWidget* parent = nullptr);
+     ~ElaStatusBar() override;
++private:
++    QStyle* _ownedStyle{nullptr};
+ };
+ 
+ #endif // ELAWORKSPACE_ELAWIDGETTOOLS_ELASTATUSBAR_H_
+diff --git a/ElaStatusBar.cpp b/ElaStatusBar.cpp
+index ab13bd9..21108c6 100644
+--- a/ElaStatusBar.cpp
++++ b/ElaStatusBar.cpp
+@@ -11,9 +11,12 @@ ElaStatusBar::ElaStatusBar(QWidget* parent)
+     setStyleSheet("#ElaStatusBar{background-color:transparent;}");
+     setFixedHeight(28);
+     setContentsMargins(20, 0, 0, 0);
+-    setStyle(new ElaStatusBarStyle(style()));
++    _ownedStyle = new ElaStatusBarStyle(style());
++    setStyle(_ownedStyle);
+ }
+ 
+ ElaStatusBar::~ElaStatusBar()
+ {
++    setStyle(nullptr);
++    delete _ownedStyle;
+ }
+diff --git a/ElaScrollBar.cpp b/ElaScrollBar.cpp
+index 18fcccf..51d69f4 100644
+--- a/ElaScrollBar.cpp
++++ b/ElaScrollBar.cpp
+@@ -26,8 +26,9 @@ ElaScrollBar::ElaScrollBar(QWidget* parent)
+     connect(this, &ElaScrollBar::rangeChanged, d, &ElaScrollBarPrivate::onRangeChanged);
+     ElaScrollBarStyle* scrollBarStyle = new ElaScrollBarStyle(style());
+     scrollBarStyle->setScrollBar(this);
++    d->_ownedStyle = scrollBarStyle;
+     setStyle(scrollBarStyle);
+-    d->_slideSmoothAnimation = new QPropertyAnimation(this, "value");
++    d->_slideSmoothAnimation = new QPropertyAnimation(this, "value", this);
+     d->_slideSmoothAnimation->setEasingCurve(QEasingCurve::OutSine);
+     d->_slideSmoothAnimation->setDuration(300);
+     connect(d->_slideSmoothAnimation, &QPropertyAnimation::finished, this, [=]() {
+@@ -79,7 +80,11 @@ ElaScrollBar::ElaScrollBar(QScrollBar* originScrollBar, QAbstractScrollArea* par
+ 
+ ElaScrollBar::~ElaScrollBar()
+ {
+-    delete this->style();
++    Q_D(ElaScrollBar);
++    d->_slideSmoothAnimation->stop();
++    d->_expandTimer->stop();
++    setStyle(nullptr);
++    delete d->_ownedStyle;
+ }
+ 
+ bool ElaScrollBar::event(QEvent* event)
+diff --git a/private/ElaScrollBarPrivate.h b/private/ElaScrollBarPrivate.h
+index e0f45c3..e066107 100644
+--- a/private/ElaScrollBarPrivate.h
++++ b/private/ElaScrollBarPrivate.h
+@@ -10,6 +10,7 @@
+ class QTimer;
+ class QPropertyAnimation;
+ class ElaScrollBar;
++class QStyle;
+ class ElaScrollBarPrivate : public QObject
+ {
+     Q_OBJECT
+@@ -23,6 +24,7 @@ public:
+     Q_SLOT void onRangeChanged(int min, int max);
+ 
+ private:
++    QStyle* _ownedStyle{nullptr};
+     QScrollBar* _originScrollBar{nullptr};
+     QAbstractScrollArea* _originScrollArea{nullptr};
+     QTimer* _expandTimer{nullptr};
+diff --git a/Development/ElaMenuBarStyle.cpp b/Development/ElaMenuBarStyle.cpp
+index a750392..487f936 100644
+--- a/Development/ElaMenuBarStyle.cpp
++++ b/Development/ElaMenuBarStyle.cpp
+@@ -73,7 +73,7 @@ void ElaMenuBarStyle::drawControl(ControlElement element, const QStyleOption* op
+             {
+                 return;
+             }
+-            int menuBarHeight = widget->height();
++            int menuBarHeight = mopt->rect.height();
+             QRect menuItemRect = mopt->rect;
+             painter->save();
+             painter->setRenderHints(QPainter::Antialiasing | QPainter::SmoothPixmapTransform);
+@@ -95,7 +95,8 @@ void ElaMenuBarStyle::drawControl(ControlElement element, const QStyleOption* op
+             QIcon icon = mopt->icon;
+             QString menuText = mopt->text;
+             QString iconText;
+-            menuText = menuText.replace("&", "");
++            const int textFlags = Qt::AlignCenter | (styleHint(QStyle::SH_UnderlineShortcut, option, widget)
++                ? Qt::TextShowMnemonic : Qt::TextHideMnemonic);
+             const ElaMenuBar* menuBar = dynamic_cast<const ElaMenuBar*>(widget);
+             if (menuBar)
+             {
+@@ -130,7 +131,7 @@ void ElaMenuBarStyle::drawControl(ControlElement element, const QStyleOption* op
+                 painter->setPen(!mopt->state.testFlag(QStyle::State_Enabled) ? ElaThemeColor(_themeMode, BasicTextDisable) : ElaThemeColor(_themeMode, BasicText));
+                 if (icon.isNull() && iconText.isEmpty())
+                 {
+-                    painter->drawText(menuItemRect, Qt::AlignCenter, menuText);
++                    painter->drawText(menuItemRect, textFlags, menuText);
+                 }
+                 else
+                 {
+@@ -143,13 +144,13 @@ void ElaMenuBarStyle::drawControl(ControlElement element, const QStyleOption* op
+                         painter->setFont(iconFont);
+                         painter->drawText(menuIconRect, Qt::AlignCenter, iconText);
+                         painter->restore();
+-                        painter->drawText(QRect(menuIconRect.right(), menuItemRect.y(), menuItemRect.width() - menuIconRect.width(), menuBarHeight), Qt::AlignCenter, menuText);
++                        painter->drawText(QRect(menuIconRect.right(), menuItemRect.y(), menuItemRect.width() - menuIconRect.width(), menuBarHeight), textFlags, menuText);
+                     }
+                     else
+                     {
+                         QRect menuIconRect(menuItemRect.x() + menuBarHeight * 0.1 + _menuBarItemMargin, menuBarHeight * 0.1, menuBarHeight * 0.8, menuBarHeight * 0.8);
+                         painter->drawPixmap(menuIconRect, icon.pixmap(menuBarHeight * 0.8, menuBarHeight * 0.8));
+-                        painter->drawText(QRect(menuIconRect.right(), menuItemRect.y(), menuItemRect.width() - menuIconRect.width(), menuBarHeight), Qt::AlignCenter, menuText);
++                        painter->drawText(QRect(menuIconRect.right(), menuItemRect.y(), menuItemRect.width() - menuIconRect.width(), menuBarHeight), textFlags, menuText);
+                     }
+                 }
+             }
+@@ -173,7 +174,7 @@ QSize ElaMenuBarStyle::sizeFromContents(ContentsType type, const QStyleOption* o
+     case QStyle::CT_MenuBar:
+     {
+         QSize menuBarHeight = QProxyStyle::sizeFromContents(type, option, size, widget);
+-        menuBarHeight.setHeight(widget->height());
++        menuBarHeight.setHeight(qMax(menuBarHeight.height(), option->fontMetrics.height() + 12));
+         return menuBarHeight;
+     }
+     case QStyle::CT_MenuBarItem:
+@@ -181,7 +182,7 @@ QSize ElaMenuBarStyle::sizeFromContents(ContentsType type, const QStyleOption* o
+         if (const QStyleOptionMenuItem* mopt = qstyleoption_cast<const QStyleOptionMenuItem*>(option))
+         {
+             QSize menuBarItemSize = QProxyStyle::sizeFromContents(type, option, size, widget);
+-            menuBarItemSize.setHeight(widget->height());
++            menuBarItemSize.setHeight(qMax(menuBarItemSize.height(), mopt->fontMetrics.height() + 12));
+             if ((!mopt->icon.isNull()) && !mopt->text.isEmpty())
+             {
+                 menuBarItemSize.setWidth(menuBarItemSize.width() + mopt->fontMetrics.horizontalAdvance(mopt->text) + 2 * _menuBarItemMargin);
+

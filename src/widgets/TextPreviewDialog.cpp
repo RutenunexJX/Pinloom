@@ -1,4 +1,5 @@
 #include "pinloom/widgets/TextPreviewDialog.h"
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QFile>
@@ -16,7 +17,7 @@
 namespace Pinloom {
 
 TextPreviewDialog::TextPreviewDialog(QString filePath, int targetLine, QWidget *parent)
-    : QDialog(parent)
+    : Ui::Dialog(parent)
     , filePath_(std::move(filePath))
     , targetLine_(targetLine)
 {
@@ -26,9 +27,9 @@ TextPreviewDialog::TextPreviewDialog(QString filePath, int targetLine, QWidget *
     resize(900, 640);
 
     auto *layout = new QVBoxLayout(this);
-    auto *label = new QLabel(QStringLiteral("%1 : line %2").arg(filePath_).arg(targetLine_), this);
+    auto *label = Pinloom::Ui::label(QStringLiteral("%1 : line %2").arg(filePath_).arg(targetLine_), this);
     label->setProperty("pinloomTextRole", QStringLiteral("technical"));
-    editor_ = new QPlainTextEdit(this);
+    editor_ = Ui::plainTextEdit(this);
     editor_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     editor_->setAccessibleName(tr("Text file preview"));
     editor_->setReadOnly(true);

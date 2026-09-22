@@ -1,0 +1,37 @@
+diff --git a/Development/ElaDrawerContainer.cpp b/Development/ElaDrawerContainer.cpp
+--- a/Development/ElaDrawerContainer.cpp
++++ b/Development/ElaDrawerContainer.cpp
+@@ -61,6 +61,17 @@ void ElaDrawerContainer::removeWidget(QWidget* widget)
+ 
+ void ElaDrawerContainer::doDrawerAnimation(bool isExpand)
+ {
++    if (parentWidget()->property("pinloomImmediateDrawer").toBool())
++    {
++        _pOpacity = isExpand ? 1 : 0;
++        _isShowBorder = isExpand;
++        _containerWidget->setVisible(isExpand);
++        _mainLayout->invalidate();
++        _mainLayout->activate();
++        updateGeometry();
++        update();
++        return;
++    }
+     if (_containerLayout->count() == 0)
+     {
+         return;
+diff --git a/Development/ElaDrawerHeader.cpp b/Development/ElaDrawerHeader.cpp
+--- a/Development/ElaDrawerHeader.cpp
++++ b/Development/ElaDrawerHeader.cpp
+@@ -47,6 +47,12 @@ void ElaDrawerHeader::setHeaderWidget(QWidget* widget)
+ 
+ void ElaDrawerHeader::doExpandOrCollapseAnimation()
+ {
++    if (parentWidget()->property("pinloomImmediateDrawer").toBool())
++    {
++        _pExpandIconRotate = _pIsExpand ? -180 : 0;
++        update();
++        return;
++    }
+     QPropertyAnimation* rotateAnimation = new QPropertyAnimation(this, "pExpandIconRotate");
+     connect(rotateAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
+         update();

@@ -2,7 +2,7 @@
 
 #include "pinloom/core/LibraryRepository.h"
 
-#include <QMainWindow>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <functional>
 
 class QFileSystemModel;
@@ -12,7 +12,7 @@ class QLineEdit;
 class QPushButton;
 class QShowEvent;
 class QSortFilterProxyModel;
-class QTableWidget;
+#include "pinloom/widgets/PinloomItemViews.h"
 class QTreeView;
 
 namespace Pinloom {
@@ -22,7 +22,7 @@ struct LibraryRootWindowOptions {
     std::function<QStringList()> fileTagsProvider;
 };
 
-class LibraryRootWindow final : public QMainWindow {
+class LibraryRootWindow final : public Ui::MainWindow {
     Q_OBJECT
 
 public:
@@ -48,13 +48,13 @@ private:
     void activateSelectedRoot();
     void updateSelectedFilesystemPath();
     void loadMetadata(const QString &path);
-    void setStatus(const QString &status);
+    void setStatus(const QString &status, bool notify = true);
     QString selectedRootId() const;
     std::optional<LibraryRoot> selectedRoot() const;
     QStringList commaSeparatedValues(const QString &text, bool tags = false) const;
 
     LibraryRootWindowOptions options_;
-    QTableWidget *rootTable_ = nullptr;
+    Pinloom::Ui::Table *rootTable_ = nullptr;
     QLineEdit *searchEdit_ = nullptr;
     QTreeView *tree_ = nullptr;
     QFileSystemModel *fileModel_ = nullptr;

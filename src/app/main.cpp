@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorCapture.h"
@@ -64,6 +65,9 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QScreen>
+#include <QSqlDatabase>
+#include <QSqlError>
+#include <QSqlQuery>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QStyleHints>
@@ -93,6 +97,32 @@ int main(int argc, char *argv[])
                      });
 
     const QStringList startupArguments = QCoreApplication::arguments();
+    if (startupArguments.contains(QStringLiteral("--package-check"))) {
+        // Must precede settings, single-instance IPC, user data and native hooks.
+        bool databaseReady = false;
+        const QString connectionName = QStringLiteral("package-check");
+        {
+            QSqlDatabase probe = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+            probe.setDatabaseName(QStringLiteral(":memory:"));
+            databaseReady = probe.open();
+            if (databaseReady) {
+                QSqlQuery query(probe);
+                databaseReady = query.exec(QStringLiteral("SELECT sqlite_version()")) && query.next();
+            }
+            if (!databaseReady) qCritical().noquote() << probe.lastError().text();
+        }
+        QSqlDatabase::removeDatabase(connectionName);
+        if (!databaseReady) return 2;
+        Pinloom::Ui::Dialog probe;
+        auto *layout = new Pinloom::Ui::FormLayout(&probe);
+        layout->addRow(QStringLiteral("Version"), Pinloom::Ui::lineEdit(Pinloom::pinloomVersion(), &probe));
+        probe.resize(320, 160);
+        probe.ensurePolished();
+        if (probe.grab().isNull()) return 3;
+        qInfo().noquote() << QStringLiteral("Pinloom %1 package check passed (%2)")
+            .arg(Pinloom::pinloomVersion(), Pinloom::Ui::usesEla() ? QStringLiteral("ELA") : QStringLiteral("CLASSIC"));
+        return 0;
+    }
     const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
     QString startupDeepLink;
     for (const QString &argument : startupArguments.mid(1)) {
@@ -799,6 +829,7 @@ int main(int argc, char *argv[])
                      &window,
                      [&window](const QString &status) {
                          window.statusBar()->showMessage(status, 6000);
+                         Pinloom::Ui::showNotice(&window, status);
                          if (status.contains(QStringLiteral("verification failed"),
                                              Qt::CaseInsensitive)
                              || status.contains(QStringLiteral("Pinloom Preview failed"),
@@ -1512,14 +1543,14 @@ int main(int argc, char *argv[])
                                const QStringList &aliases,
                                const QStringList &tags,
                                bool pinned) -> std::optional<MetadataEdit> {
-        QDialog dialog(parent);
+        Pinloom::Ui::Dialog dialog(parent);
         dialog.setWindowTitle(windowTitle);
-        auto *form = new QFormLayout(&dialog);
-        auto *nameEdit = new QLineEdit(name, &dialog);
-        auto *aliasesEdit = new QLineEdit(aliases.join(QLatin1Char(',')), &dialog);
-        auto *tagsEdit = new QLineEdit(tags.join(QStringLiteral(", ")), &dialog);
-        auto *pinnedCheck = new QCheckBox(QStringLiteral("Pinned"), &dialog);
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+        auto *form = new Pinloom::Ui::FormLayout(&dialog);
+        auto *nameEdit = Pinloom::Ui::lineEdit(name, &dialog);
+        auto *aliasesEdit = Pinloom::Ui::lineEdit(aliases.join(QLatin1Char(',')), &dialog);
+        auto *tagsEdit = Pinloom::Ui::lineEdit(tags.join(QStringLiteral(", ")), &dialog);
+        auto *pinnedCheck = Pinloom::Ui::checkBox(QStringLiteral("Pinned"), &dialog);
+        auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
         pinnedCheck->setChecked(pinned);
         form->addRow(QStringLiteral("Name"), nameEdit);
         form->addRow(QStringLiteral("Aliases"), aliasesEdit);
@@ -1545,7 +1576,7 @@ int main(int argc, char *argv[])
                                const QStringList &values,
                                bool tags) -> std::optional<QStringList> {
         bool accepted = false;
-        const QString text = QInputDialog::getText(parent,
+        const QString text = Pinloom::Ui::getText(parent,
                                                    windowTitle,
                                                    label,
                                                    QLineEdit::Normal,
@@ -1721,7 +1752,7 @@ int main(int argc, char *argv[])
 
             if (actionId == QLatin1String("rename")) {
                 bool accepted = false;
-                const QString name = QInputDialog::getText(parent,
+                const QString name = Pinloom::Ui::getText(parent,
                                                            QStringLiteral("Rename Clip"),
                                                            QStringLiteral("Name"),
                                                            QLineEdit::Normal,
@@ -1796,7 +1827,7 @@ int main(int argc, char *argv[])
             }
             if (actionId == QLatin1String("add_alias")) {
                 bool accepted = false;
-                const QString alias = QInputDialog::getText(parent,
+                const QString alias = Pinloom::Ui::getText(parent,
                                                             QStringLiteral("Add Alias"),
                                                             QStringLiteral("Alias"),
                                                             QLineEdit::Normal,
@@ -1826,7 +1857,7 @@ int main(int argc, char *argv[])
             }
             if (actionId == QLatin1String("add_tag")) {
                 bool accepted = false;
-                const QString tag = cleanTag(QInputDialog::getText(parent,
+                const QString tag = cleanTag(Pinloom::Ui::getText(parent,
                                                                    QStringLiteral("Add Tag"),
                                                                    QStringLiteral("Tag"),
                                                                    QLineEdit::Normal,
@@ -1958,7 +1989,7 @@ int main(int argc, char *argv[])
 
         if (actionId == QLatin1String("rename")) {
             bool accepted = false;
-            const QString name = QInputDialog::getText(parent,
+            const QString name = Pinloom::Ui::getText(parent,
                                                        target.anchor.has_value()
                                                            ? QStringLiteral("Rename Anchor")
                                                            : QStringLiteral("Rename Resource"),
@@ -2121,7 +2152,7 @@ int main(int argc, char *argv[])
         }
         if (actionId == QLatin1String("add_alias")) {
             bool accepted = false;
-            const QString alias = QInputDialog::getText(parent,
+            const QString alias = Pinloom::Ui::getText(parent,
                                                         QStringLiteral("Add Alias"),
                                                         QStringLiteral("Alias"),
                                                         QLineEdit::Normal,
@@ -2169,7 +2200,7 @@ int main(int argc, char *argv[])
         }
         if (actionId == QLatin1String("add_tag")) {
             bool accepted = false;
-            const QString tag = cleanTag(QInputDialog::getText(parent,
+            const QString tag = cleanTag(Pinloom::Ui::getText(parent,
                                                                QStringLiteral("Add Tag"),
                                                                QStringLiteral("Tag"),
                                                                QLineEdit::Normal,
@@ -2697,6 +2728,7 @@ int main(int argc, char *argv[])
                     : QStringLiteral("Unable to open Pinloom deep link");
             }
             window.statusBar()->showMessage(status, 8000);
+            Pinloom::Ui::showNotice(&window, status);
             if (!opened) {
                 window.setRecentError(QStringLiteral("Deep link failed"), status);
                 commandPanel->openCommandSearch();

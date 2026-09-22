@@ -2,7 +2,7 @@
 
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 
-#include <QDialog>
+#include "pinloom/widgets/PinloomUiControls.h"
 
 class QCheckBox;
 class QDoubleSpinBox;
@@ -14,7 +14,7 @@ class QWidget;
 
 namespace Pinloom {
 
-class ManualPdfAnchorDialog final : public QDialog {
+class ManualPdfAnchorDialog final : public Ui::Dialog {
     Q_OBJECT
 
 public:

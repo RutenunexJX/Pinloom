@@ -2,7 +2,7 @@
 
 #include "pinloom/clip/ClipRepository.h"
 
-#include <QDialog>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <QString>
 #include <QStringList>
 
@@ -36,7 +36,7 @@ PinloomAppSettings pinloomDefaultAppSettings(const QString &dataDirectory = {});
 PinloomAppSettings loadPinloomAppSettings(QSettings &settings, const QString &dataDirectory = {});
 void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSettings);
 
-class PinloomSettingsDialog final : public QDialog {
+class PinloomSettingsDialog final : public Ui::Dialog {
     Q_OBJECT
 
 public:

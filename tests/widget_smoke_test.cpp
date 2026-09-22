@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/clip/ClipHotkeyService.h"
 #include "pinloom/clip/ClipAction.h"
 #include "pinloom/clip/ClipRepository.h"
@@ -58,7 +59,7 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include "pinloom/widgets/PinloomItemViews.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QMainWindow>
@@ -78,7 +79,7 @@
 #include <QSpinBox>
 #include <QStatusBar>
 #include <QTemporaryDir>
-#include <QTableWidget>
+
 #include <QTest>
 #include <QThread>
 #include <QTimer>
@@ -1390,8 +1391,8 @@ void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
 
     AnchorLibraryWindow window(options);
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
-    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
-    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *fileTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
     auto *restoreButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryRestoreButton"));
     auto *mergeButton = window.findChild<QToolButton *>(QStringLiteral("anchorLibraryMergeButton"));
@@ -1675,8 +1676,8 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     };
 
     AnchorLibraryWindow window(options);
-    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
-    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *fileTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
     auto *tagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryTagFilterCombo"));
     auto *kindFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryKindFilterCombo"));
@@ -1903,8 +1904,8 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QColor savedInlineColor = pinloomVisualTokens(activePinloomVisualScheme()).success;
     savedInlineColor.setAlpha(48);
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
-    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
-    auto *anchorTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *fileTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
     auto *fileTagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryTagFilterCombo"));
     auto *anchorTagFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAnchorTagFilterCombo"));
     auto *appFilter = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryAppFilterCombo"));
@@ -1998,7 +1999,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QApplication::processEvents();
     QCOMPARE(locatorPreviewRenderCount, afterPagePreview);
 
-    QTableWidgetItem *fileAliasItem = fileTable->item(0, 1);
+    Pinloom::Ui::TableItem *fileAliasItem = fileTable->item(0, 1);
     fileAliasItem->setText(QStringLiteral("edited file alias, filing alias"));
     QCOMPARE(fileAliasItem->background().color(), dirtyInlineColor);
 
@@ -2008,7 +2009,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     auto *fileTagPopup = window.findChild<QFrame *>(QStringLiteral("anchorLibraryFileTagEditorPopup"));
     auto *fileTagQuery = fileTagPopup->findChild<QLineEdit *>(QStringLiteral("anchorLibraryFileTagEditorFilter"));
     auto *createFileTag = fileTagPopup->findChild<QToolButton *>(QStringLiteral("anchorLibraryCreateFileTagButton"));
-    auto *fileTagList = fileTagPopup->findChild<QListWidget *>(QStringLiteral("anchorLibraryFileTagEditorList"));
+    auto *fileTagList = fileTagPopup->findChild<Pinloom::Ui::List *>(QStringLiteral("anchorLibraryFileTagEditorList"));
     QVERIFY(fileTagQuery);
     QVERIFY(createFileTag);
     QVERIFY(fileTagList);
@@ -2112,7 +2113,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(anchorMenuVerified);
 
     QVERIFY(window.selectAnchorAt(regionRow));
-    QTableWidgetItem *aliasItem = anchorTable->item(regionRow, 1);
+    Pinloom::Ui::TableItem *aliasItem = anchorTable->item(regionRow, 1);
     aliasItem->setText(QStringLiteral("inline alias, second alias"));
     QCOMPARE(aliasItem->background().color(), dirtyInlineColor);
 
@@ -2122,7 +2123,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     auto *popup = window.findChild<QFrame *>(QStringLiteral("anchorLibraryTagEditorPopup"));
     auto *tagQuery = popup->findChild<QLineEdit *>(QStringLiteral("anchorLibraryTagEditorFilter"));
     auto *createTag = popup->findChild<QToolButton *>(QStringLiteral("anchorLibraryCreateTagButton"));
-    auto *tagList = popup->findChild<QListWidget *>(QStringLiteral("anchorLibraryTagEditorList"));
+    auto *tagList = popup->findChild<Pinloom::Ui::List *>(QStringLiteral("anchorLibraryTagEditorList"));
     QVERIFY(tagQuery);
     QVERIFY(createTag);
     QVERIFY(tagList);
@@ -2356,7 +2357,7 @@ void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
     AnchorLibraryWindow window(options);
     QCOMPARE(window.visibleFileCount(), 1);
     QCOMPARE(window.visibleAnchorCount(), 0);
-    auto *fileTable = window.findChild<QTableWidget *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *fileTable = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
     QVERIFY(fileTable);
     QCOMPARE(fileTable->item(0, 0)->text(), QStringLiteral("Managed reference"));
     QCOMPARE(fileTable->item(0, 4)->text(), QStringLiteral("0"));
@@ -2791,7 +2792,7 @@ void WidgetSmokeTest::panelUsesInjectedRepository()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -2818,7 +2819,7 @@ void WidgetSmokeTest::panelDefaultsToLauncherSurface()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
     auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
     auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
@@ -2896,7 +2897,7 @@ void WidgetSmokeTest::panelSearchesSavedClipsAndEnterInserts()
 
     PinloomPanel panel(repository, options);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -2954,7 +2955,7 @@ void WidgetSmokeTest::panelTreatsCommandPrefixesAsPlainSearchText()
 
     PinloomPanel panel(repository, options);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -3002,7 +3003,7 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -3028,7 +3029,7 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
     QVERIFY(QMetaObject::invokeMethod(results,
                                       "itemActivated",
                                       Qt::DirectConnection,
-                                      Q_ARG(QListWidgetItem *, results->currentItem())));
+                                      Q_ARG(Pinloom::Ui::ListItem *, results->currentItem())));
     QCOMPARE(panel.commandText(), QStringLiteral("clip;new"));
 
     panel.setCommandText(QStringLiteral("clip;library"));
@@ -3091,7 +3092,7 @@ void WidgetSmokeTest::commandPanelDirectClipPickerOpensWithoutCommandPrefix()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     auto *libraryButton = panel.findChild<QToolButton *>(QStringLiteral("commandClipLibraryButton"));
     QVERIFY(commandEdit);
     QVERIFY(results);
@@ -3280,12 +3281,12 @@ void WidgetSmokeTest::clipCaptureDialogReturnsNameAndNormalizedTags()
     QVERIFY(tagPopup);
     auto *tagQuery = tagPopup->findChild<QLineEdit *>(QStringLiteral("clipCaptureTagFilter"));
     auto *createTag = tagPopup->findChild<QToolButton *>(QStringLiteral("clipCaptureCreateTagButton"));
-    auto *tagList = tagPopup->findChild<QListWidget *>(QStringLiteral("clipCaptureTagList"));
+    auto *tagList = tagPopup->findChild<Pinloom::Ui::List *>(QStringLiteral("clipCaptureTagList"));
     QVERIFY(tagQuery);
     QVERIFY(createTag);
     QVERIFY(tagList);
     QCOMPARE(tagList->count(), 2);
-    const QList<QListWidgetItem *> existingItems =
+    const QList<Pinloom::Ui::ListItem *> existingItems =
         tagList->findItems(QStringLiteral("existing"), Qt::MatchExactly);
     QCOMPARE(existingItems.size(), 1);
     existingItems.first()->setCheckState(Qt::Checked);
@@ -3347,7 +3348,7 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -3408,7 +3409,7 @@ void WidgetSmokeTest::commandPanelClipSearchCommandSearchesHistoryAndSavedClipsA
     QVERIFY(QMetaObject::invokeMethod(results,
                                       "itemActivated",
                                       Qt::DirectConnection,
-                                      Q_ARG(QListWidgetItem *, results->currentItem())));
+                                      Q_ARG(Pinloom::Ui::ListItem *, results->currentItem())));
 
     QCOMPARE(insertedClipIds, (QStringList{temporary.clip->id, savedId, savedId}));
     QCOMPARE(panel.statusText(), QStringLiteral("Inserted clip"));
@@ -3479,7 +3480,7 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -3584,7 +3585,7 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     };
 
     ClipLibraryWindow window(options);
-    auto *table = window.findChild<QTableWidget *>(QStringLiteral("clipLibraryTable"));
+    auto *table = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("clipLibraryTable"));
     auto *preview = window.findChild<QPlainTextEdit *>(QStringLiteral("clipLibraryPreview"));
     auto *previewMetadata = window.findChild<QLabel *>(QStringLiteral("clipLibraryPreviewMetadata"));
     auto *scope = window.findChild<QComboBox *>(QStringLiteral("clipLibraryScopeCombo"));
@@ -3654,12 +3655,12 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     savedColor.setAlpha(48);
     QCOMPARE(table->item(0, 1)->background().color(), savedColor);
 
-    QTableWidgetItem *tagCell = table->item(0, 2);
+    Pinloom::Ui::TableItem *tagCell = table->item(0, 2);
     QVERIFY(tagCell);
     QVERIFY(QMetaObject::invokeMethod(table,
                                       "itemClicked",
                                       Qt::DirectConnection,
-                                      Q_ARG(QTableWidgetItem *, tagCell)));
+                                      Q_ARG(Pinloom::Ui::TableItem *, tagCell)));
     QApplication::processEvents();
     auto *tagPopup = window.findChild<QFrame *>(QStringLiteral("clipLibraryTagEditorPopup"));
     QVERIFY(tagPopup);
@@ -3752,7 +3753,7 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
     auto *quickRow = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
@@ -3858,7 +3859,7 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
     };
 
     PinloomCommandPanel panel(options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(results);
 
     const QStringList rootAbbreviations{
@@ -3927,7 +3928,7 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
 {
     PinloomCommandPanel panel;
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -3949,7 +3950,7 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
     QVERIFY(QMetaObject::invokeMethod(results,
                                       "itemActivated",
                                       Qt::DirectConnection,
-                                      Q_ARG(QListWidgetItem *, results->currentItem())));
+                                      Q_ARG(Pinloom::Ui::ListItem *, results->currentItem())));
     QCOMPARE(panel.commandText(), QStringLiteral("inbox;search"));
 }
 
@@ -3965,7 +3966,7 @@ void WidgetSmokeTest::commandPanelRootLibraryCommandCallsHandler()
         return true;
     };
     PinloomCommandPanel panel(options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(results);
 
     panel.setCommandText(QStringLiteral("r;l"));
@@ -4017,7 +4018,7 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
         savedResourceIds.append(resourceId);
     });
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -4160,7 +4161,7 @@ void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
         return QList<PinloomEntry>{};
     };
     PinloomCommandPanel panel(options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     auto *status = panel.findChild<QLabel *>(QStringLiteral("commandStatusLabel"));
     auto *quickActions = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
     QVERIFY(results);
@@ -4206,7 +4207,9 @@ void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
     host.resize(760, hostedPanel->preferredWindowHeight());
     showCommandPanelForHotkey(host, *hostedPanel);
     QApplication::processEvents();
-    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight()
+        + host.contentsMargins().top() + host.contentsMargins().bottom());
+    QVERIFY(host.contentsRect().contains(hostedPanel->geometry()));
 
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     const auto saveSnapshot = [&host, &snapshotDirectory](const QString &name) {
@@ -4220,22 +4223,30 @@ void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
 
     hostedPanel->setCommandText(QStringLiteral("k"));
     QApplication::processEvents();
-    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight()
+        + host.contentsMargins().top() + host.contentsMargins().bottom());
+    QVERIFY(host.contentsRect().contains(hostedPanel->geometry()));
     saveSnapshot(QStringLiteral("command-anchor.png"));
 
     hostedPanel->setCommandText(QStringLiteral("c"));
     QApplication::processEvents();
-    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight()
+        + host.contentsMargins().top() + host.contentsMargins().bottom());
+    QVERIFY(host.contentsRect().contains(hostedPanel->geometry()));
     saveSnapshot(QStringLiteral("command-clip.png"));
 
     hostedPanel->setCommandText(QStringLiteral("i"));
     QApplication::processEvents();
-    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight()
+        + host.contentsMargins().top() + host.contentsMargins().bottom());
+    QVERIFY(host.contentsRect().contains(hostedPanel->geometry()));
     saveSnapshot(QStringLiteral("command-inbox.png"));
 
     hostedPanel->setCommandText(QStringLiteral("no-match"));
     QApplication::processEvents();
-    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight());
+    QCOMPARE(host.height(), hostedPanel->preferredWindowHeight()
+        + host.contentsMargins().top() + host.contentsMargins().bottom());
+    QVERIFY(host.contentsRect().contains(hostedPanel->geometry()));
     QVERIFY(hostedPanel->isCompact());
     saveSnapshot(QStringLiteral("command-no-result.png"));
     host.hide();
@@ -4257,7 +4268,7 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
     };
 
     PinloomCommandPanel panel(options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(results);
 
     panel.setCommandText(QStringLiteral("launch"));
@@ -4368,7 +4379,7 @@ void WidgetSmokeTest::commandPanelRightArrowShowsActionsForUnifiedResultTypes()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -4549,7 +4560,7 @@ void WidgetSmokeTest::commandPanelRestoreCommandUsesDeletedEntrySearchHandler()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -4683,7 +4694,7 @@ void WidgetSmokeTest::commandPanelActionListReturnsWithEscapeOrLeft()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -4727,7 +4738,7 @@ void WidgetSmokeTest::commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts()
 
     PinloomCommandPanel panel(options);
     auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("commandResultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
     QVERIFY(commandEdit);
     QVERIFY(results);
 
@@ -5365,7 +5376,7 @@ void WidgetSmokeTest::panelDisplaysAnchorAwareResults()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5405,7 +5416,7 @@ void WidgetSmokeTest::panelDisplaysAndOpensInboxFileEntries()
 
     {
         PinloomPanel panel(repository);
-        auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+        auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
         QVERIFY(results);
 
         panel.setSearchText(QStringLiteral("launch alias"));
@@ -5531,7 +5542,7 @@ void WidgetSmokeTest::panelDisplaysAnchorLocatorMetadata()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5570,7 +5581,7 @@ void WidgetSmokeTest::panelDisplaysMarkerAnchors()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5598,7 +5609,7 @@ void WidgetSmokeTest::panelDisplaysBeaconLineResults()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5625,7 +5636,7 @@ void WidgetSmokeTest::panelDisplaysFileLineResults()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5653,7 +5664,7 @@ void WidgetSmokeTest::panelDisplaysPdfPageResults()
 
     PinloomPanel panel(repository);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -5691,7 +5702,7 @@ void WidgetSmokeTest::panelPreservesPdfRegionOpenTarget()
     };
 
     PinloomPanel panel(repository, options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
     QVERIFY(results);
     QVERIFY(openButton);
@@ -5737,7 +5748,7 @@ void WidgetSmokeTest::panelAddsManualAliasAndAnchor()
     QVERIFY(repository.upsertResource(hostResource));
 
     PinloomPanel panel(repository);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *addAliasButton = panel.findChild<QPushButton *>(QStringLiteral("addAliasButton"));
     auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
     QVERIFY(results);
@@ -5847,7 +5858,7 @@ void WidgetSmokeTest::panelPinsSelectedResource()
     };
 
     PinloomPanel panel(repository, options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
     QVERIFY(results);
     QVERIFY(pinButton);
@@ -5903,7 +5914,7 @@ void WidgetSmokeTest::panelSupportsEmbeddedChromeOptions()
     auto *addAnchorButton = panel.findChild<QPushButton *>(QStringLiteral("addAnchorButton"));
     auto *pinButton = panel.findChild<QPushButton *>(QStringLiteral("pinButton"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(addAliasButton);
     QVERIFY(addAnchorButton);
     QVERIFY(pinButton);
@@ -5941,7 +5952,7 @@ void WidgetSmokeTest::panelAppliesRequiredTagLocationAndKindFiltering()
     QVERIFY(repository.upsertResource(generic));
 
     PinloomPanel panel(repository);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
 
     panel.setSearchText(QStringLiteral("UART"));
@@ -6010,7 +6021,7 @@ void WidgetSmokeTest::panelAppliesHostContextSnapshot()
     QVERIFY(repository.upsertResource(web));
 
     PinloomPanel panel(repository);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
 
     PinloomHostContext context;
@@ -6066,7 +6077,7 @@ void WidgetSmokeTest::panelAppliesHostContextRanking()
     QVERIFY(repository.upsertResource(contextual));
 
     PinloomPanel panel(repository);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
 
     panel.setSearchText(QStringLiteral("UART"));
@@ -6140,7 +6151,7 @@ void WidgetSmokeTest::panelExposesCurrentOpenTargetForHostPreview()
     panel.setContextLocationPrefixes({QStringLiteral("E:/workspace/project")});
     panel.setSearchText(QStringLiteral("Dock"));
 
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
     QCOMPARE(results->count(), 1);
     results->setCurrentRow(0);
@@ -6214,7 +6225,7 @@ void WidgetSmokeTest::panelNotifiesHostWhenCurrentOpenTargetChanges()
     PinloomPanel panel(repository, options);
     panel.setSearchText(QStringLiteral("Preview target"));
 
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
     QCOMPARE(results->count(), 1);
 
@@ -6385,7 +6396,7 @@ void WidgetSmokeTest::panelAllowsHostToActivateCurrentOpenTarget()
 
     panel.setSearchText(QStringLiteral("Dock"));
 
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(results);
     QCOMPARE(results->count(), 1);
 
@@ -6483,7 +6494,7 @@ void WidgetSmokeTest::panelAllowsHostToHandleOpenTarget()
     panel.setSearchText(QStringLiteral("Power"));
     QCOMPARE(panel.searchText(), QStringLiteral("Power"));
 
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
     QVERIFY(results);
     QVERIFY(openButton);
@@ -6551,7 +6562,7 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
 
     PinloomPanel panel(repository, options);
     auto *searchEdit = panel.findChild<QLineEdit *>(QStringLiteral("searchEdit"));
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     QVERIFY(searchEdit);
     QVERIFY(results);
 
@@ -6587,7 +6598,7 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
         auto *nameEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorNameEdit"));
         auto *aliasesEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorAliasesEdit"));
         auto *tagsEdit = dialog->findChild<QLineEdit *>(QStringLiteral("anchorTagsEdit"));
-        auto *buttons = dialog->findChild<QDialogButtonBox *>(QStringLiteral("anchorEditButtons"));
+        auto *buttons = dialog->findChild<Pinloom::Ui::DialogButtonBox *>(QStringLiteral("anchorEditButtons"));
         if (!nameEdit || !aliasesEdit || !tagsEdit || !buttons) {
             return;
         }
@@ -8324,7 +8335,7 @@ void WidgetSmokeTest::panelAllowsHostToHandleUrlTarget()
     };
 
     PinloomPanel panel(repository, options);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
     QVERIFY(results);
     QVERIFY(openButton);
@@ -8373,7 +8384,7 @@ void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
     QVERIFY(repository.upsertResource(resource));
 
     PinloomPanel panel(repository);
-    auto *results = panel.findChild<QListWidget *>(QStringLiteral("resultList"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("resultList"));
     auto *openButton = panel.findChild<QPushButton *>(QStringLiteral("openButton"));
     QVERIFY(results);
     QVERIFY(openButton);
@@ -8528,7 +8539,7 @@ void WidgetSmokeTest::sharedAnchorCaptureDialogRequiresExplicitMutationConsent()
         QStringLiteral("anchorCapturePinnedCheck"));
     auto *mutation = dialog.findChild<QCheckBox *>(
         QStringLiteral("anchorCaptureMutationCheck"));
-    auto *buttons = dialog.findChild<QDialogButtonBox *>(
+    auto *buttons = dialog.findChild<Pinloom::Ui::DialogButtonBox *>(
         QStringLiteral("anchorCaptureButtons"));
     QVERIFY(name);
     QVERIFY(aliases);

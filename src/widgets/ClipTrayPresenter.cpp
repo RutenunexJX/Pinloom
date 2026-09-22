@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
 
 #include <QAction>
@@ -113,7 +114,7 @@ QtSystemTrayIconBackend::QtSystemTrayIconBackend(QObject *parent)
 QtSystemTrayIconBackend::QtSystemTrayIconBackend(const QIcon &icon, QObject *parent)
     : ClipTrayBackend(parent)
     , trayIcon_(new QSystemTrayIcon(resolveIcon(icon), this))
-    , menu_(new QMenu())
+    , menu_(Pinloom::Ui::menu())
 {
     menu_->setObjectName(QStringLiteral("clipTrayMenu"));
     trayIcon_->setContextMenu(menu_);

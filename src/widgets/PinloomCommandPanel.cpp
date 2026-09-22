@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
 
 #include "pinloom/core/Version.h"
@@ -23,8 +24,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
-#include <QListWidgetItem>
+#include "pinloom/widgets/PinloomItemViews.h"
+
 #include <QMenu>
 #include <QMimeData>
 #include <QPaintEvent>
@@ -106,7 +107,7 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
     label->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(label, &QLabel::customContextMenuRequested, parent, [label, parent, statusText](const QPoint &pos) {
         const QString status = statusText().trimmed();
-        QMenu menu(parent);
+        std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(parent));        QMenu &menu = *ownedMenu;
         QAction *copyAction = menu.addAction(QObject::tr("Copy status"));
         copyAction->setEnabled(!status.isEmpty());
         QAction *detailsAction = menu.addAction(QObject::tr("Show details"));
@@ -122,12 +123,12 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
             return;
         }
 
-        QDialog dialog(parent);
+        Pinloom::Ui::Dialog dialog(parent);
         dialog.setWindowTitle(QObject::tr("Status Details"));
         auto *layout = new QVBoxLayout(&dialog);
-        auto *text = new QPlainTextEdit(status, &dialog);
+        auto *text = Ui::plainTextEdit(status, &dialog);
         text->setReadOnly(true);
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+        auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
         auto *copyButton = buttons->addButton(QObject::tr("Copy"), QDialogButtonBox::ActionRole);
         layout->addWidget(text);
         layout->addWidget(buttons);
@@ -629,7 +630,7 @@ CommandState parseCommandState(const QString &text)
     return PinloomCommandRegistry::parse(text);
 }
 
-CommandRowAction rowActionForItem(const QListWidgetItem *item)
+CommandRowAction rowActionForItem(const Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         return CommandRowAction::Unknown;
@@ -637,7 +638,7 @@ CommandRowAction rowActionForItem(const QListWidgetItem *item)
     return static_cast<CommandRowAction>(item->data(CommandActionRole).toInt());
 }
 
-ClipSearchResult clipResultForItem(const QListWidgetItem *item)
+ClipSearchResult clipResultForItem(const Pinloom::Ui::ListItem *item)
 {
     ClipSearchResult result;
     const CommandRowAction action = rowActionForItem(item);
@@ -664,7 +665,7 @@ ClipSearchResult clipResultForItem(const QListWidgetItem *item)
     return result;
 }
 
-void storeClipResult(QListWidgetItem *item, const ClipSearchResult &result)
+void storeClipResult(Pinloom::Ui::ListItem *item, const ClipSearchResult &result)
 {
     item->setData(ClipIdRole, result.clipId);
     item->setData(ClipDisplayNameRole, result.displayName);
@@ -682,7 +683,7 @@ void storeClipResult(QListWidgetItem *item, const ClipSearchResult &result)
     item->setData(ClipCreatedAtRole, result.createdAt);
 }
 
-void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
+void storeOpenTarget(Pinloom::Ui::ListItem *item, const PinloomOpenTarget &target)
 {
     if (!item) {
         return;
@@ -730,7 +731,7 @@ void storeOpenTarget(QListWidgetItem *item, const PinloomOpenTarget &target)
     item->setData(TargetAnchorDeletedRole, anchor.deleted);
 }
 
-PinloomOpenTarget openTargetForCommandItem(const QListWidgetItem *item, int row = -1)
+PinloomOpenTarget openTargetForCommandItem(const Pinloom::Ui::ListItem *item, int row = -1)
 {
     PinloomOpenTarget target;
     if (!item) {
@@ -788,7 +789,7 @@ QString commandActionText(const PinloomCommandResultAction &action, const Pinloo
     return QStringLiteral("[Action] %1\n%2").arg(label, detail);
 }
 
-PinloomCommandResultAction resultActionForItem(const QListWidgetItem *item)
+PinloomCommandResultAction resultActionForItem(const Pinloom::Ui::ListItem *item)
 {
     PinloomCommandResultAction action;
     if (!item || rowActionForItem(item) != CommandRowAction::UnifiedTargetAction) {
@@ -802,7 +803,7 @@ PinloomCommandResultAction resultActionForItem(const QListWidgetItem *item)
     return action;
 }
 
-void storeResultAction(QListWidgetItem *item,
+void storeResultAction(Pinloom::Ui::ListItem *item,
                        const PinloomOpenTarget &target,
                        const PinloomCommandResultAction &action)
 {
@@ -834,7 +835,7 @@ bool sameCommandTarget(const PinloomOpenTarget &left, const PinloomOpenTarget &r
     return left.anchor.has_value() == right.anchor.has_value();
 }
 
-bool canExpandResultActions(const QListWidgetItem *item)
+bool canExpandResultActions(const Pinloom::Ui::ListItem *item)
 {
     if (!item || rowActionForItem(item) != CommandRowAction::OpenUnifiedTarget) {
         return false;
@@ -930,7 +931,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     layout->setSpacing(8);
 
     const PinloomVisualMetrics visualMetrics = pinloomVisualMetrics();
-    commandEdit_ = new QLineEdit(this);
+    commandEdit_ = Pinloom::Ui::lineEdit(this);
     commandEdit_->setObjectName(QStringLiteral("commandSearchEdit"));
     commandEdit_->setAccessibleName(tr("Pinloom command and search"));
     commandEdit_->setAccessibleDescription(
@@ -940,7 +941,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     commandEdit_->setAcceptDrops(true);
     commandEdit_->setFixedHeight(visualMetrics.primaryControlHeight);
 
-    versionLabel_ = new QLabel(pinloomVersionLabel(), this);
+    versionLabel_ = Pinloom::Ui::label(pinloomVersionLabel(), this);
     versionLabel_->setObjectName(QStringLiteral("commandVersionLabel"));
     versionLabel_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     versionLabel_->setAlignment(Qt::AlignCenter);
@@ -948,7 +949,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     versionLabel_->setMinimumWidth(versionLabel_->fontMetrics().horizontalAdvance(versionLabel_->text()) + 16);
     versionLabel_->setToolTip(tr("Pinloom %1").arg(pinloomVersionLabel()));
 
-    clipLibraryButton_ = new QToolButton(this);
+    clipLibraryButton_ = Pinloom::Ui::toolButton(this);
     clipLibraryButton_->setObjectName(QStringLiteral("commandClipLibraryButton"));
     clipLibraryButton_->setProperty("pinloomControl", QStringLiteral("icon"));
     clipLibraryButton_->setIcon(style()->standardIcon(QStyle::SP_DirOpenIcon));
@@ -962,12 +963,12 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     auto *quickLayout = new QHBoxLayout(quickActionRow_);
     quickLayout->setContentsMargins(0, 0, 0, 0);
     quickLayout->setSpacing(8);
-    auto *quickLabel = new QLabel(tr("Capture"), quickActionRow_);
+    auto *quickLabel = Pinloom::Ui::label(tr("Capture"), quickActionRow_);
     quickLabel->setObjectName(QStringLiteral("commandQuickActionLabel"));
     quickLabel->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     quickLayout->addWidget(quickLabel);
 
-    rectangleAnchorButton_ = new QToolButton(quickActionRow_);
+    rectangleAnchorButton_ = Pinloom::Ui::toolButton(quickActionRow_);
     rectangleAnchorButton_->setObjectName(QStringLiteral("commandRectangleAnchorButton"));
     rectangleAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
     rectangleAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
@@ -979,7 +980,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
         && commandDispatcher_->hasHandler(CommandAction::AnchorPdfRectangle));
     quickLayout->addWidget(rectangleAnchorButton_);
 
-    textAnchorButton_ = new QToolButton(quickActionRow_);
+    textAnchorButton_ = Pinloom::Ui::toolButton(quickActionRow_);
     textAnchorButton_->setObjectName(QStringLiteral("commandTextAnchorButton"));
     textAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
     textAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
@@ -991,7 +992,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
         && commandDispatcher_->hasHandler(CommandAction::AnchorPdfText));
     quickLayout->addWidget(textAnchorButton_);
 
-    pdfTextClipButton_ = new QToolButton(quickActionRow_);
+    pdfTextClipButton_ = Pinloom::Ui::toolButton(quickActionRow_);
     pdfTextClipButton_->setObjectName(QStringLiteral("commandPdfTextClipButton"));
     pdfTextClipButton_->setProperty("pinloomControl", QStringLiteral("compact"));
     pdfTextClipButton_->setMinimumHeight(visualMetrics.compactControlHeight);
@@ -1004,7 +1005,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     quickLayout->addWidget(pdfTextClipButton_);
     quickLayout->addStretch(1);
 
-    resultList_ = new QListWidget(this);
+    resultList_ = new Pinloom::Ui::List(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
     resultList_->setProperty("pinloomRole", QStringLiteral("raised"));
     resultList_->setAccessibleName(tr("Pinloom command and search results"));
@@ -1015,7 +1016,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     resultList_->setAcceptDrops(true);
 
-    statusLabel_ = new QLabel(this);
+    statusLabel_ = Pinloom::Ui::label(this);
     statusLabel_->setObjectName(QStringLiteral("commandStatusLabel"));
     statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Pinloom command status"));
@@ -1028,6 +1029,28 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     inputRow->setContentsMargins(0, 0, 0, 0);
     inputRow->setSpacing(8);
     inputRow->addWidget(commandEdit_, 1);
+    auto *navigation = Ui::toolButton(this);
+    navigation->setObjectName(QStringLiteral("commandNavigationButton"));
+    navigation->setText(tr("Navigate"));
+    navigation->setAccessibleName(tr("Navigate Pinloom"));
+    navigation->setToolTip(tr("Choose a search namespace"));
+    navigation->setPopupMode(QToolButton::InstantPopup);
+    navigation->setToolButtonStyle(Qt::ToolButtonTextOnly);
+    auto *navigationMenu = Ui::menu(navigation);
+    navigationMenu->setObjectName(QStringLiteral("commandNavigationMenu"));
+    const QList<QPair<QString, QString>> destinations = {
+        {tr("All items"), QString()}, {tr("Anchor"), QStringLiteral("anchor ")},
+        {tr("Clip"), QStringLiteral("clip ")}, {tr("Inbox"), QStringLiteral("inbox ")},
+        {tr("Library"), QStringLiteral("library ")}, {tr("Roots"), QStringLiteral("root ")}};
+    for (const auto &destination : destinations) {
+        auto *action = navigationMenu->addAction(destination.first);
+        connect(action, &QAction::triggered, this, [this, destination] {
+            setCommandText(destination.second);
+            focusCommand();
+        });
+    }
+    Ui::installNavigation(navigation, navigationMenu);
+    inputRow->addWidget(navigation);
     inputRow->addWidget(versionLabel_);
     inputRow->addWidget(clipLibraryButton_);
     layout->addLayout(inputRow);
@@ -1053,8 +1076,8 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
             &QToolButton::clicked,
             this,
             &PinloomCommandPanel::triggerPdfTextClipCapture);
-    connect(resultList_, &QListWidget::itemActivated, this, &PinloomCommandPanel::activateResultItem);
-    connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
+    connect(resultList_, &Pinloom::Ui::List::itemActivated, this, &PinloomCommandPanel::activateResultItem);
+    connect(resultList_, &Pinloom::Ui::List::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
 
     QWidget::setTabOrder(commandEdit_, rectangleAnchorButton_);
     QWidget::setTabOrder(rectangleAnchorButton_, textAnchorButton_);
@@ -1209,7 +1232,7 @@ bool PinloomCommandPanel::selectPreviousResult()
 
 bool PinloomCommandPanel::activateCurrentCommandItem()
 {
-    QListWidgetItem *item = resultList_->currentItem();
+    Pinloom::Ui::ListItem *item = resultList_->currentItem();
     if (!item && resultList_->count() > 0) {
         resultList_->setCurrentRow(0);
         item = resultList_->currentItem();
@@ -1252,7 +1275,7 @@ bool PinloomCommandPanel::activateCurrentCommandItem()
 
 bool PinloomCommandPanel::showActionsForCurrentResult()
 {
-    QListWidgetItem *item = resultList_->currentItem();
+    Pinloom::Ui::ListItem *item = resultList_->currentItem();
     if (!item && resultList_->count() > 0) {
         resultList_->setCurrentRow(0);
         item = resultList_->currentItem();
@@ -1429,7 +1452,7 @@ void PinloomCommandPanel::refreshResults()
                                             const QString &title,
                                             const QString &verb,
                                             const QString &detail) {
-        auto *item = new QListWidgetItem(QStringLiteral("[Command] %1 -> %2\n%3").arg(title, verb, detail),
+        auto *item = new Pinloom::Ui::ListItem(QStringLiteral("[Command] %1 -> %2\n%3").arg(title, verb, detail),
                                          resultList_);
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setData(CommandActionRole, static_cast<int>(action));
@@ -1448,7 +1471,7 @@ void PinloomCommandPanel::refreshResults()
             }
             listedClipIds.append(result.clipId);
 
-            auto *item = new QListWidgetItem(clipResultText(result, actionText), resultList_);
+            auto *item = new Pinloom::Ui::ListItem(clipResultText(result, actionText), resultList_);
             item->setToolTip(clipToolTip(result));
             item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
             item->setData(CommandActionRole, static_cast<int>(action));
@@ -1457,7 +1480,7 @@ void PinloomCommandPanel::refreshResults()
     };
     const auto appendUnifiedResults = [this](const QList<PinloomOpenTarget> &targets) {
         for (const PinloomOpenTarget &target : targets) {
-            auto *item = new QListWidgetItem(commandTargetText(target), resultList_);
+            auto *item = new Pinloom::Ui::ListItem(commandTargetText(target), resultList_);
             item->setToolTip(commandTargetToolTip(target));
             item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
             item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenUnifiedTarget));
@@ -1743,7 +1766,7 @@ void PinloomCommandPanel::refreshResults()
     }
 }
 
-void PinloomCommandPanel::activateResultItem(QListWidgetItem *item)
+void PinloomCommandPanel::activateResultItem(Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         return;
@@ -1778,7 +1801,7 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
     const QString focus = tokens.focus.name(QColor::HexRgb);
     const QString selectionText = tokens.selectionText.name(QColor::HexRgb);
     const QString selection = tokens.selection.name(QColor::HexRgb);
-    setStyleSheet(QStringLiteral(
+    setStyleSheet(Ui::scopedStyleSheet(QStringLiteral(
         "QWidget#pinloomCommandPanel { color: %2; }"
         "QLineEdit#commandSearchEdit {"
         "  background-color: %3;"
@@ -1823,7 +1846,7 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
         "  font-size: 11px;"
         "  padding: 0 2px;"
         "}"
-        "QListWidget#commandResultList {"
+        "QListView#commandResultList {"
         "  background-color: %3;"
         "  alternate-background-color: %11;"
         "  border: 1px solid %4;"
@@ -1831,12 +1854,12 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
         "  color: %2;"
         "  outline: 0;"
         "}"
-        "QListWidget#commandResultList::item {"
+        "QListView#commandResultList::item {"
         "  border-bottom: 1px solid %4;"
         "  padding: 8px;"
         "}"
-        "QListWidget#commandResultList::item:hover { background-color: %7; }"
-        "QListWidget#commandResultList::item:selected {"
+        "QListView#commandResultList::item:hover { background-color: %7; }"
+        "QListView#commandResultList::item:selected {"
         "  background-color: %12;"
         "  color: %5;"
         "}"
@@ -1859,7 +1882,7 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
           disabledSurface,
           alternate,
           selection,
-          raised));
+          raised)));
     update();
 }
 
@@ -1906,8 +1929,10 @@ void PinloomCommandPanel::updatePresentation()
 
     QWidget *host = window();
     if (host && host != this) {
-        host->setFixedHeight(preferredWindowHeight_);
-        host->resize(std::max(host->width(), host->minimumWidth()), preferredWindowHeight_);
+        const auto hostMargins = host->contentsMargins();
+        const int hostHeight = preferredWindowHeight_ + hostMargins.top() + hostMargins.bottom();
+        host->setFixedHeight(hostHeight);
+        host->resize(std::max(host->width(), host->minimumWidth()), hostHeight);
     } else if (height() != preferredWindowHeight_) {
         resize(width(), preferredWindowHeight_);
     }
@@ -1929,7 +1954,7 @@ void PinloomCommandPanel::updateStatus(const QString &status)
     updatePresentation();
 }
 
-bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
+bool PinloomCommandPanel::activateCommandItem(Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         updateStatus(tr("Unknown command"));
@@ -1972,7 +1997,7 @@ bool PinloomCommandPanel::activateCommandItem(QListWidgetItem *item)
     return false;
 }
 
-bool PinloomCommandPanel::insertClipFromItem(const QListWidgetItem *item)
+bool PinloomCommandPanel::insertClipFromItem(const Pinloom::Ui::ListItem *item)
 {
     const ClipSearchResult result = clipResultForItem(item);
     if (result.clipId.trimmed().isEmpty()) {
@@ -1999,7 +2024,7 @@ bool PinloomCommandPanel::insertClipFromItem(const QListWidgetItem *item)
     return true;
 }
 
-bool PinloomCommandPanel::activateUnifiedTargetFromItem(const QListWidgetItem *item)
+bool PinloomCommandPanel::activateUnifiedTargetFromItem(const Pinloom::Ui::ListItem *item)
 {
     const PinloomOpenTarget target =
         openTargetForCommandItem(item, item ? resultList_->row(item) : -1);
@@ -2118,7 +2143,7 @@ void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target,
     resultList_->clear();
 
     for (const PinloomCommandResultAction &action : actions) {
-        auto *item = new QListWidgetItem(commandActionText(action, target), resultList_);
+        auto *item = new Pinloom::Ui::ListItem(commandActionText(action, target), resultList_);
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setToolTip(action.disabledReason.trimmed().isEmpty()
                              ? action.detail
@@ -2132,7 +2157,7 @@ void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target,
     updateStatus(tr("Actions for %1; Enter runs, Esc/Left returns").arg(commandTargetTitle(target)));
 }
 
-bool PinloomCommandPanel::activateResultActionFromItem(const QListWidgetItem *item)
+bool PinloomCommandPanel::activateResultActionFromItem(const Pinloom::Ui::ListItem *item)
 {
     const PinloomCommandResultAction action = resultActionForItem(item);
     const PinloomOpenTarget target =
@@ -2187,7 +2212,7 @@ bool PinloomCommandPanel::restoreResultSelection(const PinloomOpenTarget &target
     return false;
 }
 
-bool PinloomCommandPanel::saveClipFromItem(const QListWidgetItem *item)
+bool PinloomCommandPanel::saveClipFromItem(const Pinloom::Ui::ListItem *item)
 {
     const ClipSearchResult result = clipResultForItem(item);
     if (result.clipId.trimmed().isEmpty()) {
@@ -2383,19 +2408,19 @@ bool PinloomCommandPanel::saveInboxFromCommand()
 
 std::optional<PinloomClipSaveRequest> PinloomCommandPanel::promptClipSaveRequest(const ClipSearchResult &result)
 {
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(tr("Save Clip"));
-    auto *form = new QFormLayout(&dialog);
-    auto *nameEdit = new QLineEdit(result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
+    auto *form = new Pinloom::Ui::FormLayout(&dialog);
+    auto *nameEdit = Pinloom::Ui::lineEdit(result.displayName.trimmed().isEmpty() ? result.preview : result.displayName,
                                    &dialog);
     nameEdit->setObjectName(QStringLiteral("commandClipSaveNameEdit"));
-    auto *aliasesEdit = new QLineEdit(&dialog);
+    auto *aliasesEdit = Pinloom::Ui::lineEdit(&dialog);
     aliasesEdit->setObjectName(QStringLiteral("commandClipSaveAliasesEdit"));
-    auto *tagsEdit = new QLineEdit(&dialog);
+    auto *tagsEdit = Pinloom::Ui::lineEdit(&dialog);
     tagsEdit->setObjectName(QStringLiteral("commandClipSaveTagsEdit"));
-    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    auto *pinnedCheck = Pinloom::Ui::checkBox(tr("Pinned"), &dialog);
     pinnedCheck->setObjectName(QStringLiteral("commandClipSavePinnedCheck"));
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->setObjectName(QStringLiteral("commandClipSaveButtons"));
 
     form->addRow(tr("Name"), nameEdit);
@@ -2424,19 +2449,19 @@ std::optional<InboxFileSaveRequest> PinloomCommandPanel::promptInboxSaveRequest(
 {
     const QFileInfo itemInfo(filePath);
     const bool folder = itemInfo.isDir();
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(folder ? tr("Add Folder") : tr("Save File"));
     dialog.setMinimumWidth(520);
-    auto *form = new QFormLayout(&dialog);
-    auto *locationLabel = new QLabel(QDir::toNativeSeparators(itemInfo.absoluteFilePath()), &dialog);
+    auto *form = new Pinloom::Ui::FormLayout(&dialog);
+    auto *locationLabel = Pinloom::Ui::label(QDir::toNativeSeparators(itemInfo.absoluteFilePath()), &dialog);
     locationLabel->setObjectName(QStringLiteral("commandInboxSaveLocationLabel"));
     locationLabel->setWordWrap(true);
     locationLabel->setTextInteractionFlags(Qt::TextSelectableByMouse);
-    auto *nameEdit = new QLineEdit(defaultInboxFileName(filePath), &dialog);
+    auto *nameEdit = Pinloom::Ui::lineEdit(defaultInboxFileName(filePath), &dialog);
     nameEdit->setObjectName(QStringLiteral("commandInboxSaveNameEdit"));
-    auto *aliasesEdit = new QLineEdit(&dialog);
+    auto *aliasesEdit = Pinloom::Ui::lineEdit(&dialog);
     aliasesEdit->setObjectName(QStringLiteral("commandInboxSaveAliasesEdit"));
-    auto *tagsEdit = new QLineEdit(&dialog);
+    auto *tagsEdit = Pinloom::Ui::lineEdit(&dialog);
     tagsEdit->setObjectName(QStringLiteral("commandInboxSaveTagsEdit"));
     tagsEdit->setPlaceholderText(tr("Comma-separated tags"));
     if (options_.inboxTagProvider) {
@@ -2445,7 +2470,7 @@ std::optional<InboxFileSaveRequest> PinloomCommandPanel::promptInboxSaveRequest(
             tagsEdit->setToolTip(tr("Existing tags: %1").arg(availableTags.join(QStringLiteral(", "))));
         }
     }
-    auto *modeCombo = new QComboBox(&dialog);
+    auto *modeCombo = Pinloom::Ui::comboBox(&dialog);
     modeCombo->setObjectName(QStringLiteral("commandInboxSaveModeCombo"));
     if (folder) {
         modeCombo->addItem(tr("Tag this folder only"), false);
@@ -2454,9 +2479,9 @@ std::optional<InboxFileSaveRequest> PinloomCommandPanel::promptInboxSaveRequest(
         modeCombo->addItem(tr("Keep in original location"), static_cast<int>(InboxFileArchiveMode::Link));
         modeCombo->addItem(tr("Copy into the Pinloom library"), static_cast<int>(InboxFileArchiveMode::Copy));
     }
-    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    auto *pinnedCheck = Pinloom::Ui::checkBox(tr("Pinned"), &dialog);
     pinnedCheck->setObjectName(QStringLiteral("commandInboxSavePinnedCheck"));
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->setObjectName(QStringLiteral("commandInboxSaveButtons"));
 
     form->addRow(tr("Location"), locationLabel);
@@ -2551,9 +2576,11 @@ bool PinloomCommandPanel::handleInboxDrop(QEvent *event)
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel)
 {
-    commandWindow.setFixedHeight(panel.preferredWindowHeight());
+    const auto margins = commandWindow.contentsMargins();
+    const int hostHeight = panel.preferredWindowHeight() + margins.top() + margins.bottom();
+    commandWindow.setFixedHeight(hostHeight);
     commandWindow.resize(std::max(commandWindow.width(), commandWindow.minimumWidth()),
-                         panel.preferredWindowHeight());
+                         hostHeight);
     if (commandWindow.isMinimized()) {
         commandWindow.showNormal();
     } else {

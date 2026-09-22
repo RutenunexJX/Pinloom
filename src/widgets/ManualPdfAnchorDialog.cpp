@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 
 #include <QCheckBox>
@@ -9,7 +10,10 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QScreen>
+#include <QScrollArea>
 #include <QSpinBox>
+#include <QVBoxLayout>
 
 namespace Pinloom {
 
@@ -35,83 +39,94 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(QWidget *parent)
 }
 
 ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationRequest &initialRequest, QWidget *parent)
-    : QDialog(parent)
+    : Ui::Dialog(parent)
 {
     setObjectName(QStringLiteral("manualPdfAnchorDialog"));
     setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Capture PDF Anchor"));
 
-    auto *form = new QFormLayout(this);
+    auto *root = new QVBoxLayout(this);
+    auto *scroll = Ui::scrollArea(this);
+    scroll->setObjectName(QStringLiteral("manualPdfAnchorScrollArea"));
+    scroll->setFrameShape(QFrame::NoFrame);
+    scroll->setWidgetResizable(true);
+    auto *content = new QWidget(scroll);
+    content->setProperty("pinloomRole", QStringLiteral("canvas"));
+    auto *form = new Pinloom::Ui::FormLayout(content);
+    form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    scroll->setWidget(content);
+    root->addWidget(scroll, 1);
 
-    nameEdit_ = new QLineEdit(this);
+    nameEdit_ = Pinloom::Ui::lineEdit(this);
     nameEdit_->setObjectName(QStringLiteral("manualPdfAnchorNameEdit"));
     nameEdit_->setAccessibleName(tr("Anchor name"));
 
-    summaryLabel_ = new QLabel(this);
+    summaryLabel_ = Pinloom::Ui::label(this);
     summaryLabel_->setObjectName(QStringLiteral("manualPdfAnchorSummaryLabel"));
     summaryLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     summaryLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     summaryLabel_->setAccessibleName(tr("Captured PDF locator summary"));
     summaryLabel_->setWordWrap(true);
 
-    advancedToggleButton_ = new QPushButton(tr("Advanced locator fallback"), this);
+    advancedToggleButton_ = Pinloom::Ui::pushButton(tr("Advanced locator fallback"), this);
     advancedToggleButton_->setObjectName(QStringLiteral("manualPdfAnchorAdvancedToggleButton"));
     advancedToggleButton_->setCheckable(true);
 
     advancedWidget_ = new QWidget(this);
     advancedWidget_->setObjectName(QStringLiteral("manualPdfAnchorAdvancedWidget"));
-    advancedWidget_->setProperty("pinloomRole", QStringLiteral("panel"));
-    auto *advancedForm = new QFormLayout(advancedWidget_);
-    advancedForm->setContentsMargins(0, 0, 0, 0);
+    auto *advancedForm = new Pinloom::Ui::FormLayout(advancedWidget_);
+    advancedForm->setContentsMargins(12, 12, 12, 12);
+    advancedForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
 
-    fileEdit_ = new QLineEdit(this);
+    fileEdit_ = Pinloom::Ui::lineEdit(this);
     fileEdit_->setObjectName(QStringLiteral("manualPdfAnchorFileEdit"));
     fileEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     fileEdit_->setAccessibleName(tr("PDF file"));
-    auto *browseButton = new QPushButton(tr("Browse"), this);
+    auto *browseButton = Pinloom::Ui::pushButton(tr("Browse"), this);
     browseButton->setObjectName(QStringLiteral("manualPdfAnchorBrowseButton"));
     auto *fileLayout = new QHBoxLayout();
     fileLayout->setContentsMargins(0, 0, 0, 0);
     fileLayout->addWidget(fileEdit_, 1);
     fileLayout->addWidget(browseButton);
 
-    pageSpin_ = new QSpinBox(this);
+    pageSpin_ = Pinloom::Ui::spinBox(this);
     pageSpin_->setObjectName(QStringLiteral("manualPdfAnchorPageSpin"));
     pageSpin_->setRange(1, 1000000000);
     pageSpin_->setValue(1);
 
-    leftSpin_ = new QDoubleSpinBox(this);
+    leftSpin_ = Pinloom::Ui::doubleSpinBox(this);
     leftSpin_->setObjectName(QStringLiteral("manualPdfAnchorLeftSpin"));
     configureCoordinateSpin(leftSpin_);
-    topSpin_ = new QDoubleSpinBox(this);
+    topSpin_ = Pinloom::Ui::doubleSpinBox(this);
     topSpin_->setObjectName(QStringLiteral("manualPdfAnchorTopSpin"));
     configureCoordinateSpin(topSpin_);
-    rightSpin_ = new QDoubleSpinBox(this);
+    rightSpin_ = Pinloom::Ui::doubleSpinBox(this);
     rightSpin_->setObjectName(QStringLiteral("manualPdfAnchorRightSpin"));
     configureCoordinateSpin(rightSpin_);
     rightSpin_->setValue(100.0);
-    bottomSpin_ = new QDoubleSpinBox(this);
+    bottomSpin_ = Pinloom::Ui::doubleSpinBox(this);
     bottomSpin_->setObjectName(QStringLiteral("manualPdfAnchorBottomSpin"));
     configureCoordinateSpin(bottomSpin_);
     bottomSpin_->setValue(100.0);
 
-    zoomSpin_ = new QDoubleSpinBox(this);
+    zoomSpin_ = Pinloom::Ui::doubleSpinBox(this);
     zoomSpin_->setObjectName(QStringLiteral("manualPdfAnchorZoomSpin"));
     zoomSpin_->setRange(0.0, 10000.0);
     zoomSpin_->setDecimals(2);
     zoomSpin_->setSingleStep(25.0);
     zoomSpin_->setValue(100.0);
 
-    aliasesEdit_ = new QLineEdit(this);
+    aliasesEdit_ = Pinloom::Ui::lineEdit(this);
     aliasesEdit_->setObjectName(QStringLiteral("manualPdfAnchorAliasesEdit"));
     aliasesEdit_->setAccessibleName(tr("Anchor aliases"));
-    tagsEdit_ = new QLineEdit(this);
+    tagsEdit_ = Pinloom::Ui::lineEdit(this);
     tagsEdit_->setObjectName(QStringLiteral("manualPdfAnchorTagsEdit"));
     tagsEdit_->setAccessibleName(tr("Anchor tags"));
-    pinnedCheck_ = new QCheckBox(tr("Pinned"), this);
+    pinnedCheck_ = Pinloom::Ui::checkBox(tr("Pinned"), this);
     pinnedCheck_->setObjectName(QStringLiteral("manualPdfAnchorPinnedCheck"));
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("manualPdfAnchorButtons"));
     buttons->button(QDialogButtonBox::Ok)->setProperty(
         "pinloomControl", QStringLiteral("primary"));
@@ -121,7 +136,6 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationReques
     form->addRow(tr("Aliases"), aliasesEdit_);
     form->addRow(tr("Tags"), tagsEdit_);
     form->addRow(QString(), pinnedCheck_);
-    form->addWidget(advancedToggleButton_);
     advancedForm->addRow(tr("PDF file"), fileLayout);
     advancedForm->addRow(tr("Page"), pageSpin_);
     advancedForm->addRow(tr("Left"), leftSpin_);
@@ -129,12 +143,13 @@ ManualPdfAnchorDialog::ManualPdfAnchorDialog(const ManualPdfAnchorCreationReques
     advancedForm->addRow(tr("Right"), rightSpin_);
     advancedForm->addRow(tr("Bottom"), bottomSpin_);
     advancedForm->addRow(tr("Zoom"), zoomSpin_);
-    form->addWidget(advancedWidget_);
-    form->addWidget(buttons);
-    advancedWidget_->setVisible(false);
+    auto *advancedSection = Ui::collapsibleSection(advancedToggleButton_, advancedWidget_, this);
+    advancedSection->setObjectName(QStringLiteral("manualPdfAnchorAdvancedSection"));
+    form->addRow(advancedSection);
+    root->addWidget(buttons);
+    resize(QSize(640, 480).boundedTo(screen()->availableGeometry().size() - QSize(48, 48)));
 
     connect(browseButton, &QPushButton::clicked, this, &ManualPdfAnchorDialog::browsePdfFile);
-    connect(advancedToggleButton_, &QPushButton::toggled, advancedWidget_, &QWidget::setVisible);
     connect(fileEdit_, &QLineEdit::textChanged, this, &ManualPdfAnchorDialog::updateSummary);
     connect(pageSpin_, &QSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);
     connect(leftSpin_, &QDoubleSpinBox::valueChanged, this, &ManualPdfAnchorDialog::updateSummary);

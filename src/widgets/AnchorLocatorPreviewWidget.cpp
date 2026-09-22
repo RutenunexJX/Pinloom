@@ -201,6 +201,13 @@ void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
                          errorMessage_);
         return;
     }
+    if (anchor_.locatorType.trimmed().isEmpty()) {
+        const auto tokens = pinloomVisualTokens(activePinloomVisualScheme());
+        painter.fillRect(rect(), tokens.panel);
+        painter.setPen(tokens.mutedText);
+        painter.drawText(content, Qt::AlignCenter, tr("No locator selected"));
+        return;
+    }
 
     const PdfLocatorGeometry geometry = pdfLocatorGeometry(anchor_);
     const QSizeF pageSize(612.0, 792.0);
@@ -233,10 +240,6 @@ void AnchorLocatorPreviewWidget::paintEvent(QPaintEvent *event)
     painter.drawText(pageRect.adjusted(8, 6, -8, -6),
                      Qt::AlignTop | Qt::AlignRight,
                      pageLabel);
-    if (anchor_.locatorType.trimmed().isEmpty()) {
-        painter.setPen(palette().color(QPalette::PlaceholderText));
-        painter.drawText(pageRect, Qt::AlignCenter, tr("No locator selected"));
-    }
 }
 
 void AnchorLocatorPreviewWidget::closeExpandedPreview()

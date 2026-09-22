@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/LibraryRootWindow.h"
 
 #include "pinloom/core/InboxFileCapture.h"
@@ -26,8 +27,8 @@
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QStyle>
-#include <QTableWidget>
-#include <QTableWidgetItem>
+#include "pinloom/widgets/PinloomItemViews.h"
+
 #include <QToolButton>
 #include <QTreeView>
 #include <QUrl>
@@ -104,7 +105,7 @@ bool samePath(const QString &left, const QString &right)
 } // namespace
 
 LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *parent)
-    : QMainWindow(parent)
+    : Ui::MainWindow(parent)
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("libraryRootWindow"));
@@ -120,23 +121,23 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     layout->setSpacing(8);
 
     auto *toolbar = new QHBoxLayout;
-    auto *addButton = new QToolButton(central);
+    auto *addButton = Pinloom::Ui::toolButton(central);
     addButton->setObjectName(QStringLiteral("libraryRootAddButton"));
     addButton->setProperty("pinloomControl", QStringLiteral("compact"));
     addButton->setIcon(style()->standardIcon(QStyle::SP_DirIcon));
     addButton->setText(tr("Add root"));
     addButton->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
     addButton->setToolTip(tr("Register a root directory"));
-    removeRootButton_ = new QPushButton(style()->standardIcon(QStyle::SP_TrashIcon),
+    removeRootButton_ = Pinloom::Ui::pushButton(style()->standardIcon(QStyle::SP_TrashIcon),
                                         tr("Remove root"),
                                         central);
     removeRootButton_->setObjectName(QStringLiteral("libraryRootRemoveButton"));
     removeRootButton_->setProperty("accent", QStringLiteral("destructive"));
-    auto *openButton = new QPushButton(style()->standardIcon(QStyle::SP_DialogOpenButton),
+    auto *openButton = Pinloom::Ui::pushButton(style()->standardIcon(QStyle::SP_DialogOpenButton),
                                        tr("Open"),
                                        central);
     openButton->setObjectName(QStringLiteral("libraryRootOpenButton"));
-    auto *refreshButton = new QToolButton(central);
+    auto *refreshButton = Pinloom::Ui::toolButton(central);
     refreshButton->setObjectName(QStringLiteral("libraryRootRefreshButton"));
     refreshButton->setProperty("pinloomControl", QStringLiteral("icon"));
     refreshButton->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
@@ -151,7 +152,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
 
     auto *splitter = new QSplitter(Qt::Horizontal, central);
     splitter->setObjectName(QStringLiteral("libraryRootSplitter"));
-    rootTable_ = new QTableWidget(splitter);
+    rootTable_ = new Pinloom::Ui::Table(splitter);
     rootTable_->setObjectName(QStringLiteral("libraryRootTable"));
     rootTable_->setAccessibleName(tr("Registered Pinloom roots"));
     rootTable_->setColumnCount(4);
@@ -170,7 +171,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     auto *browserLayout = new QVBoxLayout(browser);
     browserLayout->setContentsMargins(0, 0, 0, 0);
     browserLayout->setSpacing(8);
-    searchEdit_ = new QLineEdit(browser);
+    searchEdit_ = Pinloom::Ui::lineEdit(browser);
     searchEdit_->setObjectName(QStringLiteral("libraryRootSearchEdit"));
     searchEdit_->setAccessibleName(tr("Filter current root"));
     searchEdit_->setPlaceholderText(tr("Filter the current root by file or folder name"));
@@ -182,7 +183,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     fileModel_->setReadOnly(true);
     filterModel_ = new RootFileFilterProxy(this);
     filterModel_->setSourceModel(fileModel_);
-    tree_ = new QTreeView(browser);
+    tree_ = Pinloom::Ui::treeView(browser);
     tree_->setObjectName(QStringLiteral("libraryRootFileTree"));
     tree_->setAccessibleName(tr("Files and folders in current root"));
     tree_->setModel(filterModel_);
@@ -202,30 +203,30 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     auto *metadataLayout = new QVBoxLayout(metadata);
     metadataLayout->setContentsMargins(12, 0, 0, 0);
     metadataLayout->setSpacing(8);
-    auto *metadataTitle = new QLabel(tr("Selected item"), metadata);
+    auto *metadataTitle = Pinloom::Ui::label(tr("Selected item"), metadata);
     metadataTitle->setObjectName(QStringLiteral("libraryRootMetadataTitle"));
     metadataTitle->setProperty("pinloomTextRole", QStringLiteral("panelTitle"));
-    pathLabel_ = new QLabel(metadata);
+    pathLabel_ = Pinloom::Ui::label(metadata);
     pathLabel_->setObjectName(QStringLiteral("libraryRootSelectedPath"));
     pathLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     pathLabel_->setWordWrap(true);
     pathLabel_->setTextInteractionFlags(Qt::TextSelectableByMouse);
     metadataLayout->addWidget(metadataTitle);
     metadataLayout->addWidget(pathLabel_);
-    auto *form = new QFormLayout;
-    nameEdit_ = new QLineEdit(metadata);
+    auto *form = new Pinloom::Ui::FormLayout;
+    nameEdit_ = Pinloom::Ui::lineEdit(metadata);
     nameEdit_->setObjectName(QStringLiteral("libraryRootNameEdit"));
-    aliasesEdit_ = new QLineEdit(metadata);
+    aliasesEdit_ = Pinloom::Ui::lineEdit(metadata);
     aliasesEdit_->setObjectName(QStringLiteral("libraryRootAliasesEdit"));
     aliasesEdit_->setPlaceholderText(tr("Comma-separated aliases"));
-    tagsEdit_ = new QLineEdit(metadata);
+    tagsEdit_ = Pinloom::Ui::lineEdit(metadata);
     tagsEdit_->setObjectName(QStringLiteral("libraryRootTagsEdit"));
     tagsEdit_->setPlaceholderText(tr("Comma-separated tags"));
     form->addRow(tr("Name"), nameEdit_);
     form->addRow(tr("Aliases"), aliasesEdit_);
     form->addRow(tr("Tags"), tagsEdit_);
     metadataLayout->addLayout(form);
-    saveButton_ = new QPushButton(style()->standardIcon(QStyle::SP_DialogSaveButton),
+    saveButton_ = Pinloom::Ui::pushButton(style()->standardIcon(QStyle::SP_DialogSaveButton),
                                   tr("Save metadata"),
                                   metadata);
     saveButton_->setObjectName(QStringLiteral("libraryRootSaveButton"));
@@ -240,7 +241,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     splitter->setStretchFactor(1, 1);
     layout->addWidget(splitter, 1);
 
-    statusLabel_ = new QLabel(central);
+    statusLabel_ = Pinloom::Ui::label(central);
     statusLabel_->setObjectName(QStringLiteral("libraryRootStatusLabel"));
     statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Root Library status"));
@@ -253,7 +254,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     connect(openButton, &QPushButton::clicked, this, &LibraryRootWindow::openSelectedPath);
     connect(refreshButton, &QToolButton::clicked, this, &LibraryRootWindow::refresh);
     connect(saveButton_, &QPushButton::clicked, this, &LibraryRootWindow::saveSelectedMetadata);
-    connect(rootTable_, &QTableWidget::currentCellChanged, this, [this]() { activateSelectedRoot(); });
+    connect(rootTable_, &Pinloom::Ui::Table::currentCellChanged, this, [this]() { activateSelectedRoot(); });
     connect(tree_->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this]() { updateSelectedFilesystemPath(); });
     connect(tree_, &QTreeView::doubleClicked, this, [this]() { openSelectedPath(); });
@@ -430,14 +431,14 @@ void LibraryRootWindow::refreshRootTable(const QString &preferredRootId)
 {
     rootTable_->setRowCount(0);
     if (!options_.repository) {
-        setStatus(tr("Root repository is unavailable"));
+        setStatus(tr("Root repository is unavailable"), false);
         return;
     }
     const QList<LibraryRoot> roots = options_.repository->libraryRoots();
     for (const LibraryRoot &root : roots) {
         const int row = rootTable_->rowCount();
         rootTable_->insertRow(row);
-        auto *name = new QTableWidgetItem(root.displayName);
+        auto *name = new Pinloom::Ui::TableItem(root.displayName);
         name->setData(RootIdRole, root.id);
         name->setData(RootSyncRole, root.syncRoot);
         if (root.syncRoot) {
@@ -446,14 +447,14 @@ void LibraryRootWindow::refreshRootTable(const QString &preferredRootId)
             name->setFont(font);
             name->setToolTip(tr("Default synchronized root"));
         }
-        auto *location = new QTableWidgetItem(QDir::toNativeSeparators(root.path));
+        auto *location = new Pinloom::Ui::TableItem(QDir::toNativeSeparators(root.path));
         const std::optional<Resource> metadata =
             options_.repository->findResource(inboxResourceIdForPath(root.path));
-        auto *tags = new QTableWidgetItem(metadata.has_value()
+        auto *tags = new Pinloom::Ui::TableItem(metadata.has_value()
                                               ? metadata->tags.join(QStringLiteral(", "))
                                               : QString());
         const QFileInfo info(root.path);
-        auto *state = new QTableWidgetItem(info.isDir()
+        auto *state = new Pinloom::Ui::TableItem(info.isDir()
                                                ? (root.syncRoot ? tr("Sync root") : tr("Available"))
                                                : tr("Missing"));
         rootTable_->setItem(row, 0, name);
@@ -482,7 +483,7 @@ void LibraryRootWindow::activateSelectedRoot()
         tree_->setRootIndex({});
         selectedPath_.clear();
         loadMetadata({});
-        setStatus(tr("No root directories registered"));
+        setStatus(tr("No root directories registered"), false);
         return;
     }
     static_cast<RootFileFilterProxy *>(filterModel_)->setLibraryRoot(root.value());
@@ -493,7 +494,7 @@ void LibraryRootWindow::activateSelectedRoot()
     setStatus(QFileInfo(root->path).isDir()
                   ? tr("Browsing %1").arg(QDir::toNativeSeparators(root->path))
                   : tr("Root directory is currently unavailable: %1")
-                        .arg(QDir::toNativeSeparators(root->path)));
+                        .arg(QDir::toNativeSeparators(root->path)), false);
 }
 
 void LibraryRootWindow::updateSelectedFilesystemPath()
@@ -534,16 +535,16 @@ void LibraryRootWindow::loadMetadata(const QString &path)
     saveButton_->setEnabled(available);
 }
 
-void LibraryRootWindow::setStatus(const QString &status)
+void LibraryRootWindow::setStatus(const QString &status, bool notify)
 {
     statusText_ = status.trimmed();
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_, notify);
 }
 
 QString LibraryRootWindow::selectedRootId() const
 {
     const int row = rootTable_ ? rootTable_->currentRow() : -1;
-    const QTableWidgetItem *item = row >= 0 ? rootTable_->item(row, 0) : nullptr;
+    const Pinloom::Ui::TableItem *item = row >= 0 ? rootTable_->item(row, 0) : nullptr;
     return item ? item->data(RootIdRole).toString() : QString();
 }
 

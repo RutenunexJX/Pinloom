@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomPanel.h"
 
 #include "pinloom/widgets/SumatraPdfViewerAdapter.h"
@@ -27,8 +28,8 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
-#include <QListWidgetItem>
+#include "pinloom/widgets/PinloomItemViews.h"
+
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -73,7 +74,7 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
     label->setContextMenuPolicy(Qt::CustomContextMenu);
     QObject::connect(label, &QLabel::customContextMenuRequested, parent, [label, parent, statusText](const QPoint &pos) {
         const QString status = statusText().trimmed();
-        QMenu menu(parent);
+        std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(parent));        QMenu &menu = *ownedMenu;
         QAction *copyAction = menu.addAction(QObject::tr("Copy status"));
         copyAction->setEnabled(!status.isEmpty());
         QAction *detailsAction = menu.addAction(QObject::tr("Show details"));
@@ -89,12 +90,12 @@ void installStatusContextMenu(QLabel *label, QWidget *parent, const std::functio
             return;
         }
 
-        QDialog dialog(parent);
+        Pinloom::Ui::Dialog dialog(parent);
         dialog.setWindowTitle(QObject::tr("Status Details"));
         auto *layout = new QVBoxLayout(&dialog);
-        auto *text = new QPlainTextEdit(status, &dialog);
+        auto *text = Ui::plainTextEdit(status, &dialog);
         text->setReadOnly(true);
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+        auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
         auto *copyButton = buttons->addButton(QObject::tr("Copy"), QDialogButtonBox::ActionRole);
         layout->addWidget(text);
         layout->addWidget(buttons);
@@ -602,7 +603,7 @@ PinloomOpenTarget openTargetForResource(const Resource &resource)
     return target;
 }
 
-LauncherItemAction launcherActionForItem(const QListWidgetItem *item)
+LauncherItemAction launcherActionForItem(const Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         return LauncherItemAction::Unknown;
@@ -610,7 +611,7 @@ LauncherItemAction launcherActionForItem(const QListWidgetItem *item)
     return static_cast<LauncherItemAction>(item->data(LauncherActionRole).toInt());
 }
 
-PinloomOpenTarget openTargetForItem(const QListWidgetItem *item, int row = -1)
+PinloomOpenTarget openTargetForItem(const Pinloom::Ui::ListItem *item, int row = -1)
 {
     PinloomOpenTarget target;
     if (!item) {
@@ -775,20 +776,20 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
 
     auto *resultToolbar = new QHBoxLayout();
     resultToolbar->setContentsMargins(0, 0, 0, 0);
-    searchEdit_ = new QLineEdit(this);
+    searchEdit_ = Pinloom::Ui::lineEdit(this);
     searchEdit_->setObjectName(QStringLiteral("searchEdit"));
     searchEdit_->setPlaceholderText(tr("Search anchors and Saved Clips"));
     searchEdit_->setClearButtonEnabled(true);
     searchEdit_->setMinimumHeight(pinloomVisualMetrics().regularControlHeight);
     searchEdit_->setAccessibleName(tr("Search Pinloom"));
-    openButton_ = new QPushButton(tr("Jump"), this);
+    openButton_ = Pinloom::Ui::pushButton(tr("Jump"), this);
     openButton_->setObjectName(QStringLiteral("openButton"));
     openButton_->setProperty("pinloomControl", QStringLiteral("primary"));
-    addAliasButton_ = new QPushButton(tr("Add Alias"), this);
+    addAliasButton_ = Pinloom::Ui::pushButton(tr("Add Alias"), this);
     addAliasButton_->setObjectName(QStringLiteral("addAliasButton"));
-    addAnchorButton_ = new QPushButton(tr("Add Anchor"), this);
+    addAnchorButton_ = Pinloom::Ui::pushButton(tr("Add Anchor"), this);
     addAnchorButton_->setObjectName(QStringLiteral("addAnchorButton"));
-    pinButton_ = new QPushButton(tr("Pin"), this);
+    pinButton_ = Pinloom::Ui::pushButton(tr("Pin"), this);
     pinButton_->setObjectName(QStringLiteral("pinButton"));
     pinButton_->setCheckable(true);
     resultToolbar->addWidget(searchEdit_, 1);
@@ -797,7 +798,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     resultToolbar->addWidget(addAnchorButton_);
     resultToolbar->addWidget(pinButton_);
 
-    resultList_ = new QListWidget(this);
+    resultList_ = new Pinloom::Ui::List(this);
     resultList_->setObjectName(QStringLiteral("resultList"));
     resultList_->setProperty("pinloomRole", QStringLiteral("raised"));
     resultList_->setAccessibleName(tr("Pinloom search results"));
@@ -808,7 +809,7 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     resultList_->setMaximumHeight(resultList_->fontMetrics().lineSpacing() * 10 + 24);
     searchEdit_->installEventFilter(this);
     resultList_->installEventFilter(this);
-    statusLabel_ = new QLabel(this);
+    statusLabel_ = Pinloom::Ui::label(this);
     statusLabel_->setObjectName(QStringLiteral("statusLabel"));
     statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Pinloom status"));
@@ -826,11 +827,11 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     connect(pinButton_, &QPushButton::clicked, this, &PinloomPanel::toggleSelectedResourcePin);
     connect(searchEdit_, &QLineEdit::textChanged, this, &PinloomPanel::refreshResults);
     connect(searchEdit_, &QLineEdit::returnPressed, this, &PinloomPanel::activateCurrentLauncherItem);
-    connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshAnchorButtonState);
-    connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::refreshPinButtonState);
-    connect(resultList_, &QListWidget::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
-    connect(resultList_, &QListWidget::itemDoubleClicked, this, &PinloomPanel::openResultItem);
-    connect(resultList_, &QListWidget::itemActivated, this, &PinloomPanel::openResultItem);
+    connect(resultList_, &Pinloom::Ui::List::currentItemChanged, this, &PinloomPanel::refreshAnchorButtonState);
+    connect(resultList_, &Pinloom::Ui::List::currentItemChanged, this, &PinloomPanel::refreshPinButtonState);
+    connect(resultList_, &Pinloom::Ui::List::currentItemChanged, this, &PinloomPanel::notifyCurrentOpenTargetChanged);
+    connect(resultList_, &Pinloom::Ui::List::itemDoubleClicked, this, &PinloomPanel::openResultItem);
+    connect(resultList_, &Pinloom::Ui::List::itemActivated, this, &PinloomPanel::openResultItem);
     openButton_->setVisible(options_.showOpenButton);
     addAliasButton_->setVisible(options_.showManualEditControls);
     addAnchorButton_->setVisible(options_.showManualEditControls);
@@ -1140,7 +1141,7 @@ bool PinloomPanel::selectResultResource(const QString &resourceId)
         return false;
     }
     for (int row = 0; row < resultList_->count(); ++row) {
-        QListWidgetItem *item = resultList_->item(row);
+        Pinloom::Ui::ListItem *item = resultList_->item(row);
         if (item->data(Qt::UserRole).toString() == resourceId) {
             resultList_->setCurrentItem(item);
             return true;
@@ -1778,7 +1779,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
     for (const LauncherResultEntry &entry : entries) {
         if (entry.clip) {
             const ClipSearchResult &result = entry.clipResult;
-            auto *item = new QListWidgetItem(clipResultText(result, QStringLiteral("insert")), resultList_);
+            auto *item = new Pinloom::Ui::ListItem(clipResultText(result, QStringLiteral("insert")), resultList_);
             item->setToolTip(clipToolTip(result));
             item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
             item->setData(LauncherActionRole, static_cast<int>(LauncherItemAction::ClipInsert));
@@ -1797,7 +1798,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
         }
 
         const SearchResult &result = entry.searchResult;
-        auto *item = new QListWidgetItem(resultText(result), resultList_);
+        auto *item = new Pinloom::Ui::ListItem(resultText(result), resultList_);
         item->setToolTip(resultToolTip(result, query));
         item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
         item->setData(LauncherActionRole, static_cast<int>(LauncherItemAction::ResourceOpen));
@@ -1834,7 +1835,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
     bool restoredSelection = false;
     if (!previousTarget.clipId.isEmpty()) {
         for (int row = 0; row < resultList_->count(); ++row) {
-            QListWidgetItem *item = resultList_->item(row);
+            Pinloom::Ui::ListItem *item = resultList_->item(row);
             const LauncherItemAction action = launcherActionForItem(item);
             if (action == LauncherItemAction::ClipInsert
                 && item->data(ClipIdRole).toString() == previousTarget.clipId) {
@@ -1845,7 +1846,7 @@ void PinloomPanel::refreshSearchResults(const QString &searchText, const Pinloom
         }
     } else if (!previousTarget.resourceId.isEmpty()) {
         for (int row = 0; row < resultList_->count(); ++row) {
-            QListWidgetItem *item = resultList_->item(row);
+            Pinloom::Ui::ListItem *item = resultList_->item(row);
             if (item->data(Qt::UserRole).toString() != previousTarget.resourceId) {
                 continue;
             }
@@ -1873,7 +1874,7 @@ bool PinloomPanel::activateCurrentOpenTarget()
 
 bool PinloomPanel::activateCurrentLauncherItem()
 {
-    QListWidgetItem *item = resultList_->currentItem();
+    Pinloom::Ui::ListItem *item = resultList_->currentItem();
     if (!item && resultList_->count() > 0) {
         resultList_->setCurrentRow(0);
         item = resultList_->currentItem();
@@ -1900,7 +1901,7 @@ bool PinloomPanel::activateResourceById(const QString &resourceId)
     return activateOpenTarget(target);
 }
 
-bool PinloomPanel::activateLauncherItem(QListWidgetItem *item)
+bool PinloomPanel::activateLauncherItem(Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         updateStatus(tr("No resource selected"));
@@ -2229,7 +2230,7 @@ void PinloomPanel::openSelectedResource()
     activateCurrentOpenTarget();
 }
 
-void PinloomPanel::openResultItem(QListWidgetItem *item)
+void PinloomPanel::openResultItem(Pinloom::Ui::ListItem *item)
 {
     if (!item) {
         return;
@@ -2267,7 +2268,7 @@ void PinloomPanel::addSearchTextAsTag()
 void PinloomPanel::promptAddAlias()
 {
     bool accepted = false;
-    const QString alias = QInputDialog::getText(
+    const QString alias = Pinloom::Ui::getText(
         this,
         tr("Add Alias"),
         tr("Alias"),
@@ -2287,16 +2288,16 @@ void PinloomPanel::promptEditAnchor()
         return;
     }
 
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(tr("Edit Anchor"));
-    auto *form = new QFormLayout(&dialog);
-    auto *nameEdit = new QLineEdit(anchorDisplayName(target.anchor.value(), Resource{}), &dialog);
+    auto *form = new Pinloom::Ui::FormLayout(&dialog);
+    auto *nameEdit = Pinloom::Ui::lineEdit(anchorDisplayName(target.anchor.value(), Resource{}), &dialog);
     nameEdit->setObjectName(QStringLiteral("anchorNameEdit"));
-    auto *aliasesEdit = new QLineEdit(target.anchor->aliases.join(QLatin1Char(',')), &dialog);
+    auto *aliasesEdit = Pinloom::Ui::lineEdit(target.anchor->aliases.join(QLatin1Char(',')), &dialog);
     aliasesEdit->setObjectName(QStringLiteral("anchorAliasesEdit"));
-    auto *tagsEdit = new QLineEdit(target.anchor->tags.join(QStringLiteral(", ")), &dialog);
+    auto *tagsEdit = Pinloom::Ui::lineEdit(target.anchor->tags.join(QStringLiteral(", ")), &dialog);
     tagsEdit->setObjectName(QStringLiteral("anchorTagsEdit"));
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dialog);
     buttons->setObjectName(QStringLiteral("anchorEditButtons"));
 
     form->addRow(tr("Name"), nameEdit);
@@ -2329,7 +2330,7 @@ void PinloomPanel::promptAddManualAnchor()
     }
 
     bool accepted = false;
-    const QString target = QInputDialog::getText(
+    const QString target = Pinloom::Ui::getText(
         this,
         tr("Add Anchor"),
         tr("Anchor"),
@@ -2340,7 +2341,7 @@ void PinloomPanel::promptAddManualAnchor()
         return;
     }
 
-    const int line = QInputDialog::getInt(
+    const int line = Pinloom::Ui::getInt(
         this,
         tr("Anchor Line"),
         tr("Line"),
@@ -2423,7 +2424,7 @@ void PinloomPanel::updateStatus(const QString &message)
 
 QString PinloomPanel::selectedResultResourceId() const
 {
-    const QListWidgetItem *item = resultList_->currentItem();
+    const Pinloom::Ui::ListItem *item = resultList_->currentItem();
     if (!item) {
         return {};
     }
@@ -2432,7 +2433,7 @@ QString PinloomPanel::selectedResultResourceId() const
 
 QString PinloomPanel::selectedLocation() const
 {
-    const QListWidgetItem *item = resultList_->currentItem();
+    const Pinloom::Ui::ListItem *item = resultList_->currentItem();
     if (!item) {
         return {};
     }

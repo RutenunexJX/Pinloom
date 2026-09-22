@@ -1,17 +1,16 @@
 #pragma once
 
+#include "pinloom/widgets/PinloomUiControls.h"
+
 #include "pinloom/core/AnchorCaptureDraft.h"
 
-#include <QDialog>
-
 class QCheckBox;
-class QDialogButtonBox;
 class QLabel;
 class QLineEdit;
 
 namespace Pinloom {
 
-class AnchorCaptureDialog final : public QDialog {
+class AnchorCaptureDialog final : public Ui::Dialog {
     Q_OBJECT
 
 public:
@@ -33,7 +32,7 @@ private:
     QCheckBox *pinnedCheck_ = nullptr;
     QCheckBox *mutationCheck_ = nullptr;
     QLabel *validationLabel_ = nullptr;
-    QDialogButtonBox *buttons_ = nullptr;
+    Pinloom::Ui::DialogButtonBox *buttons_ = nullptr;
 };
 
 } // namespace Pinloom

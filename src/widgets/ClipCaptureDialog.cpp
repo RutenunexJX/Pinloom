@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/ClipCaptureDialog.h"
 
 #include <QAbstractItemView>
@@ -9,7 +10,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include "pinloom/widgets/PinloomItemViews.h"
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QScreen>
@@ -52,7 +53,7 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
                                      const QString &suggestedName,
                                      const QStringList &availableTags,
                                      QWidget *parent)
-    : QDialog(parent)
+    : Ui::Dialog(parent)
 {
     setObjectName(QStringLiteral("clipCaptureDialog"));
     setProperty("pinloomRole", QStringLiteral("canvas"));
@@ -66,30 +67,30 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
     root->setContentsMargins(16, 16, 16, 16);
     root->setSpacing(12);
 
-    auto *title = new QLabel(tr("Save selected text"), this);
+    auto *title = Pinloom::Ui::label(tr("Save selected text"), this);
     title->setObjectName(QStringLiteral("clipCaptureTitle"));
     title->setProperty("pinloomTextRole", QStringLiteral("title"));
     root->addWidget(title);
 
-    previewEdit_ = new QPlainTextEdit(selectedText, this);
+    previewEdit_ = Ui::plainTextEdit(selectedText, this);
     previewEdit_->setObjectName(QStringLiteral("clipCapturePreview"));
     previewEdit_->setProperty("pinloomRole", QStringLiteral("raised"));
     previewEdit_->setReadOnly(true);
     previewEdit_->setMaximumHeight(140);
     root->addWidget(previewEdit_);
 
-    auto *form = new QFormLayout;
+    auto *form = new Pinloom::Ui::FormLayout;
     form->setContentsMargins(0, 0, 0, 0);
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(8);
-    nameEdit_ = new QLineEdit(suggestedName, this);
+    nameEdit_ = Pinloom::Ui::lineEdit(suggestedName, this);
     nameEdit_->setObjectName(QStringLiteral("clipCaptureNameEdit"));
     nameEdit_->setClearButtonEnabled(true);
     for (const QString &tag : availableTags) {
         appendUniqueTag(availableTags_, tag);
     }
     availableTags_.sort(Qt::CaseInsensitive);
-    tagsButton_ = new QToolButton(this);
+    tagsButton_ = Pinloom::Ui::toolButton(this);
     tagsButton_->setObjectName(QStringLiteral("clipCaptureTagsButton"));
     tagsButton_->setArrowType(Qt::DownArrow);
     tagsButton_->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
@@ -99,7 +100,7 @@ ClipCaptureDialog::ClipCaptureDialog(const QString &selectedText,
     form->addRow(tr("Tags"), tagsButton_);
     root->addLayout(form);
 
-    buttons_ = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
+    buttons_ = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     buttons_->setObjectName(QStringLiteral("clipCaptureButtons"));
     if (QPushButton *saveButton = buttons_->button(QDialogButtonBox::Save)) {
         saveButton->setProperty("pinloomControl", QStringLiteral("primary"));
@@ -150,21 +151,19 @@ void ClipCaptureDialog::openTagPicker()
         tagPickerPopup_->close();
     }
 
-    auto *popup = new QFrame(this, Qt::Popup);
+    auto *popup = Ui::popupFrame(this);
     popup->setObjectName(QStringLiteral("clipCaptureTagPicker"));
-    popup->setProperty("pinloomRole", QStringLiteral("raised"));
-    popup->setAttribute(Qt::WA_DeleteOnClose);
-    popup->setFrameShape(QFrame::StyledPanel);
+    popup->setAccessibleName(tr("Clip tags"));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
     queryRow->setContentsMargins(0, 0, 0, 0);
-    auto *query = new QLineEdit(popup);
+    auto *query = Pinloom::Ui::lineEdit(popup);
     query->setObjectName(QStringLiteral("clipCaptureTagFilter"));
     query->setPlaceholderText(tr("Filter or create a tag"));
     query->setClearButtonEnabled(true);
-    auto *create = new QToolButton(popup);
+    auto *create = Pinloom::Ui::toolButton(popup);
     create->setObjectName(QStringLiteral("clipCaptureCreateTagButton"));
     create->setProperty("pinloomControl", QStringLiteral("icon"));
     create->setText(QStringLiteral("+"));
@@ -172,11 +171,11 @@ void ClipCaptureDialog::openTagPicker()
     queryRow->addWidget(query, 1);
     queryRow->addWidget(create);
 
-    auto *list = new QListWidget(popup);
+    auto *list = new Pinloom::Ui::List(popup);
     list->setObjectName(QStringLiteral("clipCaptureTagList"));
     list->setSelectionMode(QAbstractItemView::NoSelection);
     for (const QString &tag : availableTags_) {
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(selectedTags_.contains(tag, Qt::CaseInsensitive)
                                 ? Qt::Checked
@@ -206,7 +205,7 @@ void ClipCaptureDialog::openTagPicker()
         }
         updateCreateState();
     });
-    connect(list, &QListWidget::itemChanged, popup, [this, list](QListWidgetItem *) {
+    connect(list, &Pinloom::Ui::List::itemChanged, popup, [this, list](Pinloom::Ui::ListItem *) {
         selectedTags_.clear();
         for (int row = 0; row < list->count(); ++row) {
             if (list->item(row)->checkState() == Qt::Checked) {
@@ -221,7 +220,7 @@ void ClipCaptureDialog::openTagPicker()
             return;
         }
         appendUniqueTag(availableTags_, tag);
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setBackground(clipTagColor(tag));
         item->setCheckState(Qt::Checked);

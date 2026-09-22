@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.2`; database Schema: `16`.
+Current version: `0.4.3`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -434,6 +434,11 @@ override. The script produces only a directly runnable `Pinloom` directory with
 the required Qt/MinGW runtime and SQLite driver. It does not create an installer,
 ZIP archive, checksum manifest, launcher script, or user database.
 
+Run `pinloom_app.exe --package-check` to validate the deployed Qt/UI runtime
+and an in-memory SQLite connection. This check exits without opening user
+settings/databases, contacting the resident instance, showing a window, or
+registering clipboard/hotkey hooks. The process exit code is zero on success.
+
 Internally, the Command Window routes ordinary work through
 `registry command ID -> dispatcher -> structured result`. Commands search
 `PinloomEntry` objects; execution returns a completed, canceled, or failed
@@ -477,29 +482,51 @@ Semantic light/dark colors, focus, selection, status and density are shared acro
 settings and confirmation surfaces. State is expressed with text as well as color; native-app launch and
 capture failures retain an actionable explanation near the relevant operation.
 
-## Default SuiteUi controls
+## Control backends
 
-Since 0.4.2, `PINLOOM_ENABLE_SUITEUI` defaults to `ON`, and the formal package uses
-SuiteUi. Existing CMake caches need an explicit ON override. The renderer requires the independently installed
-`SuiteUi 0.1.1 EXACT` package via `SuiteUi_DIR`; application code retains Qt-only
-interfaces. It changes only button/tool-button/checkbox painting. Pinloom owns
-its semantic colors, metrics and primary-action markers, while PDF selection,
-preview and item-view controls retain the original Qt style.
+Release 0.4.3 defaults to `-DPINLOOM_UI_BACKEND=ELA`.
+Ela provides actual buttons, tool buttons,
+line edits, choices, checkboxes, numeric inputs, menus, text previews, scroll
+areas, resident bars, tree/list/table views, labels, notifications, window chrome
+and compact navigation. Tables and lists use independent QStandardItemModels;
+tag pickers retain filtering, creation and deferred edits. ElaAppBar is composed
+with Qt windows/dialogs to preserve their lifecycle, including hide-to-tray.
+Settings use Ela cards and immediate advanced drawers; tag popups share themed
+frames, and managed tooltips retain Qt help events, explicit tooltip data and
+screen bounds. Settings and manual PDF forms keep their action footer visible
+while advanced fields scroll; collapsed settings retain their values.
+Business models, PDF surfaces and native safety/file dialogs remain Pinloom/Qt-owned.
+See [the migration inventory](docs/ELA_MIGRATION.md).
 
-Configure the standard build with `-DPINLOOM_ENABLE_SUITEUI=ON`
-and `-DSuiteUi_DIR=E:/SuiteUi/install/0.1.1-qt6.10.2-mingw13.1-release/lib/cmake/SuiteUi`.
-`PINLOOM_REDUCED_MOTION` retains its existing explicit-override/system-preference
-semantics. An SDK build can select `PINLOOM_UI_STYLE=classic` before startup for
-comparison; other nonempty values besides `suiteui` are rejected explicitly.
-Changing the renderer inside a running process is unsupported.
-Configure `-DPINLOOM_ENABLE_SUITEUI=OFF` for a build without the SDK.
-Existing settings, libraries and schema remain compatible. The release packaging
-script copies and verifies the installed SDK notices; it does not publish the preview executable.
+The vendored dependency is pinned to upstream commit
+`454cac2d57a47d3cc28577dc817793aec1881ca7` plus recorded compatibility patches.
+Build with Qt **6.10.2** (including private headers) and the existing MinGW 13.1
+toolchain. No other application's source or build directory is required.
+Configure a fresh build directory, for example:
 
-`pinloom_suiteui_controls_test` operates the production capture dialogs and
-checks backend identity, input outcomes, theme switching and view boundaries.
-The Light/Dark × four-scale × classic/animated/reduced comparison uses a
-scrolling test host sized from the available screen. It is offscreen control
-verification, not native desktop DPI or frame-pacing acceptance.
-The SDK carries its Qlementine/Roboto notices and existing upstream patch;
-distributions enabling it must include the SDK's installed license directory.
+```text
+cmake -S . -B build-ela-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DPINLOOM_UI_BACKEND=ELA
+cmake --build build-ela-release --parallel 3
+ctest --test-dir build-ela-release --output-on-failure
+```
+
+`SUITEUI` and `CLASSIC` are mutually exclusive compile-time alternatives.
+`SUITEUI` still requires `SuiteUi 0.1.1 EXACT` via `SuiteUi_DIR`. Remove the old
+`PINLOOM_ENABLE_SUITEUI` cache entry when changing backends. Before startup,
+`PINLOOM_UI_STYLE=classic` selects native fallback controls; `ela` or `suiteui`
+must match the compiled backend. Switching renderers within a process is not
+supported. Light/dark switching retains the same control instances and geometry.
+Ela menu/input/combo, navigation, drawer and notice transitions are immediate; reduced-motion settings remain
+available for the other backends.
+
+QSS is scoped away from Ela interactive-control and item-view painting; semantic
+labels and window surfaces retain Pinloom's colors, typography and notice roles.
+The offscreen Ela tests cover real surfaces, dialog acceptance/cancellation,
+keyboard behavior, popup teardown and light/dark previews at four scale factors.
+They do not certify live external PDF capture, real tray interaction or mixed-
+monitor DPI. Existing settings, libraries, identity rules and schema are unchanged.
+
+Ela builds stage required MIT and Font Awesome Free Solid (SIL OFL 1.1) notices
+under `notices/ElaWidgetTools`. The release script verifies and copies the Ela
+DLL and notices; SuiteUi builds retain their installed SDK notices. This source
+migration is included in 0.4.3; release packages require an explicit clean-source build.

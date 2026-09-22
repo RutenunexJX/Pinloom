@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
@@ -17,7 +18,7 @@
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include "pinloom/widgets/PinloomItemViews.h"
 #include <QMenu>
 #include <QMessageBox>
 #include <QPlainTextEdit>
@@ -28,7 +29,7 @@
 #include <QSplitter>
 #include <QStyledItemDelegate>
 #include <QStyle>
-#include <QTableWidget>
+
 #include <QTextCursor>
 #include <QToolButton>
 #include <QVBoxLayout>
@@ -231,7 +232,7 @@ QString storageDisplayName(ClipStorageBackend backend)
 } // namespace
 
 ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *parent)
-    : QMainWindow(parent)
+    : Ui::MainWindow(parent)
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("clipLibraryWindow"));
@@ -248,18 +249,18 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 
     auto *filters = new QHBoxLayout;
     filters->setSpacing(8);
-    searchEdit_ = new QLineEdit(central);
+    searchEdit_ = Pinloom::Ui::lineEdit(central);
     searchEdit_->setObjectName(QStringLiteral("clipLibrarySearchEdit"));
     searchEdit_->setAccessibleName(tr("Search Clips"));
     searchEdit_->setPlaceholderText(tr("Name or alias; use tag;name to filter by tag"));
     searchEdit_->setClearButtonEnabled(true);
-    scopeCombo_ = new QComboBox(central);
+    scopeCombo_ = Pinloom::Ui::comboBox(central);
     scopeCombo_->setObjectName(QStringLiteral("clipLibraryScopeCombo"));
     scopeCombo_->setAccessibleName(tr("Clip Library scope"));
     scopeCombo_->addItem(tr("Saved Clips"), static_cast<int>(ClipLibraryScope::Saved));
     scopeCombo_->addItem(tr("Clipboard History"), static_cast<int>(ClipLibraryScope::History));
     scopeCombo_->addItem(tr("Trash"), static_cast<int>(ClipLibraryScope::Trash));
-    tagCombo_ = new QComboBox(central);
+    tagCombo_ = Pinloom::Ui::comboBox(central);
     tagCombo_->setObjectName(QStringLiteral("clipLibraryTagCombo"));
     tagCombo_->setAccessibleName(tr("Clip tag filter"));
     tagCombo_->setMinimumWidth(160);
@@ -272,7 +273,7 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     splitter->setObjectName(QStringLiteral("clipLibrarySplitter"));
     splitter->setChildrenCollapsible(false);
 
-    table_ = new QTableWidget(splitter);
+    table_ = new Pinloom::Ui::Table(splitter);
     table_->setObjectName(QStringLiteral("clipLibraryTable"));
     table_->setAccessibleName(tr("Clip list"));
     table_->setAccessibleDescription(
@@ -315,15 +316,15 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     auto *previewLayout = new QVBoxLayout(preview);
     previewLayout->setContentsMargins(12, 4, 0, 0);
     previewLayout->setSpacing(8);
-    previewTitle_ = new QLabel(tr("Select a Clip"), preview);
+    previewTitle_ = Pinloom::Ui::label(tr("Select a Clip"), preview);
     previewTitle_->setObjectName(QStringLiteral("clipLibraryPreviewTitle"));
     previewTitle_->setProperty("pinloomTextRole", QStringLiteral("panelTitle"));
     previewTitle_->setWordWrap(true);
-    previewMetadata_ = new QLabel(preview);
+    previewMetadata_ = Pinloom::Ui::label(preview);
     previewMetadata_->setObjectName(QStringLiteral("clipLibraryPreviewMetadata"));
     previewMetadata_->setProperty("pinloomTextRole", QStringLiteral("metadata"));
     previewMetadata_->setWordWrap(true);
-    previewText_ = new QPlainTextEdit(preview);
+    previewText_ = Ui::plainTextEdit(preview);
     previewText_->setObjectName(QStringLiteral("clipLibraryPreview"));
     previewText_->setAccessibleName(tr("Selected Clip content"));
     previewText_->setReadOnly(true);
@@ -338,7 +339,7 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     splitter->setStretchFactor(1, 2);
     root->addWidget(splitter, 1);
 
-    statusLabel_ = new QLabel(central);
+    statusLabel_ = Pinloom::Ui::label(central);
     statusLabel_->setObjectName(QStringLiteral("clipLibraryStatusLabel"));
     statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Clip Library status"));
@@ -355,19 +356,20 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
         }
         style()->unpolish(this);
         style()->polish(this);
+        Ui::refreshViewPalettes(*qApp);
         rebuildTagFilter(clips_);
         refreshRows();
     });
     connect(tagCombo_, &QComboBox::currentIndexChanged, this, &ClipLibraryWindow::refreshRows);
-    connect(table_, &QTableWidget::itemSelectionChanged, this, &ClipLibraryWindow::updatePreview);
-    connect(table_, &QTableWidget::itemChanged, this, &ClipLibraryWindow::handleItemChanged);
-    connect(table_, &QTableWidget::itemClicked, this, [this](QTableWidgetItem *item) {
+    connect(table_, &Pinloom::Ui::Table::itemSelectionChanged, this, &ClipLibraryWindow::updatePreview);
+    connect(table_, &Pinloom::Ui::Table::itemChanged, this, &ClipLibraryWindow::handleItemChanged);
+    connect(table_, &Pinloom::Ui::Table::itemClicked, this, [this](Pinloom::Ui::TableItem *item) {
         if (item && item->column() == ClipTagsColumn && scope() != ClipLibraryScope::Trash) {
             openTagEditor(item->row());
         }
     });
-    connect(table_, &QTableWidget::customContextMenuRequested, this, &ClipLibraryWindow::showContextMenu);
-    connect(table_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+    connect(table_, &Pinloom::Ui::Table::customContextMenuRequested, this, &ClipLibraryWindow::showContextMenu);
+    connect(table_, &Pinloom::Ui::Table::itemDoubleClicked, this, [this](Pinloom::Ui::TableItem *item) {
         if (!item || scope() == ClipLibraryScope::Trash) {
             return;
         }
@@ -467,15 +469,15 @@ bool ClipLibraryWindow::editSelectedClip()
         return false;
     }
 
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(selected->state == ClipState::Temporary ? tr("Save Clip") : tr("Edit Clip"));
-    auto *form = new QFormLayout(&dialog);
-    auto *nameEdit = new QLineEdit(displayName(selected.value()), &dialog);
-    auto *aliasesEdit = new QLineEdit(selected->aliases.join(QLatin1Char(',')), &dialog);
-    auto *tagsEdit = new QLineEdit(selected->tags.join(QStringLiteral(", ")), &dialog);
-    auto *pinnedCheck = new QCheckBox(tr("Pinned"), &dialog);
+    auto *form = new Pinloom::Ui::FormLayout(&dialog);
+    auto *nameEdit = Pinloom::Ui::lineEdit(displayName(selected.value()), &dialog);
+    auto *aliasesEdit = Pinloom::Ui::lineEdit(selected->aliases.join(QLatin1Char(',')), &dialog);
+    auto *tagsEdit = Pinloom::Ui::lineEdit(selected->tags.join(QStringLiteral(", ")), &dialog);
+    auto *pinnedCheck = Pinloom::Ui::checkBox(tr("Pinned"), &dialog);
     pinnedCheck->setChecked(selected->pinned);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Save | QDialogButtonBox::Cancel, &dialog);
     form->addRow(tr("Name"), nameEdit);
     form->addRow(tr("Aliases"), aliasesEdit);
     form->addRow(tr("Tags"), tagsEdit);
@@ -750,7 +752,7 @@ void ClipLibraryWindow::refreshRows()
             clip.pinned ? tr("Yes") : QString()
         };
         for (int column = 0; column < values.size(); ++column) {
-            auto *item = new QTableWidgetItem(values.at(column));
+            auto *item = new Pinloom::Ui::TableItem(values.at(column));
             item->setData(ClipIdRole, clip.id);
             if (column == ClipAliasesColumn && scope() != ClipLibraryScope::Trash) {
                 item->setFlags(item->flags() | Qt::ItemIsEditable);
@@ -777,7 +779,7 @@ void ClipLibraryWindow::refreshRows()
         updatePreview();
     }
     if (pendingEdits_.isEmpty()) {
-        setStatus(tr("%n Clip(s)", nullptr, table_->rowCount()));
+        setStatus(tr("%n Clip(s)", nullptr, table_->rowCount()), false);
     } else {
         updateInlineEditStatus();
     }
@@ -818,7 +820,7 @@ void ClipLibraryWindow::updatePreview()
     previewText_->moveCursor(QTextCursor::Start);
 }
 
-void ClipLibraryWindow::handleItemChanged(QTableWidgetItem *item)
+void ClipLibraryWindow::handleItemChanged(Pinloom::Ui::TableItem *item)
 {
     if (populatingTable_ || !item || item->column() != ClipAliasesColumn
         || scope() == ClipLibraryScope::Trash) {
@@ -886,11 +888,11 @@ void ClipLibraryWindow::updatePendingTags(const QString &clipId, const QStringLi
     }
 
     for (int row = 0; row < table_->rowCount(); ++row) {
-        QTableWidgetItem *nameItem = table_->item(row, ClipNameColumn);
+        Pinloom::Ui::TableItem *nameItem = table_->item(row, ClipNameColumn);
         if (!nameItem || nameItem->data(ClipIdRole).toString() != clipId) {
             continue;
         }
-        QTableWidgetItem *tagItem = table_->item(row, ClipTagsColumn);
+        Pinloom::Ui::TableItem *tagItem = table_->item(row, ClipTagsColumn);
         if (tagItem) {
             populatingTable_ = true;
             tagItem->setText(tagsText(tags));
@@ -907,7 +909,7 @@ void ClipLibraryWindow::updatePendingTags(const QString &clipId, const QStringLi
 
 void ClipLibraryWindow::applyInlineCellState(int row, int column, const QString &clipId)
 {
-    QTableWidgetItem *item = table_->item(row, column);
+    Pinloom::Ui::TableItem *item = table_->item(row, column);
     if (!item) {
         return;
     }
@@ -1021,8 +1023,8 @@ void ClipLibraryWindow::openTagEditor(int row)
     if (row < 0 || row >= table_->rowCount() || scope() == ClipLibraryScope::Trash) {
         return;
     }
-    QTableWidgetItem *nameItem = table_->item(row, ClipNameColumn);
-    QTableWidgetItem *tagItem = table_->item(row, ClipTagsColumn);
+    Pinloom::Ui::TableItem *nameItem = table_->item(row, ClipNameColumn);
+    Pinloom::Ui::TableItem *tagItem = table_->item(row, ClipTagsColumn);
     if (!nameItem || !tagItem) {
         return;
     }
@@ -1042,29 +1044,28 @@ void ClipLibraryWindow::openTagEditor(int row)
     if (tagEditorPopup_) {
         tagEditorPopup_->close();
     }
-    auto *popup = new QFrame(this, Qt::Popup);
+    auto *popup = Ui::popupFrame(this);
     popup->setObjectName(QStringLiteral("clipLibraryTagEditorPopup"));
-    popup->setAttribute(Qt::WA_DeleteOnClose);
-    popup->setFrameShape(QFrame::StyledPanel);
+    popup->setAccessibleName(tr("Clip tags"));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
-    auto *query = new QLineEdit(popup);
+    auto *query = Pinloom::Ui::lineEdit(popup);
     query->setObjectName(QStringLiteral("clipLibraryTagEditorFilter"));
     query->setPlaceholderText(tr("Filter or create a Clip tag"));
     query->setClearButtonEnabled(true);
-    auto *create = new QToolButton(popup);
+    auto *create = Pinloom::Ui::toolButton(popup);
     create->setObjectName(QStringLiteral("clipLibraryCreateTagButton"));
     create->setText(QStringLiteral("+"));
     create->setToolTip(tr("Create and select this Clip tag"));
     queryRow->addWidget(query, 1);
     queryRow->addWidget(create);
-    auto *list = new QListWidget(popup);
+    auto *list = new Pinloom::Ui::List(popup);
     list->setObjectName(QStringLiteral("clipLibraryTagEditorList"));
     list->setSelectionMode(QAbstractItemView::NoSelection);
     for (const QString &tag : availableTags()) {
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(selectedTags.contains(tag, Qt::CaseInsensitive)
                                 ? Qt::Checked
@@ -1114,7 +1115,7 @@ void ClipLibraryWindow::openTagEditor(int row)
         }
         updateCreateState();
     });
-    connect(list, &QListWidget::itemChanged, popup, [this, clipId, selectedValues](QListWidgetItem *) {
+    connect(list, &Pinloom::Ui::List::itemChanged, popup, [this, clipId, selectedValues](Pinloom::Ui::ListItem *) {
         updatePendingTags(clipId, selectedValues());
     });
     connect(create, &QToolButton::clicked, popup, [this, query, list, normalizedTag, updateCreateState]() {
@@ -1127,7 +1128,7 @@ void ClipLibraryWindow::openTagEditor(int row)
                 return;
             }
         }
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setBackground(colorForTag(tag).lighter(145));
         item->setCheckState(Qt::Checked);
@@ -1172,7 +1173,8 @@ void ClipLibraryWindow::showContextMenu(const QPoint &position)
         return;
     }
 
-    QMenu menu(this);
+    std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(this));
+    QMenu &menu = *ownedMenu;
     if (selected->state == ClipState::Deleted) {
         QAction *restore = menu.addAction(tr("Restore"));
         QFont font = restore->font();
@@ -1216,10 +1218,10 @@ void ClipLibraryWindow::showContextMenu(const QPoint &position)
     menu.exec(table_->viewport()->mapToGlobal(position));
 }
 
-void ClipLibraryWindow::setStatus(const QString &status)
+void ClipLibraryWindow::setStatus(const QString &status, bool notify)
 {
     statusText_ = status;
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_, notify);
 }
 
 bool ClipLibraryWindow::reselectClip(const QString &clipId)

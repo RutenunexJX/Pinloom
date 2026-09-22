@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 
 #include "pinloom/core/AnchorLibraryPolicy.h"
@@ -28,7 +29,7 @@
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
-#include <QListWidget>
+#include "pinloom/widgets/PinloomItemViews.h"
 #include <QLocale>
 #include <QMenu>
 #include <QMessageBox>
@@ -43,7 +44,7 @@
 #include <QSplitter>
 #include <QStyledItemDelegate>
 #include <QStyle>
-#include <QTableWidget>
+
 #include <QTimer>
 #include <QToolButton>
 #include <QUrl>
@@ -384,7 +385,7 @@ QWidgetAction *addToneMenuAction(QMenu *menu,
     QFont font = action->font();
     font.setBold(true);
     action->setFont(font);
-    auto *button = new QToolButton(menu);
+    auto *button = Pinloom::Ui::toolButton(menu);
     button->setObjectName(objectName + QStringLiteral("Button"));
     button->setText(text);
     button->setFont(font);
@@ -500,7 +501,7 @@ QString compactLocator(const AnchorLocatorUpdate &locator)
 } // namespace
 
 AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWidget *parent)
-    : QMainWindow(parent)
+    : Ui::MainWindow(parent)
     , options_(std::move(options))
 {
     setObjectName(QStringLiteral("anchorLibraryWindow"));
@@ -522,16 +523,16 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     auto *queryRow = new QHBoxLayout;
     queryRow->setSpacing(8);
-    filterEdit_ = new QLineEdit(central);
+    filterEdit_ = Pinloom::Ui::lineEdit(central);
     filterEdit_->setObjectName(QStringLiteral("anchorLibraryFilterEdit"));
     filterEdit_->setPlaceholderText(tr("Search marked files, anchors, tags, paths, and locators"));
     filterEdit_->setClearButtonEnabled(true);
     filterEdit_->setAccessibleName(tr("Search Anchor Library"));
-    savedViewCombo_ = new QComboBox(central);
+    savedViewCombo_ = Pinloom::Ui::comboBox(central);
     savedViewCombo_->setObjectName(QStringLiteral("anchorLibrarySavedViewCombo"));
     savedViewCombo_->setMinimumWidth(145);
     savedViewCombo_->setAccessibleName(tr("Saved view"));
-    scopeCombo_ = new QComboBox(central);
+    scopeCombo_ = Pinloom::Ui::comboBox(central);
     scopeCombo_->setObjectName(QStringLiteral("anchorLibraryScopeCombo"));
     scopeCombo_->addItem(tr("All marked files"), static_cast<int>(AnchorLibraryScope::All));
     scopeCombo_->addItem(tr("Untagged"), static_cast<int>(AnchorLibraryScope::Untagged));
@@ -542,13 +543,13 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     scopeCombo_->addItem(tr("Recently modified"), static_cast<int>(AnchorLibraryScope::RecentlyModified));
     scopeCombo_->addItem(tr("Recently deleted"), static_cast<int>(AnchorLibraryScope::RecentlyDeleted));
     scopeCombo_->setAccessibleName(tr("Library scope"));
-    refreshButton_ = new QToolButton(central);
+    refreshButton_ = Pinloom::Ui::toolButton(central);
     refreshButton_->setObjectName(QStringLiteral("anchorLibraryRefreshButton"));
     refreshButton_->setIcon(style()->standardIcon(QStyle::SP_BrowserReload));
     refreshButton_->setToolTip(tr("Refresh library"));
     refreshButton_->setAccessibleName(refreshButton_->toolTip());
     refreshButton_->setProperty("pinloomControl", QStringLiteral("icon"));
-    trashButton_ = new QToolButton(central);
+    trashButton_ = Pinloom::Ui::toolButton(central);
     trashButton_->setObjectName(QStringLiteral("anchorLibraryTrashButton"));
     trashButton_->setIcon(style()->standardIcon(QStyle::SP_TrashIcon));
     trashButton_->setText(QStringLiteral("回收站"));
@@ -565,34 +566,34 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     auto *filterRow = new QGridLayout;
     filterRow->setHorizontalSpacing(6);
     filterRow->setVerticalSpacing(6);
-    tagFilterCombo_ = new QComboBox(central);
+    tagFilterCombo_ = Pinloom::Ui::comboBox(central);
     tagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryTagFilterCombo"));
     tagFilterCombo_->setMinimumWidth(120);
     tagFilterCombo_->setAccessibleName(tr("File tag filter"));
-    anchorTagFilterCombo_ = new QComboBox(central);
+    anchorTagFilterCombo_ = Pinloom::Ui::comboBox(central);
     anchorTagFilterCombo_->setObjectName(QStringLiteral("anchorLibraryAnchorTagFilterCombo"));
     anchorTagFilterCombo_->setMinimumWidth(120);
     anchorTagFilterCombo_->setAccessibleName(tr("Anchor tag filter"));
-    kindFilterCombo_ = new QComboBox(central);
+    kindFilterCombo_ = Pinloom::Ui::comboBox(central);
     kindFilterCombo_->setObjectName(QStringLiteral("anchorLibraryKindFilterCombo"));
     kindFilterCombo_->setAccessibleName(tr("File type filter"));
-    appFilterCombo_ = new QComboBox(central);
+    appFilterCombo_ = Pinloom::Ui::comboBox(central);
     appFilterCombo_->setObjectName(QStringLiteral("anchorLibraryAppFilterCombo"));
     appFilterCombo_->setMinimumWidth(120);
     appFilterCombo_->setAccessibleName(tr("Source application filter"));
-    directoryFilterEdit_ = new QLineEdit(central);
+    directoryFilterEdit_ = Pinloom::Ui::lineEdit(central);
     directoryFilterEdit_->setObjectName(QStringLiteral("anchorLibraryDirectoryFilterEdit"));
     directoryFilterEdit_->setPlaceholderText(tr("Directory"));
     directoryFilterEdit_->setClearButtonEnabled(true);
     directoryFilterEdit_->setAccessibleName(tr("Directory filter"));
-    timeFilterCombo_ = new QComboBox(central);
+    timeFilterCombo_ = Pinloom::Ui::comboBox(central);
     timeFilterCombo_->setObjectName(QStringLiteral("anchorLibraryTimeFilterCombo"));
     timeFilterCombo_->addItem(tr("Any time"), 0);
     timeFilterCombo_->addItem(tr("Last 7 days"), 7);
     timeFilterCombo_->addItem(tr("Last 30 days"), 30);
     timeFilterCombo_->addItem(tr("Last 90 days"), 90);
     timeFilterCombo_->setAccessibleName(tr("Modified time filter"));
-    usageFilterCombo_ = new QComboBox(central);
+    usageFilterCombo_ = Pinloom::Ui::comboBox(central);
     usageFilterCombo_->setObjectName(QStringLiteral("anchorLibraryUsageFilterCombo"));
     usageFilterCombo_->addItem(tr("Any usage"), static_cast<int>(UsageFilter::Any));
     usageFilterCombo_->addItem(tr("Pinned"), static_cast<int>(UsageFilter::Pinned));
@@ -611,15 +612,15 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
     auto *actionRow = new QHBoxLayout;
     actionRow->setSpacing(8);
-    restoreButton_ = new QToolButton(central);
+    restoreButton_ = Pinloom::Ui::toolButton(central);
     restoreButton_->setObjectName(QStringLiteral("anchorLibraryRestoreButton"));
     restoreButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
     restoreButton_->setToolTip(tr("Restore selection"));
-    tagsButton_ = new QToolButton(central);
+    tagsButton_ = Pinloom::Ui::toolButton(central);
     tagsButton_->setObjectName(QStringLiteral("anchorLibraryTagsButton"));
     tagsButton_->setText(tr("Anchors"));
     tagsButton_->setPopupMode(QToolButton::InstantPopup);
-    auto *anchorMenu = new QMenu(tagsButton_);
+    auto *anchorMenu = Pinloom::Ui::menu(tagsButton_);
     QAction *addAnchorTags = anchorMenu->addAction(tr("Add tags"));
     QAction *removeAnchorTags = anchorMenu->addAction(tr("Remove tags"));
     anchorMenu->addSeparator();
@@ -628,11 +629,11 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     anchorMenu->addSeparator();
     QAction *tagManager = anchorMenu->addAction(tr("Tag manager"));
     tagsButton_->setMenu(anchorMenu);
-    fileActionsButton_ = new QToolButton(central);
+    fileActionsButton_ = Pinloom::Ui::toolButton(central);
     fileActionsButton_->setObjectName(QStringLiteral("anchorLibraryFileActionsButton"));
     fileActionsButton_->setText(tr("Files"));
     fileActionsButton_->setPopupMode(QToolButton::InstantPopup);
-    auto *fileMenu = new QMenu(fileActionsButton_);
+    auto *fileMenu = Pinloom::Ui::menu(fileActionsButton_);
     QAction *archiveFiles = fileMenu->addAction(tr("Move records to Trash"));
     QAction *restoreFiles = fileMenu->addAction(tr("Restore records"));
     fileMenu->addSeparator();
@@ -644,28 +645,28 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     QAction *autoRelink = fileMenu->addAction(tr("Auto-find missing files"));
     QAction *deduplicateAnchors = fileMenu->addAction(tr("Merge duplicate anchors"));
     fileActionsButton_->setMenu(fileMenu);
-    relinkButton_ = new QToolButton(central);
+    relinkButton_ = Pinloom::Ui::toolButton(central);
     relinkButton_->setObjectName(QStringLiteral("anchorLibraryRelinkButton"));
     relinkButton_->setIcon(style()->standardIcon(QStyle::SP_DialogOpenButton));
     relinkButton_->setToolTip(tr("Relink selected file"));
-    mergeButton_ = new QToolButton(central);
+    mergeButton_ = Pinloom::Ui::toolButton(central);
     mergeButton_->setObjectName(QStringLiteral("anchorLibraryMergeButton"));
     mergeButton_->setText(tr("Merge"));
     mergeButton_->setToolTip(tr("Merge duplicate file records"));
-    integrityButton_ = new QToolButton(central);
+    integrityButton_ = Pinloom::Ui::toolButton(central);
     integrityButton_->setObjectName(QStringLiteral("anchorLibraryIntegrityButton"));
     integrityButton_->setText(tr("Inspect"));
     integrityButton_->setToolTip(tr("Scan library integrity"));
-    manageButton_ = new QToolButton(central);
+    manageButton_ = Pinloom::Ui::toolButton(central);
     manageButton_->setObjectName(QStringLiteral("anchorLibraryManageButton"));
     manageButton_->setText(tr("Manage"));
     manageButton_->setPopupMode(QToolButton::InstantPopup);
-    auto *manageMenu = new QMenu(manageButton_);
+    auto *manageMenu = Pinloom::Ui::menu(manageButton_);
     QAction *saveView = manageMenu->addAction(tr("Save current view"));
     QAction *deleteView = manageMenu->addAction(tr("Delete current saved view"));
     QAction *operationHistory = manageMenu->addAction(tr("Operation history"));
     manageButton_->setMenu(manageMenu);
-    undoButton_ = new QToolButton(central);
+    undoButton_ = Pinloom::Ui::toolButton(central);
     undoButton_->setObjectName(QStringLiteral("anchorLibraryUndoButton"));
     undoButton_->setIcon(style()->standardIcon(QStyle::SP_ArrowBack));
     undoButton_->setToolTip(tr("Undo last library operation"));
@@ -683,7 +684,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     tablesSplitter->setObjectName(QStringLiteral("anchorLibraryTablesSplitter"));
     tablesSplitter->setChildrenCollapsible(false);
 
-    fileTable_ = new QTableWidget(tablesSplitter);
+    fileTable_ = new Pinloom::Ui::Table(tablesSplitter);
     fileTable_->setObjectName(QStringLiteral("anchorLibraryFileTable"));
     fileTable_->setAccessibleName(tr("Marked files"));
     fileTable_->setAccessibleDescription(tr("Files in the current Anchor Library scope"));
@@ -715,7 +716,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     fileTable_->horizontalHeader()->setSortIndicatorShown(true);
     fileTable_->horizontalHeader()->setSortIndicator(FileLastMarkedColumn, Qt::DescendingOrder);
 
-    anchorTable_ = new QTableWidget(tablesSplitter);
+    anchorTable_ = new Pinloom::Ui::Table(tablesSplitter);
     anchorTable_->setObjectName(QStringLiteral("anchorLibraryAnchorTable"));
     anchorTable_->setAccessibleName(tr("Anchors"));
     anchorTable_->setAccessibleDescription(tr("Anchors for the selected marked file"));
@@ -755,7 +756,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     tablesSplitter->setStretchFactor(0, 3);
     tablesSplitter->setStretchFactor(1, 2);
 
-    auto *inspectorScroll = new QScrollArea(mainSplitter);
+    auto *inspectorScroll = Ui::scrollArea(mainSplitter);
     inspectorScroll->setObjectName(QStringLiteral("anchorLibraryInspectorScroll"));
     inspectorScroll->setProperty("pinloomRole", QStringLiteral("panel"));
     inspectorScroll->setAccessibleName(tr("Anchor inspector"));
@@ -778,7 +779,7 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     mainSplitter->setStretchFactor(1, 1);
     mainSplitter->setSizes({1000, 360});
 
-    statusLabel_ = new QLabel(central);
+    statusLabel_ = Pinloom::Ui::label(central);
     statusLabel_->setObjectName(QStringLiteral("anchorLibraryStatusLabel"));
     statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Library status"));
@@ -836,25 +837,25 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
         if (!name.isEmpty()) deleteSavedView(name);
     });
     connect(operationHistory, &QAction::triggered, this, &AnchorLibraryWindow::showOperationHistory);
-    connect(fileTable_, &QTableWidget::itemSelectionChanged, this, &AnchorLibraryWindow::populateSelectedFileAnchors);
-    connect(anchorTable_, &QTableWidget::itemSelectionChanged, this, [this]() {
+    connect(fileTable_, &Pinloom::Ui::Table::itemSelectionChanged, this, &AnchorLibraryWindow::populateSelectedFileAnchors);
+    connect(anchorTable_, &Pinloom::Ui::Table::itemSelectionChanged, this, [this]() {
         populateInspector();
         updateActionButtons();
     });
     connect(fileTable_, &QWidget::customContextMenuRequested, this, &AnchorLibraryWindow::showFileContextMenu);
     connect(anchorTable_, &QWidget::customContextMenuRequested, this, &AnchorLibraryWindow::showAnchorContextMenu);
-    connect(fileTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
+    connect(fileTable_, &Pinloom::Ui::Table::cellClicked, this, [this](int row, int column) {
         if (column == FileTagsColumn && !showingTrash()) openFileTagEditor(row);
     });
-    connect(fileTable_, &QTableWidget::itemChanged, this, &AnchorLibraryWindow::handleFileItemChanged);
-    connect(fileTable_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+    connect(fileTable_, &Pinloom::Ui::Table::itemChanged, this, &AnchorLibraryWindow::handleFileItemChanged);
+    connect(fileTable_, &Pinloom::Ui::Table::itemDoubleClicked, this, [this](Pinloom::Ui::TableItem *item) {
         if (item && item->column() == FileAliasesColumn && !showingTrash()) fileTable_->editItem(item);
     });
-    connect(anchorTable_, &QTableWidget::cellClicked, this, [this](int row, int column) {
+    connect(anchorTable_, &Pinloom::Ui::Table::cellClicked, this, [this](int row, int column) {
         if (column == AnchorTagsColumn && !showingTrash()) openAnchorTagEditor(row);
     });
-    connect(anchorTable_, &QTableWidget::itemChanged, this, &AnchorLibraryWindow::handleAnchorItemChanged);
-    connect(anchorTable_, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem *item) {
+    connect(anchorTable_, &Pinloom::Ui::Table::itemChanged, this, &AnchorLibraryWindow::handleAnchorItemChanged);
+    connect(anchorTable_, &Pinloom::Ui::Table::itemDoubleClicked, this, [this](Pinloom::Ui::TableItem *item) {
         if (!item) return;
         if (item->column() == AnchorAliasesColumn && !showingTrash()) {
             anchorTable_->editItem(item);
@@ -973,23 +974,23 @@ bool AnchorLibraryWindow::activateSelectedAnchor()
     const auto entry = selectedAnchor();
     if (!file || !entry || selectedAnchors().size() != 1) {
         statusText_ = tr("Select one anchor to open");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (showingTrash() || entry->resourceDeleted) {
         statusText_ = tr("Restore the anchor before opening it");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!options_.anchorJumpHandler) {
         statusText_ = tr("Anchor opening is not configured");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     QString status;
     const bool opened = options_.anchorJumpHandler(*file, entry.value(), &status);
     statusText_ = status.trimmed().isEmpty() ? (opened ? tr("Opened anchor") : tr("Unable to open anchor")) : status.trimmed();
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     if (opened) emit anchorActivated(entry->resourceId, entry->anchor.id);
     return opened;
 }
@@ -1001,7 +1002,7 @@ bool AnchorLibraryWindow::deleteSelectedAnchors()
     const QList<AnchorLibraryAnchor> entries = selectedAnchors();
     if (entries.isEmpty() || showingTrash()) {
         statusText_ = entries.isEmpty() ? tr("Select at least one anchor to delete") : tr("Selected anchors are already in Trash");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!options_.managementService) return false;
@@ -1010,7 +1011,7 @@ bool AnchorLibraryWindow::deleteSelectedAnchors()
         : tr("%1 selected anchors").arg(entries.size());
     if (!confirmOperation(tr("Delete Anchors"), tr("Move %1 to Trash?\n\nThe files will not be deleted.").arg(subject))) {
         statusText_ = tr("Delete canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(selectedAnchorReferences(), true);
@@ -1027,14 +1028,14 @@ bool AnchorLibraryWindow::deleteAllAnchorsForSelectedFiles()
     const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(false);
     if (references.isEmpty()) {
         statusText_ = tr("The selected files have no active anchors");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!confirmOperation(tr("Delete All Anchors"),
                           tr("Move all %1 anchors in the selected files to Trash?\n\nThe files will not be deleted.")
                               .arg(references.size()))) {
         statusText_ = tr("Delete canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, true);
@@ -1050,7 +1051,7 @@ bool AnchorLibraryWindow::restoreSelectedAnchors()
     const QList<AnchorLibraryAnchor> entries = selectedAnchors();
     if (entries.isEmpty() || !showingTrash() || !options_.managementService) {
         statusText_ = tr("Select deleted anchors in Trash to restore");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(selectedAnchorReferences(), false);
@@ -1067,7 +1068,7 @@ bool AnchorLibraryWindow::restoreAllAnchorsForSelectedFiles()
     const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(true);
     if (references.isEmpty()) {
         statusText_ = tr("The selected files have no anchors in Trash");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->setAnchorsDeleted(references, false);
@@ -1085,7 +1086,7 @@ bool AnchorLibraryWindow::archiveSelectedFiles()
     if (ids.isEmpty()) return false;
     if (!confirmOperation(tr("Archive File Records"), tr("Move %1 selected file record(s) to Trash?\n\nFiles on disk are not changed.").arg(ids.size()))) {
         statusText_ = tr("Archive canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->setResourcesDeleted(ids, true);
@@ -1119,14 +1120,14 @@ bool AnchorLibraryWindow::permanentlyDeleteSelectedAnchors()
     const QList<AnchorReference> references = selectedAnchorReferences();
     if (references.isEmpty()) {
         statusText_ = tr("Select anchors in Trash to delete permanently");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!confirmOperation(tr("Permanently Delete Anchors"),
                           tr("Permanently delete %1 selected anchor(s)?\n\nThis cannot be undone.")
                               .arg(references.size()))) {
         statusText_ = tr("Permanent deletion canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!createSafetyBackup(QStringLiteral("permanent anchor deletion"))) return false;
@@ -1145,14 +1146,14 @@ bool AnchorLibraryWindow::permanentlyClearSelectedFileMetadata()
     }
     if (ids.isEmpty()) {
         statusText_ = tr("Select file Alias and Tag metadata in Trash");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!confirmOperation(tr("Permanently Delete File Metadata"),
                           tr("Permanently delete Alias and Tag metadata for %1 file(s)?\n\nThe files and anchors will not be deleted.")
                               .arg(ids.size()))) {
         statusText_ = tr("Permanent deletion canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!createSafetyBackup(QStringLiteral("permanent file metadata deletion"))) return false;
@@ -1167,14 +1168,14 @@ bool AnchorLibraryWindow::permanentlyDeleteAllAnchorsForSelectedFiles()
     const QList<AnchorReference> references = allAnchorReferencesForSelectedFiles(true);
     if (references.isEmpty()) {
         statusText_ = tr("The selected files have no anchors in Trash");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!confirmOperation(tr("Permanently Delete All Anchors"),
                           tr("Permanently delete all %1 anchors in the selected files?\n\nThis cannot be undone.")
                               .arg(references.size()))) {
         statusText_ = tr("Permanent deletion canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!createSafetyBackup(QStringLiteral("permanent anchor deletion"))) return false;
@@ -1231,7 +1232,7 @@ bool AnchorLibraryWindow::relinkSelectedFile(const QString &newLocation)
     }
     if (location.trimmed().isEmpty()) {
         statusText_ = tr("Relink canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->relinkResources(resourceIdsForFile(*file), location);
@@ -1258,7 +1259,7 @@ bool AnchorLibraryWindow::mergeSelectedFileDuplicates()
     sources.removeAll(file->resource.id);
     if (sources.isEmpty()) {
         statusText_ = tr("The selected file has no duplicate records");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     if (!confirmOperation(tr("Merge Duplicate Records"), tr("Merge %1 duplicate record(s) into \"%2\"?").arg(sources.size()).arg(fileDisplayName(*file)))) return false;
@@ -1295,7 +1296,7 @@ bool AnchorLibraryWindow::renderSelectedAnchorPreview(bool showExpanded, bool fo
             locatorPreview_->setScreenshot(cached->image);
             if (showExpanded) locatorPreview_->showExpandedPreview();
             statusText_ = cached->status;
-            statusLabel_->setText(statusText_);
+            Pinloom::Ui::setStatusText(statusLabel_, statusText_);
             return true;
         }
     }
@@ -1339,7 +1340,7 @@ bool AnchorLibraryWindow::startPdfLocatorPreview(const AnchorLibraryFile &file,
     const quint64 requestGeneration = locatorPreviewRequestGeneration_;
 
     statusText_ = tr("Rendering PDF preview...");
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
 
     auto *watcher = new QFutureWatcher<PdfLocatorPreviewRenderResult>(this);
     connect(watcher,
@@ -1385,7 +1386,7 @@ void AnchorLibraryWindow::applyLocatorPreviewResult(const QString &cacheKey,
     } else {
         locatorPreview_->setError(statusText_);
     }
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
 }
 
 void AnchorLibraryWindow::scheduleSelectedAnchorPreview()
@@ -1420,7 +1421,7 @@ bool AnchorLibraryWindow::recaptureSelectedAnchor()
         && !locatorType.startsWith(QStringLiteral("sumatrapdf."))
         && !locatorType.startsWith(QStringLiteral("pdf."))) {
         statusText_ = tr("Rectangle recapture is available only for PDF anchors");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     QString status;
@@ -1437,7 +1438,7 @@ bool AnchorLibraryWindow::recaptureSelectedAnchor()
     }
     if (!captured) {
         statusText_ = status.trimmed().isEmpty() ? tr("Locator recapture canceled") : status;
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     AnchorLocatorUpdate old;
@@ -1448,7 +1449,7 @@ bool AnchorLibraryWindow::recaptureSelectedAnchor()
     old.locatorJson = entry->anchor.locatorJson;
     if (!confirmOperation(tr("Replace Locator"), tr("Replace the stored locator?\n\nCurrent:\n%1\n\nCaptured:\n%2").arg(compactLocator(old), compactLocator(captured.value())))) {
         statusText_ = tr("Locator recapture canceled");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     const AnchorLibraryOperationResult result = options_.managementService->updateAnchorLocator({entry->resourceId, entry->anchor}, captured.value());
@@ -1465,14 +1466,14 @@ bool AnchorLibraryWindow::inspectIntegrity()
         : tr("Integrity scan: %1 missing, %2 duplicate files, %3 duplicate anchors, %4 invalid locators")
               .arg(report.missingTargetCount).arg(report.duplicateResourceCount)
               .arg(report.duplicateAnchorCount).arg(report.invalidLocatorCount);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     if (isVisible()) {
-        QDialog dialog(this);
+        Pinloom::Ui::Dialog dialog(this);
         dialog.setWindowTitle(tr("Anchor Library Integrity"));
         dialog.resize(820, 420);
         auto *dialogLayout = new QVBoxLayout(&dialog);
-        auto *summary = new QLabel(statusText_, &dialog);
-        auto *table = new QTableWidget(report.issues.size(), 3, &dialog);
+        auto *summary = Pinloom::Ui::label(statusText_, &dialog);
+        auto *table = new Pinloom::Ui::Table(report.issues.size(), 3, &dialog);
         table->setHorizontalHeaderLabels({tr("Issue"), tr("Item"), tr("Detail")});
         table->setEditTriggers(QAbstractItemView::NoEditTriggers);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -1481,11 +1482,11 @@ bool AnchorLibraryWindow::inspectIntegrity()
         table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
         for (int row = 0; row < report.issues.size(); ++row) {
             const auto &issue = report.issues.at(row);
-            table->setItem(row, 0, new QTableWidgetItem(issueKindLabel(issue.kind)));
-            table->setItem(row, 1, new QTableWidgetItem(issue.title));
-            table->setItem(row, 2, new QTableWidgetItem(issue.detail));
+            table->setItem(row, 0, new Pinloom::Ui::TableItem(issueKindLabel(issue.kind)));
+            table->setItem(row, 1, new Pinloom::Ui::TableItem(issue.title));
+            table->setItem(row, 2, new Pinloom::Ui::TableItem(issue.detail));
         }
-        auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+        auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
         connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
         dialogLayout->addWidget(summary);
         dialogLayout->addWidget(table, 1);
@@ -1518,14 +1519,14 @@ bool AnchorLibraryWindow::showOperationHistory()
     statusText_ = history.isEmpty()
         ? tr("No session operations have been recorded")
         : tr("%1 session operation(s); newest first").arg(history.size());
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     if (!isVisible()) return !history.isEmpty();
 
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(tr("Anchor Library Operation History"));
     dialog.resize(700, 380);
     auto *layout = new QVBoxLayout(&dialog);
-    auto *table = new QTableWidget(history.size(), 4, &dialog);
+    auto *table = new Pinloom::Ui::Table(history.size(), 4, &dialog);
     table->setObjectName(QStringLiteral("anchorLibraryHistoryTable"));
     table->setHorizontalHeaderLabels({tr("Operation"), tr("Affected"), tr("Time"), tr("State")});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
@@ -1534,12 +1535,12 @@ bool AnchorLibraryWindow::showOperationHistory()
     for (int column : {1, 2, 3}) table->horizontalHeader()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
     for (int row = 0; row < history.size(); ++row) {
         const AnchorLibraryHistoryItem &item = history.at(row);
-        table->setItem(row, 0, new QTableWidgetItem(item.action));
-        table->setItem(row, 1, new QTableWidgetItem(QString::number(item.affectedCount)));
-        table->setItem(row, 2, new QTableWidgetItem(QLocale().toString(item.timestamp.toLocalTime(), QLocale::ShortFormat)));
-        table->setItem(row, 3, new QTableWidgetItem(item.undone ? tr("Undone") : tr("Applied")));
+        table->setItem(row, 0, new Pinloom::Ui::TableItem(item.action));
+        table->setItem(row, 1, new Pinloom::Ui::TableItem(QString::number(item.affectedCount)));
+        table->setItem(row, 2, new Pinloom::Ui::TableItem(QLocale().toString(item.timestamp.toLocalTime(), QLocale::ShortFormat)));
+        table->setItem(row, 3, new Pinloom::Ui::TableItem(item.undone ? tr("Undone") : tr("Applied")));
     }
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     layout->addWidget(table, 1);
     layout->addWidget(buttons);
@@ -1577,7 +1578,7 @@ bool AnchorLibraryWindow::saveCurrentView(const QString &name)
     const int index = savedViewCombo_->findData(name.trimmed());
     if (index >= 0) savedViewCombo_->setCurrentIndex(index);
     statusText_ = tr("Saved view: %1").arg(name.trimmed());
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     return true;
 }
 
@@ -1621,7 +1622,7 @@ bool AnchorLibraryWindow::loadSavedView(const QString &name)
     usageFilterCombo_->setCurrentIndex(std::max(0, usageFilterCombo_->findData(usage)));
     applyFilter();
     statusText_ = tr("Loaded view: %1").arg(name);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     return true;
 }
 
@@ -1632,7 +1633,7 @@ bool AnchorLibraryWindow::deleteSavedView(const QString &name)
     options_.settings->sync();
     refreshSavedViews();
     statusText_ = tr("Deleted saved view: %1").arg(name.trimmed());
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     return true;
 }
 
@@ -1659,32 +1660,32 @@ void AnchorLibraryWindow::applyFilter()
             : file->resource.tags;
         const int row = fileTable_->rowCount();
         fileTable_->insertRow(row);
-        auto *name = new QTableWidgetItem(fileDisplayName(*file));
+        auto *name = new Pinloom::Ui::TableItem(fileDisplayName(*file));
         name->setData(FileKeyRole, key);
         name->setToolTip(file->resource.location);
         name->setFlags(name->flags() & ~Qt::ItemIsEditable);
         if (file->resource.deleted) name->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
         fileTable_->setItem(row, FileNameColumn, name);
-        auto *aliasesItem = new QTableWidgetItem(aliases.join(QLatin1Char(',')));
+        auto *aliasesItem = new Pinloom::Ui::TableItem(aliases.join(QLatin1Char(',')));
         if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileAliasesColumn, aliasesItem);
-        auto *location = new QTableWidgetItem(fileLocationLabel(*file));
+        auto *location = new Pinloom::Ui::TableItem(fileLocationLabel(*file));
         location->setToolTip(file->resource.location);
         location->setFlags(location->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileLocationColumn, location);
-        auto *type = new QTableWidgetItem(resourceKindLabel(file->resource.kind));
+        auto *type = new Pinloom::Ui::TableItem(resourceKindLabel(file->resource.kind));
         type->setFlags(type->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileTypeColumn, type);
-        auto *count = new QTableWidgetItem;
+        auto *count = new Pinloom::Ui::TableItem;
         count->setData(Qt::DisplayRole, anchors.size());
         count->setFlags(count->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileAnchorCountColumn, count);
-        auto *tagsItem = new QTableWidgetItem(tags.join(QStringLiteral(", ")));
+        auto *tagsItem = new Pinloom::Ui::TableItem(tags.join(QStringLiteral(", ")));
         tagsItem->setData(TagValuesRole, tags);
         tagsItem->setFlags(tagsItem->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileTagsColumn, tagsItem);
         const QDateTime marked = lastMarkedAt(file->resource, anchors);
-        auto *markedItem = new QTableWidgetItem(marked.isValid() ? QLocale().toString(marked.toLocalTime(), QLocale::ShortFormat) : QString());
+        auto *markedItem = new Pinloom::Ui::TableItem(marked.isValid() ? QLocale().toString(marked.toLocalTime(), QLocale::ShortFormat) : QString());
         markedItem->setData(SortValueRole, marked);
         markedItem->setFlags(markedItem->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileLastMarkedColumn, markedItem);
@@ -1696,15 +1697,15 @@ void AnchorLibraryWindow::applyFilter()
         if (localTargetExists(file->resource) && fileHasInvalidLocator(*file)) {
             states.append(tr("Invalid locator"));
         }
-        auto *status = new QTableWidgetItem(states.join(QStringLiteral(" | ")));
+        auto *status = new Pinloom::Ui::TableItem(states.join(QStringLiteral(" | ")));
         status->setFlags(status->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileStatusColumn, status);
-        auto *opens = new QTableWidgetItem;
+        auto *opens = new Pinloom::Ui::TableItem;
         opens->setData(Qt::DisplayRole, totalOpenCount(*file));
         opens->setFlags(opens->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileOpenCountColumn, opens);
         const QDateTime opened = lastOpenedAt(*file);
-        auto *openedItem = new QTableWidgetItem(opened.isValid() ? QLocale().toString(opened.toLocalTime(), QLocale::ShortFormat) : QString());
+        auto *openedItem = new Pinloom::Ui::TableItem(opened.isValid() ? QLocale().toString(opened.toLocalTime(), QLocale::ShortFormat) : QString());
         openedItem->setData(SortValueRole, opened);
         openedItem->setFlags(openedItem->flags() & ~Qt::ItemIsEditable);
         fileTable_->setItem(row, FileLastOpenedColumn, openedItem);
@@ -1747,7 +1748,7 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
         for (const AnchorLibraryAnchor &entry : sortedAnchors(scopedAnchors(*file))) {
             const int row = anchorTable_->rowCount();
             anchorTable_->insertRow(row);
-            auto *name = new QTableWidgetItem(anchorDisplayName(entry.anchor));
+            auto *name = new Pinloom::Ui::TableItem(anchorDisplayName(entry.anchor));
             name->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
             name->setData(ResourceIdRole, entry.resourceId);
             name->setFlags(name->flags() & ~Qt::ItemIsEditable);
@@ -1760,29 +1761,29 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
             const QStringList tags = pending != pendingInlineEdits_.constEnd() && pending->tagsDirty
                 ? pending->tags
                 : entry.anchor.tags;
-            auto *aliasesItem = new QTableWidgetItem(aliases.join(QLatin1Char(',')));
+            auto *aliasesItem = new Pinloom::Ui::TableItem(aliases.join(QLatin1Char(',')));
             aliasesItem->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
             aliasesItem->setData(ResourceIdRole, entry.resourceId);
             if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorAliasesColumn, aliasesItem);
-            auto *tagsItem = new QTableWidgetItem(tags.join(QStringLiteral(", ")));
+            auto *tagsItem = new Pinloom::Ui::TableItem(tags.join(QStringLiteral(", ")));
             tagsItem->setData(TagValuesRole, tags);
             tagsItem->setFlags(tagsItem->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorTagsColumn, tagsItem);
-            auto *typeItem = new QTableWidgetItem(locatorTypeLabel(entry.anchor.locatorType));
+            auto *typeItem = new Pinloom::Ui::TableItem(locatorTypeLabel(entry.anchor.locatorType));
             typeItem->setToolTip(anchorLocatorSummary(entry.anchor));
             typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorTypeColumn, typeItem);
             const QDateTime updated = entry.anchor.updatedAt.isValid() ? entry.anchor.updatedAt : entry.anchor.createdAt;
-            auto *updatedItem = new QTableWidgetItem(updated.isValid() ? QLocale().toString(updated.toLocalTime(), QLocale::ShortFormat) : QString());
+            auto *updatedItem = new Pinloom::Ui::TableItem(updated.isValid() ? QLocale().toString(updated.toLocalTime(), QLocale::ShortFormat) : QString());
             updatedItem->setData(SortValueRole, updated);
             updatedItem->setFlags(updatedItem->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorUpdatedColumn, updatedItem);
-            auto *opens = new QTableWidgetItem;
+            auto *opens = new Pinloom::Ui::TableItem;
             opens->setData(Qt::DisplayRole, entry.usage.openCount);
             opens->setFlags(opens->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorOpenCountColumn, opens);
-            auto *opened = new QTableWidgetItem(entry.usage.lastOpenedAt.isValid() ? QLocale().toString(entry.usage.lastOpenedAt.toLocalTime(), QLocale::ShortFormat) : QString());
+            auto *opened = new Pinloom::Ui::TableItem(entry.usage.lastOpenedAt.isValid() ? QLocale().toString(entry.usage.lastOpenedAt.toLocalTime(), QLocale::ShortFormat) : QString());
             opened->setData(SortValueRole, entry.usage.lastOpenedAt);
             opened->setFlags(opened->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorLastOpenedColumn, opened);
@@ -1791,7 +1792,7 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
                 const AnchorValidationResult result = options_.managementService->validateAnchor(file->resource, entry.anchor);
                 validity = result.valid ? tr("Valid") : tr("Invalid");
             }
-            auto *validityItem = new QTableWidgetItem(validity);
+            auto *validityItem = new Pinloom::Ui::TableItem(validity);
             validityItem->setFlags(validityItem->flags() & ~Qt::ItemIsEditable);
             anchorTable_->setItem(row, AnchorValidityColumn, validityItem);
             applyInlineCellState(row, AnchorAliasesColumn, key);
@@ -2022,7 +2023,7 @@ bool AnchorLibraryWindow::createSafetyBackup(const QString &operation)
     const AnchorLibraryOperationResult result = options_.archiveService->createAutomaticBackup(options_.automaticBackupDirectory, 10);
     if (result.success) return true;
     statusText_ = tr("Canceled %1 because the safety backup failed: %2").arg(operation, result.message);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     return false;
 }
 
@@ -2109,7 +2110,7 @@ QColor AnchorLibraryWindow::colorForTag(const QString &tag)
 
 void AnchorLibraryWindow::applyFileInlineCellState(int row, int column, const QString &key)
 {
-    QTableWidgetItem *item = fileTable_->item(row, column);
+    Pinloom::Ui::TableItem *item = fileTable_->item(row, column);
     if (!item) return;
     const int state = fileInlineCellStates_.value(inlineFileCellKey(key, column), InlineCellClean);
     if (state == InlineCellDirty) {
@@ -2127,7 +2128,7 @@ void AnchorLibraryWindow::applyFileInlineCellState(int row, int column, const QS
 
 void AnchorLibraryWindow::applyInlineCellState(int row, int column, const QString &key)
 {
-    QTableWidgetItem *item = anchorTable_->item(row, column);
+    Pinloom::Ui::TableItem *item = anchorTable_->item(row, column);
     if (!item) return;
     const int state = inlineCellStates_.value(inlineCellKey(key, column), InlineCellClean);
     if (state == InlineCellDirty) {
@@ -2152,13 +2153,13 @@ void AnchorLibraryWindow::updateInlineEditStatus()
         : tr("%1 file(s) and %2 anchor(s) have unsaved Alias or Tag changes; press Ctrl+S to save")
               .arg(fileCount)
               .arg(anchorCount);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
 }
 
-void AnchorLibraryWindow::handleFileItemChanged(QTableWidgetItem *item)
+void AnchorLibraryWindow::handleFileItemChanged(Pinloom::Ui::TableItem *item)
 {
     if (populatingFileTable_ || !item || item->column() != FileAliasesColumn || showingTrash()) return;
-    const QTableWidgetItem *name = fileTable_->item(item->row(), FileNameColumn);
+    const Pinloom::Ui::TableItem *name = fileTable_->item(item->row(), FileNameColumn);
     if (!name) return;
     const QString key = name->data(FileKeyRole).toString();
     const AnchorLibraryFile *file = fileForKey(key);
@@ -2183,10 +2184,10 @@ void AnchorLibraryWindow::handleFileItemChanged(QTableWidgetItem *item)
     updateInlineEditStatus();
 }
 
-void AnchorLibraryWindow::handleAnchorItemChanged(QTableWidgetItem *item)
+void AnchorLibraryWindow::handleAnchorItemChanged(Pinloom::Ui::TableItem *item)
 {
     if (populatingAnchorTable_ || !item || item->column() != AnchorAliasesColumn || showingTrash()) return;
-    const QTableWidgetItem *name = anchorTable_->item(item->row(), AnchorNameColumn);
+    const Pinloom::Ui::TableItem *name = anchorTable_->item(item->row(), AnchorNameColumn);
     if (!name) return;
     const QString key = inlineAnchorKey(name->data(ResourceIdRole).toString(),
                                         name->data(AnchorIdentityRole).toString());
@@ -2234,9 +2235,9 @@ void AnchorLibraryWindow::updatePendingFileTags(const QString &key, const QStrin
         }
     }
     for (int row = 0; row < fileTable_->rowCount(); ++row) {
-        const QTableWidgetItem *name = fileTable_->item(row, FileNameColumn);
+        const Pinloom::Ui::TableItem *name = fileTable_->item(row, FileNameColumn);
         if (!name || name->data(FileKeyRole).toString() != key) continue;
-        QTableWidgetItem *tagItem = fileTable_->item(row, FileTagsColumn);
+        Pinloom::Ui::TableItem *tagItem = fileTable_->item(row, FileTagsColumn);
         if (tagItem) {
             const bool wasPopulating = populatingFileTable_;
             populatingFileTable_ = true;
@@ -2273,10 +2274,10 @@ void AnchorLibraryWindow::updatePendingAnchorTags(const QString &key, const QStr
         }
     }
     for (int row = 0; row < anchorTable_->rowCount(); ++row) {
-        const QTableWidgetItem *name = anchorTable_->item(row, AnchorNameColumn);
+        const Pinloom::Ui::TableItem *name = anchorTable_->item(row, AnchorNameColumn);
         if (!name || inlineAnchorKey(name->data(ResourceIdRole).toString(),
                                      name->data(AnchorIdentityRole).toString()) != key) continue;
-        QTableWidgetItem *tagItem = anchorTable_->item(row, AnchorTagsColumn);
+        Pinloom::Ui::TableItem *tagItem = anchorTable_->item(row, AnchorTagsColumn);
         if (tagItem) {
             const bool wasPopulating = populatingAnchorTable_;
             populatingAnchorTable_ = true;
@@ -2294,7 +2295,7 @@ void AnchorLibraryWindow::updatePendingAnchorTags(const QString &key, const QStr
 void AnchorLibraryWindow::openFileTagEditor(int row)
 {
     if (row < 0 || row >= fileTable_->rowCount() || showingTrash()) return;
-    const QTableWidgetItem *name = fileTable_->item(row, FileNameColumn);
+    const Pinloom::Ui::TableItem *name = fileTable_->item(row, FileNameColumn);
     if (!name) return;
     const QString key = name->data(FileKeyRole).toString();
     const AnchorLibraryFile *file = fileForKey(key);
@@ -2315,7 +2316,7 @@ void AnchorLibraryWindow::openFileTagEditor(int row)
 void AnchorLibraryWindow::openAnchorTagEditor(int row)
 {
     if (row < 0 || row >= anchorTable_->rowCount() || showingTrash()) return;
-    const QTableWidgetItem *name = anchorTable_->item(row, AnchorNameColumn);
+    const Pinloom::Ui::TableItem *name = anchorTable_->item(row, AnchorNameColumn);
     if (!name) return;
     const QString key = inlineAnchorKey(name->data(ResourceIdRole).toString(),
                                         name->data(AnchorIdentityRole).toString());
@@ -2334,7 +2335,7 @@ void AnchorLibraryWindow::openAnchorTagEditor(int row)
                   [this, key](const QStringList &tags) { updatePendingAnchorTags(key, tags); });
 }
 
-void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
+void AnchorLibraryWindow::openTagEditor(Pinloom::Ui::Table *table,
                                         int row,
                                         int column,
                                         const QStringList &selectedTags,
@@ -2347,22 +2348,21 @@ void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
     for (const QString &tag : selectedTags) appendUnique(availableTags, tag);
     availableTags.sort(Qt::CaseInsensitive);
 
-    auto *popup = new QFrame(this, Qt::Popup);
+    auto *popup = Ui::popupFrame(this);
     popup->setObjectName(fileTags ? QStringLiteral("anchorLibraryFileTagEditorPopup")
                                   : QStringLiteral("anchorLibraryTagEditorPopup"));
-    popup->setAttribute(Qt::WA_DeleteOnClose);
-    popup->setFrameShape(QFrame::StyledPanel);
+    popup->setAccessibleName(fileTags ? tr("File tags") : tr("Anchor tags"));
     auto *layout = new QVBoxLayout(popup);
     layout->setContentsMargins(8, 8, 8, 8);
     layout->setSpacing(8);
     auto *queryRow = new QHBoxLayout;
-    auto *query = new QLineEdit(popup);
+    auto *query = Pinloom::Ui::lineEdit(popup);
     query->setObjectName(fileTags ? QStringLiteral("anchorLibraryFileTagEditorFilter")
                                   : QStringLiteral("anchorLibraryTagEditorFilter"));
     query->setPlaceholderText(fileTags ? tr("Filter or create a file tag")
                                        : tr("Filter or create an anchor tag"));
     query->setClearButtonEnabled(true);
-    auto *create = new QToolButton(popup);
+    auto *create = Pinloom::Ui::toolButton(popup);
     create->setObjectName(fileTags ? QStringLiteral("anchorLibraryCreateFileTagButton")
                                    : QStringLiteral("anchorLibraryCreateTagButton"));
     create->setText(QStringLiteral("+"));
@@ -2371,12 +2371,12 @@ void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
     create->setAccessibleName(create->toolTip());
     queryRow->addWidget(query, 1);
     queryRow->addWidget(create);
-    auto *list = new QListWidget(popup);
+    auto *list = new Pinloom::Ui::List(popup);
     list->setObjectName(fileTags ? QStringLiteral("anchorLibraryFileTagEditorList")
                                  : QStringLiteral("anchorLibraryTagEditorList"));
     list->setSelectionMode(QAbstractItemView::NoSelection);
     for (const QString &tag : availableTags) {
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setCheckState(selectedTags.contains(tag, Qt::CaseInsensitive) ? Qt::Checked : Qt::Unchecked);
         item->setBackground(colorForTag(tag).lighter(145));
@@ -2410,7 +2410,7 @@ void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
         }
         updateCreateState();
     });
-    connect(list, &QListWidget::itemChanged, popup, [selectedValues, updateHandler](QListWidgetItem *) {
+    connect(list, &Pinloom::Ui::List::itemChanged, popup, [selectedValues, updateHandler](Pinloom::Ui::ListItem *) {
         updateHandler(selectedValues());
     });
     connect(create, &QToolButton::clicked, popup, [this, query, list, updateCreateState]() {
@@ -2419,7 +2419,7 @@ void AnchorLibraryWindow::openTagEditor(QTableWidget *table,
         for (int index = 0; index < list->count(); ++index) {
             if (list->item(index)->text().compare(tag, Qt::CaseInsensitive) == 0) return;
         }
-        auto *item = new QListWidgetItem(tag, list);
+        auto *item = new Pinloom::Ui::ListItem(tag, list);
         item->setFlags(item->flags() | Qt::ItemIsUserCheckable);
         item->setBackground(colorForTag(tag).lighter(145));
         item->setCheckState(Qt::Checked);
@@ -2455,7 +2455,7 @@ bool AnchorLibraryWindow::savePendingInlineEdits()
     if (!options_.managementService || !hasPendingEdits || showingTrash()) {
         statusText_ = !hasPendingEdits ? tr("No inline Alias or Tag changes to save")
                                       : tr("Inline edits cannot be saved from Trash");
-        statusLabel_->setText(statusText_);
+        Pinloom::Ui::setStatusText(statusLabel_, statusText_);
         return false;
     }
     int savedCells = 0;
@@ -2464,7 +2464,7 @@ bool AnchorLibraryWindow::savePendingInlineEdits()
         const AnchorLibraryFile *file = fileForKey(key);
         if (!file) {
             statusText_ = tr("An edited file no longer exists");
-            statusLabel_->setText(statusText_);
+            Pinloom::Ui::setStatusText(statusLabel_, statusText_);
             return false;
         }
         const InlineFileEdit edit = pendingFileInlineEdits_.value(key);
@@ -2493,7 +2493,7 @@ bool AnchorLibraryWindow::savePendingInlineEdits()
         const AnchorLibraryAnchor *entry = anchorForInlineKey(key);
         if (!entry) {
             statusText_ = tr("An edited anchor no longer exists");
-            statusLabel_->setText(statusText_);
+            Pinloom::Ui::setStatusText(statusLabel_, statusText_);
             return false;
         }
         const InlineAnchorEdit edit = pendingInlineEdits_.value(key);
@@ -2520,7 +2520,7 @@ bool AnchorLibraryWindow::savePendingInlineEdits()
     }
     refreshLibrary();
     statusText_ = tr("Saved %1 inline Alias/Tag cell(s)").arg(savedCells);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     return true;
 }
 
@@ -2529,7 +2529,7 @@ void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
     const QModelIndex index = fileTable_->indexAt(position);
     if (!index.isValid()) return;
     if (!fileTable_->selectionModel()->isRowSelected(index.row(), QModelIndex())) fileTable_->selectRow(index.row());
-    QMenu menu(this);
+    std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(this));    QMenu &menu = *ownedMenu;
     if (showingTrash()) {
         auto *restoreMetadata = addToneMenuAction(&menu,
                                                   QStringLiteral("anchorLibraryRestoreFileMetadataAction"),
@@ -2577,7 +2577,7 @@ void AnchorLibraryWindow::showAnchorContextMenu(const QPoint &position)
     if (!index.isValid()) return;
     if (!anchorTable_->selectionModel()->isRowSelected(index.row(), QModelIndex())) anchorTable_->selectRow(index.row());
     anchorTable_->setCurrentCell(index.row(), AnchorNameColumn, QItemSelectionModel::NoUpdate);
-    QMenu menu(this);
+    std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(this));    QMenu &menu = *ownedMenu;
     if (showingTrash()) {
         addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryRestoreAnchorAction"),
@@ -2626,7 +2626,7 @@ void AnchorLibraryWindow::showAnchorContextMenu(const QPoint &position)
 void AnchorLibraryWindow::showPermanentFileDeleteMenu()
 {
     if (!showingTrash() || selectedFiles().isEmpty()) return;
-    QMenu menu(this);
+    std::unique_ptr<QMenu> ownedMenu(Pinloom::Ui::menu(this));    QMenu &menu = *ownedMenu;
     auto *deleteMetadata = addToneMenuAction(&menu,
                                              QStringLiteral("anchorLibraryDeleteFileMetadataAction"),
                                              QStringLiteral("永久删除该文件的 Alias 和 Tag"),
@@ -2660,39 +2660,40 @@ void AnchorLibraryWindow::applyLibraryTheme()
     }
     style()->unpolish(this);
     style()->polish(this);
+    Ui::refreshViewPalettes(*qApp);
     update();
 }
 
 void AnchorLibraryWindow::promptAnchorTagUpdate(bool remove)
 {
     bool accepted = false;
-    const QString text = QInputDialog::getText(this, remove ? tr("Remove Anchor Tags") : tr("Add Anchor Tags"), tr("Tags (comma-separated)"), QLineEdit::Normal, QString(), &accepted);
+    const QString text = Pinloom::Ui::getText(this, remove ? tr("Remove Anchor Tags") : tr("Add Anchor Tags"), tr("Tags (comma-separated)"), QLineEdit::Normal, QString(), &accepted);
     if (accepted) updateSelectedAnchorTags(editorValues(text), remove);
 }
 
 void AnchorLibraryWindow::promptFileTagUpdate(bool remove)
 {
     bool accepted = false;
-    const QString text = QInputDialog::getText(this, remove ? tr("Remove File Tags") : tr("Add File Tags"), tr("Tags (comma-separated)"), QLineEdit::Normal, QString(), &accepted);
+    const QString text = Pinloom::Ui::getText(this, remove ? tr("Remove File Tags") : tr("Add File Tags"), tr("Tags (comma-separated)"), QLineEdit::Normal, QString(), &accepted);
     if (accepted) updateSelectedFileTags(editorValues(text), remove);
 }
 
 void AnchorLibraryWindow::promptSavedViewCreation()
 {
     bool accepted = false;
-    const QString name = QInputDialog::getText(this, tr("Save View"), tr("View name"), QLineEdit::Normal, QString(), &accepted);
+    const QString name = Pinloom::Ui::getText(this, tr("Save View"), tr("View name"), QLineEdit::Normal, QString(), &accepted);
     if (accepted) saveCurrentView(name);
 }
 
 void AnchorLibraryWindow::promptTagManager()
 {
     if (!options_.managementService) return;
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setWindowTitle(tr("Tag Manager"));
     dialog.resize(560, 380);
     auto *layout = new QVBoxLayout(&dialog);
     const QList<AnchorLibraryTagSummary> tags = options_.managementService->tagSummary();
-    auto *table = new QTableWidget(tags.size(), 3, &dialog);
+    auto *table = new Pinloom::Ui::Table(tags.size(), 3, &dialog);
     table->setObjectName(QStringLiteral("anchorLibraryTagManagerTable"));
     table->setHorizontalHeaderLabels({tr("Tag"), tr("Files"), tr("Anchors")});
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -2700,23 +2701,23 @@ void AnchorLibraryWindow::promptTagManager()
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Stretch);
     for (int row = 0; row < tags.size(); ++row) {
-        table->setItem(row, 0, new QTableWidgetItem(tags.at(row).tag));
-        table->setItem(row, 1, new QTableWidgetItem(QString::number(tags.at(row).resourceCount)));
-        table->setItem(row, 2, new QTableWidgetItem(QString::number(tags.at(row).anchorCount)));
+        table->setItem(row, 0, new Pinloom::Ui::TableItem(tags.at(row).tag));
+        table->setItem(row, 1, new Pinloom::Ui::TableItem(QString::number(tags.at(row).resourceCount)));
+        table->setItem(row, 2, new Pinloom::Ui::TableItem(QString::number(tags.at(row).anchorCount)));
     }
     auto *actions = new QHBoxLayout;
-    auto *rename = new QPushButton(tr("Rename"), &dialog);
-    auto *remove = new QPushButton(tr("Delete"), &dialog);
+    auto *rename = Pinloom::Ui::pushButton(tr("Rename"), &dialog);
+    auto *remove = Pinloom::Ui::pushButton(tr("Delete"), &dialog);
     actions->addWidget(rename);
     actions->addWidget(remove);
     actions->addStretch(1);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
     connect(buttons, &QDialogButtonBox::rejected, &dialog, &QDialog::reject);
     connect(rename, &QPushButton::clicked, &dialog, [this, table, &dialog]() {
         if (table->currentRow() < 0) return;
         const QString oldTag = table->item(table->currentRow(), 0)->text();
         bool accepted = false;
-        const QString newTag = QInputDialog::getText(&dialog, tr("Rename Tag"), tr("New name"), QLineEdit::Normal, oldTag, &accepted);
+        const QString newTag = Pinloom::Ui::getText(&dialog, tr("Rename Tag"), tr("New name"), QLineEdit::Normal, oldTag, &accepted);
         if (accepted && renameTag(oldTag, newTag)) dialog.accept();
     });
     connect(remove, &QPushButton::clicked, &dialog, [this, table, &dialog]() {
@@ -2736,7 +2737,7 @@ void AnchorLibraryWindow::setOperationResult(const AnchorLibraryOperationResult 
     statusText_ = result.message.trimmed().isEmpty()
         ? (result.success ? tr("Anchor Library updated") : tr("Anchor Library update failed"))
         : result.message.trimmed();
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_);
     updateActionButtons();
 }
 
@@ -2836,7 +2837,7 @@ void AnchorLibraryWindow::updateStatus()
     statusText_ = showingTrash()
         ? tr("%1 file(s) | %2 Trash item(s)").arg(fileTable_->rowCount()).arg(anchors)
         : tr("%1 marked file(s) | %2 anchor(s)").arg(fileTable_->rowCount()).arg(anchors);
-    statusLabel_->setText(statusText_);
+    Pinloom::Ui::setStatusText(statusLabel_, statusText_, false);
 }
 
 void AnchorLibraryWindow::handleFileSortRequest(int column)

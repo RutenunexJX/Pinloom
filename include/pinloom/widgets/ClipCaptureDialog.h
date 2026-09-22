@@ -1,13 +1,12 @@
 #pragma once
 
-#include <QDialog>
+#include "pinloom/widgets/PinloomUiControls.h"
+
 #include <QString>
 #include <QStringList>
 
-class QDialogButtonBox;
 class QFrame;
 class QLineEdit;
-class QListWidget;
 class QPlainTextEdit;
 class QToolButton;
 class QWidget;
@@ -19,7 +18,7 @@ struct ClipCaptureMetadata {
     QStringList tags;
 };
 
-class ClipCaptureDialog final : public QDialog {
+class ClipCaptureDialog final : public Ui::Dialog {
     Q_OBJECT
 
 public:
@@ -39,7 +38,7 @@ private:
     QLineEdit *nameEdit_ = nullptr;
     QToolButton *tagsButton_ = nullptr;
     QPlainTextEdit *previewEdit_ = nullptr;
-    QDialogButtonBox *buttons_ = nullptr;
+    Pinloom::Ui::DialogButtonBox *buttons_ = nullptr;
     QFrame *tagPickerPopup_ = nullptr;
     QStringList availableTags_;
     QStringList selectedTags_;

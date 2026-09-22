@@ -25,8 +25,8 @@
 class QLabel;
 class QEvent;
 class QLineEdit;
-class QListWidget;
-class QListWidgetItem;
+#include "pinloom/widgets/PinloomItemViews.h"
+
 class QPushButton;
 
 namespace Pinloom {
@@ -128,7 +128,7 @@ protected:
 private slots:
     void refreshResults();
     void openSelectedResource();
-    void openResultItem(QListWidgetItem *item);
+    void openResultItem(Pinloom::Ui::ListItem *item);
     void triggerCaptureCurrentAppPosition();
     void addSearchTextAsAlias();
     void addSearchTextAsTag();
@@ -154,7 +154,7 @@ private:
     std::optional<ManualPdfAnchorCreationRequest> selectedPdfAnchorCaptureRequest() const;
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
     bool activateCurrentLauncherItem();
-    bool activateLauncherItem(QListWidgetItem *item);
+    bool activateLauncherItem(Pinloom::Ui::ListItem *item);
     bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfTarget(const PinloomOpenTarget &target);
     bool activatePowerPointTarget(const PinloomOpenTarget &target);
@@ -175,7 +175,7 @@ private:
     QStringList contextLocationPrefixes_;
     QString statusText_;
     QLineEdit *searchEdit_ = nullptr;
-    QListWidget *resultList_ = nullptr;
+    Pinloom::Ui::List *resultList_ = nullptr;
     QLabel *statusLabel_ = nullptr;
     QPushButton *openButton_ = nullptr;
     QPushButton *addAliasButton_ = nullptr;

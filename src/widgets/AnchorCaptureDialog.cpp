@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/AnchorCaptureDialog.h"
 
 #include <QCheckBox>
@@ -55,7 +56,7 @@ QString compactLocatorSummary(const AnchorCaptureDraft &draft)
 
 AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
                                          QWidget *parent)
-    : QDialog(parent)
+    : Ui::Dialog(parent)
     , initialDraft_(draft)
 {
     setObjectName(QStringLiteral("anchorCaptureDialog"));
@@ -68,12 +69,12 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     root->setContentsMargins(20, 20, 20, 20);
     root->setSpacing(12);
 
-    auto *title = new QLabel(tr("Confirm captured position"), this);
+    auto *title = Pinloom::Ui::label(tr("Confirm captured position"), this);
     title->setObjectName(QStringLiteral("anchorCaptureTitle"));
     title->setProperty("pinloomTextRole", QStringLiteral("title"));
     root->addWidget(title);
 
-    targetLabel_ = new QLabel(this);
+    targetLabel_ = Pinloom::Ui::label(this);
     targetLabel_->setObjectName(QStringLiteral("anchorCaptureTarget"));
     targetLabel_->setProperty("pinloomRole", QStringLiteral("raised"));
     targetLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
@@ -85,23 +86,23 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
                               .arg(draft.targetApp.trimmed(), target));
     root->addWidget(targetLabel_);
 
-    locatorLabel_ = new QLabel(compactLocatorSummary(draft), this);
+    locatorLabel_ = Pinloom::Ui::label(compactLocatorSummary(draft), this);
     locatorLabel_->setObjectName(QStringLiteral("anchorCaptureLocator"));
     locatorLabel_->setProperty("pinloomRole", QStringLiteral("raised"));
     locatorLabel_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     locatorLabel_->setWordWrap(true);
     root->addWidget(locatorLabel_);
 
-    auto *form = new QFormLayout;
+    auto *form = new Pinloom::Ui::FormLayout;
     form->setHorizontalSpacing(12);
     form->setVerticalSpacing(8);
-    nameEdit_ = new QLineEdit(draft.suggestedName, this);
+    nameEdit_ = Pinloom::Ui::lineEdit(draft.suggestedName, this);
     nameEdit_->setObjectName(QStringLiteral("anchorCaptureNameEdit"));
-    aliasesEdit_ = new QLineEdit(draft.aliases.join(QLatin1Char(',')), this);
+    aliasesEdit_ = Pinloom::Ui::lineEdit(draft.aliases.join(QLatin1Char(',')), this);
     aliasesEdit_->setObjectName(QStringLiteral("anchorCaptureAliasesEdit"));
-    tagsEdit_ = new QLineEdit(draft.tags.join(QStringLiteral(", ")), this);
+    tagsEdit_ = Pinloom::Ui::lineEdit(draft.tags.join(QStringLiteral(", ")), this);
     tagsEdit_->setObjectName(QStringLiteral("anchorCaptureTagsEdit"));
-    pinnedCheck_ = new QCheckBox(tr("Pinned"), this);
+    pinnedCheck_ = Pinloom::Ui::checkBox(tr("Pinned"), this);
     pinnedCheck_->setObjectName(QStringLiteral("anchorCapturePinnedCheck"));
     pinnedCheck_->setChecked(draft.pinned);
     form->addRow(tr("Name"), nameEdit_);
@@ -110,7 +111,7 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     form->addRow(QString(), pinnedCheck_);
     root->addLayout(form);
 
-    mutationCheck_ = new QCheckBox(this);
+    mutationCheck_ = Pinloom::Ui::checkBox(this);
     mutationCheck_->setObjectName(QStringLiteral("anchorCaptureMutationCheck"));
     mutationCheck_->setText(draft.mutationLabel.trimmed().isEmpty()
                                 ? tr("Allow Pinloom to create a stable locator in the document")
@@ -118,7 +119,7 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     mutationCheck_->setVisible(draft.mutationRequired || draft.mutationOptional);
     root->addWidget(mutationCheck_);
 
-    provenanceLabel_ = new QLabel(
+    provenanceLabel_ = Pinloom::Ui::label(
         draft.provenance.trimmed().isEmpty()
             ? tr("Captured from the remembered foreground application")
             : tr("Source: %1").arg(draft.provenance.trimmed()),
@@ -128,14 +129,14 @@ AnchorCaptureDialog::AnchorCaptureDialog(const AnchorCaptureDraft &draft,
     provenanceLabel_->setWordWrap(true);
     root->addWidget(provenanceLabel_);
 
-    validationLabel_ = new QLabel(this);
+    validationLabel_ = Pinloom::Ui::label(this);
     validationLabel_->setObjectName(QStringLiteral("anchorCaptureValidation"));
     validationLabel_->setProperty("pinloomNotice", QStringLiteral("error"));
     validationLabel_->setAccessibleName(tr("Anchor validation status"));
     validationLabel_->setWordWrap(true);
     root->addWidget(validationLabel_);
 
-    buttons_ = new QDialogButtonBox(
+    buttons_ = new Pinloom::Ui::DialogButtonBox(
         QDialogButtonBox::Save | QDialogButtonBox::Cancel, this);
     buttons_->setObjectName(QStringLiteral("anchorCaptureButtons"));
     if (QPushButton *saveButton = buttons_->button(QDialogButtonBox::Save)) {

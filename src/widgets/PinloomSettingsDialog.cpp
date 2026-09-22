@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
 #include "pinloom/clip/ObsidianClipStore.h"
@@ -17,6 +18,9 @@
 #include <QPushButton>
 #include <QSettings>
 #include <QSpinBox>
+#include <QScrollArea>
+#include <QScreen>
+#include <QVBoxLayout>
 
 namespace Pinloom {
 
@@ -213,26 +217,50 @@ void savePinloomAppSettings(QSettings &settings, const PinloomAppSettings &appSe
 }
 
 PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings, QWidget *parent)
-    : QDialog(parent)
+    : Ui::Dialog(parent)
 {
     setObjectName(QStringLiteral("pinloomSettingsDialog"));
     setProperty("pinloomRole", QStringLiteral("canvas"));
     setWindowTitle(tr("Pinloom Settings"));
 
-    auto *form = new QFormLayout(this);
+    auto *root = new QVBoxLayout(this);
+    auto *scroll = Ui::scrollArea(this);
+    scroll->setObjectName(QStringLiteral("settingsScrollArea"));
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto *content = new QWidget(scroll);
+    content->setProperty("pinloomRole", QStringLiteral("canvas"));
+    auto *sections = new QVBoxLayout(content);
+    sections->setContentsMargins(0, 0, 0, 0);
+    sections->setSpacing(12);
+    const auto addSection = [content, sections](const QString &title, const QString &name) {
+        auto *card = Ui::section(title, content);
+        card->setObjectName(name);
+        auto *form = new Ui::FormLayout;
+        form->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+        form->setRowWrapPolicy(QFormLayout::WrapLongRows);
+        qobject_cast<QVBoxLayout *>(card->layout())->addLayout(form);
+        sections->addWidget(card);
+        return form;
+    };
+    auto *applicationsForm = addSection(tr("Applications and sync"), QStringLiteral("settingsApplicationsSection"));
+    auto *storageForm = addSection(tr("Storage and library"), QStringLiteral("settingsStorageSection"));
+    auto *clipboardForm = addSection(tr("Clipboard and privacy"), QStringLiteral("settingsClipboardSection"));
+    scroll->setWidget(content);
+    root->addWidget(scroll, 1);
 
     auto *pdfPathRow = new QWidget(this);
     auto *pdfPathLayout = new QHBoxLayout(pdfPathRow);
     pdfPathLayout->setContentsMargins(0, 0, 0, 0);
-    sumatraPdfPathEdit_ = new QLineEdit(settings.sumatraPdfExecutablePath, pdfPathRow);
+    sumatraPdfPathEdit_ = Pinloom::Ui::lineEdit(settings.sumatraPdfExecutablePath, pdfPathRow);
     sumatraPdfPathEdit_->setObjectName(QStringLiteral("sumatraPdfPathEdit"));
     sumatraPdfPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
-    auto *browsePdfButton = new QPushButton(tr("Browse"), pdfPathRow);
+    auto *browsePdfButton = Pinloom::Ui::pushButton(tr("Browse"), pdfPathRow);
     browsePdfButton->setObjectName(QStringLiteral("browseSumatraPdfButton"));
     pdfPathLayout->addWidget(sumatraPdfPathEdit_, 1);
     pdfPathLayout->addWidget(browsePdfButton);
 
-    sumatraPdfStatusLabel_ = new QLabel(sumatraPdfStatusText(settings.sumatraPdfExecutablePath), this);
+    sumatraPdfStatusLabel_ = Pinloom::Ui::label(sumatraPdfStatusText(settings.sumatraPdfExecutablePath), this);
     sumatraPdfStatusLabel_->setObjectName(QStringLiteral("sumatraPdfStatusLabel"));
     sumatraPdfStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     sumatraPdfStatusLabel_->setWordWrap(true);
@@ -240,19 +268,19 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     auto *obsidianVaultRow = new QWidget(this);
     auto *obsidianVaultLayout = new QHBoxLayout(obsidianVaultRow);
     obsidianVaultLayout->setContentsMargins(0, 0, 0, 0);
-    obsidianVaultPathEdit_ = new QLineEdit(settings.obsidianVaultPath, obsidianVaultRow);
+    obsidianVaultPathEdit_ = Pinloom::Ui::lineEdit(settings.obsidianVaultPath, obsidianVaultRow);
     obsidianVaultPathEdit_->setObjectName(QStringLiteral("obsidianVaultPathEdit"));
     obsidianVaultPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
-    auto *browseObsidianButton = new QPushButton(tr("Browse"), obsidianVaultRow);
+    auto *browseObsidianButton = Pinloom::Ui::pushButton(tr("Browse"), obsidianVaultRow);
     browseObsidianButton->setObjectName(QStringLiteral("browseObsidianVaultButton"));
     obsidianVaultLayout->addWidget(obsidianVaultPathEdit_, 1);
     obsidianVaultLayout->addWidget(browseObsidianButton);
 
-    obsidianArchiveDirectoryEdit_ = new QLineEdit(settings.obsidianArchiveDirectory, this);
+    obsidianArchiveDirectoryEdit_ = Pinloom::Ui::lineEdit(settings.obsidianArchiveDirectory, this);
     obsidianArchiveDirectoryEdit_->setObjectName(QStringLiteral("obsidianArchiveDirectoryEdit"));
     obsidianArchiveDirectoryEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
 
-    obsidianStatusLabel_ = new QLabel(obsidianStatusText(settings.obsidianVaultPath,
+    obsidianStatusLabel_ = Pinloom::Ui::label(obsidianStatusText(settings.obsidianVaultPath,
                                                          settings.obsidianArchiveDirectory),
                                       this);
     obsidianStatusLabel_->setObjectName(QStringLiteral("obsidianStatusLabel"));
@@ -262,14 +290,14 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     auto *dataDirectoryRow = new QWidget(this);
     auto *dataDirectoryLayout = new QHBoxLayout(dataDirectoryRow);
     dataDirectoryLayout->setContentsMargins(0, 0, 0, 0);
-    dataDirectoryEdit_ = new QLineEdit(settings.dataDirectory, dataDirectoryRow);
+    dataDirectoryEdit_ = Pinloom::Ui::lineEdit(settings.dataDirectory, dataDirectoryRow);
     dataDirectoryEdit_->setObjectName(QStringLiteral("dataDirectoryEdit"));
     dataDirectoryEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
-    auto *browseDataDirectoryButton = new QPushButton(tr("Browse"), dataDirectoryRow);
+    auto *browseDataDirectoryButton = Pinloom::Ui::pushButton(tr("Browse"), dataDirectoryRow);
     browseDataDirectoryButton->setObjectName(QStringLiteral("browseDataDirectoryButton"));
     dataDirectoryLayout->addWidget(dataDirectoryEdit_, 1);
     dataDirectoryLayout->addWidget(browseDataDirectoryButton);
-    dataDirectoryStatusLabel_ = new QLabel(
+    dataDirectoryStatusLabel_ = Pinloom::Ui::label(
         tr("An empty directory receives a copy of the current data on the next Pinloom start. "
            "An existing Pinloom data directory is adopted without overwriting it. The old copy is retained. "
            "This is a local database directory. Do not let multiple computers open a live-synchronized copy."),
@@ -282,58 +310,58 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     auto *defaultLibraryRootLayout = new QHBoxLayout(defaultLibraryRootRow);
     defaultLibraryRootLayout->setContentsMargins(0, 0, 0, 0);
     defaultLibraryRootPathEdit_ =
-        new QLineEdit(settings.defaultLibraryRootPath, defaultLibraryRootRow);
+        Pinloom::Ui::lineEdit(settings.defaultLibraryRootPath, defaultLibraryRootRow);
     defaultLibraryRootPathEdit_->setObjectName(QStringLiteral("defaultLibraryRootPathEdit"));
     defaultLibraryRootPathEdit_->setProperty("pinloomTextRole", QStringLiteral("technical"));
     defaultLibraryRootPathEdit_->setClearButtonEnabled(true);
     defaultLibraryRootPathEdit_->setPlaceholderText(tr("No default root"));
     auto *browseDefaultLibraryRootButton =
-        new QPushButton(tr("Browse"), defaultLibraryRootRow);
+        Pinloom::Ui::pushButton(tr("Browse"), defaultLibraryRootRow);
     browseDefaultLibraryRootButton->setObjectName(
         QStringLiteral("browseDefaultLibraryRootButton"));
     defaultLibraryRootLayout->addWidget(defaultLibraryRootPathEdit_, 1);
     defaultLibraryRootLayout->addWidget(browseDefaultLibraryRootButton);
     defaultLibraryRootStatusLabel_ =
-        new QLabel(defaultLibraryRootStatusText(settings.defaultLibraryRootPath), this);
+        Pinloom::Ui::label(defaultLibraryRootStatusText(settings.defaultLibraryRootPath), this);
     defaultLibraryRootStatusLabel_->setObjectName(
         QStringLiteral("defaultLibraryRootStatusLabel"));
     defaultLibraryRootStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     defaultLibraryRootStatusLabel_->setWordWrap(true);
 
-    clipMaxTemporaryClipsSpin_ = new QSpinBox(this);
+    clipMaxTemporaryClipsSpin_ = Pinloom::Ui::spinBox(this);
     clipMaxTemporaryClipsSpin_->setObjectName(QStringLiteral("clipMaxTemporaryClipsSpin"));
     clipMaxTemporaryClipsSpin_->setRange(0, 1000000);
     clipMaxTemporaryClipsSpin_->setValue(settings.clipMaxTemporaryClips);
 
-    clipMaxTextBytesSpin_ = new QSpinBox(this);
+    clipMaxTextBytesSpin_ = Pinloom::Ui::spinBox(this);
     clipMaxTextBytesSpin_->setObjectName(QStringLiteral("clipMaxTextBytesSpin"));
     clipMaxTextBytesSpin_->setRange(0, 100 * 1024 * 1024);
     clipMaxTextBytesSpin_->setValue(settings.clipMaxTextBytes);
 
-    clipTemporaryTtlSecondsSpin_ = new QSpinBox(this);
+    clipTemporaryTtlSecondsSpin_ = Pinloom::Ui::spinBox(this);
     clipTemporaryTtlSecondsSpin_->setObjectName(QStringLiteral("clipTemporaryTtlSecondsSpin"));
     clipTemporaryTtlSecondsSpin_->setRange(0, 365 * 24 * 60 * 60);
     clipTemporaryTtlSecondsSpin_->setValue(settings.clipTemporaryTtlSeconds);
 
-    clipAutomaticCaptureCheck_ = new QCheckBox(
+    clipAutomaticCaptureCheck_ = Pinloom::Ui::checkBox(
         tr("Automatically keep temporary clipboard history"), this);
     clipAutomaticCaptureCheck_->setObjectName(QStringLiteral("clipAutomaticCaptureCheck"));
     clipAutomaticCaptureCheck_->setChecked(settings.clipAutomaticCaptureEnabled);
 
-    clipExcludeSensitiveTextCheck_ = new QCheckBox(tr("Filter common secret patterns"), this);
+    clipExcludeSensitiveTextCheck_ = Pinloom::Ui::checkBox(tr("Filter common secret patterns"), this);
     clipExcludeSensitiveTextCheck_->setObjectName(QStringLiteral("clipExcludeSensitiveTextCheck"));
     clipExcludeSensitiveTextCheck_->setChecked(settings.clipExcludeSensitiveText);
 
-    clipRestoreOriginalClipboardCheck_ = new QCheckBox(tr("Restore original clipboard after inserting a Saved Clip"), this);
+    clipRestoreOriginalClipboardCheck_ = Pinloom::Ui::checkBox(tr("Restore original clipboard after inserting a Saved Clip"), this);
     clipRestoreOriginalClipboardCheck_->setObjectName(QStringLiteral("clipRestoreOriginalClipboardCheck"));
     clipRestoreOriginalClipboardCheck_->setChecked(settings.clipRestoreOriginalClipboardOnInsert);
 
-    clipExcludedSourceAppsEdit_ = new QLineEdit(commaSeparatedText(settings.clipExcludedSourceApps), this);
+    clipExcludedSourceAppsEdit_ = Pinloom::Ui::lineEdit(commaSeparatedText(settings.clipExcludedSourceApps), this);
     clipExcludedSourceAppsEdit_->setObjectName(QStringLiteral("clipExcludedSourceAppsEdit"));
 
-    clipSensitiveTextMarkersEdit_ = new QLineEdit(commaSeparatedText(settings.clipSensitiveTextMarkers), this);
+    clipSensitiveTextMarkersEdit_ = Pinloom::Ui::lineEdit(commaSeparatedText(settings.clipSensitiveTextMarkers), this);
     clipSensitiveTextMarkersEdit_->setObjectName(QStringLiteral("clipSensitiveTextMarkersEdit"));
-    clipPrivacyStatusLabel_ = new QLabel(
+    clipPrivacyStatusLabel_ = Pinloom::Ui::label(
         clipPrivacyStatusText(settings.clipAutomaticCaptureEnabled,
                               settings.clipExcludeSensitiveText,
                               settings.clipExcludedSourceApps,
@@ -343,30 +371,44 @@ PinloomSettingsDialog::PinloomSettingsDialog(const PinloomAppSettings &settings,
     clipPrivacyStatusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     clipPrivacyStatusLabel_->setWordWrap(true);
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     buttons->setObjectName(QStringLiteral("settingsButtons"));
     buttons->button(QDialogButtonBox::Ok)->setProperty(
         "pinloomControl", QStringLiteral("primary"));
 
-    form->addRow(tr("SumatraPDF"), pdfPathRow);
-    form->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);
-    form->addRow(tr("Obsidian Vault"), obsidianVaultRow);
-    form->addRow(tr("Obsidian archive directory"), obsidianArchiveDirectoryEdit_);
-    form->addRow(tr("Obsidian status"), obsidianStatusLabel_);
-    form->addRow(tr("Data directory"), dataDirectoryRow);
-    form->addRow(tr("Data migration"), dataDirectoryStatusLabel_);
-    form->addRow(tr("Default root directory"), defaultLibraryRootRow);
-    form->addRow(tr("Default root status"), defaultLibraryRootStatusLabel_);
-    form->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
-    form->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
-    form->addRow(tr("Clip history TTL (seconds)"), clipTemporaryTtlSecondsSpin_);
-    form->addRow(QString(), clipAutomaticCaptureCheck_);
-    form->addRow(QString(), clipExcludeSensitiveTextCheck_);
-    form->addRow(QString(), clipRestoreOriginalClipboardCheck_);
-    form->addRow(tr("Clip app blacklist"), clipExcludedSourceAppsEdit_);
-    form->addRow(tr("Sensitive markers"), clipSensitiveTextMarkersEdit_);
-    form->addRow(tr("Clip privacy"), clipPrivacyStatusLabel_);
-    form->addWidget(buttons);
+    applicationsForm->addRow(tr("SumatraPDF"), pdfPathRow);
+    applicationsForm->addRow(tr("SumatraPDF status"), sumatraPdfStatusLabel_);
+    applicationsForm->addRow(tr("Obsidian Vault"), obsidianVaultRow);
+    applicationsForm->addRow(tr("Obsidian archive directory"), obsidianArchiveDirectoryEdit_);
+    applicationsForm->addRow(tr("Obsidian status"), obsidianStatusLabel_);
+    storageForm->addRow(tr("Data directory"), dataDirectoryRow);
+    storageForm->addRow(tr("Data migration"), dataDirectoryStatusLabel_);
+    storageForm->addRow(tr("Default root directory"), defaultLibraryRootRow);
+    storageForm->addRow(tr("Default root status"), defaultLibraryRootStatusLabel_);
+    clipboardForm->addRow(QString(), clipAutomaticCaptureCheck_);
+    clipboardForm->addRow(QString(), clipExcludeSensitiveTextCheck_);
+    clipboardForm->addRow(QString(), clipRestoreOriginalClipboardCheck_);
+    clipboardForm->addRow(tr("Clip privacy"), clipPrivacyStatusLabel_);
+    auto *advancedContent = new QWidget(content);
+    advancedContent->setObjectName(QStringLiteral("settingsAdvancedContent"));
+    auto *advancedForm = new Ui::FormLayout(advancedContent);
+    advancedForm->setContentsMargins(12, 12, 12, 12);
+    advancedForm->setFieldGrowthPolicy(QFormLayout::AllNonFixedFieldsGrow);
+    advancedForm->setRowWrapPolicy(QFormLayout::WrapLongRows);
+    advancedForm->addRow(tr("Clip history limit"), clipMaxTemporaryClipsSpin_);
+    advancedForm->addRow(tr("Clip size limit (bytes)"), clipMaxTextBytesSpin_);
+    advancedForm->addRow(tr("Clip history TTL (seconds)"), clipTemporaryTtlSecondsSpin_);
+    advancedForm->addRow(tr("Clip app blacklist"), clipExcludedSourceAppsEdit_);
+    advancedForm->addRow(tr("Sensitive markers"), clipSensitiveTextMarkersEdit_);
+    auto *advancedToggle = Ui::pushButton(tr("Advanced clipboard limits and filters"), content);
+    advancedToggle->setObjectName(QStringLiteral("settingsAdvancedToggle"));
+    auto *advancedSection = Ui::collapsibleSection(advancedToggle, advancedContent, content);
+    advancedSection->setObjectName(QStringLiteral("settingsAdvancedSection"));
+    sections->addWidget(advancedSection);
+    sections->addStretch();
+    root->addWidget(buttons);
+    const QSize available = screen()->availableGeometry().size() - QSize(48, 48);
+    resize(QSize(800, 680).boundedTo(available));
 
     connect(browsePdfButton, &QPushButton::clicked, this, [this]() {
         const QString path = QFileDialog::getOpenFileName(this,

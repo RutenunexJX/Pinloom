@@ -38,7 +38,21 @@ if (([string]::IsNullOrWhiteSpace($PackageName)) -or
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
 $cache = Get-Content -LiteralPath (Join-Path $BuildDirectory "CMakeCache.txt")
-$usesSuiteUi = [bool]($cache -match '^PINLOOM_ENABLE_SUITEUI:BOOL=ON$')
+$backendEntry = $cache | Where-Object { $_ -match '^PINLOOM_UI_BACKEND:STRING=(.+)$' } | Select-Object -First 1
+$controlBackend = if ($backendEntry) { $backendEntry.Substring($backendEntry.IndexOf('=') + 1).ToUpperInvariant() }
+    elseif ($cache -match '^PINLOOM_ENABLE_SUITEUI:BOOL=ON$') { 'SUITEUI' } else { 'CLASSIC' }
+if ($controlBackend -notin @('ELA', 'SUITEUI', 'CLASSIC')) { throw "Unknown control backend: $controlBackend" }
+$usesSuiteUi = $controlBackend -eq 'SUITEUI'
+$usesEla = $controlBackend -eq 'ELA'
+$elaNotices = Join-Path $BuildDirectory 'notices/ElaWidgetTools'
+if ($usesEla) {
+    if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -PathType Leaf)) {
+        throw 'Missing ElaWidgetTools.dll in the selected build.'
+    }
+    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $elaNotices $name) -PathType Leaf)) { throw "Missing Ela notice: $name" }
+    }
+}
 $sdkNotices = ''
 if ($usesSuiteUi) {
     $entry = $cache | Where-Object { $_ -match '^PINLOOM_SUITEUI_NOTICES_DIR:INTERNAL=(.+)$' } | Select-Object -First 1
@@ -104,6 +118,12 @@ New-Item -ItemType Directory -Path $packageDirectory | Out-Null
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
+if ($usesEla) {
+    Copy-Item -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -Destination $packageDirectory
+    $licenseDirectory = Join-Path $packageDirectory 'licenses/ElaWidgetTools'
+    New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
+    Get-ChildItem -LiteralPath $elaNotices -File | Copy-Item -Destination $licenseDirectory
+}
 if ($usesSuiteUi) {
     $licenseDirectory = Join-Path $packageDirectory 'licenses/SuiteUi'
     New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
@@ -130,7 +150,7 @@ $packageReadme = @(
     "Pinloom v$PackageVersion",
     "",
     "Build profile: Release",
-    "Default UI: $(if ($usesSuiteUi) { 'SuiteUi' } else { 'classic' })",
+    "Default UI: $controlBackend",
     "Qt: 6.10.2",
     "Compiler: MinGW 13.1.0",
     "Source revision: $buildState",
@@ -138,7 +158,7 @@ $packageReadme = @(
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
     "Pinloom is a resident application; Shift+Space opens its command window.",
-    "Set PINLOOM_UI_STYLE=classic before startup to use the original controls in an SDK build.",
+    "Set PINLOOM_UI_STYLE=classic before startup to use the original controls.",
     "Configure the data directory, default root, SumatraPDF, and Obsidian paths",
     "from Pinloom Settings. User databases are not stored in this release folder."
 )

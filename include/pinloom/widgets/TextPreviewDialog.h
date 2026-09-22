@@ -1,13 +1,13 @@
 #pragma once
 
-#include <QDialog>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <QString>
 
 class QPlainTextEdit;
 
 namespace Pinloom {
 
-class TextPreviewDialog final : public QDialog {
+class TextPreviewDialog final : public Ui::Dialog {
 public:
     explicit TextPreviewDialog(QString filePath, int targetLine, QWidget *parent = nullptr);
 

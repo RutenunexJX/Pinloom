@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.2
+    VERSION 0.4.3
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -16,7 +16,35 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
-option(PINLOOM_ENABLE_SUITEUI "Use the SuiteUi control renderer by default" ON)
+set(PINLOOM_UI_BACKEND "ELA" CACHE STRING "Control backend: ELA, SUITEUI, CLASSIC")
+set_property(CACHE PINLOOM_UI_BACKEND PROPERTY STRINGS ELA SUITEUI CLASSIC)
+string(TOUPPER "${PINLOOM_UI_BACKEND}" PINLOOM_UI_BACKEND)
+if(NOT PINLOOM_UI_BACKEND MATCHES "^(ELA|SUITEUI|CLASSIC)$")
+    message(FATAL_ERROR "PINLOOM_UI_BACKEND must be ELA, SUITEUI, or CLASSIC")
+endif()
+# Do not silently reinterpret an old cache's SuiteUi selection.
+if(DEFINED PINLOOM_ENABLE_SUITEUI)
+    if(PINLOOM_ENABLE_SUITEUI AND NOT PINLOOM_UI_BACKEND STREQUAL "SUITEUI")
+        message(FATAL_ERROR "Remove legacy PINLOOM_ENABLE_SUITEUI or select PINLOOM_UI_BACKEND=SUITEUI")
+    endif()
+endif()
+set(PINLOOM_ENABLE_SUITEUI OFF)
+if(PINLOOM_UI_BACKEND STREQUAL "SUITEUI")
+    set(PINLOOM_ENABLE_SUITEUI ON)
+elseif(PINLOOM_UI_BACKEND STREQUAL "ELA")
+    find_package(Qt6 6.10.2 EXACT REQUIRED COMPONENTS WidgetsPrivate)
+    set(QT_VERSION_MAJOR 6)
+    set(ELAWIDGETTOOLS_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
+    add_subdirectory(thirdparty/elawidgettools EXCLUDE_FROM_ALL)
+    set_target_properties(ElaWidgetTools PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}")
+    file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools")
+    configure_file(thirdparty/elawidgettools/LICENSE
+        "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/LICENSE" COPYONLY)
+    configure_file(thirdparty/elawidgettools/Font/FontAwesome-LICENSE.txt
+        "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/FontAwesome-LICENSE.txt" COPYONLY)
+    configure_file(thirdparty/elawidgettools/UPSTREAM-REVISION.md
+        "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/UPSTREAM-REVISION.md" COPYONLY)
+endif()
 set(PINLOOM_SUITEUI_NOTICES_DIR "" CACHE INTERNAL "SDK notices for runtime packaging" FORCE)
 if(PINLOOM_ENABLE_SUITEUI)
     find_package(SuiteUi 0.1.1 EXACT CONFIG REQUIRED)
@@ -166,6 +194,11 @@ if(WIN32)
 endif()
 
 add_library(pinloom_widgets STATIC
+    include/pinloom/widgets/PinloomItemViews.h
+    src/widgets/PinloomItemViews.cpp
+    include/pinloom/widgets/PinloomUiControls.h
+    src/widgets/PinloomUiControls.cpp
+    src/widgets/PinloomUiSurfaces.cpp
     assets/pinloom_themes.qrc
     include/pinloom/widgets/AnchorLocatorPreviewWidget.h
     include/pinloom/widgets/AnchorCaptureDialog.h
@@ -253,6 +286,10 @@ if(PINLOOM_ENABLE_SUITEUI)
     target_link_libraries(pinloom_widgets PRIVATE SuiteUi::Controls)
     target_compile_definitions(pinloom_widgets PRIVATE PINLOOM_ENABLE_SUITEUI=1)
 endif()
+if(PINLOOM_UI_BACKEND STREQUAL "ELA")
+    target_link_libraries(pinloom_widgets PUBLIC Ela::WidgetTools)
+    target_compile_definitions(pinloom_widgets PUBLIC PINLOOM_ENABLE_ELA=1)
+endif()
 
 add_executable(pinloom_app WIN32
     assets/pinloom_app.qrc
@@ -286,6 +323,7 @@ function(pinloom_add_test target)
             "PATH=path_list_prepend:${PINLOOM_CXX_RUNTIME_DIR}"
             "QT_PLUGIN_PATH=set:$<TARGET_FILE_DIR:Qt6::Core>/../plugins"
             "QT_QPA_PLATFORM=set:offscreen"
+            "QT_QPA_FONTDIR=set:$ENV{WINDIR}/Fonts"
         )
 
         set_tests_properties(${target}
@@ -294,6 +332,24 @@ function(pinloom_add_test target)
         )
     endif()
 endfunction()
+
+if(PINLOOM_UI_BACKEND STREQUAL "ELA")
+    add_executable(pinloom_ela_controls_test tests/ela_controls_test.cpp)
+    target_link_libraries(pinloom_ela_controls_test PRIVATE pinloom_widgets Qt6::Test)
+    pinloom_add_test(pinloom_ela_controls_test)
+    foreach(scale IN ITEMS 1 1.25 1.5 2)
+        foreach(theme IN ITEMS light dark)
+            set(test_name "pinloom_ela_${theme}_${scale}")
+            add_test(NAME ${test_name} COMMAND pinloom_ela_controls_test)
+            get_test_property(pinloom_ela_controls_test ENVIRONMENT_MODIFICATION ela_environment)
+            if(NOT ela_environment)
+                set(ela_environment "QT_QPA_PLATFORM=set:offscreen")
+            endif()
+            set_tests_properties(${test_name} PROPERTIES ENVIRONMENT_MODIFICATION
+                "${ela_environment};QT_SCALE_FACTOR=set:${scale};PINLOOM_TEST_THEME=set:${theme};PINLOOM_PREVIEW_DIR=set:${CMAKE_BINARY_DIR}/ui-preview/${theme}-${scale}")
+        endforeach()
+    endforeach()
+endif()
 
 add_executable(pinloom_core_smoke_test
     tests/core_smoke_test.cpp
@@ -379,6 +435,10 @@ target_link_libraries(pinloom_widget_smoke_test
 )
 
 pinloom_add_test(pinloom_widget_smoke_test)
+
+add_test(NAME pinloom_package_smoke_test COMMAND pinloom_app --package-check)
+get_test_property(pinloom_widget_smoke_test ENVIRONMENT_MODIFICATION package_smoke_environment)
+set_tests_properties(pinloom_package_smoke_test PROPERTIES ENVIRONMENT_MODIFICATION "${package_smoke_environment}")
 
 add_executable(pinloom_visual_theme_test
     tests/visual_theme_test.cpp

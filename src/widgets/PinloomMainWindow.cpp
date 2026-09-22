@@ -1,3 +1,4 @@
+#include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 
 #include "pinloom/core/Version.h"
@@ -90,10 +91,12 @@ QString pinloomResidentDiagnosticsText(const PinloomResidentStatus &status,
 }
 
 PinloomMainWindow::PinloomMainWindow(QWidget *parent)
-    : QMainWindow(parent)
+    : Ui::MainWindow(parent)
 {
     setObjectName(QStringLiteral("pinloomMainWindow"));
     setProperty("pinloomRole", QStringLiteral("canvas"));
+    setMenuBar(Ui::menuBar(this));
+    setStatusBar(Ui::statusBar(this));
     statusBar()->setAccessibleName(tr("Pinloom resident status"));
     configureMenu();
     statusBar()->showMessage(pinloomResidentStatusSummary(residentStatus_));
@@ -154,16 +157,16 @@ QString PinloomMainWindow::diagnosticsText() const
 
 void PinloomMainWindow::showDiagnosticsDialog()
 {
-    QDialog dialog(this);
+    Pinloom::Ui::Dialog dialog(this);
     dialog.setProperty("pinloomRole", QStringLiteral("canvas"));
     dialog.setWindowTitle(tr("Pinloom Diagnostics"));
     auto *layout = new QVBoxLayout(&dialog);
-    auto *text = new QPlainTextEdit(diagnosticsText(), &dialog);
+    auto *text = Ui::plainTextEdit(diagnosticsText(), &dialog);
     text->setObjectName(QStringLiteral("diagnosticsTextEdit"));
     text->setProperty("pinloomTextRole", QStringLiteral("technical"));
     text->setAccessibleName(tr("Pinloom diagnostics"));
     text->setReadOnly(true);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, &dialog);
+    auto *buttons = new Pinloom::Ui::DialogButtonBox(QDialogButtonBox::Close, &dialog);
     auto *copyButton = buttons->addButton(tr("Copy"), QDialogButtonBox::ActionRole);
     copyButton->setObjectName(QStringLiteral("copyDiagnosticsButton"));
 
@@ -191,7 +194,8 @@ void PinloomMainWindow::closeEvent(QCloseEvent *event)
 
 void PinloomMainWindow::configureMenu()
 {
-    QMenu *menu = menuBar()->addMenu(tr("Pinloom"));
+    QMenu *menu = Ui::menu(tr("Pinloom"), menuBar());
+    menuBar()->addMenu(menu);
     QAction *settingsAction = menu->addAction(tr("Settings"));
     settingsAction->setObjectName(QStringLiteral("settingsAction"));
     QAction *diagnosticsAction = menu->addAction(tr("Diagnostics"));

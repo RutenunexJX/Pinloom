@@ -1,0 +1,407 @@
+diff --git a/ElaListView.cpp b/ElaListView.cpp
+index 408db04..74ff31e 100644
+--- a/ElaListView.cpp
++++ b/ElaListView.cpp
+@@ -26,6 +26,7 @@ ElaListView::ElaListView(QWidget* parent)
+ ElaListView::~ElaListView()
+ {
+     Q_D(ElaListView);
++    setStyle(nullptr);
+     delete d->_listViewStyle;
+ }
+ 
+diff --git a/ElaTableView.cpp b/ElaTableView.cpp
+index 9f73fb2..184c9c5 100644
+--- a/ElaTableView.cpp
++++ b/ElaTableView.cpp
+@@ -30,6 +30,7 @@ ElaTableView::ElaTableView(QWidget* parent)
+ ElaTableView::~ElaTableView()
+ {
+     Q_D(ElaTableView);
++    setStyle(nullptr);
+     delete d->_tableViewStyle;
+ }
+ 
+diff --git a/ElaTreeView.cpp b/ElaTreeView.cpp
+index 653d5e6..b485a9e 100644
+--- a/ElaTreeView.cpp
++++ b/ElaTreeView.cpp
+@@ -39,6 +39,7 @@ ElaTreeView::ElaTreeView(QWidget* parent)
+ ElaTreeView::~ElaTreeView()
+ {
+     Q_D(ElaTreeView);
++    setStyle(nullptr);
+     delete d->_treeViewStyle;
+ }
+ 
+diff --git a/Development/ElaListViewStyle.cpp b/Development/ElaListViewStyle.cpp
+index beb2cfa..f1ac10f 100644
+--- a/Development/ElaListViewStyle.cpp
++++ b/Development/ElaListViewStyle.cpp
+@@ -22,6 +22,11 @@ ElaListViewStyle::~ElaListViewStyle()
+ 
+ void ElaListViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (widget && widget->property("pinloomNativeItemContract").toBool()
++        && (element == PE_PanelItemViewItem || element == PE_PanelItemViewRow)) {
++        QProxyStyle::drawPrimitive(element, option, painter, widget);
++        return;
++    }
+     switch (element)
+     {
+     case QStyle::PE_PanelItemViewItem:
+@@ -91,6 +96,10 @@ void ElaListViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOptio
+ 
+ void ElaListViewStyle::drawControl(ControlElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (element == CE_ItemViewItem && widget && widget->property("pinloomNativeItemContract").toBool()) {
++        QProxyStyle::drawControl(element, option, painter, widget);
++        return;
++    }
+     switch (element)
+     {
+     case QStyle::CE_ShapedFrame:
+@@ -171,6 +180,8 @@ void ElaListViewStyle::drawControl(ControlElement element, const QStyleOption* o
+ 
+ QSize ElaListViewStyle::sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& size, const QWidget* widget) const
+ {
++    if (type == CT_ItemViewItem && widget && widget->property("pinloomNativeItemContract").toBool())
++        return QProxyStyle::sizeFromContents(type, option, size, widget);
+     switch (type)
+     {
+     case QStyle::CT_ItemViewItem:
+diff --git a/Development/ElaTableViewStyle.cpp b/Development/ElaTableViewStyle.cpp
+index de4a197..730723d 100644
+--- a/Development/ElaTableViewStyle.cpp
++++ b/Development/ElaTableViewStyle.cpp
+@@ -22,6 +22,12 @@ ElaTableViewStyle::~ElaTableViewStyle()
+ 
+ void ElaTableViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (widget && widget->property("pinloomNativeItemContract").toBool()
++        && (element == PE_PanelItemViewItem || element == PE_PanelItemViewRow))
++    {
++        QProxyStyle::drawPrimitive(element, option, painter, widget);
++        return;
++    }
+     //qDebug() << element << option->rect << widget->objectName();
+     switch (element)
+     {
+@@ -102,6 +108,11 @@ void ElaTableViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOpti
+ 
+ void ElaTableViewStyle::drawControl(ControlElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (element == CE_ItemViewItem && widget && widget->property("pinloomNativeItemContract").toBool())
++    {
++        QProxyStyle::drawControl(element, option, painter, widget);
++        return;
++    }
+     //qDebug() << element << option->rect;
+     switch (element)
+     {
+diff --git a/Development/ElaTreeViewStyle.cpp b/Development/ElaTreeViewStyle.cpp
+index 5cc39b4..b17e95e 100644
+--- a/Development/ElaTreeViewStyle.cpp
++++ b/Development/ElaTreeViewStyle.cpp
+@@ -23,6 +23,12 @@ ElaTreeViewStyle::~ElaTreeViewStyle()
+ 
+ void ElaTreeViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (widget && widget->property("pinloomNativeItemContract").toBool()
++        && (element == PE_PanelItemViewItem || element == PE_PanelItemViewRow))
++    {
++        QProxyStyle::drawPrimitive(element, option, painter, widget);
++        return;
++    }
+     switch (element)
+     {
+     case QStyle::PE_PanelItemViewItem:
+@@ -123,6 +129,11 @@ void ElaTreeViewStyle::drawPrimitive(PrimitiveElement element, const QStyleOptio
+ 
+ void ElaTreeViewStyle::drawControl(ControlElement element, const QStyleOption* option, QPainter* painter, const QWidget* widget) const
+ {
++    if (element == CE_ItemViewItem && widget && widget->property("pinloomNativeItemContract").toBool())
++    {
++        QProxyStyle::drawControl(element, option, painter, widget);
++        return;
++    }
+     switch (element)
+     {
+     case QStyle::CE_ShapedFrame:
+@@ -249,6 +260,8 @@ void ElaTreeViewStyle::drawControl(ControlElement element, const QStyleOption* o
+ 
+ QSize ElaTreeViewStyle::sizeFromContents(ContentsType type, const QStyleOption* option, const QSize& size, const QWidget* widget) const
+ {
++    if (type == CT_ItemViewItem && widget && widget->property("pinloomNativeItemContract").toBool())
++        return QProxyStyle::sizeFromContents(type, option, size, widget);
+     switch (type)
+     {
+     case QStyle::CT_ItemViewItem:
+diff --git a/Development/ElaNavigationModel.cpp b/Development/ElaNavigationModel.cpp
+index 14c2638..4d6f536 100644
+--- a/Development/ElaNavigationModel.cpp
++++ b/Development/ElaNavigationModel.cpp
+@@ -132,8 +132,11 @@ int ElaNavigationModel::columnCount(const QModelIndex& parent) const
+ 
+ QVariant ElaNavigationModel::data(const QModelIndex& index, int role) const
+ {
+-    Q_UNUSED(index)
+-    Q_UNUSED(role)
++    if (!index.isValid()) return {};
++    auto* node = static_cast<ElaNavigationNode*>(index.internalPointer());
++    if (!node) return {};
++    if (role == Qt::DisplayRole || role == Qt::AccessibleTextRole) return node->getNodeTitle();
++    if (role == Qt::UserRole) return node->getNodeKey();
+     return QVariant();
+ }
+ 
+diff --git a/Development/ElaNavigationView.cpp b/Development/ElaNavigationView.cpp
+index 4512aed..f445027 100644
+--- a/Development/ElaNavigationView.cpp
++++ b/Development/ElaNavigationView.cpp
+@@ -74,6 +74,8 @@ ElaNavigationView::ElaNavigationView(QWidget* parent)
+ 
+ ElaNavigationView::~ElaNavigationView()
+ {
++    setStyle(nullptr);
++    delete _navigationStyle;
+ }
+ 
+ void ElaNavigationView::navigationNodeStateChange(const QVariantMap& data)
+diff --git a/Development/ElaNavigationStyle.cpp b/Development/ElaNavigationStyle.cpp
+index 860280d..a26f362 100644
+--- a/Development/ElaNavigationStyle.cpp
++++ b/Development/ElaNavigationStyle.cpp
+@@ -20,14 +20,14 @@ ElaNavigationStyle::ElaNavigationStyle(QStyle* style)
+     _pSelectMarkBottom = 10.5;
+ 
+     // Mark向上
+-    _lastSelectMarkTopAnimation = new QPropertyAnimation(this, "pLastSelectMarkTop");
++    _lastSelectMarkTopAnimation = new QPropertyAnimation(this, "pLastSelectMarkTop", this);
+     connect(_lastSelectMarkTopAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
+         _pNavigationView->viewport()->update();
+     });
+     _lastSelectMarkTopAnimation->setDuration(300);
+     _lastSelectMarkTopAnimation->setEasingCurve(QEasingCurve::InOutSine);
+ 
+-    _selectMarkBottomAnimation = new QPropertyAnimation(this, "pSelectMarkBottom");
++    _selectMarkBottomAnimation = new QPropertyAnimation(this, "pSelectMarkBottom", this);
+     connect(_selectMarkBottomAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
+         _pNavigationView->viewport()->update();
+     });
+@@ -42,14 +42,14 @@ ElaNavigationStyle::ElaNavigationStyle(QStyle* style)
+     });
+ 
+     // Mark向下
+-    _lastSelectMarkBottomAnimation = new QPropertyAnimation(this, "pLastSelectMarkBottom");
++    _lastSelectMarkBottomAnimation = new QPropertyAnimation(this, "pLastSelectMarkBottom", this);
+     connect(_lastSelectMarkBottomAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
+         _pNavigationView->viewport()->update();
+     });
+     _lastSelectMarkBottomAnimation->setDuration(300);
+     _lastSelectMarkBottomAnimation->setEasingCurve(QEasingCurve::InOutSine);
+ 
+-    _selectMarkTopAnimation = new QPropertyAnimation(this, "pSelectMarkTop");
++    _selectMarkTopAnimation = new QPropertyAnimation(this, "pSelectMarkTop", this);
+     connect(_selectMarkTopAnimation, &QPropertyAnimation::valueChanged, this, [=](const QVariant& value) {
+         _pNavigationView->viewport()->update();
+     });
+@@ -187,7 +187,10 @@ void ElaNavigationStyle::drawControl(ControlElement element, const QStyleOption*
+             }
+ 
+             // 选中特效
+-            if (_isSelectMarkDisplay && (node == model->getSelectedNode() || node == model->getSelectedExpandedNode()))
++            const bool selected = widget && widget->property("pinloomActionNavigation").toBool()
++                ? bool(vopt->state & State_Selected)
++                : node == model->getSelectedNode() || node == model->getSelectedExpandedNode();
++            if (_isSelectMarkDisplay && selected)
+             {
+                 painter->setPen(Qt::NoPen);
+                 painter->setBrush(ElaThemeColor(_themeMode, PrimaryNormal));
+@@ -332,7 +335,8 @@ QSize ElaNavigationStyle::sizeFromContents(ContentsType type, const QStyleOption
+     case QStyle::CT_ItemViewItem:
+     {
+         QSize itemSize = QProxyStyle::sizeFromContents(type, option, size, widget);
+-        itemSize.setHeight(_pItemHeight);
++        itemSize.setHeight(widget && widget->property("pinloomActionNavigation").toBool()
++            ? qMax(_pItemHeight, widget->fontMetrics().height() + 12) : _pItemHeight);
+         return itemSize;
+     }
+     default:
+diff --git a/private/ElaNavigationBarPrivate.cpp b/private/ElaNavigationBarPrivate.cpp
+index a15b3a0..3d445f0 100644
+--- a/private/ElaNavigationBarPrivate.cpp
++++ b/private/ElaNavigationBarPrivate.cpp
+@@ -80,6 +80,13 @@ void ElaNavigationBarPrivate::onTreeViewClicked(const QModelIndex& index, bool i
+                 _navigationView->update();
+             }
+             ElaNavigationNode* selectedNode = _navigationModel->getSelectedNode();
++            if (q->property("pinloomActionNavigation").toBool())
++            {
++                _navigationModel->setSelectedNode(node);
++                _navigationView->viewport()->update();
++                Q_EMIT q->navigationNodeClicked(ElaNavigationType::PageNode, node->getNodeKey(), false);
++                return;
++            }
+             if (selectedNode != node)
+             {
+                 // 记录跳转
+diff --git a/ElaAppBar.cpp b/ElaAppBar.cpp
+index afb895c..de17809 100644
+--- a/ElaAppBar.cpp
++++ b/ElaAppBar.cpp
+@@ -140,15 +140,22 @@ ElaAppBar::ElaAppBar(QWidget* parent)
+     });
+ 
+     d->_minButton = new ElaToolButton(this);
++    d->_minButton->setAccessibleName(tr("Minimize"));
++    d->_minButton->setToolTip(tr("Minimize"));
+     d->_minButton->setElaIcon(ElaIconType::Dash);
+     d->_minButton->setFixedSize(40, 30);
+     connect(d->_minButton, &ElaToolButton::clicked, d, &ElaAppBarPrivate::onMinButtonClicked);
+     d->_maxButton = new ElaToolButton(this);
++    d->_maxButton->setAccessibleName(tr("Maximize or restore"));
++    d->_maxButton->setToolTip(tr("Maximize or restore"));
+     d->_maxButton->setIconSize(QSize(18, 18));
+     d->_maxButton->setElaIcon(ElaIconType::Square);
+     d->_maxButton->setFixedSize(40, 30);
+     connect(d->_maxButton, &ElaToolButton::clicked, d, &ElaAppBarPrivate::onMaxButtonClicked);
+     d->_closeButton = new ElaIconButton(ElaIconType::Xmark, 18, 40, 30, this);
++    d->_closeButton->setObjectName("pinloomWindowCloseButton");
++    d->_closeButton->setAccessibleName(tr("Close"));
++    d->_closeButton->setToolTip(tr("Close"));
+     d->_closeButton->setLightHoverColor(QColor(0xE8, 0x11, 0x23));
+     d->_closeButton->setDarkHoverColor(QColor(0xE8, 0x11, 0x23));
+     d->_closeButton->setLightHoverIconColor(Qt::white);
+diff --git a/ElaMessageBar.cpp b/ElaMessageBar.cpp
+index cf01782..b676fec 100644
+--- a/ElaMessageBar.cpp
++++ b/ElaMessageBar.cpp
+@@ -7,6 +7,8 @@
+ #include <QPainterPath>
+ #include <QPropertyAnimation>
+ #include <QResizeEvent>
++#include <QTimer>
++#include <QTextLayout>
+ 
+ #include "ElaIconButton.h"
+ #include "ElaTheme.h"
+@@ -23,12 +25,15 @@ ElaMessageBar::ElaMessageBar(ElaMessageBarType::PositionPolicy policy, ElaMessag
+     d->_policy = policy;
+     d->_messageMode = messageMode;
+     d->_themeMode = eTheme->getThemeMode();
++    const bool instant = parent && parent->property("pinloomInstantNotices").toBool();
++    setProperty("pinloomInstantNotice", instant);
+     setFixedHeight(60);
+     setMouseTracking(true);
+     d->_pOpacity = 1;
+     setFont(QFont("微软雅黑"));
+     parent->installEventFilter(this);
+     d->_closeButton = new ElaIconButton(ElaIconType::Xmark, 17, d->_closeButtonWidth, 30, this);
++    d->_closeButton->setAccessibleName(tr("Dismiss notification"));
+     switch (d->_messageMode)
+     {
+     case ElaMessageBarType::Success:
+@@ -73,7 +78,24 @@ ElaMessageBar::ElaMessageBar(ElaMessageBarType::PositionPolicy policy, ElaMessag
+     mainLayout->addWidget(d->_closeButton);
+     setObjectName("ElaMessageBar");
+     setStyleSheet("#ElaMessageBar{background-color:transparent;}");
+-    d->_messageBarCreate(displayMsec);
++    if (instant)
++    {
++        setFont(parent->font());
++        setFixedWidth(qMax(160, qMin(500, parent->width() - 16)));
++        setFixedHeight(qMin(parent->height() - 16, qMax(60, fontMetrics().lineSpacing() * 3 + 24)));
++        move((parent->width() - width()) / 2, qMax(0, parent->height() - height() - 8));
++        connect(eTheme, &ElaTheme::themeModeChanged, this, [this, d](ElaThemeType::ThemeMode mode) {
++            d->_themeMode = mode;
++            update();
++        });
++        QTimer::singleShot(displayMsec, this, &QObject::deleteLater);
++        show();
++        raise();
++    }
++    else
++    {
++        d->_messageBarCreate(displayMsec);
++    }
+ }
+ 
+ ElaMessageBar::~ElaMessageBar()
+@@ -203,6 +225,34 @@ void ElaMessageBar::paintEvent(QPaintEvent* event)
+     }
+     }
+     // 文字绘制
++    if (property("pinloomInstantNotice").toBool())
++    {
++        // Bounded three-line preview. The accessible description and status retain the full text.
++        painter.setFont(font());
++        const int left = d->_leftPadding + d->_titleLeftSpacing;
++        const int available = qMax(1, width() - left - d->_closeButtonWidth - 24);
++        const QString text = d->_text.simplified();
++        QTextLayout layout(text, font());
++        QTextOption option;
++        option.setWrapMode(QTextOption::WrapAtWordBoundaryOrAnywhere);
++        layout.setTextOption(option);
++        layout.beginLayout();
++        const int rows = qBound(1, (height() - 20) / fontMetrics().lineSpacing(), 3);
++        for (int row = 0; row < rows; ++row)
++        {
++            auto line = layout.createLine();
++            if (!line.isValid()) break;
++            line.setLineWidth(available);
++            const QPointF position(left, 10 + row * fontMetrics().lineSpacing());
++            if (row == rows - 1 && line.textStart() + line.textLength() < text.size())
++                painter.drawText(QRectF(position, QSizeF(available, fontMetrics().lineSpacing())),
++                    Qt::AlignLeft | Qt::AlignVCenter, fontMetrics().elidedText(text.mid(line.textStart()), Qt::ElideRight, available));
++            else line.draw(&painter, position);
++        }
++        layout.endLayout();
++        painter.restore();
++        return;
++    }
+     // 标题
+     QFont font = this->font();
+     font.setWeight(QFont::Bold);
+@@ -231,6 +281,17 @@ void ElaMessageBar::paintEvent(QPaintEvent* event)
+ bool ElaMessageBar::eventFilter(QObject* watched, QEvent* event)
+ {
+     Q_D(ElaMessageBar);
++    if (property("pinloomInstantNotice").toBool())
++    {
++        if (watched == parentWidget() && (event->type() == QEvent::Resize || event->type() == QEvent::FontChange))
++        {
++            setFont(parentWidget()->font());
++            setFixedWidth(qMax(160, qMin(500, parentWidget()->width() - 16)));
++            setFixedHeight(qMax(0, qMin(parentWidget()->height() - 16, qMax(60, fontMetrics().lineSpacing() * 3 + 24))));
++            move((parentWidget()->width() - width()) / 2, qMax(0, parentWidget()->height() - height() - 8));
++        }
++        return QWidget::eventFilter(watched, event);
++    }
+     if (watched == parentWidget())
+     {
+         switch (event->type())
+diff --git a/private/ElaMessageBarPrivate.cpp b/private/ElaMessageBarPrivate.cpp
+index e85df86..6b88376 100644
+--- a/private/ElaMessageBarPrivate.cpp
++++ b/private/ElaMessageBarPrivate.cpp
+@@ -44,6 +44,11 @@ void ElaMessageBarPrivate::onOtherMessageBarEnd()
+ void ElaMessageBarPrivate::messageBarEnd()
+ {
+     Q_Q(ElaMessageBar);
++    if (q->property("pinloomInstantNotice").toBool())
++    {
++        q->deleteLater();
++        return;
++    }
+     _closeButton->setEnabled(false);
+     _updateActiveMap(false);
+     QPropertyAnimation* barFinishedOpacityAnimation = new QPropertyAnimation(this, "pOpacity");
+@@ -297,6 +302,7 @@ bool ElaMessageBarPrivate::_judgeCreateOrder(ElaMessageBar* otherMessageBar)
+ void ElaMessageBarPrivate::_updateActiveMap(bool isActive)
+ {
+     Q_Q(ElaMessageBar);
++    if (q->property("pinloomInstantNotice").toBool()) return;
+     ElaMessageBarType::PositionPolicy policy = _policy;
+     auto parentWidget = q->parent();
+     auto& messageBarMap = _messageBarActiveMap[parentWidget];

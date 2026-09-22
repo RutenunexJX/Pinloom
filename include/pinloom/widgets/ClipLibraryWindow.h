@@ -4,7 +4,7 @@
 
 #include <QColor>
 #include <QHash>
-#include <QMainWindow>
+#include "pinloom/widgets/PinloomUiControls.h"
 #include <functional>
 #include <optional>
 
@@ -15,8 +15,8 @@ class QLabel;
 class QLineEdit;
 class QKeyEvent;
 class QPlainTextEdit;
-class QTableWidget;
-class QTableWidgetItem;
+#include "pinloom/widgets/PinloomItemViews.h"
+
 class QShowEvent;
 
 namespace Pinloom {
@@ -36,7 +36,7 @@ struct ClipLibraryWindowOptions {
     std::function<bool(const QString &clipId, QString *error)> openSourceHandler;
 };
 
-class ClipLibraryWindow final : public QMainWindow {
+class ClipLibraryWindow final : public Ui::MainWindow {
     Q_OBJECT
 
 public:
@@ -74,7 +74,7 @@ private:
     void rebuildTagFilter(const QList<Clip> &clips);
     void refreshRows();
     void updatePreview();
-    void handleItemChanged(QTableWidgetItem *item);
+    void handleItemChanged(Pinloom::Ui::TableItem *item);
     void openTagEditor(int row);
     void updatePendingTags(const QString &clipId, const QStringList &tags);
     void applyInlineCellState(int row, int column, const QString &clipId);
@@ -82,7 +82,7 @@ private:
     QStringList availableTags() const;
     QColor colorForTag(const QString &tag) const;
     void showContextMenu(const QPoint &position);
-    void setStatus(const QString &status);
+    void setStatus(const QString &status, bool notify = true);
     bool reselectClip(const QString &clipId);
 
     ClipLibraryWindowOptions options_;
@@ -90,7 +90,7 @@ private:
     QLineEdit *searchEdit_ = nullptr;
     QComboBox *scopeCombo_ = nullptr;
     QComboBox *tagCombo_ = nullptr;
-    QTableWidget *table_ = nullptr;
+    Pinloom::Ui::Table *table_ = nullptr;
     QLabel *previewTitle_ = nullptr;
     QLabel *previewMetadata_ = nullptr;
     QPlainTextEdit *previewText_ = nullptr;
