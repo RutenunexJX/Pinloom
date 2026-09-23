@@ -1,4 +1,5 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLibraryManagement.h"
 #include "pinloom/core/AnchorLibraryPolicy.h"
@@ -73,6 +74,8 @@ private slots:
     void softDeletesAndRestoresAnchorsInSearch();
     void managesAnchorLibraryMetadataTagsPathsAndDuplicates();
     void managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink();
+    void clearsOnlyAnchorlessFileMetadata_data();
+    void clearsOnlyAnchorlessFileMetadata();
     void cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots();
     void archivesAnchorLibraryJsonAndPublishesAtomicChanges();
     void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
@@ -1700,6 +1703,130 @@ void CoreSmokeTest::managesAnchorLibraryLifecycleIntegrityHistoryAndAutoRelink()
     QVERIFY(result.success);
     QVERIFY(!repository.findResource(duplicateDesign.id).has_value());
     QVERIFY(!service.canUndo());
+}
+
+void CoreSmokeTest::clearsOnlyAnchorlessFileMetadata_data()
+{
+    QTest::addColumn<bool>("useSqlite");
+    QTest::newRow("in-memory") << false;
+    QTest::newRow("sqlite") << true;
+}
+
+void CoreSmokeTest::clearsOnlyAnchorlessFileMetadata()
+{
+    QFETCH(bool, useSqlite);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("preserved.txt"));
+    QFile source(path);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("preserved source");
+    source.close();
+    const QString databasePath = directory.filePath(QStringLiteral("metadata.sqlite3"));
+    InMemoryLibraryRepository memory;
+    SqliteLibraryRepository sqlite;
+    if (useSqlite) {
+        QVERIFY(sqlite.open(databasePath));
+        QVERIFY(sqlite.initialize());
+    }
+    ILibraryRepository &repository = useSqlite ? static_cast<ILibraryRepository &>(sqlite) : memory;
+    Resource first;
+    first.id = QStringLiteral("clear-first");
+    first.title = QStringLiteral("First unchanged title");
+    first.location = path;
+    first.aliases = {QStringLiteral("first alias")};
+    first.tags = {QStringLiteral("first-tag")};
+    first.explicitlyRetained = true;
+    Anchor trashed = testAnchor(QStringLiteral("Trashed reference"));
+    trashed.id = QStringLiteral("trashed-reference");
+    trashed.aliases = {QStringLiteral("trashed alias")};
+    trashed.tags = {QStringLiteral("trashed-tag")};
+    trashed.deleted = true;
+    first.anchors = {trashed};
+    Resource second = first;
+    second.id = QStringLiteral("clear-second");
+    second.title = QStringLiteral("Second unchanged title");
+    second.aliases = {QStringLiteral("second alias")};
+    second.tags = {QStringLiteral("second-tag")};
+    second.anchors.clear();
+    Resource active = second;
+    active.id = QStringLiteral("keep-active");
+    active.title = QStringLiteral("Active file");
+    active.aliases = {QStringLiteral("active alias")};
+    active.anchors = {testAnchor(QStringLiteral("Active reference"))};
+    Resource archived = second;
+    archived.id = QStringLiteral("keep-archived");
+    archived.title = QStringLiteral("Archived file");
+    archived.deleted = true;
+    for (const auto &resource : {first, second, active, archived})
+        QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+    QVERIFY(repository.setResourcePinned(first.id, true));
+    AnchorLibraryManagementService service(repository);
+    int notifications = 0;
+    const int listener = repository.addChangeListener([&](const LibraryChange &change) {
+        if (change.kind == LibraryChangeKind::Content) ++notifications;
+    });
+    const quint64 initialRevision = repository.contentRevision();
+    QVERIFY(!service.clearAnchorlessResourceMetadata({}).success);
+    QVERIFY(!service.clearAnchorlessResourceMetadata({first.id, QStringLiteral("missing")}).success);
+    QVERIFY(!service.clearAnchorlessResourceMetadata({first.id, active.id, second.id}).success);
+    QVERIFY(!service.clearAnchorlessResourceMetadata({first.id, archived.id}).success);
+    QCOMPARE(repository.findResource(first.id)->aliases, first.aliases);
+    QCOMPARE(repository.findResource(second.id)->tags, second.tags);
+    QCOMPARE(repository.contentRevision(), initialRevision);
+    QCOMPARE(notifications, 0);
+    QVERIFY(!service.canUndo());
+
+    auto result = service.clearAnchorlessResourceMetadata({first.id, second.id, first.id});
+    QVERIFY2(result.success, qPrintable(result.message));
+    QCOMPARE(result.affectedCount, 2);
+    QCOMPARE(notifications, 1);
+    for (const auto &original : {first, second}) {
+        const Resource stored = repository.findResource(original.id).value();
+        QVERIFY(stored.aliases.isEmpty());
+        QVERIFY(stored.tags.isEmpty());
+        QVERIFY(!stored.deleted);
+        QCOMPARE(stored.title, original.title);
+        QCOMPARE(stored.location, original.location);
+        QCOMPARE(stored.explicitlyRetained, original.explicitlyRetained);
+        QCOMPARE(stored.anchors.size(), original.anchors.size());
+    }
+    const Anchor kept = repository.findResource(first.id)->anchors.first();
+    QVERIFY(kept.deleted);
+    QCOMPARE(kept.id, trashed.id);
+    QCOMPARE(kept.aliases, trashed.aliases);
+    QCOMPARE(kept.tags, trashed.tags);
+    QVERIFY(repository.resourceUsage(first.id)->pinned);
+    QVERIFY(service.canUndo());
+    QVERIFY(service.undoLast().success);
+    QCOMPARE(repository.findResource(first.id)->aliases, first.aliases);
+    QCOMPARE(repository.findResource(second.id)->tags, second.tags);
+    QVERIFY(service.clearAnchorlessResourceMetadata({first.id, second.id}).success);
+    const quint64 clearedRevision = repository.contentRevision();
+    result = service.clearAnchorlessResourceMetadata({first.id, second.id});
+    QVERIFY(result.success);
+    QCOMPARE(result.affectedCount, 0);
+    QCOMPARE(repository.contentRevision(), clearedRevision);
+    QCOMPARE(repository.findResource(active.id)->aliases, active.aliases);
+    QVERIFY(repository.findResource(archived.id)->deleted);
+    if (useSqlite) {
+        QVERIFY(sqlite.integrityCheck());
+        SqliteLibraryRepository reopened;
+        QVERIFY(reopened.open(databasePath));
+        QVERIFY(reopened.initialize());
+        QVERIFY(reopened.findResource(first.id)->aliases.isEmpty());
+        QVERIFY(reopened.findResource(second.id)->tags.isEmpty());
+        QVERIFY(reopened.findResource(first.id)->anchors.first().deleted);
+    }
+    Resource reuse;
+    reuse.id = QStringLiteral("alias-reuse");
+    reuse.title = QStringLiteral("Reused alias owner");
+    reuse.location = path;
+    reuse.aliases = first.aliases;
+    QVERIFY2(repository.upsertResource(reuse), qPrintable(repository.lastError()));
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), QByteArray("preserved source"));
+    repository.removeChangeListener(listener);
 }
 
 void CoreSmokeTest::cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots()

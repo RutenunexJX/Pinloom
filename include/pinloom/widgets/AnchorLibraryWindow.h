@@ -89,6 +89,7 @@ public:
     bool permanentlyDeleteSelection();
     bool permanentlyDeleteSelectedAnchors();
     bool permanentlyClearSelectedFileMetadata();
+    bool clearSelectedAnchorlessFileMetadata();
     bool permanentlyDeleteAllAnchorsForSelectedFiles();
     bool savePendingInlineEdits();
     void showTrash();
@@ -219,6 +220,7 @@ private:
 
     AnchorLibraryWindowOptions options_;
     QList<AnchorLibraryFile> files_;
+    QHash<QString, QStringList> fileResourceIds_;
     QLineEdit *filterEdit_ = nullptr;
     QComboBox *savedViewCombo_ = nullptr;
     QComboBox *scopeCombo_ = nullptr;

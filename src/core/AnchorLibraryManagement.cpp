@@ -393,6 +393,36 @@ AnchorLibraryOperationResult AnchorLibraryManagementService::updateResourceMetad
                                 QStringLiteral("Updated file metadata"));
 }
 
+AnchorLibraryOperationResult AnchorLibraryManagementService::clearAnchorlessResourceMetadata(
+    const QStringList &resourceIds)
+{
+    const QStringList ids = cleanedResourceIds(resourceIds);
+    if (ids.isEmpty()) return failedResult(QStringLiteral("Select files without active anchors"));
+    const auto batch = loadResourceBatch(repository_, ids);
+    if (!batch) return failedResult(QStringLiteral("A file resource was not found"));
+    LibraryBatchMutation mutation;
+    LibraryBatchMutation undoMutation;
+    const QDateTime updatedAt = QDateTime::currentDateTimeUtc();
+    for (const Resource &original : batch->originals) {
+        if (original.deleted || std::any_of(original.anchors.cbegin(), original.anchors.cend(),
+                                           [](const Anchor &anchor) { return !anchor.deleted; })) {
+            return failedResult(QStringLiteral("Cannot clear Tags and Aliases for \"%1\" (id %2): "
+                                               "the file is in Trash or has active anchors")
+                                    .arg(original.title, original.id));
+        }
+        if (original.aliases.isEmpty() && original.tags.isEmpty()) continue;
+        Resource updated = original;
+        updated.aliases.clear();
+        updated.tags.clear();
+        updated.updatedAt = updatedAt;
+        mutation.upserts.append(updated);
+        undoMutation.upserts.append(original);
+    }
+    return applyManagedMutation(mutation, undoMutation, mutation.upserts.size(),
+                                QStringLiteral("Cleared all Tags and Aliases for %1 file record(s)")
+                                    .arg(mutation.upserts.size()));
+}
+
 AnchorLibraryOperationResult AnchorLibraryManagementService::setAnchorsDeleted(
     const QList<AnchorReference> &references,
     bool deleted)

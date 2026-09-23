@@ -1018,6 +1018,7 @@ void AnchorLibraryWindow::refreshLibrary()
     repositoryRefreshPending_ = false;
     const QList<AnchorLibraryFile> provided = options_.filesProvider ? options_.filesProvider() : QList<AnchorLibraryFile>{};
     files_.clear();
+    fileResourceIds_.clear();
     QHash<QString, int> groupedIndexes;
     for (AnchorLibraryFile file : provided) {
         for (AnchorLibraryAnchor &entry : file.anchors) {
@@ -1028,6 +1029,8 @@ void AnchorLibraryWindow::refreshLibrary()
         file.resource.anchors.clear();
         if (file.usage.resourceId.trimmed().isEmpty()) file.usage.resourceId = file.resource.id;
         const QString key = fileGroupingKey(file.resource);
+        // Anchorless records still own metadata when multiple records share a file row.
+        appendUnique(fileResourceIds_[key], file.resource.id);
         const auto existing = groupedIndexes.constFind(key);
         if (existing == groupedIndexes.constEnd()) {
             groupedIndexes.insert(key, files_.size());
@@ -1269,6 +1272,38 @@ bool AnchorLibraryWindow::permanentlyClearSelectedFileMetadata()
     }
     if (!createSafetyBackup(QStringLiteral("permanent file metadata deletion"))) return false;
     const AnchorLibraryOperationResult result = options_.managementService->permanentlyClearResourceMetadata(ids);
+    setOperationResult(result);
+    return result.success;
+}
+
+bool AnchorLibraryWindow::clearSelectedAnchorlessFileMetadata()
+{
+    if (!options_.managementService || showingTrash()) return false;
+    const auto files = selectedFiles();
+    if (files.isEmpty() || !allAnchorReferencesForSelectedFiles(false).isEmpty()) {
+        statusText_ = tr("Select only files without active anchors to clear Tags and Aliases");
+        Ui::setStatusText(statusLabel_, statusText_);
+        return false;
+    }
+    const QStringList ids = selectedResourceIds();
+    QStringList keys;
+    for (const auto *file : files) keys.append(fileGroupingKey(file->resource));
+    if (!confirmOperation(tr("Clear File Tags and Aliases"),
+                          tr("Clear all Tags and Aliases for %1 selected file(s) without active anchors?\n\n"
+                             "Source files and anchors in Trash will not be changed. This operation can be undone.")
+                              .arg(files.size()))) {
+        statusText_ = tr("Clear canceled");
+        Ui::setStatusText(statusLabel_, statusText_);
+        return false;
+    }
+    const auto result = options_.managementService->clearAnchorlessResourceMetadata(ids);
+    if (result.success) {
+        for (const QString &key : keys) {
+            pendingFileInlineEdits_.remove(key);
+            fileInlineCellStates_.remove(inlineFileCellKey(key, FileAliasesColumn));
+            fileInlineCellStates_.remove(inlineFileCellKey(key, FileTagsColumn));
+        }
+    }
     setOperationResult(result);
     return result.success;
 }
@@ -2023,7 +2058,7 @@ QList<AnchorLibraryAnchor> AnchorLibraryWindow::scopedAnchors(const AnchorLibrar
 
 QStringList AnchorLibraryWindow::resourceIdsForFile(const AnchorLibraryFile &file) const
 {
-    QStringList ids;
+    QStringList ids = fileResourceIds_.value(fileGroupingKey(file.resource));
     appendUnique(ids, file.resource.id);
     for (const AnchorLibraryAnchor &entry : file.anchors) appendUnique(ids, entry.resourceId);
     return ids;
@@ -2680,12 +2715,22 @@ void AnchorLibraryWindow::showFileContextMenu(const QPoint &position)
                                                 [this]() { permanentlyDeleteAllAnchorsForSelectedFiles(); });
         deleteAnchors->setEnabled(!allAnchorReferencesForSelectedFiles(true).isEmpty());
     } else {
-        addToneMenuAction(&menu,
+        const bool hasActiveAnchors = !allAnchorReferencesForSelectedFiles(false).isEmpty();
+        auto *deleteAnchors = addToneMenuAction(&menu,
                           QStringLiteral("anchorLibraryDeleteAllFileAnchorsAction"),
                           QStringLiteral("删除所有 Anchor"),
                           QStringLiteral("destructive"),
                           this,
                           [this]() { deleteAllAnchorsForSelectedFiles(); });
+        deleteAnchors->setEnabled(options_.managementService && hasActiveAnchors);
+        if (!hasActiveAnchors) {
+            auto *clearMetadata = addToneMenuAction(&menu,
+                QStringLiteral("anchorLibraryClearAnchorlessFileMetadataAction"),
+                QStringLiteral("清除全部 Tag 和 Alias"),
+                QStringLiteral("destructive"), this,
+                [this]() { clearSelectedAnchorlessFileMetadata(); });
+            clearMetadata->setEnabled(options_.managementService != nullptr);
+        }
     }
     menu.exec(fileTable_->viewport()->mapToGlobal(position));
 }

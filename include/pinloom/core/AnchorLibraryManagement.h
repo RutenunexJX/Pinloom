@@ -97,6 +97,7 @@ public:
                                                       const AnchorLocatorUpdate &update);
     AnchorLibraryOperationResult updateResourceMetadata(const QStringList &resourceIds,
                                                          const ResourceMetadataUpdate &update);
+    AnchorLibraryOperationResult clearAnchorlessResourceMetadata(const QStringList &resourceIds);
     AnchorLibraryOperationResult setAnchorsDeleted(const QList<AnchorReference> &references,
                                                     bool deleted);
     AnchorLibraryOperationResult setResourcesDeleted(const QStringList &resourceIds,

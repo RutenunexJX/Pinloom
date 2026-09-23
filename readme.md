@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.6`; database Schema: `16`.
+Current version: `0.4.7`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -323,6 +323,15 @@ every pending file and Anchor inline edit and turns the affected cells green
 until the Anchor Library closes. Save changes also saves those pending edits.
 Tags use compact single-line chips with a remaining-count indicator and the full
 tag list in the tooltip. Alias editors are Ela inputs in the ELA build.
+
+For files with no active anchors, the file context menu offers
+`清除全部 Tag 和 Alias`. After confirmation, all file tags and aliases for the
+selected rows are cleared in one transaction, including grouped records for
+the same path. Source files and anchors in Trash are preserved. The unmarked
+rows disappear from the active library, and Undo can restore the metadata.
+Mixed selections containing active anchors and Trash views do not offer this
+action. Successful clearing also discards pending inline metadata for those
+rows, so a later Save cannot recreate it.
 
 The right pane shows the selected title, source path and Preview, with Open
 anchor and Enlarge actions. Selecting one PDF anchor renders its page

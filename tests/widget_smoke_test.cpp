@@ -122,6 +122,7 @@ private slots:
     void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
     void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
     void anchorLibraryWindowShowsMetadataOnlyInboxFiles();
+    void anchorLibraryClearsAnchorlessFileMetadataFromContextMenu();
     void anchorLibraryConfirmationDefaultsToCancelAndUsesEla();
     void anchorLibraryAutomaticPdfPreviewIsQuiet();
     void libraryRootWindowBrowsesTagsAndProtectsSyncRoot();
@@ -2642,6 +2643,157 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
             || text.contains(QStringLiteral("SQLite"), Qt::CaseInsensitive);
     }));
     window.close();
+}
+
+void WidgetSmokeTest::anchorLibraryClearsAnchorlessFileMetadataFromContextMenu()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString path = directory.filePath(QStringLiteral("preserved.txt"));
+    QFile source(path);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("preserved source");
+    source.close();
+    InMemoryLibraryRepository repository;
+    for (int i = 0; i < 2; ++i) {
+        Resource resource;
+        resource.id = QStringLiteral("metadata-%1").arg(i);
+        resource.title = QStringLiteral("Clear candidate %1").arg(i);
+        resource.location = path;
+        resource.aliases = {QStringLiteral("file alias %1").arg(i)};
+        resource.tags = {QStringLiteral("file-tag-%1").arg(i)};
+        if (i == 0) {
+            Anchor trashed;
+            trashed.id = QStringLiteral("preserved-trash-anchor");
+            trashed.name = QStringLiteral("Preserved trash anchor");
+            trashed.deleted = true;
+            resource.anchors = {trashed};
+        }
+        QVERIFY(repository.upsertResource(resource));
+    }
+    Resource active;
+    active.id = QStringLiteral("active-file");
+    active.title = QStringLiteral("Keep active file");
+    active.location = directory.filePath(QStringLiteral("active.txt"));
+    active.aliases = {QStringLiteral("keep active alias")};
+    Anchor activeAnchor;
+    activeAnchor.id = QStringLiteral("active-anchor");
+    activeAnchor.name = QStringLiteral("Keep active anchor");
+    active.anchors = {activeAnchor};
+    QVERIFY(repository.upsertResource(active));
+    AnchorLibraryManagementService management(repository);
+    bool confirm = false;
+    int confirmations = 0;
+    std::function<void()> whileConfirming;
+    AnchorLibraryWindowOptions options;
+    options.repository = &repository;
+    options.managementService = &management;
+    options.confirmationHandler = [&](const QString &, const QString &message) {
+        ++confirmations;
+        if (whileConfirming) whileConfirming();
+        return confirm && message.contains(QStringLiteral("can be undone"));
+    };
+    options.filesProvider = [&] {
+        QList<AnchorLibraryFile> files;
+        SearchQuery query;
+        query.limit = 0;
+        query.includeDeleted = true;
+        for (const auto &hit : repository.search(query)) {
+            AnchorLibraryFile file;
+            file.resource = hit.resource;
+            for (const auto &anchor : hit.resource.anchors) file.anchors.append({hit.resource.id, anchor});
+            files.append(file);
+        }
+        return files;
+    };
+    AnchorLibraryWindow window(options);
+    window.show();
+    window.setFilterText(QStringLiteral("Clear candidate"));
+    auto *table = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    QVERIFY(table);
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(window.visibleAnchorCount(), 0);
+    const auto inspectMenu = [&](bool expectedClearAction, bool trigger) {
+        bool verified = false;
+        QTimer actionTimer, watchdog;
+        actionTimer.setSingleShot(true);
+        watchdog.setSingleShot(true);
+        connect(&actionTimer, &QTimer::timeout, &window, [&] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu) return;
+            auto *action = menu->findChild<QWidgetAction *>(QStringLiteral("anchorLibraryClearAnchorlessFileMetadataAction"));
+            auto *button = action ? qobject_cast<QToolButton *>(action->defaultWidget()) : nullptr;
+            verified = expectedClearAction
+                ? action && action->isEnabled() && button
+                    && action->text() == QStringLiteral("清除全部 Tag 和 Alias")
+                    && !button->accessibleName().isEmpty()
+                    && button->inherits("ElaToolButton") == Ui::usesEla()
+                : !action;
+            if (trigger && button) button->click();
+            else menu->close();
+        });
+        connect(&watchdog, &QTimer::timeout, &window, [] {
+            if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) menu->close();
+        });
+        actionTimer.start(25);
+        watchdog.start(2000);
+        const QPoint point = table->visualItemRect(table->item(0, 0)).center();
+        QContextMenuEvent event(QContextMenuEvent::Mouse, point, table->viewport()->mapToGlobal(point));
+        QApplication::sendEvent(table->viewport(), &event);
+        return verified;
+    };
+    table->item(0, 1)->setText(QStringLiteral("unsaved alias to discard"));
+    QVERIFY(!window.clearSelectedAnchorlessFileMetadata());
+    QCOMPARE(confirmations, 1);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("unsaved alias to discard"));
+    QVERIFY(!repository.findResource(QStringLiteral("metadata-0"))->aliases.isEmpty());
+    confirm = true;
+    QVERIFY(inspectMenu(true, true));
+    QCOMPARE(confirmations, 2);
+    QCOMPARE(window.visibleFileCount(), 0);
+    QVERIFY(!window.savePendingInlineEdits());
+    for (const auto &id : {QStringLiteral("metadata-0"), QStringLiteral("metadata-1")}) {
+        const auto resource = repository.findResource(id);
+        QVERIFY(resource.has_value());
+        QVERIFY(!resource->deleted);
+        QVERIFY(resource->tags.isEmpty());
+        QVERIFY(resource->aliases.isEmpty());
+    }
+    QVERIFY(repository.findResource(QStringLiteral("metadata-0"))->anchors.first().deleted);
+    QVERIFY(source.open(QIODevice::ReadOnly));
+    QCOMPARE(source.readAll(), QByteArray("preserved source"));
+    QVERIFY(window.undoLastOperation());
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(repository.findResource(QStringLiteral("metadata-1"))->aliases,
+             QStringList{QStringLiteral("file alias 1")});
+    window.setFilterText({});
+    QCOMPARE(window.visibleFileCount(), 2);
+    table->selectAll();
+    QVERIFY(inspectMenu(false, false));
+    QVERIFY(!window.clearSelectedAnchorlessFileMetadata());
+    QCOMPARE(confirmations, 2);
+    window.showTrash();
+    QCOMPARE(window.visibleFileCount(), 1);
+    QVERIFY(inspectMenu(false, false));
+    QVERIFY(!window.clearSelectedAnchorlessFileMetadata());
+    window.findChild<QToolButton *>(QStringLiteral("anchorLibraryTrashButton"))->click();
+    window.setFilterText(QStringLiteral("Clear candidate"));
+    bool concurrentWriteSucceeded = false;
+    whileConfirming = [&] {
+        Resource changed = repository.findResource(QStringLiteral("metadata-0")).value();
+        Anchor added;
+        added.id = QStringLiteral("late-anchor");
+        added.name = QStringLiteral("Anchor created while confirming");
+        changed.anchors.append(added);
+        concurrentWriteSucceeded = repository.upsertResource(changed);
+    };
+    QVERIFY(!window.clearSelectedAnchorlessFileMetadata());
+    QVERIFY(concurrentWriteSucceeded);
+    QVERIFY(window.statusText().contains(QStringLiteral("has active anchors")));
+    QCOMPARE(repository.findResource(QStringLiteral("metadata-0"))->aliases,
+             QStringList{QStringLiteral("file alias 0")});
+    QCOMPARE(repository.findResource(QStringLiteral("metadata-1"))->tags,
+             QStringList{QStringLiteral("file-tag-1")});
 }
 
 void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()

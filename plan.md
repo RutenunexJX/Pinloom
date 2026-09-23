@@ -1,6 +1,6 @@
 # Pinloom Plan
 
-Current version: `0.4.6`. Schema version: `16`.
+Current version: `0.4.7`. Schema version: `16`.
 
 ## Current baseline
 
@@ -8,6 +8,50 @@ The resident launcher, canonical semicolon commands, native Anchor confirmation,
 identities, viewer-independent PDF adapter, annotated-copy PDF highlighting and semantic UI are implemented.
 SumatraPDF is the implemented PDF adapter; an adapter boundary does not imply that every viewer is supported.
 Current usage and build instructions are in [readme.md](readme.md); product boundaries are in [goal.md](goal.md).
+
+## Anchorless file metadata clearing — source only
+
+- [x] Add `清除全部 Tag 和 Alias` to the Ela file context menu when all selected
+  files have no active anchors. Do not offer it in Trash or for mixed selections
+  containing active anchors. Confirm before clearing; keep source files, file
+  records, titles, Pinned/retained state and anchors in Trash unchanged.
+- [x] Revalidate the records in the management service after confirmation and
+  submit one atomic repository batch, with the existing identity validation and
+  undo history. Retain all underlying resource IDs for grouped file rows,
+  including records without anchors. On success discard only those rows'
+  pending inline edits and hide the now-unmarked rows using the existing policy.
+- [x] Test InMemory/SQLite parity, batch rejection, undo, alias reuse,
+  persistence/integrity, context-menu activation, cancellation, grouped records,
+  pending-edit cleanup, mixed/Trash selection and a new anchor arriving during
+  confirmation. Source files are checked for unchanged contents.
+
+Both Release builds passed. Full ELA CTest passed 25/25 (41.66 s); CLASSIC
+passed 16/16 (25.94 s), using `cmake --build build-ela-release --parallel 4`
+and `ctest --test-dir build-ela-release -C Release --output-on-failure --timeout 60`
+with the corresponding `build-classic-release` commands. `git diff --check`
+passed. Tests used Qt offscreen; no desktop mouse, live database, AppPackage,
+version or schema changes were made. At the source-only handoff this follow-up
+was not committed or pushed.
+
+### Authorized 0.4.7 publication follow-up
+
+The user subsequently requested a push and replacement of the formal package.
+Release 0.4.7 includes the anchorless file metadata clearing above; schema
+remains 16. Both Release builds passed after the version update. Full ELA
+CTest passed 25/25 (47.75 s), and CLASSIC passed 16/16 (30.74 s), using the
+commands above. `git diff --check` passed. Tests used Qt offscreen and did not
+interact with the desktop or user databases.
+
+Publish a clean source commit to the existing origin/main and package the ELA
+Release build with `packaging/windows/Package-Release.ps1`. Verify the staged
+runtime using a clean PATH, preserve the installed runtime license notices and
+back up the exact formal Pinloom directory before replacement. Replace only
+while no resident Pinloom process is running. Hold exclusive handles to the
+suite manifest and checksum index, recheck their current baseline and update
+only Pinloom's version/hashes plus the shared manifest timestamp/hash. Other
+application/runtime files and metadata stay intact. The deployment receipt
+under `E:\Pinloom\artifacts` records the actual commit, hashes, backup and
+installed-runtime results. No schema or user database changes are required.
 
 ## Anchor Library Ela rewrite — 2026-09-23, source only
 
