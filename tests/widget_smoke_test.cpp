@@ -69,6 +69,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QMetaObject>
 #include <QMimeData>
 #include <QPainter>
@@ -113,6 +114,7 @@ private slots:
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
     void commandFloatsWithoutExpandingOrInterruptingCapture();
+    void floatingToolbarDragsWithoutCapturingAndKeepsPosition();
     void contextMenuDeletesAllGroupedFileAnchorsAndHidesUnmarkedRow();
     void pdfLocatorPreviewCropsRenderedPageToAnchorRegion();
     void pdfLocatorPreviewRendersConfiguredRealPdf();
@@ -1267,6 +1269,100 @@ void WidgetSmokeTest::commandFloatsWithoutExpandingOrInterruptingCapture()
     window.hide();
     floating->handleApplicationStateChanged(Qt::ApplicationInactive);
     QVERIFY(!floating->floatingWindow()->isVisible());
+}
+
+void WidgetSmokeTest::floatingToolbarDragsWithoutCapturingAndKeepsPosition()
+{
+    PinloomMainWindow window;
+    window.setLauncherMode(true);
+    int captures = 0;
+    PinloomCommandPanelOptions options;
+    options.rectangleAnchorCaptureHandler = [&](QString *) { ++captures; return true; };
+    options.textAnchorCaptureHandler = options.rectangleAnchorCaptureHandler;
+    options.pdfTextClipCaptureHandler = options.rectangleAnchorCaptureHandler;
+    auto *panel = new PinloomCommandPanel(options, &window);
+    window.setCentralWidget(panel);
+    auto *controller = new CommandFloatingController(window, *panel);
+    showCommandPanelForHotkey(window, *panel);
+    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QPointer<QWidget> floating = controller->floatingWindow();
+    QVERIFY(floating->testAttribute(Qt::WA_TranslucentBackground));
+    QCOMPARE(floating->inherits("ElaScrollPageArea"), Ui::usesEla());
+    const auto pixels = floating->grab().toImage();
+    for (const auto corner : {QPoint(0, 0), QPoint(pixels.width() - 1, 0),
+                              QPoint(0, pixels.height() - 1), pixels.rect().bottomRight()}) {
+        QCOMPARE(pixels.pixelColor(corner).alpha(), 0);
+    }
+    QVERIFY(pixels.pixelColor(pixels.rect().center()).alpha() > 0);
+
+    const QRect bounds = floating->screen()->availableGeometry();
+    floating->move(bounds.topLeft() + QPoint(64, 64));
+    const auto mouse = [](QWidget *receiver, QEvent::Type type, const QPoint &global,
+                          Qt::MouseButton button, Qt::MouseButtons buttons) {
+        QMouseEvent event(type, QPointF(receiver->mapFromGlobal(global)), QPointF(global),
+                          button, buttons, Qt::NoModifier);
+        QCoreApplication::sendEvent(receiver, &event);
+    };
+    const QPoint delta(QApplication::startDragDistance() + 18, 15);
+    const auto drag = [&](QWidget *receiver, const QPoint &local, const QPoint &offset) {
+        const QPoint start = receiver->mapToGlobal(local);
+        mouse(receiver, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
+        mouse(receiver, QEvent::MouseMove, start + offset, Qt::NoButton, Qt::LeftButton);
+        mouse(receiver, QEvent::MouseButtonRelease, start + offset, Qt::LeftButton, Qt::NoButton);
+    };
+    const auto buttons = floating->findChildren<QToolButton *>();
+    QCOMPARE(buttons.size(), 3);
+    QPoint previous = floating->pos();
+    drag(floating, QPoint(3, floating->height() / 2), delta);
+    QCOMPARE(floating->pos(), previous + delta);
+    for (auto *button : buttons) {
+        previous = floating->pos();
+        drag(button, button->rect().center(), delta);
+        QCOMPARE(floating->pos(), previous + delta);
+        QVERIFY(!button->isDown());
+    }
+    QCOMPARE(captures, 0);
+    QVERIFY(!window.isVisible());
+    QVERIFY(controller->isFloating());
+    QCOMPARE(floating->cursor().shape(), Qt::OpenHandCursor);
+    QVERIFY(floating->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
+
+    previous = floating->pos();
+    const QPoint jitter(qMax(0, qMin(1, QApplication::startDragDistance() - 1)), 0);
+    drag(buttons.first(), buttons.first()->rect().center(), jitter);
+    QCOMPARE(captures, 1);
+    QCOMPARE(floating->pos(), previous);
+    for (int i = 1; i < buttons.size(); ++i) QTest::mouseClick(buttons[i], Qt::LeftButton);
+    QCOMPARE(captures, 3);
+
+    const QPoint rightPress = floating->mapToGlobal(QPoint(3, 20));
+    mouse(floating, QEvent::MouseButtonPress, rightPress, Qt::RightButton, Qt::RightButton);
+    mouse(floating, QEvent::MouseMove, rightPress + delta, Qt::NoButton, Qt::RightButton);
+    mouse(floating, QEvent::MouseButtonRelease, rightPress + delta, Qt::RightButton, Qt::NoButton);
+    QCOMPARE(floating->pos(), previous);
+    drag(floating, QPoint(3, 20), QPoint(-10000, -10000));
+    QCOMPARE(floating->pos(), bounds.topLeft());
+    drag(floating, QPoint(3, 20), QPoint(10000, 10000));
+    QCOMPARE(floating->pos(), bounds.bottomRight() - QPoint(floating->width() - 1, floating->height() - 1));
+    QVERIFY(bounds.contains(floating->geometry()));
+
+    previous = floating->pos();
+    showCommandPanelForHotkey(window, *panel);
+    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QCOMPARE(floating->pos(), previous);
+    auto *button = buttons.first();
+    const QPoint press = button->mapToGlobal(button->rect().center());
+    mouse(button, QEvent::MouseButtonPress, press, Qt::LeftButton, Qt::LeftButton);
+    mouse(button, QEvent::MouseMove, press - delta, Qt::NoButton, Qt::LeftButton);
+    showCommandPanelForHotkey(window, *panel);
+    QVERIFY(!button->isDown());
+    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
+    QTest::mouseClick(button, Qt::LeftButton);
+    QCOMPARE(captures, 4);
+
+    mouse(button, QEvent::MouseButtonPress, button->mapToGlobal(button->rect().center()), Qt::LeftButton, Qt::LeftButton);
+    delete controller;
+    QVERIFY(floating.isNull());
 }
 
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()

@@ -89,6 +89,7 @@ void installToolTips(QApplication &application);
 QWidget *section(const QString &title, QWidget *parent = nullptr);
 QWidget *collapsibleSection(QPushButton *toggle, QWidget *content, QWidget *parent = nullptr);
 QFrame *popupFrame(QWidget *parent = nullptr);
+QWidget *floatingPanel();
 // Keeps Qt's role ordering and accepted/rejected signals, but uses our factory
 // for standard buttons instead of Qt's private QPushButton construction.
 class DialogButtonBox final : public QDialogButtonBox {

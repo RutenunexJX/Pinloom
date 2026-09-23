@@ -1,6 +1,6 @@
 # Pinloom Plan
 
-Current version: `0.4.4`. Schema version: `16`.
+Current version: `0.4.5`. Schema version: `16`.
 
 ## Current baseline
 
@@ -8,6 +8,52 @@ The resident launcher, canonical semicolon commands, native Anchor confirmation,
 identities, viewer-independent PDF adapter, annotated-copy PDF highlighting and semantic UI are implemented.
 SumatraPDF is the implemented PDF adapter; an adapter boundary does not imply that every viewer is supported.
 Current usage and build instructions are in [readme.md](readme.md); product boundaries are in [goal.md](goal.md).
+
+## Floating toolbar follow-up — 2026-09-23, source only
+
+- [x] Replace the opaque rectangular window background with transparent outer
+  corners. ELA uses `ElaScrollPageArea` with a 10-pixel radius and the existing
+  `ElaToolButton` controls; CLASSIC retains an equivalent rounded fallback.
+- [x] Support left-button dragging on the background and all three icons.
+  Movement past the system drag threshold suppresses capture; small click
+  jitter still behaves as a click. Keep the toolbar within the available screen
+  area and remember its moved position across capture and hotkey cycles for
+  this running session. Hiding/teardown cancels unfinished gestures safely.
+- [x] Preserve the non-activating toolbar and Shift+Space expansion behavior.
+  Dragging remains in the controller rather than adding an activating title bar.
+
+Validation: Release builds passed; ELA CTest 25/25 (36.54 s) and CLASSIC 16/16
+(23.71 s). The new drag test covers all icons, background, click-vs-drag, right
+button, bounds, position retention, hide mid-drag and teardown during a press.
+ELA light/dark at 100%, 125%, 150%, 200% asserts transparent corner pixels,
+opaque content, Ela component types and theme switching. Light/100% and
+dark/200% previews were inspected. Tests were offscreen; no desktop mouse was
+used, and mixed-monitor live dragging is not certified. No publication,
+AppPackage replacement, live database changes or other application changes
+were performed in this follow-up.
+
+### Authorized 0.4.5 publication follow-up
+
+The user subsequently requested a push and replacement of the formal package.
+Release 0.4.5 includes the floating-toolbar changes above; schema remains 16.
+Both Release builds passed again after the version update. Full ELA CTest
+passed 25/25 (41.72 s), and CLASSIC passed 16/16 (31.26 s), using:
+
+```powershell
+cmake --build build-ela-release --parallel 4
+ctest --test-dir build-ela-release --output-on-failure --timeout 60
+cmake --build build-classic-release --parallel 4
+ctest --test-dir build-classic-release --output-on-failure --timeout 60
+```
+
+Publication uses a clean source commit and an ELA staging package produced by
+`packaging/windows/Package-Release.ps1`. Before replacement, verify the staging
+runtime with a clean PATH and back up the exact installed Pinloom directory.
+Update only Pinloom's version and file hashes plus the shared manifest hash,
+holding exclusive handles to the suite metadata and preserving other entries.
+The deployment receipt under `E:\Pinloom\artifacts` records the actual commit,
+package hashes, backup path and installed-runtime result. No user database or
+other application is included in this release change.
 
 ## Completed pending changes — 2026-09-22, source only
 

@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.4`; database Schema: `16`.
+Current version: `0.4.5`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -213,6 +213,10 @@ the Command Window and focuses one search/command input. When another applicatio
 takes foreground, the Command Window collapses to a non-activating floating
 toolbar with three Capture icons. Hover/focus does not expand it; `Shift+Space`
 restores the full bar, after any active floating capture/confirmation finishes.
+Drag the toolbar background or any icon to reposition it. A drag does not run
+capture; a normal click still does. Its position is retained for the current
+session and constrained to the screen's available area. Ela builds use an
+Ela rounded surface with transparent outer corners and Ela tool buttons.
 The version remains in the title bar, not beside Navigate. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
 file/resource results. Result rows are labeled by type such as `[Anchor]`,

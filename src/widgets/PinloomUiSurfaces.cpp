@@ -1,4 +1,5 @@
 #include "pinloom/widgets/PinloomUiControls.h"
+#include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include <QApplication>
 #include <QFrame>
@@ -208,6 +209,18 @@ private:
 };
 #endif
 
+class ClassicFloatingPanel final : public QWidget {
+protected:
+    void paintEvent(QPaintEvent *) override {
+        QPainter painter(this);
+        painter.setRenderHint(QPainter::Antialiasing);
+        const auto tokens = pinloomVisualTokens(activePinloomVisualScheme());
+        painter.setPen(tokens.border);
+        painter.setBrush(tokens.panel);
+        painter.drawRoundedRect(rect().adjusted(1, 1, -1, -1), 10, 10);
+    }
+};
+
 class PopupFrame final : public QFrame {
 public:
     explicit PopupFrame(QWidget *parent) : QFrame(parent, Qt::Popup) {
@@ -314,4 +327,28 @@ QWidget *collapsibleSection(QPushButton *toggle, QWidget *content, QWidget *pare
 }
 
 QFrame *popupFrame(QWidget *parent) { return new PopupFrame(parent); }
+
+QWidget *floatingPanel()
+{
+    QWidget *panel = nullptr;
+#ifdef PINLOOM_ENABLE_ELA
+    if (usesEla()) {
+        auto *area = new ElaScrollPageArea;
+        area->setBorderRadius(10);
+        area->setMinimumHeight(0);
+        area->setMaximumHeight(QWIDGETSIZE_MAX);
+        area->setProperty("pinloomElaControl", true);
+        QObject::connect(eTheme, &ElaTheme::themeModeChanged, area, [area] { area->update(); });
+        panel = area;
+    }
+#endif
+    if (!panel) panel = new ClassicFloatingPanel;
+    panel->setWindowFlags(Qt::Tool | Qt::FramelessWindowHint | Qt::WindowStaysOnTopHint
+                          | Qt::WindowDoesNotAcceptFocus | Qt::NoDropShadowWindowHint);
+    panel->setAttribute(Qt::WA_TranslucentBackground);
+    panel->setAttribute(Qt::WA_ShowWithoutActivating);
+    panel->setAttribute(Qt::WA_QuitOnClose, false);
+    panel->setAutoFillBackground(false);
+    return panel;
+}
 } // namespace Pinloom::Ui

@@ -6,6 +6,7 @@
 #include <QApplication>
 #include <QHBoxLayout>
 #include <QIconEngine>
+#include <QMouseEvent>
 #include <QPainter>
 #include <QScreen>
 #include <QToolButton>
@@ -59,16 +60,16 @@ private:
 
 CommandFloatingController::CommandFloatingController(QWidget &window, PinloomCommandPanel &panel)
     : QObject(&window), window_(window), panel_(panel),
-      floating_(std::make_unique<QWidget>(nullptr, Qt::Tool | Qt::FramelessWindowHint
-                                         | Qt::WindowStaysOnTopHint | Qt::WindowDoesNotAcceptFocus))
+      floating_(Ui::floatingPanel())
 {
     setObjectName(QStringLiteral("commandFloatingController"));
     floating_->setObjectName(QStringLiteral("commandCaptureFloat"));
     floating_->setWindowTitle(tr("Pinloom Capture"));
     floating_->setAccessibleName(tr("Pinloom floating capture toolbar"));
-    floating_->setAttribute(Qt::WA_ShowWithoutActivating);
-    floating_->setAttribute(Qt::WA_QuitOnClose, false);
-    floating_->setProperty("pinloomRole", QStringLiteral("raised"));
+    floating_->setAccessibleDescription(tr("Drag to move. Press Shift+Space to open the full command bar."));
+    floating_->setToolTip(floating_->accessibleDescription());
+    floating_->setCursor(Qt::OpenHandCursor);
+    floating_->installEventFilter(this);
     auto *layout = new QHBoxLayout(floating_.get());
     layout->setContentsMargins(6, 6, 6, 6);
     layout->setSpacing(4);
@@ -86,7 +87,10 @@ CommandFloatingController::CommandFloatingController(QWidget &window, PinloomCom
         button->setToolButtonStyle(Qt::ToolButtonIconOnly);
         button->setText(names[i]);
         button->setAccessibleName(names[i]);
-        button->setToolTip(names[i]);
+        button->setAccessibleDescription(tr("Click to capture; drag to move the toolbar."));
+        button->setToolTip(names[i] + QLatin1Char('\n') + button->accessibleDescription());
+        button->setCursor(Qt::PointingHandCursor);
+        button->installEventFilter(this);
         button->setFixedSize(side, side);
         const auto *source = panel.findChild<QToolButton *>(sourceNames[i]);
         button->setEnabled(source && source->isEnabled());
@@ -99,17 +103,70 @@ CommandFloatingController::CommandFloatingController(QWidget &window, PinloomCom
             }, Qt::QueuedConnection);
 }
 
-CommandFloatingController::~CommandFloatingController() = default;
+CommandFloatingController::~CommandFloatingController() { floating_.reset(); }
 bool CommandFloatingController::isFloating() const { return collapsed_; }
 bool CommandFloatingController::isCapturing() const { return capturing_; }
 QWidget *CommandFloatingController::floatingWindow() const { return floating_.get(); }
+
+bool CommandFloatingController::eventFilter(QObject *object, QEvent *event)
+{
+    if (!floating_) return false;
+    if ((object == floating_.get() && event->type() == QEvent::Hide)
+        || (object == pressedWidget_.data() && event->type() == QEvent::UngrabMouse)) {
+        resetDrag();
+        return false;
+    }
+    auto *widget = qobject_cast<QWidget *>(object);
+    if (!widget || capturing_) return false;
+    if (event->type() == QEvent::MouseButtonPress) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        if (mouse->button() != Qt::LeftButton) return false;
+        pressedWidget_ = widget;
+        pressPosition_ = mouse->globalPosition().toPoint();
+        dragOrigin_ = floating_->pos();
+        dragging_ = false;
+        return widget == floating_.get();
+    }
+    if (!pressedWidget_) return false;
+    if (event->type() == QEvent::MouseMove) {
+        const auto *mouse = static_cast<QMouseEvent *>(event);
+        if (!(mouse->buttons() & Qt::LeftButton)) { resetDrag(); return false; }
+        const QPoint delta = mouse->globalPosition().toPoint() - pressPosition_;
+        if (!dragging_ && delta.manhattanLength() < qMax(1, QApplication::startDragDistance())) return false;
+        dragging_ = true;
+        userPositioned_ = true;
+        if (auto *button = qobject_cast<QToolButton *>(pressedWidget_.data())) button->setDown(false);
+        floating_->setCursor(Qt::ClosedHandCursor);
+        pressedWidget_->setCursor(Qt::ClosedHandCursor);
+        moveFloatingWindow(dragOrigin_ + delta, mouse->globalPosition().toPoint());
+        return true;
+    }
+    if (event->type() == QEvent::MouseButtonRelease) {
+        if (static_cast<QMouseEvent *>(event)->button() != Qt::LeftButton) return false;
+        const bool consume = dragging_ || widget == floating_.get();
+        resetDrag(consume);
+        return consume;
+    }
+    return false;
+}
+
+void CommandFloatingController::resetDrag(bool cancelClick)
+{
+    if (auto *button = qobject_cast<QToolButton *>(pressedWidget_.data())) {
+        if (cancelClick) button->setDown(false);
+        button->setCursor(Qt::PointingHandCursor);
+    }
+    pressedWidget_.clear();
+    dragging_ = false;
+    floating_->setCursor(Qt::OpenHandCursor);
+}
 
 void CommandFloatingController::handleApplicationStateChanged(Qt::ApplicationState state)
 {
     if (state != Qt::ApplicationInactive || capturing_ || collapsed_ || !window_.isVisible()
         || QApplication::activeModalWidget() || QApplication::activePopupWidget()) return;
     collapsed_ = true;
-    floating_->move(window_.pos());
+    if (!userPositioned_) floating_->move(window_.pos());
     window_.hide();
     showFloatingWindow();
 }
@@ -117,17 +174,24 @@ void CommandFloatingController::handleApplicationStateChanged(Qt::ApplicationSta
 void CommandFloatingController::showFloatingWindow()
 {
     floating_->adjustSize();
-    QScreen *screen = QGuiApplication::screenAt(floating_->pos());
+    moveFloatingWindow(floating_->pos(), floating_->geometry().center());
+    floating_->show();
+}
+
+void CommandFloatingController::moveFloatingWindow(const QPoint &position, const QPoint &screenPoint)
+{
+    QScreen *screen = QGuiApplication::screenAt(screenPoint);
+    if (!screen) screen = floating_->screen();
     if (!screen) screen = window_.screen();
+    QPoint point = position;
     if (screen) {
         const QRect available = screen->availableGeometry();
-        const QPoint pos = floating_->pos();
-        floating_->move(std::clamp(pos.x(), available.left(),
-                                  std::max(available.left(), available.right() - floating_->width() + 1)),
-                        std::clamp(pos.y(), available.top(),
-                                  std::max(available.top(), available.bottom() - floating_->height() + 1)));
+        point.setX(std::clamp(point.x(), available.left(),
+                             std::max(available.left(), available.right() - floating_->width() + 1)));
+        point.setY(std::clamp(point.y(), available.top(),
+                             std::max(available.top(), available.bottom() - floating_->height() + 1)));
     }
-    floating_->show();
+    floating_->move(point);
 }
 
 bool CommandFloatingController::requestExpansion()

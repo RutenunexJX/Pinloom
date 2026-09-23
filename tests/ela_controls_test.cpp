@@ -617,6 +617,8 @@ private slots:
         controller.handleApplicationStateChanged(Qt::ApplicationInactive);
         auto *floating = controller.floatingWindow();
         QVERIFY(floating->isVisible());
+        QVERIFY(floating->inherits("ElaScrollPageArea"));
+        QVERIFY(floating->testAttribute(Qt::WA_TranslucentBackground));
         QVERIFY(floating->testAttribute(Qt::WA_ShowWithoutActivating));
         QVERIFY(floating->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
         const auto buttons = floating->findChildren<QToolButton *>();
@@ -631,7 +633,17 @@ private slots:
             QCOMPARE(accessible->text(QAccessible::Name), button->accessibleName());
         }
         QVERIFY(floating->width() <= 3 * pinloomVisualMetrics().primaryControlHeight + 24);
+        const auto pixels = floating->grab().toImage();
+        for (const auto corner : {QPoint(0, 0), QPoint(pixels.width() - 1, 0),
+                                  QPoint(0, pixels.height() - 1), pixels.rect().bottomRight()})
+            QCOMPARE(pixels.pixelColor(corner).alpha(), 0);
+        QCOMPARE(pixels.pixelColor(pixels.rect().center()).alpha(), 255);
         snapshot(*floating, "floating-capture");
+        const auto oppositeScheme = scheme_ == PinloomVisualScheme::Light
+            ? PinloomVisualScheme::Dark : PinloomVisualScheme::Light;
+        applyPinloomVisualTheme(*qApp, oppositeScheme);
+        QCOMPARE(floating->grab().toImage().pixelColor(0, 0).alpha(), 0);
+        applyPinloomVisualTheme(*qApp, scheme_);
         showCommandPanelForHotkey(host, *panel);
         QVERIFY(host.isVisible());
         QVERIFY(!floating->isVisible());
