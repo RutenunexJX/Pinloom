@@ -10,11 +10,13 @@
 #include "ElaTreeView.h"
 
 #include <QApplication>
+#include <QAbstractItemView>
 #include <QFontDatabase>
 #include <QPlainTextEdit>
 #include <QPropertyAnimation>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QScreen>
 #include <QSettings>
 #include <QSignalSpy>
 #include <QSplitter>
@@ -73,6 +75,68 @@ private slots:
         std::unique_ptr<QComboBox> empty(Ui::comboBox());
         empty->showPopup();
         QVERIFY(!qobject_cast<ElaComboBox *>(empty.get())->isPopupAnimating());
+    }
+    void popupRowsAndRepeatedShow_data() {
+        QTest::addColumn<int>("itemCount");
+        QTest::addColumn<bool>("atBottom");
+        for (int count : {1, 3, 5}) {
+            QTest::newRow(qPrintable(QString("%1-top").arg(count))) << count << false;
+            QTest::newRow(qPrintable(QString("%1-bottom").arg(count))) << count << true;
+        }
+    }
+    void popupRowsAndRepeatedShow() {
+        QFETCH(int, itemCount);
+        QFETCH(bool, atBottom);
+        QWidget host;
+        auto *layout = new QVBoxLayout(&host);
+        auto *choice = Ui::comboBox(&host);
+        auto *ela = qobject_cast<ElaComboBox *>(choice);
+        QVERIFY(ela);
+        for (int row = 0; row < itemCount; ++row) choice->addItem(QString("Item %1").arg(row + 1));
+        layout->addWidget(choice);
+        host.resize(240, 65);
+        host.show();
+        const QRect available = host.screen()->availableGeometry();
+        host.move(available.left() + 20, atBottom ? available.bottom() - host.height() - 12 : available.top() + 12);
+        QCoreApplication::processEvents();
+        QSignalSpy activated(choice, QOverload<int>::of(&QComboBox::activated));
+        QSize settledSize;
+        for (int cycle = 0; cycle < 4; ++cycle) {
+            choice->showPopup();
+            if (cycle == 0) QTRY_VERIFY(!ela->isPopupAnimating());
+            else ela->finishPopupAnimation();
+            auto *view = choice->view();
+            QVERIFY(view->isVisible());
+            const QRect geometry = view->window()->geometry();
+            QVERIFY(geometry.top() >= available.top());
+            QVERIFY(geometry.bottom() <= available.bottom());
+            if (cycle == 0) settledSize = geometry.size();
+            else QCOMPARE(geometry.size(), settledSize);
+            for (int row = 0; row < itemCount; ++row) {
+                const QRect rect = view->visualRect(choice->model()->index(row, choice->modelColumn()));
+                qInfo() << "cycle" << cycle << "row" << row << rect << "viewport" << view->viewport()->rect();
+                QVERIFY(rect.isValid());
+                QVERIFY(rect.top() >= view->viewport()->rect().top());
+                QVERIFY(rect.bottom() <= view->viewport()->rect().bottom());
+            }
+            for (int repeat = 0; repeat < 4; ++repeat) {
+                choice->showPopup();
+                QVERIFY(!ela->isPopupAnimating());
+                QCOMPARE(view->window()->geometry(), geometry);
+            }
+            const bool selectLast = cycle % 2 == 0;
+            QTest::keyClick(view, selectLast ? Qt::Key_End : Qt::Key_Home);
+            QTest::keyClick(view, Qt::Key_Return);
+            QCOMPARE(choice->currentIndex(), selectLast ? itemCount - 1 : 0);
+            QCOMPARE(activated.size(), cycle + 1);
+            QVERIFY(!view->isVisible());
+        }
+        choice->showPopup();
+        QVERIFY(ela->isPopupAnimating());
+        choice->showPopup();
+        QVERIFY(!ela->isPopupAnimating());
+        QCOMPARE(choice->view()->window()->size(), settledSize);
+        choice->hidePopup();
     }
     void menuAnimationKeepsActionSemantics() {
         QWidget host;

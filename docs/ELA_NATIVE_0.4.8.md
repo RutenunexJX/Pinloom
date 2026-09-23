@@ -41,6 +41,15 @@ Font Awesome OFL and the font itself are unchanged. Qt and compiler notices are
 taken from the configured SDK, not copied from an old formal package. All local
 patches, source provenance and notices are included in the new package.
 
+The follow-up imports shared patch 30 (SHA256
+`e69b815ba035831e2a84484acb0c46f957c83f346fff230a8c2b3034d4a44046`) as
+`13-pinloom-combo-popup-padding.patch`, based on Pinloom
+`51ec1d1429b2f26ca65b848a3176dde9dfb370b8`. Only ElaComboBox.cpp changes in
+the library. Fresh popup height includes the vertical layout padding and stays
+within screen bounds; repeated visible show settles without applying padding
+again. Local lifecycle/input behavior is preserved. Public API/ABI stays p27,
+source compatibility patch level becomes 30, and Pinloom stays at 0.4.8.
+
 ## Tests
 
 Existing tests are retained. Immediate-only expectations now wait for the actual
@@ -59,6 +68,14 @@ Raw focused ElaListView/TreeView/TableView destruction is exercised at 100% and
 data/SQLite/global naming, host bridge, captures, PDF helper and package startup.
 The full suite has 28 CTest entries. Optional live Sumatra cases remain conditional;
 passing offscreen tests is not a live PDF-reader certification.
+
+Patch 30 adds retained regressions for 1/3/5 rows near both screen edges, complete
+row visibility, first/last keyboard selection, repeated visible show (including
+mid-animation), and close/reopen size stability at 100% and 200%. All six cases
+failed before the fix: a 35-pixel row had a 29-pixel viewport, and 3/5-row popups
+also lost six pixels. This follow-up reruns the targeted interaction, control,
+theme/DPI and widget tests, not the unrelated full suite or performance fixtures.
+The prior full-suite/performance evidence remains attached to the prior candidate.
 
 Commands (with the configured Qt/MinGW runtime available):
 

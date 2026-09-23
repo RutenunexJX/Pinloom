@@ -52,7 +52,7 @@ if ($usesEla) {
     if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -PathType Leaf)) {
         throw 'Missing ElaWidgetTools.dll in the selected build.'
     }
-    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md', 'patches/12-pinloom-native-interactions.patch')) {
+    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md', 'patches/12-pinloom-native-interactions.patch', 'patches/13-pinloom-combo-popup-padding.patch')) {
         if (-not (Test-Path -LiteralPath (Join-Path $elaNotices $name) -PathType Leaf)) { throw "Missing Ela notice: $name" }
     }
 }
@@ -244,9 +244,10 @@ $metadataPath = Join-Path $outputRootPath 'release-metadata.json'
     generatedUtc = [DateTime]::UtcNow.ToString('o')
     elaUpstream = '454cac2d57a47d3cc28577dc817793aec1881ca7'
     elaSharedBaseline = '75180fad5e5f5142684cf092649deffe5720994d'
-    elaSharedPatchLevel = 29
+    elaSharedPatchLevel = 30
     elaSharedPatch29Sha256 = 'c292256d9d23cc391b2a185b88d7335f79410ef08e491f727916829c627a88f8'
-    elaPinloomPatch = '12-pinloom-native-interactions.patch'
+    elaSharedPatch30Sha256 = 'e69b815ba035831e2a84484acb0c46f957c83f346fff230a8c2b3034d4a44046'
+    elaPinloomPatch = '13-pinloom-combo-popup-padding.patch'
 } | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
 $hashFiles = @($packageFiles) + @(Get-Item -LiteralPath $metadataPath)
 $hashFiles | Sort-Object FullName | ForEach-Object {

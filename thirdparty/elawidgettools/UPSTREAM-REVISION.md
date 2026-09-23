@@ -4,7 +4,8 @@ Source: <https://github.com/Liniyous/ElaWidgetTools>
 
 ## Pinloom 0.4.8: current integration
 
-Apply patches 01–11 below, then `12-pinloom-native-interactions.patch`.
+Apply patches 01–11 below, then `12-pinloom-native-interactions.patch` and
+`13-pinloom-combo-popup-padding.patch`.
 Patch 12 is based on Pinloom `369e1b472701d7facf91a01710babde58ffe170c` and
 records only this library's incremental source changes. It supersedes the
 immediate drawer, popup and input policy described in the historical sections.
@@ -36,7 +37,18 @@ was incrementally applied to the three scrollbar files and included in patch 12.
 Mapped origin/area references are QPointer guarded; source destruction detaches
 the event filter, stops the animation and hides the overlay. Pinloom retains an
 origin-replacement/resize/grab/teardown regression that failed before this fix.
-The public API remains p27; source compatibility patch level is now 29.
+The public API remains p27.
+
+Shared patch 30 (`30-regmap-combo-popup-padding.patch`, SHA256
+`e69b815ba035831e2a84484acb0c46f957c83f346fff230a8c2b3034d4a44046`)
+is recorded as local patch 13, based on Pinloom
+`51ec1d1429b2f26ca65b848a3176dde9dfb370b8`. Its only library source change is
+ElaComboBox.cpp: account for vertical layout padding once per fresh popup,
+constrain the final geometry to the available screen, and settle repeated
+visible-show requests without growing the popup. Existing lifecycle and input
+branches are retained. Source compatibility patch level is now 30; public
+API/ABI remains at p27. Version 0.4.8 is retained without creating a release tag.
+The six row-count/screen-edge regressions fail before this fix and are retained.
 
 Qt 6.10.2 EXACT is required, including private headers used by tree animation
 settlement. MIT, OFL and font bytes are unchanged. Reconstruction compares the
