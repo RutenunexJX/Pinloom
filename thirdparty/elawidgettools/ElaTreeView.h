@@ -16,6 +16,7 @@ class ELA_EXPORT ElaTreeView : public QTreeView
 public:
     explicit ElaTreeView(QWidget* parent = nullptr);
     ~ElaTreeView();
+    static void finishExpansion(QTreeView* view);
 };
 
 #endif // ELAWORKSPACE_ELAWIDGETTOOLS_ELATREEVIEW_H_

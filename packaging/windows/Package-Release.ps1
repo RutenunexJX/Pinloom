@@ -3,6 +3,7 @@ param(
     [string]$BuildDirectory = "",
     [string]$OutputRoot = "",
     [string]$QtBinDirectory = "E:\QT6\6.10.2\mingw_64\bin",
+    [string]$QtLicenseFile = "",
     [string]$PackageVersion = "",
     [string]$PackageName = "Pinloom",
     [switch]$ReplaceExisting,
@@ -43,29 +44,35 @@ if (-not (Test-Path -LiteralPath $sourcePdfProbe -PathType Leaf)) {
 }
 $cache = Get-Content -LiteralPath (Join-Path $BuildDirectory "CMakeCache.txt")
 $backendEntry = $cache | Where-Object { $_ -match '^PINLOOM_UI_BACKEND:STRING=(.+)$' } | Select-Object -First 1
-$controlBackend = if ($backendEntry) { $backendEntry.Substring($backendEntry.IndexOf('=') + 1).ToUpperInvariant() }
-    elseif ($cache -match '^PINLOOM_ENABLE_SUITEUI:BOOL=ON$') { 'SUITEUI' } else { 'CLASSIC' }
-if ($controlBackend -notin @('ELA', 'SUITEUI', 'CLASSIC')) { throw "Unknown control backend: $controlBackend" }
-$usesSuiteUi = $controlBackend -eq 'SUITEUI'
+$controlBackend = if ($backendEntry) { $backendEntry.Substring($backendEntry.IndexOf('=') + 1).ToUpperInvariant() } else { '' }
+if ($controlBackend -ne 'ELA') { throw 'Only the ELA control backend is supported.' }
 $usesEla = $controlBackend -eq 'ELA'
 $elaNotices = Join-Path $BuildDirectory 'notices/ElaWidgetTools'
 if ($usesEla) {
     if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -PathType Leaf)) {
         throw 'Missing ElaWidgetTools.dll in the selected build.'
     }
-    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md')) {
+    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md', 'patches/12-pinloom-native-interactions.patch')) {
         if (-not (Test-Path -LiteralPath (Join-Path $elaNotices $name) -PathType Leaf)) { throw "Missing Ela notice: $name" }
     }
 }
-$sdkNotices = ''
-if ($usesSuiteUi) {
-    $entry = $cache | Where-Object { $_ -match '^PINLOOM_SUITEUI_NOTICES_DIR:INTERNAL=(.+)$' } | Select-Object -First 1
-    if (-not $entry) { throw 'Reconfigure this SDK build to record its notice directory.' }
-    $sdkNotices = $entry.Substring($entry.IndexOf('=') + 1)
-    foreach ($name in @('NOTICE.txt', 'SuiteUi-Apache-2.0.txt', 'Qlementine-MIT.txt', 'Inter-OFL.txt',
-                       'RobotoMono-Apache-2.0.txt', 'UPSTREAM.md', 'font-metadata.json', 'stop-all.patch', 'build-info.json')) {
-        if (-not (Test-Path -LiteralPath (Join-Path $sdkNotices $name) -PathType Leaf)) { throw "Missing SDK notice: $name" }
-    }
+if ([string]::IsNullOrWhiteSpace($QtLicenseFile)) {
+    $QtLicenseFile = Join-Path $QtBinDirectory '..\..\..\Licenses\LICENSE'
+}
+$compilerEntry = $cache | Where-Object { $_ -match '^CMAKE_CXX_COMPILER:(FILEPATH|STRING)=(.+)$' } | Select-Object -First 1
+if (-not $compilerEntry) { throw 'Missing compiler path in build cache.' }
+$compiler = $compilerEntry.Substring($compilerEntry.IndexOf('=') + 1)
+$compilerLicenses = Join-Path (Split-Path -Parent $compiler) '..\licenses'
+$runtimeNotices = @{
+    'Qt-LICENSE.txt' = $QtLicenseFile
+    'GCC-COPYING.RUNTIME.txt' = (Join-Path $compilerLicenses 'gcc/COPYING.RUNTIME')
+    'GCC-COPYING3.LIB.txt' = (Join-Path $compilerLicenses 'gcc/COPYING3.LIB')
+    'GCC-COPYING3.txt' = (Join-Path $compilerLicenses 'gcc/COPYING3')
+    'MinGW-w64-COPYING.txt' = (Join-Path $compilerLicenses 'mingw-w64/COPYING')
+    'winpthreads-COPYING.txt' = (Join-Path $compilerLicenses 'winpthreads/COPYING')
+}
+foreach ($source in $runtimeNotices.Values) {
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) { throw "Missing runtime notice: $source" }
 }
 $deployTool = Join-Path $QtBinDirectory "windeployqt.exe"
 if (-not (Test-Path -LiteralPath $sourceExecutable -PathType Leaf)) {
@@ -75,6 +82,7 @@ if (-not (Test-Path -LiteralPath $deployTool -PathType Leaf)) {
     throw "windeployqt not found: $deployTool"
 }
 
+$fullRevision = (& git -c core.excludesFile=/dev/null -C $repositoryRoot rev-parse HEAD 2>$null).Trim()
 $revision = (& git -c core.excludesFile=/dev/null -C $repositoryRoot rev-parse --short HEAD 2>$null).Trim()
 if ([string]::IsNullOrWhiteSpace($revision)) {
     $revision = "unknown"
@@ -83,6 +91,14 @@ $dirty = -not [string]::IsNullOrWhiteSpace(
     (& git -c core.excludesFile=/dev/null -C $repositoryRoot status --porcelain 2>$null) -join "`n")
 if ($dirty -and -not $AllowDirty) {
     throw "Release packaging requires a clean Git worktree. Commit the intended source or pass -AllowDirty explicitly."
+}
+if (-not $AllowDirty) {
+    if ($cache -notcontains "PINLOOM_BUILD_SOURCE_REVISION:INTERNAL=$fullRevision" -or
+        $cache -notcontains 'PINLOOM_BUILD_SOURCE_CLEAN:INTERNAL=ON' -or
+        $cache -notcontains "PINLOOM_BUILD_VERSION:INTERNAL=$PackageVersion") {
+        throw 'Build source does not match the clean release. Reconfigure, rebuild and test after committing.'
+    }
+    if ($cache -notcontains 'CMAKE_BUILD_TYPE:STRING=Release') { throw 'A Release build is required.' }
 }
 $buildState = if ($dirty) { "$revision-dirty" } else { $revision }
 
@@ -127,12 +143,10 @@ if ($usesEla) {
     Copy-Item -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -Destination $packageDirectory
     $licenseDirectory = Join-Path $packageDirectory 'licenses/ElaWidgetTools'
     New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
-    Get-ChildItem -LiteralPath $elaNotices -File | Copy-Item -Destination $licenseDirectory
+    Get-ChildItem -LiteralPath $elaNotices | Copy-Item -Destination $licenseDirectory -Recurse
 }
-if ($usesSuiteUi) {
-    $licenseDirectory = Join-Path $packageDirectory 'licenses/SuiteUi'
-    New-Item -ItemType Directory -Path $licenseDirectory -Force | Out-Null
-    Get-ChildItem -LiteralPath $sdkNotices -File | Copy-Item -Destination $licenseDirectory
+foreach ($entry in $runtimeNotices.GetEnumerator()) {
+    Copy-Item -LiteralPath $entry.Value -Destination (Join-Path $packageDirectory "licenses/$($entry.Key)")
 }
 & $deployTool `
     --release `
@@ -162,11 +176,11 @@ $packageReadme = @(
     "Qt: 6.10.2",
     "Compiler: MinGW 13.1.0",
     "Source revision: $buildState",
-    "Release root: $packageDirectory",
+    "Package staging root: $packageDirectory",
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
     "Pinloom is a resident application; Shift+Space opens its command window.",
-    "Set PINLOOM_UI_STYLE=classic before startup to use the original controls.",
+    "Only the Ela UI is supported; leave PINLOOM_UI_STYLE unset or set it to ela.",
     "Configure the data directory, default root, SumatraPDF, and Obsidian paths",
     "from Pinloom Settings. User databases are not stored in this release folder."
 )
@@ -210,6 +224,35 @@ foreach ($fileName in $forbiddenFiles) {
 }
 
 $packageFiles = Get-ChildItem -Recurse -File -LiteralPath $packageDirectory
+$metadataPath = Join-Path $outputRootPath 'release-metadata.json'
+[ordered]@{
+    schemaVersion = 1
+    application = 'Pinloom'
+    version = $PackageVersion
+    revision = $fullRevision
+    branch = ((& git -C $repositoryRoot branch --show-current) -join '').Trim()
+    tags = @(& git -C $repositoryRoot tag --points-at HEAD)
+    origin = ((& git -C $repositoryRoot remote get-url origin) -join '').Trim()
+    clean = -not $dirty
+    configuration = 'Release'
+    qtVersion = '6.10.2'
+    compiler = $compiler
+    backend = $controlBackend
+    databaseSchema = 16
+    packageDirectory = $packageDirectory
+    fileCount = $packageFiles.Count
+    generatedUtc = [DateTime]::UtcNow.ToString('o')
+    elaUpstream = '454cac2d57a47d3cc28577dc817793aec1881ca7'
+    elaSharedBaseline = '75180fad5e5f5142684cf092649deffe5720994d'
+    elaSharedPatchLevel = 29
+    elaSharedPatch29Sha256 = 'c292256d9d23cc391b2a185b88d7335f79410ef08e491f727916829c627a88f8'
+    elaPinloomPatch = '12-pinloom-native-interactions.patch'
+} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
+$hashFiles = @($packageFiles) + @(Get-Item -LiteralPath $metadataPath)
+$hashFiles | Sort-Object FullName | ForEach-Object {
+    $relative = [IO.Path]::GetRelativePath($outputRootPath, $_.FullName).Replace('\', '/')
+    '{0}  {1}' -f (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant(), $relative
+} | Set-Content -LiteralPath (Join-Path $outputRootPath 'SHA256SUMS.txt') -Encoding ASCII
 [PSCustomObject]@{
     PackageDirectory = $packageDirectory
     PackageVersion = $PackageVersion

@@ -52,7 +52,7 @@ class Contracts final : public QObject {
     QString initialStyle_;
 private slots:
     void initTestCase() { initialStyle_ = qApp->style()->objectName(); }
-    void groupedSettingsAndImmediateDrawers()
+    void groupedSettingsAndInterruptibleDrawers()
     {
         applyPinloomVisualTheme(*qApp, PinloomVisualScheme::Light);
         PinloomAppSettings values;
@@ -98,7 +98,7 @@ private slots:
         QSignalSpy toggled(toggle, &QPushButton::toggled);
         QTest::keyClick(toggle, Qt::Key_Space);
         QCOMPARE(toggled.count(), 1);
-        QVERIFY(content->isVisible());
+        QTRY_VERIFY(content->isVisible());
         QVERIFY(accessible->state().checked);
         QCOMPARE(limit->value(), 137);
         limit->setValue(138);
@@ -109,9 +109,9 @@ private slots:
         QTRY_VERIFY(toggle->hasFocus());
         for (int repeat = 0; repeat < 12; ++repeat) {
             toggle->setChecked(true);
-            QVERIFY(content->isVisible());
+            QTRY_VERIFY(content->isVisible());
             toggle->setChecked(false);
-            QVERIFY(!content->isVisible());
+            QTRY_VERIFY(!content->isVisible());
         }
         QCOMPARE(settings.settings().clipMaxTemporaryClips, 138);
         QCOMPARE(settings.settings().clipMaxTextBytes, values.clipMaxTextBytes);
@@ -121,6 +121,7 @@ private slots:
         QTRY_COMPARE(scroll->horizontalScrollBar()->maximum(), 0);
         applyPinloomVisualTheme(*qApp, PinloomVisualScheme::Dark);
         toggle->setChecked(true);
+        QTRY_VERIFY(content->isVisible());
         QCoreApplication::processEvents();
         scroll->ensureWidgetVisible(limit);
         QVERIFY(limit->isVisible());
@@ -132,7 +133,7 @@ private slots:
         auto *manualContent = manual.findChild<QWidget *>("manualPdfAnchorAdvancedWidget");
         QVERIFY(manualToggle && manualContent);
         manualToggle->click();
-        QVERIFY(manualContent->isVisible());
+        QTRY_VERIFY(manualContent->isVisible());
         manualToggle->click();
         QVERIFY(!manualContent->isVisible());
         applyPinloomVisualTheme(*qApp, PinloomVisualScheme::Light);
@@ -351,7 +352,7 @@ private slots:
         tree->setFocus();
         QTRY_VERIFY(tree->hasFocus());
         QCOMPARE(tree->inherits("ElaTreeView"), Ui::usesEla());
-        QVERIFY(!tree->isAnimated());
+        QVERIFY(tree->isAnimated());
         QTest::keyClick(tree, Qt::Key_Right);
         QVERIFY(tree->isExpanded(folder->index()));
         QTest::keyClick(tree, Qt::Key_Down);
@@ -513,7 +514,7 @@ private slots:
             };
             wheel(&reference);
             wheel(bar);
-            QCOMPARE(bar->value(), reference.value());
+            QTRY_COMPARE(bar->value(), reference.value());
         }
         area->ensureWidgetVisible(last);
         QCoreApplication::processEvents();

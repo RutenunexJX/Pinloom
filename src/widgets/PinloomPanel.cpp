@@ -1549,7 +1549,7 @@ bool PinloomPanel::requestDeleteSelectedAnchor()
     }
 
     const QString anchorName = anchorDisplayName(target.anchor.value(), Resource{});
-    const QMessageBox::StandardButton choice = QMessageBox::question(
+    const QMessageBox::StandardButton choice = Pinloom::Ui::question(
         this,
         tr("Delete Anchor"),
         tr("Delete \"%1\" from Pinloom?\n\nThis only removes the Pinloom anchor. It will not delete the target file.")

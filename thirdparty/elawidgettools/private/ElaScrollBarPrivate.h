@@ -4,13 +4,13 @@
 #include <QAbstractScrollArea>
 #include <QObject>
 #include <QScrollBar>
+#include <QPointer>
 
 #include "ElaWidgetToolsExport.h"
 #include "ElaPropertyMacro.h"
 class QTimer;
 class QPropertyAnimation;
 class ElaScrollBar;
-class QStyle;
 class ElaScrollBarPrivate : public QObject
 {
     Q_OBJECT
@@ -18,19 +18,21 @@ class ElaScrollBarPrivate : public QObject
     Q_PROPERTY_CREATE_D(bool, IsAnimation)
     Q_PROPERTY_CREATE_D(qreal, SpeedLimit)
     Q_PROPERTY_CREATE(int, TargetMaximum)
+    Q_PROPERTY_CREATE(qreal, WheelValue)
 public:
     explicit ElaScrollBarPrivate(QObject* parent = nullptr);
     ~ElaScrollBarPrivate();
     Q_SLOT void onRangeChanged(int min, int max);
 
 private:
-    QStyle* _ownedStyle{nullptr};
-    QScrollBar* _originScrollBar{nullptr};
-    QAbstractScrollArea* _originScrollArea{nullptr};
+    QPointer<QScrollBar> _originScrollBar;
+    QPointer<QAbstractScrollArea> _originScrollArea;
     QTimer* _expandTimer{nullptr};
     bool _isExpand{false};
     QPropertyAnimation* _slideSmoothAnimation{nullptr};
-    int _scrollValue{-1};
+    qreal _scrollValue{-1};
+    bool _smoothWheelEnabled{false};
+    bool _writingWheelValue{false};
     void _scroll(Qt::KeyboardModifiers modifiers, int value);
     int _pixelPosToRangeValue(int pos) const;
 

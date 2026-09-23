@@ -536,10 +536,11 @@ private slots:
         auto *advancedToggle = settings.findChild<QPushButton *>("settingsAdvancedToggle");
         QVERIFY(advancedToggle);
         advancedToggle->click();
+        auto *advancedContent = settings.findChild<QWidget *>("settingsAdvancedContent");
+        QTRY_VERIFY(advancedContent && advancedContent->isVisible());
         QCoreApplication::processEvents();
         settingsScroll->verticalScrollBar()->setValue(settingsScroll->verticalScrollBar()->maximum());
         QCoreApplication::processEvents();
-        auto *advancedContent = settings.findChild<QWidget *>("settingsAdvancedContent");
         QVERIFY(advancedContent && advancedContent->isVisible());
         QVERIFY(settingsScroll->viewport()->rect().intersects(
             QRect(advancedContent->mapTo(settingsScroll->viewport(), QPoint()), advancedContent->size())));
@@ -556,6 +557,7 @@ private slots:
         auto *zoom = manual.findChild<QDoubleSpinBox *>("manualPdfAnchorZoomSpin");
         auto *manualScroll = manual.findChild<QScrollArea *>("manualPdfAnchorScrollArea");
         QVERIFY(manualSection && zoom && manualScroll);
+        QTRY_VERIFY(zoom->isVisible());
         QTRY_VERIFY(manualSection->rect().contains(QRect(zoom->mapTo(manualSection, QPoint()), zoom->size())));
         manualScroll->ensureWidgetVisible(zoom);
         QCoreApplication::processEvents();
@@ -577,7 +579,7 @@ private slots:
         roots.show();
         auto *fileTree = roots.findChild<QTreeView *>();
         QVERIFY(fileTree && fileTree->inherits("ElaTreeView"));
-        QVERIFY(!fileTree->isAnimated());
+        QVERIFY(fileTree->isAnimated());
         snapshot(roots, "roots");
         QVERIFY(!roots.findChild<QWidget *>(QStringLiteral("pinloomNoticeBar")));
         auto *notice = Ui::showNotice(&roots, QStringLiteral("Metadata saved. Existing files and IDs are unchanged."));

@@ -191,7 +191,7 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     tree_->setSelectionMode(QAbstractItemView::SingleSelection);
     tree_->setSortingEnabled(true);
     tree_->sortByColumn(0, Qt::AscendingOrder);
-    tree_->setAnimated(false);
+    tree_->setAnimated(true);
     tree_->header()->setSectionResizeMode(0, QHeaderView::Stretch);
     for (int column = 1; column < 4; ++column) {
         tree_->header()->setSectionResizeMode(column, QHeaderView::ResizeToContents);
@@ -239,6 +239,8 @@ LibraryRootWindow::LibraryRootWindow(LibraryRootWindowOptions options, QWidget *
     splitter->addWidget(metadata);
     splitter->setSizes({310, 650, 310});
     splitter->setStretchFactor(1, 1);
+    splitter->setChildrenCollapsible(false);
+    Ui::rememberSplitter(splitter, options_.settings, QStringLiteral("layout/libraryRootSplitter"));
     layout->addWidget(splitter, 1);
 
     statusLabel_ = Pinloom::Ui::label(central);
@@ -358,7 +360,7 @@ bool LibraryRootWindow::removeSelectedRoot(bool requireConfirmation)
         return false;
     }
     if (requireConfirmation
-        && QMessageBox::question(this,
+        && Pinloom::Ui::question(this,
                                  tr("Remove root"),
                                  tr("Remove this root registration? Files and metadata will be kept."))
                != QMessageBox::Yes) {

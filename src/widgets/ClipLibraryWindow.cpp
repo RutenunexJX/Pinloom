@@ -337,6 +337,7 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
     splitter->addWidget(preview);
     splitter->setStretchFactor(0, 3);
     splitter->setStretchFactor(1, 2);
+    Ui::rememberSplitter(splitter, options_.settings, QStringLiteral("layout/clipLibrarySplitter"));
     root->addWidget(splitter, 1);
 
     statusLabel_ = Pinloom::Ui::label(central);
@@ -526,7 +527,7 @@ bool ClipLibraryWindow::deleteSelectedClip(bool requireConfirmation)
         return false;
     }
     if (requireConfirmation
-        && QMessageBox::question(this,
+        && Pinloom::Ui::question(this,
                                  tr("Delete Saved Clip"),
                                  tr("Move \"%1\" to Clip Trash?").arg(displayName(selected.value())))
                != QMessageBox::Yes) {
@@ -569,7 +570,7 @@ bool ClipLibraryWindow::permanentlyDeleteSelectedClip(bool requireConfirmation)
         return false;
     }
     if (requireConfirmation
-        && QMessageBox::warning(this,
+        && Pinloom::Ui::warning(this,
                                 tr("Permanently Remove Clip"),
                                 tr("Permanently remove \"%1\" from Pinloom?\n\n"
                                    "An Obsidian-backed note is retained and marked as forgotten.")
@@ -738,6 +739,8 @@ void ClipLibraryWindow::refreshRows()
     }
 
     populatingTable_ = true;
+    const QSignalBlocker tableSignals(table_);
+    const QSignalBlocker selectionSignals(table_->selectionModel());
     table_->setUpdatesEnabled(false);
     table_->setRowCount(visible.size());
     for (int row = 0; row < visible.size(); ++row) {
@@ -766,8 +769,8 @@ void ClipLibraryWindow::refreshRows()
         }
         applyInlineCellState(row, ClipAliasesColumn, clip.id);
         applyInlineCellState(row, ClipTagsColumn, clip.id);
-        table_->resizeRowToContents(row);
     }
+    table_->verticalHeader()->setDefaultSectionSize(qMax(34, table_->fontMetrics().height() + 16));
     table_->setUpdatesEnabled(true);
     populatingTable_ = false;
 
@@ -775,6 +778,7 @@ void ClipLibraryWindow::refreshRows()
         updatePreview();
     } else if (table_->rowCount() > 0) {
         table_->selectRow(0);
+        updatePreview();
     } else {
         updatePreview();
     }

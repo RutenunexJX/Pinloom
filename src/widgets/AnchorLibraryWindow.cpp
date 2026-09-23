@@ -867,6 +867,8 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
     mainSplitter->setStretchFactor(0, 4);
     mainSplitter->setStretchFactor(1, 1);
     mainSplitter->setSizes({1000, 360});
+    Ui::rememberSplitter(mainSplitter, options_.settings, QStringLiteral("layout/anchorLibraryMainSplitter"));
+    Ui::rememberSplitter(tablesSplitter, options_.settings, QStringLiteral("layout/anchorLibraryTablesSplitter"));
 
     auto *footer = Ui::statusBar(this);
     footer->setObjectName(QStringLiteral("anchorLibraryStatusBar"));
@@ -1792,6 +1794,9 @@ void AnchorLibraryWindow::applyFilter()
         }
     }
     populatingFileTable_ = true;
+    const QSignalBlocker tableSignals(fileTable_);
+    const QSignalBlocker selectionSignals(fileTable_->selectionModel());
+    fileTable_->setUpdatesEnabled(false);
     fileTable_->setRowCount(0);
     const QList<const AnchorLibraryFile *> visible = sortedVisibleFiles();
     for (const AnchorLibraryFile *file : visible) {
@@ -1875,13 +1880,17 @@ void AnchorLibraryWindow::applyFilter()
     } else {
         populateSelectedFileAnchors();
     }
-    fileTable_->resizeRowsToContents();
+    fileTable_->verticalHeader()->setDefaultSectionSize(qMax(34, fileTable_->fontMetrics().height() + 16));
+    fileTable_->setUpdatesEnabled(true);
     updateStatus();
 }
 
 void AnchorLibraryWindow::populateSelectedFileAnchors()
 {
     populatingAnchorTable_ = true;
+    const QSignalBlocker tableSignals(anchorTable_);
+    const QSignalBlocker selectionSignals(anchorTable_->selectionModel());
+    anchorTable_->setUpdatesEnabled(false);
     QStringList selectedIds;
     if (anchorTable_->selectionModel()) {
         for (const QModelIndex &index : anchorTable_->selectionModel()->selectedRows(0)) {
@@ -1959,7 +1968,8 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
     }
     if (!restored && anchorTable_->rowCount() > 0) anchorTable_->selectRow(0);
     populatingAnchorTable_ = false;
-    anchorTable_->resizeRowsToContents();
+    anchorTable_->verticalHeader()->setDefaultSectionSize(qMax(34, anchorTable_->fontMetrics().height() + 16));
+    anchorTable_->setUpdatesEnabled(true);
     populateInspector();
     updateActionButtons();
     updateStatus();

@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.7`; database Schema: `16`.
+Current version: `0.4.8`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -557,14 +557,12 @@ cmake --build build-ela-release --parallel 3
 ctest --test-dir build-ela-release --output-on-failure
 ```
 
-`SUITEUI` and `CLASSIC` are mutually exclusive compile-time alternatives.
-`SUITEUI` still requires `SuiteUi 0.1.1 EXACT` via `SuiteUi_DIR`. Remove the old
-`PINLOOM_ENABLE_SUITEUI` cache entry when changing backends. Before startup,
-`PINLOOM_UI_STYLE=classic` selects native fallback controls; `ela` or `suiteui`
-must match the compiled backend. Switching renderers within a process is not
-supported. Light/dark switching retains the same control instances and geometry.
-Ela menu/input/combo, navigation, drawer and notice transitions are immediate; reduced-motion settings remain
-available for the other backends.
+Only `ELA` is supported from 0.4.8. Create a fresh build directory instead of
+reusing an older SuiteUi/Classic cache. `PINLOOM_UI_STYLE` must be unset or `ela`.
+Light/dark switching retains the same control instances and geometry. Ela owns
+interruptible combo/menu/drawer transitions, input focus and smooth wheel motion;
+Qt retains text editing, precise pixel gestures, selection and splitter layout.
+Notices remain immediate and PDF/capture canvases retain their dedicated code.
 
 QSS is scoped away from Ela interactive-control and item-view painting; semantic
 labels and window surfaces retain Pinloom's colors, typography and notice roles.
@@ -574,6 +572,7 @@ They do not certify live external PDF capture, real tray interaction or mixed-
 monitor DPI. Existing settings, libraries, identity rules and schema are unchanged.
 
 Ela builds stage required MIT and Font Awesome Free Solid (SIL OFL 1.1) notices
-under `notices/ElaWidgetTools`. The release script verifies and copies the Ela
-DLL and notices; SuiteUi builds retain their installed SDK notices. This source
-migration is included in 0.4.3; release packages require an explicit clean-source build.
+under `notices/ElaWidgetTools`, together with replayable patches. The release
+script verifies the configured clean source revision and copies the Ela DLL,
+patches and Qt/compiler notices. It writes release metadata and all-file hashes
+beside the package. See [0.4.8 verification](docs/ELA_NATIVE_0.4.8.md).

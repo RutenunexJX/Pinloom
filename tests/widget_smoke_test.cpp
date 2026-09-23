@@ -7163,9 +7163,11 @@ void WidgetSmokeTest::panelKeyboardShortcutsHaveLauncherResponses()
 
     panel.setSearchText(QStringLiteral("Edited keyboard command"));
     QTimer::singleShot(0, [&]() {
-        auto *messageBox = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
-        QVERIFY(messageBox);
-        auto *noButton = messageBox->button(QMessageBox::No);
+        auto *messageBox = QApplication::activeModalWidget();
+        QVERIFY(messageBox && messageBox->inherits("ElaContentDialog"));
+        auto *buttons = messageBox->findChild<Ui::DialogButtonBox *>("pinloomMessageButtons");
+        QVERIFY(buttons);
+        auto *noButton = buttons->button(QDialogButtonBox::No);
         QVERIFY(noButton);
         noButton->click();
     });

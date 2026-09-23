@@ -23,7 +23,6 @@ namespace {
 class LibraryToolBar final : public ElaToolBar {
 public:
     using ElaToolBar::ElaToolBar;
-    ~LibraryToolBar() override { setStyle(nullptr); }
 };
 }
 #endif

@@ -7,6 +7,7 @@
 class ElaEvent;
 class ElaLineEdit;
 class QStyle;
+class QPropertyAnimation;
 class ElaLineEditPrivate : public QObject
 {
     Q_OBJECT
@@ -25,6 +26,7 @@ private:
     ElaEvent* _focusEvent{nullptr};
     qreal _textSpacing{0.5};
     QStyle* _ownedStyle{nullptr};
+    QPropertyAnimation* _markAnimation{nullptr};
 };
 
 #endif // ELAWORKSPACE_ELAWIDGETTOOLS_PRIVATE_ELALINEEDITPRIVATE_H_

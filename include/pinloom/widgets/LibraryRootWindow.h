@@ -20,6 +20,7 @@ namespace Pinloom {
 struct LibraryRootWindowOptions {
     ILibraryRepository *repository = nullptr;
     std::function<QStringList()> fileTagsProvider;
+    QSettings *settings = nullptr;
 };
 
 class LibraryRootWindow final : public Ui::MainWindow {

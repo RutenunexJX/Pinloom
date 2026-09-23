@@ -39,6 +39,8 @@ void ElaPlainTextEditPrivate::onThemeChanged(ElaThemeType::ThemeMode themeMode)
 {
     Q_Q(ElaPlainTextEdit);
     _themeMode = themeMode;
+    if (_nativeTextBehavior)
+        return;
     QPalette palette = q->palette();
     palette.setColor(QPalette::Text, ElaThemeColor(_themeMode, BasicText));
     palette.setColor(QPalette::PlaceholderText, _themeMode == ElaThemeType::Light ? QColor(0x00, 0x00, 0x00, 128) : QColor(0xBA, 0xBA, 0xBA));

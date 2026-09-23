@@ -2,6 +2,49 @@
 
 Source: <https://github.com/Liniyous/ElaWidgetTools>
 
+## Pinloom 0.4.8: current integration
+
+Apply patches 01–11 below, then `12-pinloom-native-interactions.patch`.
+Patch 12 is based on Pinloom `369e1b472701d7facf91a01710babde58ffe170c` and
+records only this library's incremental source changes. It supersedes the
+immediate drawer, popup and input policy described in the historical sections.
+
+The component sources were selectively ported from committed ZeroSlack baseline
+`3f1c4afab0d0423c04c3c3af4bb3c3d9aabe5cde`, then the three menu files from
+`75180fad5e5f5142684cf092649deffe5720994d` (shared patch 27). Shared patch 28's
+ElaListView style lifetime fix was also ported: application-owned style,
+QObject-bound deferred deletion after widget teardown. Its supplied reference is
+`28-xips-list-style-lifetime.patch`; this is recorded inside Pinloom patch 12,
+not applied verbatim over Pinloom's distinct item-view contracts. Public
+interfaces remain at the shared p27 level; no ABI equality with other products'
+DLLs is assumed. Pinloom distributes its own matched DLL and executable.
+
+Shared behavior includes owned and interruptible combo/menu transitions,
+content-only bounded drawer snapshots, smooth ordinary wheel input, text and
+dialog lifecycle fixes, and toolbar geometry. These are extensions to the
+pinned Ela implementations, not claims that all extensions exist upstream.
+Pinloom retains its standard item roles, accessibility, localized text actions,
+semantic colors, action-only navigation, and non-activating capture window.
+Additional changes reuse the line-edit focus animation, preserve inherited
+text palettes, keep Qt Ctrl/Shift wheel semantics and expose tree input settlement.
+The app adapter preserves the navigation view's mapped overlay scrollbar instead
+of deleting its source, and leaves text-editor pixel-to-line conversion to Qt.
+
+Shared patch 29 (`29-wave-overlay-origin-lifetime.patch`, SHA256
+`c292256d9d23cc391b2a185b88d7335f79410ef08e491f727916829c627a88f8`)
+was incrementally applied to the three scrollbar files and included in patch 12.
+Mapped origin/area references are QPointer guarded; source destruction detaches
+the event filter, stops the animation and hides the overlay. Pinloom retains an
+origin-replacement/resize/grab/teardown regression that failed before this fix.
+The public API remains p27; source compatibility patch level is now 29.
+
+Qt 6.10.2 EXACT is required, including private headers used by tree animation
+settlement. MIT, OFL and font bytes are unchanged. Reconstruction compares the
+result to source after Git text-line-ending normalization (BOM preserved).
+See `docs/ELA_NATIVE_0.4.8.md` in the Pinloom repository for tests and boundaries.
+
+## Historical import and patches 01–11
+
 Upstream revision: `454cac2d57a47d3cc28577dc817793aec1881ca7`
 
 The `ElaWidgetTools/` library subtree was vendored without its example

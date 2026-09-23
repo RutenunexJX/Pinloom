@@ -154,7 +154,7 @@ int main(int argc, char *argv[])
         return 0;
     }
     if (!instanceStart.succeeded()) {
-        QMessageBox::warning(nullptr,
+        Pinloom::Ui::warning(nullptr,
                              QStringLiteral("Pinloom"),
                              QStringLiteral("Pinloom could not start its single-instance listener:\n%1")
                                  .arg(instanceStart.error));
@@ -169,7 +169,7 @@ int main(int argc, char *argv[])
         Pinloom::prepareAppDataDirectory(appSettingsStore, defaultAppDataPath);
     const QString appDataPath = dataDirectoryResult.directory;
     if (appDataPath.trimmed().isEmpty()) {
-        QMessageBox::critical(nullptr,
+        Pinloom::Ui::critical(nullptr,
                               QStringLiteral("Pinloom"),
                               dataDirectoryResult.error.trimmed().isEmpty()
                                   ? QStringLiteral("Unable to resolve the app data directory.")
@@ -177,11 +177,11 @@ int main(int argc, char *argv[])
         return 1;
     }
     if (!QDir().mkpath(appDataPath)) {
-        QMessageBox::critical(nullptr, QStringLiteral("Pinloom"), QStringLiteral("Unable to create app data directory."));
+        Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom"), QStringLiteral("Unable to create app data directory."));
         return 1;
     }
     if (!dataDirectoryResult.error.trimmed().isEmpty()) {
-        QMessageBox::warning(nullptr,
+        Pinloom::Ui::warning(nullptr,
                              QStringLiteral("Pinloom Data Directory"),
                              dataDirectoryResult.error
                                  + QStringLiteral("\n\nPinloom will continue with the current directory:\n")
@@ -195,7 +195,7 @@ int main(int argc, char *argv[])
         Pinloom::loadPinloomAppSettings(appSettingsStore, appDataPath);
     if (!hasAutomaticClipboardCaptureDecision) {
         if (!startHidden) {
-            const QMessageBox::StandardButton choice = QMessageBox::question(
+            const QMessageBox::StandardButton choice = Pinloom::Ui::question(
                 nullptr,
                 QStringLiteral("Pinloom Clipboard History"),
                 QStringLiteral("Pinloom can automatically store copied text as temporary local history. "
@@ -214,13 +214,13 @@ int main(int argc, char *argv[])
     const QString identityRegistryPath =
         QDir(appDataPath).filePath(QStringLiteral("pinloom_identity.sqlite3"));
     if (!repository.open(databasePath, identityRegistryPath)) {
-        QMessageBox::critical(nullptr,
+        Pinloom::Ui::critical(nullptr,
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to open Pinloom database:\n%1").arg(repository.lastError()));
         return 1;
     }
     if (!repository.integrityCheck()) {
-        QMessageBox::critical(nullptr,
+        Pinloom::Ui::critical(nullptr,
                               QStringLiteral("Pinloom Data Integrity"),
                               QStringLiteral("The Anchor Library database failed its integrity check:\n%1\n\n"
                                              "Pinloom will not modify this database.")
@@ -228,7 +228,7 @@ int main(int argc, char *argv[])
         return 1;
     }
     if (!repository.initialize() || !repository.integrityCheck()) {
-        QMessageBox::critical(nullptr,
+        Pinloom::Ui::critical(nullptr,
                               QStringLiteral("Pinloom"),
                               QStringLiteral("Unable to initialize Pinloom database:\n%1").arg(repository.lastError()));
         return 1;
@@ -248,7 +248,7 @@ int main(int argc, char *argv[])
         if (!Pinloom::configureDefaultLibraryRoot(repository,
                                                   startupDefaultRoot,
                                                   &defaultRootError)) {
-            QMessageBox::warning(nullptr,
+            Pinloom::Ui::warning(nullptr,
                                  QStringLiteral("Pinloom Default Root"),
                                  defaultRootError);
         }
@@ -285,7 +285,7 @@ int main(int argc, char *argv[])
         }
         if (clipHost->sqliteRepository()) {
             if (!clipHost->sqliteRepository()->integrityCheck()) {
-                QMessageBox::critical(
+                Pinloom::Ui::critical(
                     nullptr,
                     QStringLiteral("Pinloom Data Integrity"),
                     QStringLiteral("The Clip Library database failed its integrity check:\n%1\n\n"
@@ -295,7 +295,7 @@ int main(int argc, char *argv[])
             }
         }
     } else {
-        QMessageBox::warning(nullptr,
+        Pinloom::Ui::warning(nullptr,
                              QStringLiteral("Pinloom Clip"),
                              QStringLiteral("Pinloom Clip could not initialize:\n%1").arg(clipHostResult.error));
     }
@@ -361,7 +361,7 @@ int main(int argc, char *argv[])
         window.setRecentError(QStringLiteral("Global name/alias conflicts"),
                               startupIdentityWarning);
         if (!startHidden) {
-            QMessageBox::warning(&window,
+            Pinloom::Ui::warning(&window,
                                  QStringLiteral("Pinloom Name/Alias Conflicts"),
                                  startupIdentityWarning);
         }
@@ -825,19 +825,10 @@ int main(int argc, char *argv[])
     openServiceOptions.pdfViewerAdapter = &pdfViewerAdapter;
     openServiceOptions.pdfOriginalFallbackPrompt =
         [&window](const QString &sourceFilePath, int page, const QString &reason) {
-        QMessageBox message(&window);
-        message.setWindowTitle(QStringLiteral("Pinloom Preview"));
-        message.setIcon(QMessageBox::Warning);
-        message.setText(reason);
-        message.setInformativeText(
-            QStringLiteral("The original PDF was not modified.\n\n%1\nPage %2")
+        return Pinloom::Ui::confirm(&window, QStringLiteral("Pinloom Preview"),
+            reason + QStringLiteral("\n\nThe original PDF was not modified.\n\n%1\nPage %2")
                 .arg(QDir::toNativeSeparators(sourceFilePath))
-                .arg(page));
-        QPushButton *openOriginal = message.addButton(
-            QStringLiteral("Open original PDF"), QMessageBox::AcceptRole);
-        message.addButton(QMessageBox::Cancel);
-        message.exec();
-        return message.clickedButton() == openOriginal;
+                .arg(page), QStringLiteral("Open original PDF"));
     };
     Pinloom::PinloomOpenService openService(repository, std::move(openServiceOptions), &app);
     QObject::connect(&openService,
@@ -1169,10 +1160,12 @@ int main(int argc, char *argv[])
     };
     std::unique_ptr<Pinloom::AnchorLibraryWindow> anchorLibraryWindow;
     Pinloom::LibraryRootWindowOptions libraryRootOptions;
+    libraryRootOptions.settings = &appSettingsStore;
     libraryRootOptions.repository = &repository;
     libraryRootOptions.fileTagsProvider = availableFileTags;
     std::unique_ptr<Pinloom::LibraryRootWindow> libraryRootWindow;
     Pinloom::ClipLibraryWindowOptions clipLibraryOptions;
+    clipLibraryOptions.settings = &appSettingsStore;
     clipLibraryOptions.clipsProvider = [&clipHost]() {
         if (clipHost && clipHost->sqliteRepository()) {
             return clipHost->sqliteRepository()->clips();
@@ -1222,7 +1215,7 @@ int main(int argc, char *argv[])
                                                   appDataPath,
                                                   editedSettings.dataDirectory,
                                                   &dataDirectoryError)) {
-            QMessageBox::warning(&window,
+            Pinloom::Ui::warning(&window,
                                  QStringLiteral("Pinloom Data Directory"),
                                  dataDirectoryError);
             editedSettings.dataDirectory = appDataPath;
@@ -1231,7 +1224,7 @@ int main(int argc, char *argv[])
         if (!Pinloom::configureDefaultLibraryRoot(repository,
                                                   editedSettings.defaultLibraryRootPath,
                                                   &defaultRootError)) {
-            QMessageBox::warning(&window,
+            Pinloom::Ui::warning(&window,
                                  QStringLiteral("Pinloom Default Root"),
                                  defaultRootError);
             editedSettings.defaultLibraryRootPath = runtimeSettings.defaultLibraryRootPath;
@@ -1739,7 +1732,7 @@ int main(int argc, char *argv[])
             }
 
             if (actionId == QLatin1String("remove")) {
-                const QMessageBox::StandardButton choice = QMessageBox::question(
+                const QMessageBox::StandardButton choice = Pinloom::Ui::question(
                     parent,
                     QStringLiteral("Delete Saved Clip"),
                     QStringLiteral("Remove \"%1\" from ordinary Pinloom search?\n\n"
@@ -1973,7 +1966,7 @@ int main(int argc, char *argv[])
                       .arg(targetTitle(target))
                 : QStringLiteral("Remove \"%1\" from Pinloom?\n\nThis hides Pinloom's record only. The original file is not deleted.")
                       .arg(targetTitle(target));
-            const QMessageBox::StandardButton choice = QMessageBox::question(parent, title, body);
+            const QMessageBox::StandardButton choice = Pinloom::Ui::question(parent, title, body);
             if (choice != QMessageBox::Yes) {
                 if (status) {
                     *status = QStringLiteral("Remove canceled");
@@ -2805,7 +2798,7 @@ int main(int argc, char *argv[])
                          });
         if (!clipHost->start()) {
             window.setRecentError(QStringLiteral("Pinloom Clip could not start"), clipHost->lastError());
-            QMessageBox::warning(&window,
+            Pinloom::Ui::warning(&window,
                                  QStringLiteral("Pinloom Clip"),
                                  QStringLiteral("Pinloom Clip could not start:\n%1").arg(clipHost->lastError()));
         }
@@ -3053,7 +3046,7 @@ int main(int argc, char *argv[])
         qWarning().noquote() << error;
         window.setRecentError(QStringLiteral("Pinloom main hotkey could not be registered"), error);
         refreshResidentStatus();
-        QMessageBox::warning(&window, QStringLiteral("Pinloom"), error);
+        Pinloom::Ui::warning(&window, QStringLiteral("Pinloom"), error);
     } else {
         refreshResidentStatus();
     }

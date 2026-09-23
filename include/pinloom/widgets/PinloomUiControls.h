@@ -7,6 +7,7 @@
 #include <QHash>
 #include <QLineEdit>
 #include <QMenu>
+#include <QMessageBox>
 #include <QPointer>
 #include <QHeaderView>
 #include <QTableView>
@@ -23,7 +24,9 @@ class QMenuBar;
 class QLabel;
 class QPlainTextEdit;
 class QScrollArea;
+class QSettings;
 class QSpinBox;
+class QSplitter;
 class QStatusBar;
 class QToolButton;
 
@@ -89,6 +92,17 @@ void installToolTips(QApplication &application);
 QWidget *section(const QString &title, QWidget *parent = nullptr);
 QWidget *collapsibleSection(QPushButton *toggle, QWidget *content, QWidget *parent = nullptr);
 QFrame *popupFrame(QWidget *parent = nullptr);
+QMessageBox::StandardButton question(QWidget *parent, const QString &title, const QString &text,
+    QMessageBox::StandardButtons buttons = QMessageBox::Yes | QMessageBox::No,
+    QMessageBox::StandardButton defaultButton = QMessageBox::NoButton);
+QMessageBox::StandardButton warning(QWidget *parent, const QString &title, const QString &text,
+    QMessageBox::StandardButtons buttons = QMessageBox::Ok,
+    QMessageBox::StandardButton defaultButton = QMessageBox::NoButton);
+QMessageBox::StandardButton critical(QWidget *parent, const QString &title, const QString &text,
+    QMessageBox::StandardButtons buttons = QMessageBox::Ok,
+    QMessageBox::StandardButton defaultButton = QMessageBox::NoButton);
+bool confirm(QWidget *parent, const QString &title, const QString &text, const QString &acceptText);
+void rememberSplitter(QSplitter *splitter, QSettings *settings, const QString &key);
 QWidget *floatingPanel();
 // Keeps Qt's role ordering and accepted/rejected signals, but uses our factory
 // for standard buttons instead of Qt's private QPushButton construction.

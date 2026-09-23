@@ -182,7 +182,6 @@ class Drawer final : public ElaDrawerArea {
 public:
     Drawer(QPushButton *toggle, QWidget *content, QWidget *parent) : ElaDrawerArea(parent), toggle_(toggle) {
         setProperty("pinloomElaControl", true);
-        setProperty("pinloomImmediateDrawer", true);
         setDrawerHeader(toggle);
         addDrawer(content);
         resizeHeader();

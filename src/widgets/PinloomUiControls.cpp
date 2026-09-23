@@ -21,18 +21,22 @@
 #include <QScrollBar>
 #include <QScreen>
 #include <QScroller>
+#include <QSettings>
 #include <QSpinBox>
+#include <QSplitter>
 #include <QStatusBar>
 #include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QWheelEvent>
 
 #ifdef PINLOOM_ENABLE_ELA
 #include "ElaApplication.h"
 #include "ElaAppBar.h"
 #include "ElaCheckBox.h"
 #include "ElaComboBox.h"
+#include "ElaContentDialog.h"
 #include "ElaDoubleSpinBox.h"
 #include "ElaLineEdit.h"
 #include "ElaMenu.h"
@@ -58,8 +62,7 @@ bool usesEla()
     static const bool enabled = [] {
         const auto value = qgetenv("PINLOOM_UI_STYLE").trimmed().toLower();
         if (value.isEmpty() || value == "ela") return true;
-        if (value == "classic") return false;
-        qFatal("This build supports PINLOOM_UI_STYLE=ela or classic only");
+        qFatal("This build supports PINLOOM_UI_STYLE=ela only");
         return false;
     }();
     return enabled;
@@ -187,16 +190,11 @@ protected:
 class Choice final : public Control<ElaComboBox> {
 public:
     using Control::Control;
-    void showPopup() override { QComboBox::showPopup(); }
-    void hidePopup() override { QComboBox::hidePopup(); }
 };
 class Input final : public Control<ElaLineEdit> {
 public:
     using Control::Control;
 protected:
-    // Preserve Qt's clear-button/focus contract without nonessential animation.
-    void focusInEvent(QFocusEvent *event) override { QLineEdit::focusInEvent(event); update(); }
-    void focusOutEvent(QFocusEvent *event) override { QLineEdit::focusOutEvent(event); update(); }
     void contextMenuEvent(QContextMenuEvent *event) override {
         std::unique_ptr<QMenu> actions(createStandardContextMenu());
         std::unique_ptr<QMenu> popup(Ui::menu(this));
@@ -207,29 +205,27 @@ protected:
 class Menu final : public ElaMenu {
 public:
     using ElaMenu::ElaMenu;
-protected:
-    // Native menu dismissal and zero motion also apply to tray/context menus.
-    void showEvent(QShowEvent *event) override { emit menuShow(); QMenu::showEvent(event); }
 };
 class ScrollBar final : public ElaScrollBar {
 public:
-    using ElaScrollBar::ElaScrollBar;
+    ScrollBar(Qt::Orientation orientation, QAbstractScrollArea *area)
+        : ElaScrollBar(orientation, area), textUnits_(qobject_cast<QPlainTextEdit *>(area)) {}
 protected:
-    // Preserve Qt's wheel modifiers, pixel deltas and localized context actions.
-    void wheelEvent(QWheelEvent *event) override { QScrollBar::wheelEvent(event); }
+    // Keep Qt's localized actions; Ela owns wheel and hover transitions.
     void contextMenuEvent(QContextMenuEvent *event) override { QScrollBar::contextMenuEvent(event); }
-    bool event(QEvent *event) override {
-        if (event->type() == QEvent::Enter || event->type() == QEvent::Leave)
-            return QScrollBar::event(event);
-        return ElaScrollBar::event(event);
+    void wheelEvent(QWheelEvent *event) override {
+        if (textUnits_ && !event->pixelDelta().isNull()) {
+            stopSmoothWheel();
+            QScrollBar::wheelEvent(event);
+        } else ElaScrollBar::wheelEvent(event);
     }
+private:
+    bool textUnits_;
 };
 class PlainText final : public ElaPlainTextEdit {
 public:
     using ElaPlainTextEdit::ElaPlainTextEdit;
 protected:
-    void focusInEvent(QFocusEvent *event) override { QPlainTextEdit::focusInEvent(event); viewport()->update(); }
-    void focusOutEvent(QFocusEvent *event) override { QPlainTextEdit::focusOutEvent(event); viewport()->update(); }
     bool event(QEvent *event) override {
         const bool handled = ElaPlainTextEdit::event(event);
         if (event->type() == QEvent::DynamicPropertyChange
@@ -278,10 +274,6 @@ protected:
 class Text final : public ElaText {
 public:
     using ElaText::ElaText;
-protected:
-    // QLabel preserves selection, rich text, buddies and semantic QSS colors.
-    void paintEvent(QPaintEvent *event) override { QLabel::paintEvent(event); }
-    void contextMenuEvent(QContextMenuEvent *event) override { QLabel::contextMenuEvent(event); }
 };
 template<class Widget> Widget *prepare(Widget *widget)
 {
@@ -294,10 +286,53 @@ template<class Widget> Widget *prepare(Widget *widget)
     refreshRole(widget);
     return widget;
 }
+class PrecisionWheelRouter final : public QObject {
+public:
+    explicit PrecisionWheelRouter(QAbstractScrollArea *area) : QObject(area), area_(area) {
+        area->installEventFilter(this);
+        area->viewport()->installEventFilter(this);
+    }
+protected:
+    bool eventFilter(QObject *, QEvent *event) override {
+        if (event->type() == QEvent::KeyPress || event->type() == QEvent::MouseButtonPress) {
+            if (auto *tree = qobject_cast<QTreeView *>(area_)) ElaTreeView::finishExpansion(tree);
+            for (auto *scroll : {area_->horizontalScrollBar(), area_->verticalScrollBar()})
+                if (auto *bar = qobject_cast<ElaScrollBar *>(scroll)) bar->stopSmoothWheel();
+        }
+        if (event->type() != QEvent::Wheel) return false;
+        auto *wheel = static_cast<QWheelEvent *>(event);
+        const QPoint pixels = wheel->pixelDelta();
+        if (pixels.isNull()) return false;
+        // Text-editor scrollbar units are lines, not viewport pixels.
+        if (qobject_cast<QPlainTextEdit *>(area_)) {
+            for (auto *scroll : {area_->horizontalScrollBar(), area_->verticalScrollBar()})
+                if (auto *bar = qobject_cast<ElaScrollBar *>(scroll)) bar->stopSmoothWheel();
+            return false;
+        }
+        auto *bar = qAbs(pixels.x()) > qAbs(pixels.y()) || wheel->modifiers().testFlag(Qt::ShiftModifier)
+            ? area_->horizontalScrollBar() : area_->verticalScrollBar();
+        wheel->ignore();
+        QApplication::sendEvent(bar, wheel);
+        return wheel->isAccepted();
+    }
+private:
+    QAbstractScrollArea *area_;
+};
 void installScrollBars(QAbstractScrollArea *area)
 {
     area->setHorizontalScrollBar(prepare(new ScrollBar(Qt::Horizontal, area)));
     area->setVerticalScrollBar(prepare(new ScrollBar(Qt::Vertical, area)));
+    for (auto *scroll : {area->horizontalScrollBar(), area->verticalScrollBar()}) {
+        auto *bar = static_cast<ElaScrollBar *>(scroll);
+        bar->setIsAnimation(false);
+        bar->setSmoothWheelEnabled(true);
+        bar->setWheelAnimationDuration(160);
+    }
+    if (auto *view = qobject_cast<QAbstractItemView *>(area)) {
+        view->setVerticalScrollMode(QAbstractItemView::ScrollPerPixel);
+        view->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
+    }
+    new PrecisionWheelRouter(area);
 }
 } // namespace
 #endif
@@ -360,12 +395,19 @@ public:
         view_->setAccessibleName(tr("Pinloom destinations"));
         view_->setProperty("pinloomActionNavigation", true);
         view_->setAccessibleDescription(tr("Use Up and Down to select, Enter to navigate, Escape to cancel."));
-        view_->setAnimated(false);
+        view_->setAnimated(true);
         view_->setFocusPolicy(Qt::StrongFocus);
         view_->setSelectionMode(QAbstractItemView::SingleSelection);
         view_->installEventFilter(this);
         QScroller::ungrabGesture(view_->viewport());
-        for (auto *scroll : bar->findChildren<ElaScrollBar *>()) scroll->setIsAnimation(false);
+        // ElaNavigationView owns an overlay mapped to its existing scrollbar.
+        // Replacing that bar would invalidate the overlay's source pointer.
+        for (auto *scroll : view_->findChildren<ElaScrollBar *>()) {
+            scroll->setIsAnimation(false);
+            scroll->setSmoothWheelEnabled(true);
+            scroll->setWheelAnimationDuration(160);
+        }
+        new PrecisionWheelRouter(view_);
         connect(bar, &ElaNavigationBar::navigationNodeClicked, this,
             [this](ElaNavigationType::NavigationNodeType, const QString &key, bool) { activate(key); });
         resize(bar->width() + 8, qMax(260, routes->actions().size() * qMax(40, view_->fontMetrics().height() + 12) + 16));
@@ -453,6 +495,89 @@ void FormLayout::addRow(const QString &text, QWidget *field) {
 }
 void FormLayout::addRow(const QString &text, QLayout *field) {
     QFormLayout::addRow(label(text, parentWidget()), field);
+}
+
+namespace {
+class MessageDialog final : public ElaContentDialog {
+public:
+    using ElaContentDialog::ElaContentDialog;
+protected:
+    void keyPressEvent(QKeyEvent *event) override { QDialog::keyPressEvent(event); }
+};
+QMessageBox::StandardButton message(QWidget *parent, const QString &title, const QString &text,
+                                   QMessageBox::StandardButtons buttons,
+                                   QMessageBox::StandardButton defaultButton,
+                                   const QString &acceptText = {}) {
+    initializeEla();
+    MessageDialog dialog(parent);
+    dialog.setObjectName(QStringLiteral("pinloomMessageDialog"));
+    dialog.setWindowTitle(title);
+    dialog.setAccessibleName(title);
+    dialog.setStandardButtonsVisible(false);
+    auto *content = new QWidget(&dialog);
+    auto *layout = new QVBoxLayout(content);
+    layout->setContentsMargins(24, 20, 24, 20);
+    auto *heading = Ui::label(title, content);
+    heading->setProperty("pinloomTextRole", QStringLiteral("panelTitle"));
+    layout->addWidget(heading);
+    auto *body = Ui::plainTextEdit(text, content);
+    body->setReadOnly(true);
+    body->setAccessibleName(text);
+    layout->addWidget(body, 1);
+    auto *box = new Ui::DialogButtonBox(static_cast<QDialogButtonBox::StandardButtons>(int(buttons)), content);
+    box->setObjectName(QStringLiteral("pinloomMessageButtons"));
+    if (!acceptText.isEmpty()) box->button(QDialogButtonBox::Ok)->setText(acceptText);
+    layout->addWidget(box);
+    if (defaultButton == QMessageBox::NoButton)
+        defaultButton = buttons.testFlag(QMessageBox::Cancel) ? QMessageBox::Cancel
+            : buttons.testFlag(QMessageBox::No) ? QMessageBox::No : QMessageBox::Ok;
+    QMessageBox::StandardButton result = buttons.testFlag(QMessageBox::Cancel) ? QMessageBox::Cancel
+        : buttons.testFlag(QMessageBox::No) ? QMessageBox::No
+        : buttons == QMessageBox::Ok ? QMessageBox::Ok : QMessageBox::NoButton;
+    for (auto *button : box->buttons()) {
+        auto *push = qobject_cast<QPushButton *>(button);
+        if (!push) continue;
+        const bool isDefault = int(box->standardButton(push)) == int(defaultButton);
+        push->setAutoDefault(false);
+        push->setDefault(isDefault);
+        if (isDefault) push->setFocus();
+    }
+    QObject::connect(box, &QDialogButtonBox::clicked, &dialog, [&](QAbstractButton *button) {
+        result = static_cast<QMessageBox::StandardButton>(box->standardButton(button));
+        dialog.accept();
+    });
+    dialog.setCentralWidget(content);
+    dialog.resize(520, 300);
+    dialog.exec();
+    return result;
+}
+}
+QMessageBox::StandardButton question(QWidget *parent, const QString &title, const QString &text,
+                                     QMessageBox::StandardButtons buttons, QMessageBox::StandardButton defaultButton) {
+    return message(parent, title, text, buttons, defaultButton);
+}
+QMessageBox::StandardButton warning(QWidget *parent, const QString &title, const QString &text,
+                                    QMessageBox::StandardButtons buttons, QMessageBox::StandardButton defaultButton) {
+    return message(parent, title, text, buttons, defaultButton);
+}
+QMessageBox::StandardButton critical(QWidget *parent, const QString &title, const QString &text,
+                                     QMessageBox::StandardButtons buttons, QMessageBox::StandardButton defaultButton) {
+    return message(parent, title, text, buttons, defaultButton);
+}
+bool confirm(QWidget *parent, const QString &title, const QString &text, const QString &acceptText) {
+    return message(parent, title, text, QMessageBox::Ok | QMessageBox::Cancel,
+                   QMessageBox::Cancel, acceptText) == QMessageBox::Ok;
+}
+
+void rememberSplitter(QSplitter *splitter, QSettings *settings, const QString &key) {
+    if (!splitter || !settings) return;
+    const QByteArray fallback = splitter->saveState();
+    const auto saved = settings->value(key).toByteArray();
+    if (!saved.isEmpty() && !splitter->restoreState(saved)) splitter->restoreState(fallback);
+    const QPointer<QSettings> store(settings);
+    QObject::connect(splitter, &QSplitter::splitterMoved, splitter, [splitter, store, key] {
+        if (store) store->setValue(key, splitter->saveState());
+    });
 }
 
 QWidget *showNotice(QWidget *host, const QString &text) {
@@ -590,6 +715,7 @@ QLineEdit *lineEdit(const QString &text, QWidget *parent)
     if (usesEla()) {
         initializeEla();
         auto *edit = prepare(new Input(parent));
+        edit->setIsClearButtonEnable(false);
         edit->setText(text);
         return edit;
     }
@@ -632,6 +758,7 @@ QMenu *menu(const QString &title, QWidget *parent)
     if (usesEla()) {
         initializeEla();
         auto *popup = prepare(new Menu(title, parent));
+        popup->setNativeMenuBehavior(true);
         popup->setMenuItemHeight(qMax(28, popup->fontMetrics().height() + 12));
         return popup;
     }
@@ -646,6 +773,7 @@ QPlainTextEdit *plainTextEdit(const QString &text, QWidget *parent)
     if (usesEla()) {
         initializeEla();
         auto *edit = prepare(new PlainText(parent));
+        edit->setNativeTextBehavior(true);
         installScrollBars(edit);
         edit->setPlainText(text);
         return edit;
@@ -659,6 +787,9 @@ QScrollArea *scrollArea(QWidget *parent)
     if (usesEla()) {
         initializeEla();
         auto *area = prepare(new ElaScrollArea(parent));
+        area->setIsAnimation(Qt::Horizontal, false);
+        area->setIsAnimation(Qt::Vertical, false);
+        area->setIsGrabGesture(false);
         installScrollBars(area);
         area->setHorizontalScrollBarPolicy(Qt::ScrollBarAsNeeded);
         area->setVerticalScrollBarPolicy(Qt::ScrollBarAsNeeded);
@@ -758,7 +889,7 @@ QTreeView *treeView(QWidget *parent)
 #endif
     if (!view) view = new QTreeView(parent);
     initializeItemView(view);
-    view->setAnimated(false);
+    view->setAnimated(true);
     return view;
 }
 QLabel *label(QWidget *parent) { return label(QString(), parent); }
@@ -768,6 +899,7 @@ QLabel *label(const QString &text, QWidget *parent)
     if (usesEla()) {
         initializeEla();
         auto *result = prepare(new Text(text, parent));
+        result->setThemeColorEnabled(false);
         result->setWordWrap(false);
         return result;
     }

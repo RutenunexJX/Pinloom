@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.7
+    VERSION 0.4.8
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -16,22 +16,18 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
-set(PINLOOM_UI_BACKEND "ELA" CACHE STRING "Control backend: ELA, SUITEUI, CLASSIC")
-set_property(CACHE PINLOOM_UI_BACKEND PROPERTY STRINGS ELA SUITEUI CLASSIC)
+set(PINLOOM_UI_BACKEND "ELA" CACHE STRING "Supported control backend: ELA")
+set_property(CACHE PINLOOM_UI_BACKEND PROPERTY STRINGS ELA)
 string(TOUPPER "${PINLOOM_UI_BACKEND}" PINLOOM_UI_BACKEND)
-if(NOT PINLOOM_UI_BACKEND MATCHES "^(ELA|SUITEUI|CLASSIC)$")
-    message(FATAL_ERROR "PINLOOM_UI_BACKEND must be ELA, SUITEUI, or CLASSIC")
+if(NOT PINLOOM_UI_BACKEND STREQUAL "ELA")
+    message(FATAL_ERROR "Pinloom now maintains only the ELA backend. Configure PINLOOM_UI_BACKEND=ELA.")
 endif()
 # Do not silently reinterpret an old cache's SuiteUi selection.
-if(DEFINED PINLOOM_ENABLE_SUITEUI)
-    if(PINLOOM_ENABLE_SUITEUI AND NOT PINLOOM_UI_BACKEND STREQUAL "SUITEUI")
-        message(FATAL_ERROR "Remove legacy PINLOOM_ENABLE_SUITEUI or select PINLOOM_UI_BACKEND=SUITEUI")
-    endif()
+if(PINLOOM_ENABLE_SUITEUI)
+    message(FATAL_ERROR "SuiteUi is no longer supported; use a fresh ELA build directory.")
 endif()
 set(PINLOOM_ENABLE_SUITEUI OFF)
-if(PINLOOM_UI_BACKEND STREQUAL "SUITEUI")
-    set(PINLOOM_ENABLE_SUITEUI ON)
-elseif(PINLOOM_UI_BACKEND STREQUAL "ELA")
+if(PINLOOM_UI_BACKEND STREQUAL "ELA")
     find_package(Qt6 6.10.2 EXACT REQUIRED COMPONENTS WidgetsPrivate)
     set(QT_VERSION_MAJOR 6)
     set(ELAWIDGETTOOLS_BUILD_STATIC_LIB OFF CACHE BOOL "" FORCE)
@@ -44,11 +40,21 @@ elseif(PINLOOM_UI_BACKEND STREQUAL "ELA")
         "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/FontAwesome-LICENSE.txt" COPYONLY)
     configure_file(thirdparty/elawidgettools/UPSTREAM-REVISION.md
         "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/UPSTREAM-REVISION.md" COPYONLY)
+    file(COPY thirdparty/elawidgettools/patches DESTINATION "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools")
 endif()
-set(PINLOOM_SUITEUI_NOTICES_DIR "" CACHE INTERNAL "SDK notices for runtime packaging" FORCE)
-if(PINLOOM_ENABLE_SUITEUI)
-    find_package(SuiteUi 0.1.1 EXACT CONFIG REQUIRED)
-    set(PINLOOM_SUITEUI_NOTICES_DIR "${SuiteUi_NOTICES_DIR}" CACHE INTERNAL "SDK notices for runtime packaging" FORCE)
+find_package(Git QUIET)
+if(GIT_FOUND)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" rev-parse HEAD WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}"
+        OUTPUT_VARIABLE source_revision OUTPUT_STRIP_TRAILING_WHITESPACE)
+    execute_process(COMMAND "${GIT_EXECUTABLE}" -c core.excludesFile=/dev/null status --porcelain
+        WORKING_DIRECTORY "${CMAKE_SOURCE_DIR}" OUTPUT_VARIABLE source_changes OUTPUT_STRIP_TRAILING_WHITESPACE)
+    set(PINLOOM_BUILD_SOURCE_REVISION "${source_revision}" CACHE INTERNAL "Configured source revision" FORCE)
+    if(source_changes)
+        set(PINLOOM_BUILD_SOURCE_CLEAN OFF CACHE INTERNAL "Configured clean source" FORCE)
+    else()
+        set(PINLOOM_BUILD_SOURCE_CLEAN ON CACHE INTERNAL "Configured clean source" FORCE)
+    endif()
+    set(PINLOOM_BUILD_VERSION "${PROJECT_VERSION}" CACHE INTERNAL "Configured package version" FORCE)
 endif()
 
 add_library(pinloom_core STATIC
@@ -282,13 +288,6 @@ if(SuiteApp_FOUND)
         src/widgets/PinloomSuiteIntegration.cpp)
     target_link_libraries(pinloom_widgets PRIVATE SuiteApp::suiteapp)
 endif()
-if(PINLOOM_ENABLE_SUITEUI)
-    target_sources(pinloom_widgets PRIVATE
-        src/widgets/PinloomSuiteUi.cpp
-        src/widgets/PinloomSuiteUi.h)
-    target_link_libraries(pinloom_widgets PRIVATE SuiteUi::Controls)
-    target_compile_definitions(pinloom_widgets PRIVATE PINLOOM_ENABLE_SUITEUI=1)
-endif()
 if(PINLOOM_UI_BACKEND STREQUAL "ELA")
     target_link_libraries(pinloom_widgets PUBLIC Ela::WidgetTools)
     target_compile_definitions(pinloom_widgets PUBLIC PINLOOM_ENABLE_ELA=1)
@@ -340,6 +339,10 @@ function(pinloom_add_test target)
     endif()
 endfunction()
 
+add_executable(pinloom_ui_performance_test tests/ui_performance_test.cpp)
+target_link_libraries(pinloom_ui_performance_test PRIVATE pinloom_widgets Qt6::Test)
+pinloom_add_test(pinloom_ui_performance_test)
+
 add_executable(pinloom_pdf_probe_test tests/pdf_probe_test.cpp)
 target_link_libraries(pinloom_pdf_probe_test PRIVATE pinloom_core Qt6::Test)
 add_dependencies(pinloom_pdf_probe_test pinloom_pdf_probe)
@@ -347,6 +350,13 @@ pinloom_add_test(pinloom_pdf_probe_test)
 set_tests_properties(pinloom_pdf_probe_test PROPERTIES TIMEOUT 20)
 
 if(PINLOOM_UI_BACKEND STREQUAL "ELA")
+    add_executable(pinloom_ela_interactions_test tests/ela_interactions_test.cpp)
+    target_link_libraries(pinloom_ela_interactions_test PRIVATE pinloom_widgets ElaWidgetTools Qt6::Test)
+    pinloom_add_test(pinloom_ela_interactions_test)
+    add_test(NAME pinloom_ela_interactions_2 COMMAND pinloom_ela_interactions_test)
+    get_test_property(pinloom_ela_interactions_test ENVIRONMENT_MODIFICATION interaction_environment)
+    set_tests_properties(pinloom_ela_interactions_2 PROPERTIES ENVIRONMENT_MODIFICATION
+        "${interaction_environment};QT_SCALE_FACTOR=set:2")
     add_executable(pinloom_ela_controls_test tests/ela_controls_test.cpp)
     target_link_libraries(pinloom_ela_controls_test PRIVATE pinloom_widgets Qt6::Test)
     pinloom_add_test(pinloom_ela_controls_test)

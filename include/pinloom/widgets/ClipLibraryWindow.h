@@ -34,6 +34,7 @@ struct ClipLibraryWindowOptions {
     std::function<bool(const QString &clipId, QString *error)> restoreClipHandler;
     std::function<bool(const QString &clipId, QString *error)> permanentlyDeleteClipHandler;
     std::function<bool(const QString &clipId, QString *error)> openSourceHandler;
+    QSettings *settings = nullptr;
 };
 
 class ClipLibraryWindow final : public Ui::MainWindow {
