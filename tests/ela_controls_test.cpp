@@ -1,7 +1,9 @@
 #include "pinloom/widgets/PinloomUiControls.h"
+#include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/AnchorCaptureDialog.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
+#include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/ClipCaptureDialog.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
 #include "pinloom/widgets/ClipTrayPresenter.h"
@@ -25,6 +27,7 @@
 #include <QFontDatabase>
 #include <QHelpEvent>
 #include <QPlainTextEdit>
+#include <QPainter>
 #include <QMenuBar>
 #include <QMessageBox>
 #include <QMouseEvent>
@@ -600,6 +603,145 @@ private slots:
             }
         QCOMPARE(trayAction.size(), 1);
         QCOMPARE(trayAction.first().first().toString(), QStringLiteral("pause"));
+    }
+    void anchorLibraryElaPageKeepsActionsAndFitsCompactLayout() {
+        InMemoryLibraryRepository repository;
+        Resource resource;
+        resource.id = QStringLiteral("ela-library-fixture");
+        resource.title = QStringLiteral("Clock specification");
+        resource.aliases = {QStringLiteral("clock-reference")};
+        const QString longTag = QStringLiteral("specification-") + QString(180, QLatin1Char('x'));
+        resource.tags = {QStringLiteral("hardware"), QStringLiteral("review"), longTag};
+        resource.kind = ResourceKind::Pdf;
+        resource.location = QStringLiteral("E:/Reference/") + QString(220, QLatin1Char('x')) + QStringLiteral("/clock.pdf");
+        Anchor anchor;
+        anchor.id = QStringLiteral("ela-library-anchor");
+        anchor.name = QStringLiteral("PLL jitter budget");
+        anchor.aliases = {QStringLiteral("jitter-limits")};
+        anchor.tags = {QStringLiteral("clock"), QStringLiteral("timing"), QStringLiteral("requirements")};
+        anchor.targetFile = resource.location;
+        anchor.targetApp = QStringLiteral("SumatraPDF");
+        anchor.locatorType = QStringLiteral("sumatrapdf.page");
+        anchor.locatorJson = QStringLiteral("{\"page\":12}");
+        resource.anchors = {anchor};
+        QVERIFY(repository.upsertResource(resource));
+        AnchorLibraryManagementService management(repository);
+        AnchorLibraryWindowOptions options;
+        options.repository = &repository;
+        options.managementService = &management;
+        options.filesProvider = [&] {
+            AnchorLibraryFile file;
+            file.resource = repository.findResource(resource.id).value();
+            for (const auto &entry : file.resource.anchors) file.anchors.append({resource.id, entry});
+            return QList<AnchorLibraryFile>{file};
+        };
+        int opens = 0;
+        options.anchorJumpHandler = [&](const auto &, const auto &, QString *) { ++opens; return true; };
+        options.locatorPreviewHandler = [](const auto &, const auto &, QString *) {
+            QPixmap image(280, 180);
+            image.fill(pinloomVisualTokens(activePinloomVisualScheme()).hoverSurface);
+            QPainter painter(&image);
+            painter.setPen(pinloomVisualTokens(activePinloomVisualScheme()).text);
+            painter.drawText(image.rect(), Qt::AlignCenter, QStringLiteral("PDF locator preview · Page 12"));
+            return image;
+        };
+        AnchorLibraryWindow window(options);
+        window.resize(1100, 700);
+        window.show();
+        window.activateWindow();
+        QCoreApplication::processEvents();
+        QTRY_VERIFY(window.findChild<AnchorLocatorPreviewWidget *>()->hasScreenshot());
+        QVERIFY(!window.findChild<QWidget *>("pinloomNoticeBar"));
+        const auto iconFont = QRawFont::fromFont(QFont(QStringLiteral("Font Awesome 6 Free"), 12));
+        for (const auto *name : {"anchorLibraryRefreshButton", "anchorLibraryTrashButton", "anchorLibraryRestoreButton",
+                                 "anchorLibraryRelinkButton", "anchorLibraryUndoButton", "anchorLibrarySaveButton",
+                                 "anchorLibraryColumnsButton", "anchorLibraryOpenButton", "anchorLibraryPreviewButton"}) {
+            auto *button = window.findChild<QToolButton *>(QString::fromLatin1(name));
+            QVERIFY(button && button->inherits("ElaToolButton"));
+            QVERIFY2(iconFont.supportsCharacter(button->property("ElaIconType").value<QChar>().unicode()), name);
+        }
+        const QList<QPair<QString, const char *>> types = {
+            {"anchorLibraryElaPage", "ElaScrollPage"},
+            {"anchorLibraryFilesCard", "ElaScrollPageArea"},
+            {"anchorLibraryAnchorsCard", "ElaScrollPageArea"},
+            {"anchorLibraryPreviewCard", "ElaScrollPageArea"},
+            {"anchorLibraryFilterDrawer", "ElaDrawerArea"},
+            {"anchorLibraryActionBar", "ElaToolBar"},
+            {"anchorLibraryStatusBar", "ElaStatusBar"},
+            {"anchorLibraryFileTable", "ElaTableView"},
+            {"anchorLibraryAnchorTable", "ElaTableView"},
+            {"anchorLibraryInspectorTitle", "ElaText"}};
+        for (const auto &type : types) {
+            auto *widget = window.findChild<QWidget *>(type.first);
+            QVERIFY2(widget, qPrintable(type.first));
+            QVERIFY2(widget->inherits(type.second), qPrintable(type.first));
+        }
+        auto *files = window.findChild<Ui::Table *>("anchorLibraryFileTable");
+        auto *anchors = window.findChild<Ui::Table *>("anchorLibraryAnchorTable");
+        auto *details = window.findChild<QToolButton *>("anchorLibraryColumnsButton");
+        auto *toggle = window.findChild<QPushButton *>("anchorLibraryFilterToggle");
+        auto *filters = window.findChild<QWidget *>("anchorLibraryFilterContent");
+        auto *query = window.findChild<QLineEdit *>("anchorLibraryFilterEdit");
+        QVERIFY(files && anchors && details && toggle && filters && query);
+        QVERIFY(files->isColumnHidden(2));
+        QVERIFY(anchors->isColumnHidden(4));
+        QVERIFY(!filters->isVisible());
+        details->click();
+        QVERIFY(!files->isColumnHidden(2));
+        QVERIFY(!anchors->isColumnHidden(4));
+        QCOMPARE(files->item(0, 2)->text(), QDir::toNativeSeparators(resource.location));
+        details->click();
+        toggle->click();
+        QTRY_VERIFY(filters->isVisible());
+        auto *fileTags = window.findChild<QComboBox *>("anchorLibraryTagFilterCombo");
+        fileTags->setCurrentIndex(fileTags->findData(longTag));
+        window.resize(920, 700);
+        QCoreApplication::processEvents();
+        QCOMPARE(window.width(), 920);
+        QCOMPARE(window.visibleFileCount(), 1);
+        QCOMPARE(fileTags->toolTip(), longTag);
+        window.resize(1100, 700);
+        fileTags->setCurrentIndex(fileTags->findData(QStringLiteral("hardware")));
+        QVERIFY(toggle->text().contains(QStringLiteral("1 active")));
+        snapshot(window, "anchor-library-filters");
+        toggle->click();
+        QTRY_VERIFY(!filters->isVisible());
+        QCOMPARE(fileTags->currentData().toString(), QStringLiteral("hardware"));
+        QCOMPARE(window.visibleFileCount(), 1);
+        window.resize(920, 600);
+        QCoreApplication::processEvents();
+        QCOMPARE(window.width(), 920);
+        QCOMPARE(files->horizontalScrollBar()->maximum(), 0);
+        QCOMPARE(anchors->horizontalScrollBar()->maximum(), 0);
+        QVERIFY(anchors->rowHeight(0) <= qMax(40, anchors->fontMetrics().height() + 18));
+        anchors->setFocus();
+        QTest::keyClick(anchors, Qt::Key_F, Qt::ControlModifier);
+        QTRY_VERIFY(query->hasFocus());
+        QTest::keyClick(query, Qt::Key_Tab);
+        QTRY_VERIFY(toggle->hasFocus());
+        snapshot(window, "anchor-library-compact");
+        anchors->setFocus();
+        QTest::keyClick(anchors, Qt::Key_Return);
+        QCOMPARE(opens, 1);
+        auto *open = window.findChild<QToolButton *>("anchorLibraryOpenButton");
+        QVERIFY(open->isEnabled());
+        auto *accessible = QAccessible::queryAccessibleInterface(open);
+        QVERIFY(accessible && !accessible->text(QAccessible::Name).isEmpty());
+        if (auto *notice = window.findChild<QWidget *>("pinloomNoticeBar")) notice->close();
+        window.setFilterText(QStringLiteral("unmatched fixture query"));
+        QCOMPARE(window.visibleFileCount(), 0);
+        QVERIFY(window.findChild<QLabel *>("anchorLibraryFileEmptyState")->isVisible());
+        QVERIFY(!open->isEnabled());
+        snapshot(window, "anchor-library-empty");
+        window.setFilterText({});
+        QCOMPARE(window.visibleAnchorCount(), 1);
+        QVERIFY(open->isEnabled());
+        window.findChild<QToolButton *>("anchorLibraryPreviewButton")->click();
+        QTRY_VERIFY(window.findChild<QDialog *>("anchorLocatorExpandedPreview"));
+        auto *preview = window.findChild<QDialog *>("anchorLocatorExpandedPreview");
+        QVERIFY(preview->findChild<QScrollArea *>("anchorLocatorExpandedPreviewScroll")->inherits("ElaScrollArea"));
+        QVERIFY(preview->findChild<QLabel *>("anchorLocatorExpandedPreviewImage")->inherits("ElaText"));
+        preview->close();
     }
     void floatingCaptureGeometryAndAccessibility() {
         PinloomMainWindow host;

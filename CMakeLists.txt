@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.5
+    VERSION 0.4.6
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -239,6 +239,7 @@ add_library(pinloom_widgets STATIC
     src/widgets/ClipQuickPicker.cpp
     src/widgets/LibraryRootWindow.cpp
     src/widgets/AnchorLibraryWindow.cpp
+    src/widgets/AnchorLibraryUi.cpp
     src/widgets/PdfLocatorPreviewRenderer.cpp
     src/widgets/PdfAnchorPresenter.cpp
     src/widgets/PdfRegionSelectionOverlay.cpp

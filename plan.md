@@ -1,6 +1,6 @@
 # Pinloom Plan
 
-Current version: `0.4.5`. Schema version: `16`.
+Current version: `0.4.6`. Schema version: `16`.
 
 ## Current baseline
 
@@ -8,6 +8,72 @@ The resident launcher, canonical semicolon commands, native Anchor confirmation,
 identities, viewer-independent PDF adapter, annotated-copy PDF highlighting and semantic UI are implemented.
 SumatraPDF is the implemented PDF adapter; an adapter boundary does not imply that every viewer is supported.
 Current usage and build instructions are in [readme.md](readme.md); product boundaries are in [goal.md](goal.md).
+
+## Anchor Library Ela rewrite — 2026-09-23, source only
+
+- [x] Recompose Anchor Library as an `ElaScrollPage`, three `ElaScrollPageArea`
+  cards, an `ElaDrawerArea` filter panel, `ElaToolBar` and `ElaStatusBar`.
+  Tables, inputs, menus, labels and alias editors use the real Ela controls.
+  Keep the existing ElaAppBar window integration and the CLASSIC fallback.
+- [x] Default to compact, stretching table columns. Details exposes the existing
+  path, time and usage fields; it does not remove or change stored metadata.
+  Keep tag chips on one line, expose full tags in tooltips, and bound filter
+  widths even with long tag names. Preserve active filters in the closed drawer.
+- [x] Show title, source path and Open/Enlarge actions beside the preview.
+  Use Ela controls in the enlarged view. Successful automatic previews,
+  including their asynchronous loading state, update status without a toast.
+- [x] Replace native destructive confirmations with `ElaContentDialog`.
+  Cancel is the default; Escape/Enter cancel unless Confirm is explicitly
+  chosen. Bind close callbacks to QObject lifetime and dismiss the parent mask.
+- [x] Retain search, saved views, Trash/restore, inline edits, tag scopes,
+  context menus, batch management and source opening. Add Ctrl+F, F5 and row
+  Enter while preserving existing save/delete/multi-selection shortcuts.
+  Verify accessible names, keyboard focus, supported icon glyphs and tag contrast.
+
+No data repository implementation, identity rule, schema, live database, AppPackage, other
+application or version was changed. Qt models/layouts/splitters, the custom
+locator painter and native OS file pickers remain supporting infrastructure;
+there is no substitute styled control where an applicable Ela control exists.
+
+Validation commands (Release, Qt offscreen; no desktop mouse interaction):
+
+```powershell
+cmake --build build-ela-release --parallel 4
+ctest --test-dir build-ela-release -C Release --output-on-failure --timeout 60
+cmake --build build-classic-release --parallel 4
+ctest --test-dir build-classic-release -C Release --output-on-failure --timeout 60
+```
+
+Both Release builds passed. Final ELA CTest passed 25/25 (41.09 s), and
+CLASSIC passed 16/16 (25.45 s). `git diff --check` passed. Light/100% and
+dark/200% compact, expanded-filter and empty-state screenshots were inspected.
+
+The regression suite covers actual Ela types, filter collapse/retention,
+920-pixel compact width with long paths/tags, Details, empty states, inline Ela
+editors, default-cancel confirmations, mask cleanup, keyboard/accessibility,
+expanded previews and quiet asynchronous PDF cache previews. The Ela matrix
+also exercises light/dark at 100%, 125%, 150% and 200%. Live desktop behavior
+is not certified by these offscreen tests. At the source-only handoff this
+rewrite was not committed, pushed or included in the installed 0.4.5 package.
+
+### Authorized 0.4.6 publication follow-up
+
+The user subsequently requested a push and replacement of the formal package,
+and authorized stopping only Pinloom and its capture helper before replacement.
+Release 0.4.6 includes the Anchor Library Ela rewrite above; schema remains 16.
+Both Release builds passed again after the version update. Full ELA CTest
+passed 25/25 (41.65 s), and CLASSIC passed 16/16 (25.30 s), using the commands
+above. The build retains Ela's existing Qt 6.10.2 private-header version binding.
+Publish a clean source commit to the existing origin/main and package the ELA
+Release build with `packaging/windows/Package-Release.ps1`. Verify the staged
+runtime using a clean PATH before changing the installed package.
+
+Back up the exact installed Pinloom directory before replacement. Hold exclusive
+handles to the suite manifest and checksum index, recheck the live baseline,
+and update only Pinloom's version/hashes plus the shared manifest hash. Preserve
+other component entries and runtime license notices. The deployment receipt
+under `E:\Pinloom\artifacts` records the actual commit, hashes, backup and
+installed-runtime results; no user database or other application is deployed.
 
 ## Floating toolbar follow-up — 2026-09-23, source only
 

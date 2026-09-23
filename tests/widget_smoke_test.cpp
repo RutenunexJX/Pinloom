@@ -122,6 +122,8 @@ private slots:
     void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
     void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
     void anchorLibraryWindowShowsMetadataOnlyInboxFiles();
+    void anchorLibraryConfirmationDefaultsToCancelAndUsesEla();
+    void anchorLibraryAutomaticPdfPreviewIsQuiet();
     void libraryRootWindowBrowsesTagsAndProtectsSyncRoot();
     void singleInstanceGuardActivatesPrimaryFromSecondLaunch();
     void settingsDialogRoundTripsRuntimeSettings();
@@ -1528,6 +1530,105 @@ void WidgetSmokeTest::pdfLocatorPreviewRendersConfiguredRealPdf()
     }
 }
 
+void WidgetSmokeTest::anchorLibraryAutomaticPdfPreviewIsQuiet()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    Resource resource;
+    resource.id = QStringLiteral("quiet-preview-file");
+    resource.title = QStringLiteral("Quiet preview fixture");
+    resource.kind = ResourceKind::Pdf;
+    resource.location = directory.filePath(QStringLiteral("cached.pdf"));
+    // A cache hit exercises the asynchronous UI path without launching a PDF viewer.
+    QFile source(resource.location);
+    QVERIFY(source.open(QIODevice::WriteOnly));
+    source.write("cached preview fixture");
+    source.close();
+    Anchor anchor;
+    anchor.id = QStringLiteral("quiet-preview-anchor");
+    anchor.name = QStringLiteral("Cached page");
+    anchor.locatorType = QStringLiteral("sumatrapdf.page");
+    anchor.locatorJson = QStringLiteral("{\"page\":1}");
+    anchor.targetFile = resource.location;
+    resource.anchors = {anchor};
+    PdfLocatorPreviewRenderOptions renderOptions;
+    renderOptions.cacheDirectory = directory.path();
+    renderOptions.rendererExecutablePath = directory.filePath(QStringLiteral("unused-renderer.exe"));
+    QImage cached(160, 120, QImage::Format_RGB32);
+    cached.fill(Qt::white);
+    QVERIFY(cached.save(pdfLocatorPreviewCacheFilePath(resource, anchor, renderOptions)));
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&] {
+        AnchorLibraryFile file;
+        file.resource = resource;
+        file.anchors = {{resource.id, anchor}};
+        return QList<AnchorLibraryFile>{file};
+    };
+    options.pdfPreviewOptionsProvider = [=] { return renderOptions; };
+    AnchorLibraryWindow window(options);
+    window.show();
+    auto *preview = window.findChild<AnchorLocatorPreviewWidget *>();
+    QVERIFY(preview);
+    QTRY_VERIFY(preview->hasScreenshot());
+    QVERIFY(window.statusText().contains(QStringLiteral("Showing rendered PDF page 1")));
+    QVERIFY(!window.findChild<QWidget *>(QStringLiteral("pinloomNoticeBar")));
+}
+
+void WidgetSmokeTest::anchorLibraryConfirmationDefaultsToCancelAndUsesEla()
+{
+    InMemoryLibraryRepository repository;
+    Resource resource;
+    resource.id = QStringLiteral("confirm-file");
+    resource.title = QStringLiteral("Confirmation fixture");
+    resource.tags = {QStringLiteral("keep-visible")};
+    Anchor anchor;
+    anchor.id = QStringLiteral("confirm-anchor");
+    anchor.name = QStringLiteral("Confirmation anchor");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+    AnchorLibraryManagementService management(repository);
+    AnchorLibraryWindowOptions options;
+    options.managementService = &management;
+    options.filesProvider = [&] {
+        AnchorLibraryFile file;
+        file.resource = repository.findResource(resource.id).value();
+        for (const auto &entry : file.resource.anchors) file.anchors.append({resource.id, entry});
+        return QList<AnchorLibraryFile>{file};
+    };
+    AnchorLibraryWindow window(options);
+    window.show();
+    window.activateWindow();
+    QTimer watchdog;
+    watchdog.setSingleShot(true);
+    connect(&watchdog, &QTimer::timeout, &window, [] {
+        if (auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget())) dialog->reject();
+    });
+    for (int action = 0; action < 3; ++action) {
+        bool verified = false;
+        watchdog.start(2000);
+        QTimer::singleShot(25, &window, [&, action] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog) return;
+            auto *cancel = dialog->findChild<QPushButton *>(QStringLiteral("anchorLibraryConfirmCancel"));
+            auto *accept = dialog->findChild<QPushButton *>(QStringLiteral("anchorLibraryConfirmAccept"));
+            verified = dialog->objectName() == QLatin1String("anchorLibraryConfirmation")
+                && dialog->inherits("ElaContentDialog") == Ui::usesEla()
+                && cancel && cancel->isDefault() && accept && !accept->isDefault();
+            if (!verified) { dialog->reject(); return; }
+            if (action == 0) QTest::keyClick(dialog, Qt::Key_Return);
+            else if (action == 1) QTest::keyClick(dialog, Qt::Key_Escape);
+            else accept->click();
+        });
+        QCOMPARE(window.deleteSelectedAnchor(), action == 2);
+        watchdog.stop();
+        QVERIFY(verified);
+        QCOMPARE(repository.findResource(resource.id)->anchors.first().deleted, action == 2);
+        QCoreApplication::processEvents();
+        for (auto *widget : window.findChildren<QWidget *>())
+            if (widget->inherits("ElaMaskWidget")) QVERIFY(!widget->isVisible());
+    }
+}
+
 void WidgetSmokeTest::anchorLibraryWindowListsFiltersAndJumpsMarkedFiles()
 {
     QTemporaryDir directory;
@@ -2173,10 +2274,10 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
     QVERIFY(inspector);
     QVERIFY(previewWidget);
     QVERIFY(!window.findChild<QWidget *>(QStringLiteral("anchorLibraryHiddenInspectorState")));
-    for (QWidget *child : inspector->findChildren<QWidget *>(QString(), Qt::FindDirectChildrenOnly)) {
-        if (!child->isHidden()) QCOMPARE(child, static_cast<QWidget *>(previewWidget));
-    }
-    QCOMPARE(fileTable->horizontalHeader()->sectionResizeMode(2), QHeaderView::Stretch);
+    QVERIFY(inspector->findChild<QLabel *>(QStringLiteral("anchorLibraryInspectorTitle")));
+    QVERIFY(inspector->findChild<QLabel *>(QStringLiteral("anchorLibraryInspectorLocation")));
+    QVERIFY(fileTable->isColumnHidden(2));
+    QCOMPARE(fileTable->horizontalHeader()->sectionResizeMode(0), QHeaderView::Stretch);
     QCOMPARE(anchorTable->horizontalHeader()->sectionResizeMode(1), QHeaderView::Stretch);
     QCOMPARE(anchorTable->horizontalHeader()->sectionResizeMode(2), QHeaderView::Stretch);
     QVERIFY(!window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryTargetUriEdit")));
@@ -2298,6 +2399,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         return false;
     })(), 1000);
     activeFileAliasEditor->setText(QStringLiteral("file saved from active editor"));
+    QCOMPARE(activeFileAliasEditor->inherits("ElaLineEdit"), Ui::usesEla());
     QTest::keyClick(activeFileAliasEditor, Qt::Key_S, Qt::ControlModifier);
     QTRY_COMPARE(repository.findResource(resource.id)->aliases,
                  QStringList{QStringLiteral("file saved from active editor")});
@@ -2418,6 +2520,7 @@ void WidgetSmokeTest::anchorLibraryWindowSupportsInlineEditingAndContextLifecycl
         return false;
     })(), 1000);
     activeAliasEditor->setText(QStringLiteral("saved from active editor"));
+    QCOMPARE(activeAliasEditor->inherits("ElaLineEdit"), Ui::usesEla());
     QTest::keyClick(activeAliasEditor, Qt::Key_S, Qt::ControlModifier);
     QTRY_COMPARE(repository.findResource(resource.id)->anchors.first().aliases,
                  QStringList{QStringLiteral("saved from active editor")});

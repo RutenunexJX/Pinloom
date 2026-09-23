@@ -174,6 +174,8 @@ private:
     void refreshSavedViews();
     void updateActionButtons();
     void updateStatus();
+    void updateViewSummary();
+    void setDetailedColumns(bool detailed);
     void handleFileSortRequest(int column);
     void handleAnchorSortRequest(int column);
     void scheduleRepositoryRefresh();
@@ -230,6 +232,7 @@ private:
     QToolButton *refreshButton_ = nullptr;
     QToolButton *trashButton_ = nullptr;
     QToolButton *restoreButton_ = nullptr;
+    QAction *restoreAction_ = nullptr;
     QToolButton *tagsButton_ = nullptr;
     QToolButton *fileActionsButton_ = nullptr;
     QToolButton *relinkButton_ = nullptr;
@@ -237,6 +240,16 @@ private:
     QToolButton *integrityButton_ = nullptr;
     QToolButton *manageButton_ = nullptr;
     QToolButton *undoButton_ = nullptr;
+    QToolButton *saveButton_ = nullptr;
+    QToolButton *openButton_ = nullptr;
+    QToolButton *previewButton_ = nullptr;
+    QPushButton *filterToggle_ = nullptr;
+    QLabel *fileCountLabel_ = nullptr;
+    QLabel *anchorCountLabel_ = nullptr;
+    QLabel *fileEmptyLabel_ = nullptr;
+    QLabel *anchorEmptyLabel_ = nullptr;
+    QLabel *inspectorTitle_ = nullptr;
+    QLabel *inspectorLocation_ = nullptr;
     Pinloom::Ui::Table *fileTable_ = nullptr;
     Pinloom::Ui::Table *anchorTable_ = nullptr;
     AnchorLocatorPreviewWidget *locatorPreview_ = nullptr;

@@ -1,5 +1,6 @@
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
+#include "pinloom/widgets/PinloomUiControls.h"
 
 #include <QJsonArray>
 #include <QJsonDocument>
@@ -119,7 +120,7 @@ bool AnchorLocatorPreviewWidget::showExpandedPreview()
 {
     if (screenshot_.isNull()) return false;
     if (!expandedPreviewDialog_) {
-        auto *dialog = new QDialog(window());
+        auto *dialog = new Ui::Dialog(window());
         dialog->setObjectName(QStringLiteral("anchorLocatorExpandedPreview"));
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->setWindowTitle(anchor_.name.trimmed().isEmpty()
@@ -129,11 +130,11 @@ bool AnchorLocatorPreviewWidget::showExpandedPreview()
 
         auto *layout = new QVBoxLayout(dialog);
         layout->setContentsMargins(8, 8, 8, 8);
-        auto *scrollArea = new QScrollArea(dialog);
+        auto *scrollArea = Ui::scrollArea(dialog);
         scrollArea->setObjectName(QStringLiteral("anchorLocatorExpandedPreviewScroll"));
         scrollArea->setAlignment(Qt::AlignCenter);
         scrollArea->setWidgetResizable(false);
-        auto *label = new QLabel(scrollArea);
+        auto *label = Ui::label(scrollArea);
         label->setObjectName(QStringLiteral("anchorLocatorExpandedPreviewImage"));
         label->setAlignment(Qt::AlignCenter);
         scrollArea->setWidget(label);

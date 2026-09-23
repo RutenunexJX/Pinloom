@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.5`; database Schema: `16`.
+Current version: `0.4.6`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -308,20 +308,34 @@ and usage filters. Saved views preserve those filters. File and anchor tables
 support multi-selection, usage columns, and ordered multi-column sorting; hold
 Shift while selecting additional sort columns.
 
+The ELA build uses an Ela page with separate Files, Anchors and Preview cards,
+an Ela action bar/status bar, and a collapsible Filters drawer. The drawer shows
+the active filter count and keeps filters applied when collapsed. The compact
+tables stretch their core columns to fit; Details exposes paths, timestamps and
+usage without changing the underlying data. Ctrl+F focuses search, F5 refreshes,
+and Enter on an Anchor row opens it. The Classic backend remains a fallback.
+
 File aliases/tags and Anchor aliases/tags are separate fields. File rows show
 only file metadata; Anchor rows show only Anchor metadata. In either table,
 double-click an Alias cell to edit it or click a Tag cell to filter, select, or
 create tags from that metadata scope. Unsaved cells are yellow; `Ctrl+S` saves
 every pending file and Anchor inline edit and turns the affected cells green
-until the Anchor Library closes. Tags are rendered as distinct color chips and
-wrap onto additional lines when needed.
+until the Anchor Library closes. Save changes also saves those pending edits.
+Tags use compact single-line chips with a remaining-count indicator and the full
+tag list in the tooltip. Alias editors are Ela inputs in the ELA build.
 
-The right pane contains only Preview. Selecting one PDF anchor renders its page
+The right pane shows the selected title, source path and Preview, with Open
+anchor and Enlarge actions. Selecting one PDF anchor renders its page
 or marked rectangle automatically; click the preview to open the fitted larger
 view. Pinloom keeps recent previews in memory and persists rendered PNGs under
 its application cache, keyed by the PDF timestamp and locator, with a 512 MB
 limit. Right-click a PDF anchor and choose Recapture to replace its rectangle
 after comparing the old and new locator.
+Successful automatic previews update the status bar without covering the table
+with a notification. Destructive confirmations use ElaContentDialog, with Cancel
+as the default; Enter on the dialog and Escape cancel unless Confirm is explicitly
+chosen. Native file/directory pickers and Qt models, layouts, splitters and locator
+painting remain framework infrastructure, not substitute styled controls.
 Batch actions cover tags, Pinned state,
 file-record archival and restoration, recursive missing-file discovery, manual
 relinking, duplicate Resource merging, and duplicate-anchor cleanup. The
