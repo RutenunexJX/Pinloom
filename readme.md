@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.8`; database Schema: `16`.
+Current version: `0.4.9`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -219,15 +219,19 @@ session and constrained to the screen's available area. Ela builds use an
 Ela rounded surface with transparent outer corners and Ela tool buttons.
 The version remains in the title bar, not beside Navigate. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
-file/resource results. Result rows are labeled by type such as `[Anchor]`,
-`[Clip]`, `[Inbox]`, and `[File]`; Enter jumps Anchors, inserts Saved Clips into
-the current foreground app, and opens Inbox/File results with the default app.
+file/resource results. Unified results use two compact lines: an icon and name,
+a short location or preview, and a separate Anchor/Clip/Inbox/File badge. Hover
+shows the full location. A single footer shows the result count and contextual
+keyboard shortcuts. Enter jumps Anchors, inserts Saved Clips into the current
+foreground app, and opens Inbox/File results with the default app.
 With a unified result selected, press Right Arrow (`->`) to open its compact
-action list. The action list supports Up/Down selection, Enter to run the
-selected action, and Esc or Left Arrow to return to ordinary results. Actions
-include the primary Jump/Insert/Open operation plus object-level metadata
-actions: Rename, Edit aliases, Edit tags, Pin/Unpin, Delete / Remove, and
-Restore. Delete / Remove is a confirmed Pinloom soft delete; it hides Pinloom's
+action list. Each action has one icon and a short name. The first action, Open
+folder, opens the selected file or Anchor target's containing directory. It is
+unavailable for non-file targets, plain-text Clips and missing directories.
+The action list supports Up/Down selection, Enter to run the selected action,
+and Esc or Left Arrow to return to ordinary results. Other actions include the
+primary Jump/Insert/Open operation, Rename, Aliases, Tags, Pin/Unpin, Remove,
+and Restore. Remove is a confirmed Pinloom soft delete; it hides Pinloom's
 record and does not delete the original file, native PDF, Inbox source file, or
 external clipboard source content. Type `restore <query>` or `trash <query>` to
 search soft-deleted Pinloom Entries, then press Right Arrow and choose Restore.

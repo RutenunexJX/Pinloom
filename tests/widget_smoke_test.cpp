@@ -77,6 +77,7 @@
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QScopeGuard>
 #include <QScreen>
 #include <QSettings>
 #include <QSignalSpy>
@@ -156,6 +157,8 @@ private slots:
     void commandPanelPlainQueryShowsUnifiedMixedResults();
     void commandPanelPlainQueryEnterDispatchesByTargetType();
     void commandPanelRightArrowShowsActionsForUnifiedResultTypes();
+    void commandPanelFirstActionOpensContainingFolder();
+    void commandPanelResultRowsStayCompactAcrossThemes();
     void commandPanelActionListExecutesSelectedProviderAction();
     void commandPanelActionListExecutesRemoveWithInjectedConfirmation();
     void commandPanelRestoreCommandUsesDeletedEntrySearchHandler();
@@ -4691,7 +4694,7 @@ void WidgetSmokeTest::commandPanelInboxSearchStaysInUnifiedWindow()
     QCOMPARE(panel.resultCount(), 1);
     QCOMPARE(panel.openTargetAt(0).resourceId,
              inboxResourceIdForPath(QStringLiteral("E:/inbox/Board Spec.txt")));
-    QCOMPARE(panel.statusText(), QStringLiteral("Inbox search: 1 result(s)"));
+    QCOMPARE(panel.statusText(), QStringLiteral("1 result(s)"));
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(openedResourceId,
              inboxResourceIdForPath(QStringLiteral("E:/inbox/Board Spec.txt")));
@@ -4819,16 +4822,16 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
 
     QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
     QCOMPARE(results->count(), 4);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Anchor] PLL jitter budget -> Jump")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("#clock")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Clip] Launch Clip -> Insert")));
-    QVERIFY(results->item(2)->text().contains(QStringLiteral("[Inbox] Board Spec Inbox -> Open")));
-    QVERIFY(results->item(3)->text().contains(QStringLiteral("[File] Schematic File -> Open")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("PLL jitter budget"));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("#clock")));
+    QCOMPARE(results->item(1)->text(), QStringLiteral("Launch Clip"));
+    QCOMPARE(results->item(2)->text(), QStringLiteral("Board Spec Inbox"));
+    QCOMPARE(results->item(3)->text(), QStringLiteral("Schematic File"));
     QCOMPARE(panel.openTargetAt(0).resourceId, QStringLiteral("anchor-spec"));
     QVERIFY(panel.openTargetAt(0).anchor.has_value());
     QCOMPARE(panel.openTargetAt(1).clipId, QStringLiteral("clip-launch"));
     QCOMPARE(panel.resultAt(1).clipId, QStringLiteral("clip-launch"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Unified search: 4 result(s)"));
+    QCOMPARE(panel.statusText(), QStringLiteral("4 result(s)"));
 
     panel.setCommandText(QStringLiteral("c"));
 
@@ -4940,11 +4943,16 @@ void WidgetSmokeTest::commandPanelRightArrowShowsActionsForUnifiedResultTypes()
         QVERIFY(panel.selectResultAt(row));
         QTest::keyClick(commandEdit, Qt::Key_Right);
         QVERIFY(panel.isShowingResultActions());
-        QCOMPARE(results->count(), 4);
-        QVERIFY(results->item(0)->text().contains(QStringLiteral("[Action] %1").arg(primaryLabels.at(row))));
-        QVERIFY(results->item(1)->text().contains(QStringLiteral("Add alias")));
-        QVERIFY(results->item(2)->text().contains(QStringLiteral("Add tag")));
-        QVERIFY(results->item(3)->text().contains(QStringLiteral("Delete / Remove (disabled)")));
+        QCOMPARE(results->count(), 5);
+        QCOMPARE(results->item(0)->text(), QStringLiteral("Open folder"));
+        QCOMPARE(results->item(1)->text(), primaryLabels.at(row));
+        QCOMPARE(results->item(2)->text(), QStringLiteral("Add alias"));
+        QCOMPARE(results->item(3)->text(), QStringLiteral("Add tag"));
+        QCOMPARE(results->item(4)->text(), QStringLiteral("Delete / Remove"));
+        for (int actionRow = 0; actionRow < results->count(); ++actionRow) {
+            QVERIFY(!results->item(actionRow)->text().contains(QLatin1Char('\n')));
+            QVERIFY(!results->item(actionRow)->icon().isNull());
+        }
         QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
         QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(row).resourceId);
 
@@ -4954,6 +4962,166 @@ void WidgetSmokeTest::commandPanelRightArrowShowsActionsForUnifiedResultTypes()
         QCOMPARE(results->count(), 4);
         QCOMPARE(panel.currentOpenTarget().clipId, targets.at(row).clipId);
         QCOMPARE(panel.currentOpenTarget().resourceId, targets.at(row).resourceId);
+    }
+}
+
+void WidgetSmokeTest::commandPanelFirstActionOpensContainingFolder()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString parent = directory.filePath(QStringLiteral("Specs & Design/子目录"));
+    QVERIFY(QDir().mkpath(parent));
+    const QString filePath = QDir(parent).filePath(QStringLiteral("board #1.pdf"));
+    QFile file(filePath);
+    QVERIFY(file.open(QIODevice::WriteOnly));
+    file.write("test fixture");
+    file.close();
+
+    CapturingUrlHandler fileHandler;
+    QDesktopServices::setUrlHandler(QStringLiteral("file"), &fileHandler, "openUrl");
+    const auto clearHandler = qScopeGuard([] {
+        QDesktopServices::unsetUrlHandler(QStringLiteral("file"));
+    });
+    PinloomEntry entry;
+    entry.name = QStringLiteral("Board specification");
+    entry.resourceId = inboxResourceIdForPath(filePath);
+    entry.type = PinloomEntryType::Inbox;
+    entry.resourceKind = ResourceKind::File;
+    entry.location = QUrl::fromLocalFile(filePath).toString();
+    int primaryCalls = 0;
+    PinloomCommandPanelOptions options;
+    options.unifiedEntrySearchHandler = [&](const QString &) { return QList<PinloomEntry>{entry}; };
+    options.resourceOpenHandler = [&](const PinloomOpenTarget &, QString *) { ++primaryCalls; return true; };
+    PinloomCommandPanel panel(options);
+    auto *results = panel.findChild<Ui::List *>(QStringLiteral("commandResultList"));
+    QVERIFY(results);
+    panel.setCommandText(QStringLiteral("board"));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(primaryCalls, 1);
+    QCOMPARE(fileHandler.openCount, 0);
+    QVERIFY(panel.showActionsForCurrentResult());
+    QCOMPARE(results->currentRow(), 0);
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Open folder"));
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(fileHandler.lastUrl.toLocalFile(), parent);
+    QCOMPARE(fileHandler.openCount, 1);
+    QCOMPARE(primaryCalls, 1);
+
+    // Recheck at execution time when a folder disappears while the menu is open.
+    QVERIFY(QFile::remove(filePath));
+    QVERIFY(QDir().rmdir(parent));
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QVERIFY(panel.statusText().contains(QStringLiteral("no longer exists")));
+    QCOMPARE(fileHandler.openCount, 1);
+
+    for (const QString &location : {QStringLiteral("https://example.org/spec.pdf"),
+                                    QStringLiteral("relative.pdf")}) {
+        entry.location = location;
+        panel.setCommandText(QStringLiteral("board"));
+        QVERIFY(panel.showActionsForCurrentResult());
+        QVERIFY(!panel.activateCurrentCommandItem());
+        QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("no local file")));
+    }
+    entry.clipId = QStringLiteral("clip-preview");
+    entry.location = directory.filePath(QStringLiteral("preview-that-looks-like-a-path.txt"));
+    panel.setCommandText(QStringLiteral("board"));
+    QVERIFY(panel.showActionsForCurrentResult());
+    QVERIFY(!panel.activateCurrentCommandItem());
+    QCOMPARE(fileHandler.openCount, 1);
+
+    entry.clipId.clear();
+    entry.anchor = Anchor{};
+    entry.anchor->targetFile = directory.filePath(QStringLiteral("actual-anchor-target.pdf"));
+    entry.location = filePath;
+    panel.setCommandText(QStringLiteral("board"));
+    QVERIFY(panel.showActionsForCurrentResult());
+    QVERIFY(panel.activateCurrentCommandItem());
+    QCOMPARE(fileHandler.lastUrl.toLocalFile(), directory.path());
+    QCOMPARE(fileHandler.openCount, 2);
+}
+
+void WidgetSmokeTest::commandPanelResultRowsStayCompactAcrossThemes()
+{
+    const auto previousScheme = activePinloomVisualScheme();
+    const auto previousFont = qApp->font();
+    const auto restoreTheme = qScopeGuard([previousScheme, previousFont] {
+        applyPinloomVisualTheme(*qApp, previousScheme);
+        qApp->setFont(previousFont);
+    });
+    qApp->setFont(QFont(QStringLiteral("Segoe UI"), 9));
+    const QString snapshots = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR");
+    for (const auto scheme : {PinloomVisualScheme::Light, PinloomVisualScheme::Dark}) {
+        applyPinloomVisualTheme(*qApp, scheme);
+        PinloomEntry entry;
+        entry.type = PinloomEntryType::Inbox;
+        entry.resourceId = QStringLiteral("inbox:file:spec");
+        entry.resourceKind = ResourceKind::File;
+        entry.name = QStringLiteral("RapidIO-Specification-4-1");
+        entry.location = QStringLiteral("D:/PinloomRoot/ProtocolSpec/SRIO/RapidIO-Specification-4-1.pdf");
+        entry.matchSummary = QStringLiteral("Match: all");
+        QList<PinloomEntry> entries{entry};
+        PinloomCommandPanelOptions options;
+        options.unifiedEntrySearchHandler = [&](const QString &) { return entries; };
+        options.unifiedEntryActionProvider = [](const PinloomEntry &value) { return defaultActionsForPinloomEntry(value); };
+        PinloomMainWindow host;
+        host.setLauncherMode(true);
+        auto *panel = new PinloomCommandPanel(options, &host);
+        host.setCentralWidget(panel);
+        host.resize(760, 200);
+        panel->setCommandText(QStringLiteral("s"));
+        host.show();
+        QApplication::processEvents();
+        auto *results = panel->findChild<Ui::List *>(QStringLiteral("commandResultList"));
+        auto *footer = panel->findChild<QWidget *>(QStringLiteral("commandFooter"));
+        auto *status = panel->findChild<QLabel *>(QStringLiteral("commandStatusLabel"));
+        auto *hint = panel->findChild<QLabel *>(QStringLiteral("commandKeyboardHint"));
+        QVERIFY(results && footer && status && hint);
+        const int singleResultHeight = panel->preferredWindowHeight();
+        QCOMPARE(results->item(0)->text(), entry.name);
+        QVERIFY(!results->item(0)->text().contains(QStringLiteral("Match:")));
+        QVERIFY(results->item(0)->toolTip().contains(QDir::toNativeSeparators(entry.location)));
+        QVERIFY(!results->item(0)->icon().isNull());
+        QVERIFY(!status->wordWrap());
+        QCOMPARE(status->toolTip(), QStringLiteral("1 result(s)"));
+        QVERIFY(footer->height() <= 32);
+        QVERIFY(hint->text().contains(QStringLiteral("Enter Open")));
+        QVERIFY(results->viewport()->rect().contains(results->visualItemRect(results->item(0))));
+        QVERIFY(panel->rect().contains(footer->geometry()));
+        const int searchRowHeight = results->item(0)->sizeHint().height();
+        const auto snapshot = [&](const QString &name) {
+            if (snapshots.isEmpty()) return true;
+            return QDir().mkpath(snapshots) && host.grab().save(QDir(snapshots).filePath(
+                name + (scheme == PinloomVisualScheme::Light ? QStringLiteral("-light.png") : QStringLiteral("-dark.png"))));
+        };
+        QVERIFY(snapshot(QStringLiteral("command-result")));
+
+        QVERIFY(panel->showActionsForCurrentResult());
+        QApplication::processEvents();
+        for (int row = 0; row < results->count(); ++row) {
+            QVERIFY(results->item(row)->sizeHint().height() < searchRowHeight);
+        }
+        QVERIFY(results->viewport()->rect().contains(results->visualItemRect(results->item(results->count() - 1))));
+        QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("Rename this Pinloom entry")));
+        QVERIFY(snapshot(QStringLiteral("command-actions")));
+
+        for (int row = 1; row < 10; ++row) {
+            auto extra = entry;
+            extra.resourceId += QString::number(row);
+            extra.name = QStringLiteral("Specification %1 with a long descriptive title").arg(row);
+            entries.append(extra);
+        }
+        panel->setCommandText(QStringLiteral("s"));
+        QApplication::processEvents();
+        QCOMPARE(panel->resultCount(), 10);
+        QVERIFY(panel->preferredWindowHeight() > singleResultHeight);
+        QVERIFY(panel->preferredWindowHeight() <= 430);
+        QVERIFY(results->verticalScrollBar()->maximum() > 0);
+        QVERIFY(panel->rect().contains(footer->geometry()));
+        QVERIFY(panel->selectResultAt(9));
+        results->scrollToItem(results->item(9));
+        QApplication::processEvents();
+        QVERIFY(results->viewport()->rect().contains(results->visualItemRect(results->item(9))));
+        QVERIFY(snapshot(QStringLiteral("command-results-many")));
     }
 }
 
@@ -4993,6 +5161,7 @@ void WidgetSmokeTest::commandPanelActionListExecutesSelectedProviderAction()
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
 
+    QTest::keyClick(commandEdit, Qt::Key_Down);
     QTest::keyClick(commandEdit, Qt::Key_Down);
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(actionIds, QStringList{QStringLiteral("add_alias")});
@@ -5052,8 +5221,8 @@ void WidgetSmokeTest::commandPanelActionListExecutesRemoveWithInjectedConfirmati
     QVERIFY(panel.selectResultAt(0));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QCOMPARE(panel.resultCount(), 4);
-    QVERIFY(panel.selectResultAt(3));
+    QCOMPARE(panel.resultCount(), 5);
+    QVERIFY(panel.selectResultAt(4));
 
     QVERIFY(!panel.activateCurrentCommandItem());
     QCOMPARE(actionIds, QStringList{QStringLiteral("remove")});
@@ -5111,17 +5280,19 @@ void WidgetSmokeTest::commandPanelRestoreCommandUsesDeletedEntrySearchHandler()
     panel.setCommandText(QStringLiteral("restore Deleted"));
     QCOMPARE(capturedQuery, QStringLiteral("Deleted"));
     QCOMPARE(panel.resultCount(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Deleted Clip]")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Deleted Clip"));
+    QVERIFY(results->item(0)->data(Qt::AccessibleTextRole).toString().contains(QStringLiteral("Deleted Clip")));
 
     QVERIFY(!panel.activateCurrentCommandItem());
     QCOMPARE(panel.statusText(), QStringLiteral("Entry is deleted; press Right Arrow and choose Restore"));
 
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QCOMPARE(panel.resultCount(), 7);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("Insert (disabled)")));
-    QVERIFY(results->item(5)->text().contains(QStringLiteral("Restore")));
-    QVERIFY(panel.selectResultAt(5));
+    QCOMPARE(panel.resultCount(), 8);
+    QCOMPARE(results->item(1)->text(), QStringLiteral("Insert"));
+    QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("Restore")));
+    QVERIFY(results->item(6)->text().contains(QStringLiteral("Restore")));
+    QVERIFY(panel.selectResultAt(6));
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(actionIds, QStringList{QStringLiteral("restore")});
     QCOMPARE(panel.statusText(), QStringLiteral("Restored Deleted Clip"));
@@ -5161,7 +5332,7 @@ void WidgetSmokeTest::commandPanelStructuredEntryActionResultReportsDiagnostics(
     panel.setCommandText(QStringLiteral("diagnostic"));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QVERIFY(panel.selectResultAt(1));
+    QVERIFY(panel.selectResultAt(2));
     QVERIFY(!panel.activateCurrentCommandItem());
     QVERIFY(panel.statusText().contains(QStringLiteral("Rename failed")));
     QVERIFY(panel.statusText().contains(QStringLiteral("Diagnostics: repository write lock")));
@@ -5214,7 +5385,7 @@ void WidgetSmokeTest::commandPanelRightArrowPrimaryUsesStructuredEntryCommandHan
     panel.setCommandText(QStringLiteral("primary"));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QVERIFY(panel.selectResultAt(0));
+    QVERIFY(panel.selectResultAt(1));
     QVERIFY(!panel.activateCurrentCommandItem());
 
     QCOMPARE(structuredCalls, 1);
@@ -5424,10 +5595,13 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     file.name = QStringLiteral("File");
     file.resourceId = QStringLiteral("file-resource");
 
-    QCOMPARE(defaultActionsForPinloomEntry(anchor).first().label, QStringLiteral("Jump"));
-    QCOMPARE(defaultActionsForPinloomEntry(clip).first().label, QStringLiteral("Insert"));
-    QCOMPARE(defaultActionsForPinloomEntry(inbox).first().label, QStringLiteral("Open"));
-    QCOMPARE(defaultActionsForPinloomEntry(file).first().label, QStringLiteral("Open"));
+    for (const auto &entry : {anchor, clip, inbox, file}) {
+        QCOMPARE(defaultActionsForPinloomEntry(entry).first().id, QStringLiteral("open_folder"));
+    }
+    QCOMPARE(defaultActionsForPinloomEntry(anchor).at(1).label, QStringLiteral("Jump"));
+    QCOMPARE(defaultActionsForPinloomEntry(clip).at(1).label, QStringLiteral("Insert"));
+    QCOMPARE(defaultActionsForPinloomEntry(inbox).at(1).label, QStringLiteral("Open"));
+    QCOMPARE(defaultActionsForPinloomEntry(file).at(1).label, QStringLiteral("Open"));
     QCOMPARE(defaultActionsForPinloomEntry(anchor).last().id, QStringLiteral("remove"));
     QVERIFY(defaultActionsForPinloomEntry(anchor).last().enabled);
 
@@ -5453,7 +5627,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     QCOMPARE(enrichedClip.aliases, QStringList{QStringLiteral("snippet")});
     QVERIFY(enrichedClip.deleted);
     QVERIFY(defaultActionsForPinloomEntry(enrichedClip).first().disabledReason.contains(QStringLiteral("Restore")));
-    QCOMPARE(defaultActionsForPinloomEntry(enrichedClip).at(5).id, QStringLiteral("restore"));
+    QCOMPARE(defaultActionsForPinloomEntry(enrichedClip).at(6).id, QStringLiteral("restore"));
 
     Resource indexedResource;
     indexedResource.id = QStringLiteral("inbox:file:file-1");
@@ -5474,7 +5648,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     QCOMPARE(enrichedResource.name, QStringLiteral("Inbox File"));
     QCOMPARE(enrichedResource.aliases, QStringList{QStringLiteral("drop")});
     QVERIFY(enrichedResource.pinned);
-    QCOMPARE(defaultActionsForPinloomEntry(enrichedResource).at(4).id, QStringLiteral("unpin"));
+    QCOMPARE(defaultActionsForPinloomEntry(enrichedResource).at(5).id, QStringLiteral("unpin"));
 
     QList<PinloomEntry> actionEntries;
     QStringList actionIds;
@@ -5501,7 +5675,7 @@ void WidgetSmokeTest::entryActionProviderBuildsActionsForUnifiedTypes()
     panel.setCommandText(QStringLiteral("jitter result"));
     QTest::keyClick(commandEdit, Qt::Key_Right);
     QVERIFY(panel.isShowingResultActions());
-    QVERIFY(panel.selectResultAt(5));
+    QVERIFY(panel.selectResultAt(6));
     QVERIFY(panel.activateCurrentCommandItem());
     QCOMPARE(actionIds, QStringList{QStringLiteral("remove")});
     QCOMPARE(static_cast<int>(actionEntries.first().type),

@@ -14,6 +14,7 @@
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
 #include <QDragMoveEvent>
@@ -35,6 +36,7 @@
 #include <QPushButton>
 #include <QSize>
 #include <QStyle>
+#include <QStyledItemDelegate>
 #include <QToolButton>
 #include <QTimer>
 #include <QUrl>
@@ -42,6 +44,10 @@
 #include <algorithm>
 #include <functional>
 #include <utility>
+
+#ifdef PINLOOM_ENABLE_ELA
+#include "ElaIcon.h"
+#endif
 
 static int initializePinloomThemeResources()
 {
@@ -99,8 +105,13 @@ constexpr int ResultActionLabelRole = Qt::UserRole + 161;
 constexpr int ResultActionDetailRole = Qt::UserRole + 162;
 constexpr int ResultActionEnabledRole = Qt::UserRole + 163;
 constexpr int ResultActionDisabledReasonRole = Qt::UserRole + 164;
+constexpr int ResultSubtitleRole = Qt::UserRole + 165;
+constexpr int ResultBadgeRole = Qt::UserRole + 166;
+constexpr int ResultIconRole = Qt::UserRole + 167;
+constexpr int ResultPresentationRole = Qt::UserRole + 168;
 
 constexpr const char *PrimaryResultActionId = "primary";
+constexpr const char *OpenFolderResultActionId = "open_folder";
 
 void installStatusContextMenu(QLabel *label, QWidget *parent, const std::function<QString()> &statusText)
 {
@@ -536,79 +547,69 @@ QString commandTargetVerb(const PinloomOpenTarget &target)
     return QStringLiteral("Open");
 }
 
-QString commandTargetDetails(const PinloomOpenTarget &target)
+QString commandTargetLocalPath(const PinloomOpenTarget &target)
 {
-    QStringList details;
+    // Clip locations contain preview text, not filesystem paths.
+    if (!target.clipId.trimmed().isEmpty()) return {};
+    QString location = target.location.trimmed();
     if (target.anchor.has_value()) {
         const Anchor &anchor = target.anchor.value();
-        if (!anchor.targetApp.trimmed().isEmpty()) {
-            details.append(anchor.targetApp.trimmed());
-        }
-
-        QString targetPath = anchor.targetFile.trimmed();
-        if (targetPath.isEmpty()) {
-            targetPath = anchor.targetUri.trimmed();
-        }
-        if (targetPath.isEmpty()) {
-            targetPath = target.location.trimmed();
-        }
-        if (!targetPath.isEmpty()) {
-            details.append(compactValue(targetPath, 80));
-        }
-
-        const QString locator = commandAnchorLocatorSummary(anchor);
-        if (!locator.isEmpty()) {
-            details.append(locator);
-        }
-        const QString hints = commandAnchorHintsSummary(anchor);
-        if (!hints.isEmpty()) {
-            details.append(hints);
-        }
-    } else {
-        const QString location = compactValue(target.location, 96);
-        if (!location.isEmpty()) {
-            details.append(location);
-        }
+        if (!anchor.targetFile.trimmed().isEmpty()) location = anchor.targetFile.trimmed();
+        else if (!anchor.targetUri.trimmed().isEmpty()) location = anchor.targetUri.trimmed();
     }
-
-    const QString match = target.matchSummary.trimmed().isEmpty()
-        ? target.matchedField.trimmed()
-        : target.matchSummary.trimmed();
-    if (!match.isEmpty()) {
-        details.append(compactValue(match, 80));
-    }
-    if (target.deleted) {
-        details.append(QStringLiteral("deleted in Pinloom; restore before use"));
-    }
-
-    return details.join(QStringLiteral(" | "));
+    const QUrl url(location);
+    if (url.isLocalFile()) location = url.toLocalFile();
+    if (location.isEmpty() || !QFileInfo(location).isAbsolute()) return {};
+    return QDir::cleanPath(QDir::fromNativeSeparators(location));
 }
 
-QString commandTargetText(const PinloomOpenTarget &target)
+PinloomCommandResultAction openFolderAction(const PinloomOpenTarget &target)
 {
-    return QStringLiteral("[%1] %2 -> %3\n%4")
-        .arg(commandTargetKindLabel(target),
-             compactValue(commandTargetTitle(target), 84),
-             commandTargetVerb(target),
-             commandTargetDetails(target));
+    PinloomCommandResultAction action;
+    action.id = QString::fromLatin1(OpenFolderResultActionId);
+    action.label = QObject::tr("Open folder");
+    const QString path = commandTargetLocalPath(target);
+    const QString directory = path.isEmpty() ? QString() : QFileInfo(path).absolutePath();
+    action.detail = directory.isEmpty() ? QObject::tr("Open the containing folder") : directory;
+    action.enabled = !target.deleted && !directory.isEmpty() && QDir(directory).exists();
+    if (!action.enabled) {
+        action.disabledReason = target.deleted
+            ? QObject::tr("Restore this entry before using it")
+            : directory.isEmpty() ? QObject::tr("This entry has no local file")
+                                  : QObject::tr("The containing folder no longer exists");
+    }
+    return action;
+}
+
+QString commandTargetDetails(const PinloomOpenTarget &target)
+{
+    if (!target.clipId.trimmed().isEmpty()) return target.location.simplified();
+    const QString localPath = commandTargetLocalPath(target);
+    if (target.anchor.has_value()) {
+        const QString fileName = localPath.isEmpty() ? target.location : QFileInfo(localPath).fileName();
+        const QString locator = commandAnchorLocatorSummary(*target.anchor);
+        return locator.isEmpty() ? fileName : fileName + QStringLiteral(" · ") + locator;
+    }
+    if (!localPath.isEmpty()) {
+        const QString parent = QFileInfo(localPath).absolutePath();
+        const QStringList components = parent.split(QLatin1Char('/'), Qt::SkipEmptyParts);
+        return components.size() > 2
+            ? components.mid(components.size() - 2).join(QStringLiteral(" / "))
+            : QDir::toNativeSeparators(parent);
+    }
+    return target.location.simplified();
 }
 
 QString commandTargetToolTip(const PinloomOpenTarget &target)
 {
     QStringList lines;
     lines.append(QStringLiteral("%1: %2").arg(commandTargetKindLabel(target), commandTargetTitle(target)));
-    if (!target.resourceId.trimmed().isEmpty()) {
-        lines.append(QStringLiteral("Resource: %1").arg(target.resourceId));
-    }
-    if (!target.clipId.trimmed().isEmpty()) {
-        lines.append(QStringLiteral("Clip: %1").arg(target.clipId));
-    }
-    if (!target.location.trimmed().isEmpty()) {
-        lines.append(QStringLiteral("Location: %1").arg(target.location));
+    const QString localPath = commandTargetLocalPath(target);
+    if (!localPath.isEmpty() || !target.location.trimmed().isEmpty()) {
+        lines.append(localPath.isEmpty() ? target.location : QDir::toNativeSeparators(localPath));
     }
     if (target.anchor.has_value()) {
         const Anchor &anchor = target.anchor.value();
-        lines.append(QStringLiteral("Anchor: %1").arg(anchor.id));
         const QString locator = commandAnchorLocatorSummary(anchor);
         if (!locator.isEmpty()) {
             lines.append(QStringLiteral("Locator: %1").arg(locator));
@@ -617,11 +618,6 @@ QString commandTargetToolTip(const PinloomOpenTarget &target)
         if (!hints.isEmpty()) {
             lines.append(hints);
         }
-    }
-    if (!target.matchSummary.trimmed().isEmpty()) {
-        lines.append(target.matchSummary.trimmed());
-    } else if (!target.matchedField.trimmed().isEmpty()) {
-        lines.append(QStringLiteral("Match: %1").arg(target.matchedField.trimmed()));
     }
     return lines.join(QLatin1Char('\n'));
 }
@@ -773,22 +769,150 @@ PinloomOpenTarget openTargetForCommandItem(const Pinloom::Ui::ListItem *item, in
     return target;
 }
 
-QString commandActionText(const PinloomCommandResultAction &action, const PinloomOpenTarget &target)
+QFont commandSecondaryFont(QFont font)
 {
-    const QString label = action.enabled
-        ? action.label.trimmed()
-        : QStringLiteral("%1 (disabled)").arg(action.label.trimmed());
-    QString detail = action.enabled
-        ? action.detail.trimmed()
-        : action.disabledReason.trimmed();
-    if (detail.isEmpty()) {
-        detail = action.detail.trimmed();
-    }
-    if (detail.isEmpty()) {
-        detail = QStringLiteral("%1 %2").arg(action.label.trimmed(), commandTargetTitle(target));
-    }
-    return QStringLiteral("[Action] %1\n%2").arg(label, detail);
+    if (font.pixelSize() > 0) font.setPixelSize(std::max(10, font.pixelSize() - 1));
+    else font.setPointSizeF(std::max(8.0, font.pointSizeF() - 1.0));
+    font.setWeight(QFont::Normal);
+    return font;
 }
+
+int commandResultRowHeight(const QFont &font, bool action = false)
+{
+    const int titleHeight = QFontMetrics(font).height();
+    return action ? std::max(36, titleHeight + 16)
+                  : std::max(56, titleHeight + QFontMetrics(commandSecondaryFont(font)).height() + 20);
+}
+
+QIcon commandRowIcon(const QString &key, const QColor &color)
+{
+#ifdef PINLOOM_ENABLE_ELA
+    // The bundled Font Awesome Free uses standard Unicode values, while many
+    // of Ela's legacy icon enumerators refer to a different font's glyphs.
+    char32_t glyph = 0xf0c9; // bars
+    if (key == QLatin1String("open_folder")) glyph = 0xf07c;
+    else if (key == QLatin1String("anchor")) glyph = 0xf13d;
+    else if (key == QLatin1String("clip")) glyph = 0xf328;
+    else if (key == QLatin1String("pdf")) glyph = 0xf1c1;
+    else if (key == QLatin1String("file")) glyph = 0xf15b;
+    else if (key == QLatin1String("rename")) glyph = 0xf303;
+    else if (key == QLatin1String("edit_aliases") || key == QLatin1String("add_alias")) glyph = 0xf0c1;
+    else if (key == QLatin1String("edit_tags") || key == QLatin1String("add_tag")) glyph = 0xf02c;
+    else if (key == QLatin1String("pin") || key == QLatin1String("unpin")) glyph = 0xf08d;
+    else if (key == QLatin1String("remove")) glyph = 0xf2ed;
+    else if (key == QLatin1String("restore")) glyph = 0xf2ea;
+    else if (key == QLatin1String("primary") || key == QLatin1String("open_source")) glyph = 0xf08e;
+    return ElaIcon::getInstance()->getElaIcon(static_cast<ElaIconType::IconName>(glyph), 36, 40, 40, color);
+#else
+    Q_UNUSED(color)
+    return QApplication::style()->standardIcon(key == QLatin1String("open_folder")
+        ? QStyle::SP_DirOpenIcon : QStyle::SP_FileIcon);
+#endif
+}
+
+void setCommandRowPresentation(Ui::ListItem *item, const QString &title,
+                               const QString &subtitle, const QString &badge,
+                               const QString &iconKey, bool action = false)
+{
+    item->setText(title.simplified());
+    item->setData(ResultPresentationRole, action ? 2 : 1);
+    item->setData(ResultSubtitleRole, subtitle.simplified());
+    item->setData(ResultBadgeRole, badge);
+    item->setData(ResultIconRole, iconKey);
+    item->setIcon(commandRowIcon(iconKey, pinloomVisualTokens(activePinloomVisualScheme()).mutedText));
+    item->setData(Qt::AccessibleTextRole, badge.isEmpty() ? title : badge + QStringLiteral(": ") + title);
+    item->setData(Qt::AccessibleDescriptionRole, item->toolTip());
+}
+
+class CommandResultDelegate final : public QStyledItemDelegate {
+public:
+    explicit CommandResultDelegate(QObject *parent) : QStyledItemDelegate(parent) {}
+
+    void paint(QPainter *painter, const QStyleOptionViewItem &option,
+               const QModelIndex &index) const override
+    {
+        const int presentation = index.data(ResultPresentationRole).toInt();
+        if (!presentation) {
+            QStyledItemDelegate::paint(painter, option, index);
+            return;
+        }
+        const bool action = presentation == 2;
+        const bool enabled = !action || index.data(ResultActionEnabledRole).toBool();
+        const auto scheme = activePinloomVisualScheme();
+        const auto tokens = pinloomVisualTokens(scheme);
+        const QRect row = option.rect.adjusted(2, 2, -2, -2);
+        painter->save();
+        painter->setClipRect(option.rect);
+        painter->setRenderHint(QPainter::Antialiasing);
+        if (option.state & QStyle::State_Selected) {
+            QColor tint = tokens.accent;
+            tint.setAlpha(scheme == PinloomVisualScheme::Light ? 26 : 48);
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(tokens.panel);
+            painter->drawRoundedRect(row, 6, 6);
+            painter->setBrush(tint);
+            painter->drawRoundedRect(row, 6, 6);
+        } else if (option.state & QStyle::State_MouseOver) {
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(tokens.hoverSurface);
+            painter->drawRoundedRect(row, 6, 6);
+        }
+        if (option.state & QStyle::State_HasFocus) {
+            painter->setPen(QPen(tokens.focus, 1));
+            painter->setBrush(Qt::NoBrush);
+            painter->drawRoundedRect(row.adjusted(1, 1, -1, -1), 5, 5);
+        }
+
+        const QColor titleColor = enabled ? tokens.text : tokens.disabledText;
+        const QColor secondaryColor = enabled ? tokens.mutedText : tokens.disabledText;
+        const QRect iconRect(row.left() + 10, row.center().y() - 10, 20, 20);
+        commandRowIcon(index.data(ResultIconRole).toString(), secondaryColor).paint(painter, iconRect);
+        const int textLeft = iconRect.right() + 12;
+        const int textWidth = std::max(0, row.right() - 12 - textLeft);
+        QFont titleFont = option.font;
+        if (!action) titleFont.setWeight(QFont::DemiBold);
+        const QFontMetrics titleMetrics(titleFont);
+        const QFont detailFont = commandSecondaryFont(option.font);
+        const QFontMetrics detailMetrics(detailFont);
+        const int titleTop = action ? row.top() : row.top() + 7;
+        const int titleHeight = action ? row.height() : titleMetrics.height();
+        int titleWidth = textWidth;
+
+        if (!action) {
+            const QString badge = index.data(ResultBadgeRole).toString();
+            const int badgeWidth = std::min(detailMetrics.horizontalAdvance(badge) + 14,
+                                             std::max(0, (textWidth - 32) / 3));
+            const QRect chevronRect(row.right() - 24, titleTop, 16, titleHeight);
+            painter->setFont(option.font);
+            painter->setPen(secondaryColor);
+            painter->drawText(chevronRect, Qt::AlignCenter, QStringLiteral("›"));
+            if (badgeWidth > 14) {
+                const QRect badgeRect(chevronRect.left() - badgeWidth - 8, titleTop - 1,
+                                      badgeWidth, detailMetrics.height() + 4);
+                painter->setPen(Qt::NoPen);
+                painter->setBrush(tokens.alternateSurface);
+                painter->drawRoundedRect(badgeRect, 4, 4);
+                painter->setFont(detailFont);
+                painter->setPen(secondaryColor);
+                painter->drawText(badgeRect.adjusted(7, 0, -7, 0), Qt::AlignCenter,
+                    detailMetrics.elidedText(badge, Qt::ElideRight, badgeWidth - 14));
+                titleWidth = std::max(0, badgeRect.left() - 12 - textLeft);
+            } else {
+                titleWidth = std::max(0, chevronRect.left() - 8 - textLeft);
+            }
+            const QRect detailRect(textLeft, titleTop + titleHeight + 3, textWidth, detailMetrics.height());
+            painter->setFont(detailFont);
+            painter->setPen(secondaryColor);
+            painter->drawText(detailRect, Qt::AlignLeft | Qt::AlignVCenter,
+                detailMetrics.elidedText(index.data(ResultSubtitleRole).toString(), Qt::ElideMiddle, textWidth));
+        }
+        painter->setFont(titleFont);
+        painter->setPen(titleColor);
+        painter->drawText(QRect(textLeft, titleTop, titleWidth, titleHeight), Qt::AlignLeft | Qt::AlignVCenter,
+            titleMetrics.elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideRight, titleWidth));
+        painter->restore();
+    }
+};
 
 PinloomCommandResultAction resultActionForItem(const Pinloom::Ui::ListItem *item)
 {
@@ -1004,19 +1128,36 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     resultList_->setAccessibleName(tr("Pinloom command and search results"));
     resultList_->setAccessibleDescription(
         tr("Use Up and Down to select, Enter to activate, and Right Arrow for actions."));
-    resultList_->setAlternatingRowColors(true);
+    resultList_->setAlternatingRowColors(false);
     resultList_->setUniformItemSizes(true);
+    resultList_->setFrameShape(QFrame::NoFrame);
+    resultList_->setItemDelegate(new CommandResultDelegate(resultList_));
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
     resultList_->setAcceptDrops(true);
 
-    statusLabel_ = Pinloom::Ui::label(this);
+    footer_ = new QWidget(this);
+    footer_->setObjectName(QStringLiteral("commandFooter"));
+    auto *footerLayout = new QHBoxLayout(footer_);
+    footerLayout->setContentsMargins(10, 0, 10, 0);
+    footerLayout->setSpacing(12);
+    statusLabel_ = Pinloom::Ui::label(footer_);
     statusLabel_->setObjectName(QStringLiteral("commandStatusLabel"));
-    statusLabel_->setProperty("pinloomNotice", QStringLiteral("info"));
     statusLabel_->setAccessibleName(tr("Pinloom command status"));
-    statusLabel_->setWordWrap(true);
+    statusLabel_->setWordWrap(false);
+    statusLabel_->setTextFormat(Qt::PlainText);
+    statusLabel_->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+    statusLabel_->setMinimumWidth(0);
+    statusLabel_->setFont(commandSecondaryFont(font()));
+    statusLabel_->installEventFilter(this);
     installStatusContextMenu(statusLabel_, this, [this]() {
         return statusText_;
     });
+    keyboardHintLabel_ = Pinloom::Ui::label(footer_);
+    keyboardHintLabel_->setObjectName(QStringLiteral("commandKeyboardHint"));
+    keyboardHintLabel_->setFont(commandSecondaryFont(font()));
+    keyboardHintLabel_->setAccessibleName(tr("Keyboard shortcuts"));
+    footerLayout->addWidget(statusLabel_, 1);
+    footerLayout->addWidget(keyboardHintLabel_);
 
     auto *inputRow = new QHBoxLayout;
     inputRow->setContentsMargins(0, 0, 0, 0);
@@ -1048,7 +1189,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     layout->addLayout(inputRow);
     layout->addWidget(quickActionRow_);
     layout->addWidget(resultList_, 1);
-    layout->addWidget(statusLabel_);
+    layout->addWidget(footer_);
 
     commandEdit_->installEventFilter(this);
     resultList_->installEventFilter(this);
@@ -1070,6 +1211,9 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
             &PinloomCommandPanel::triggerPdfTextClipCapture);
     connect(resultList_, &Pinloom::Ui::List::itemActivated, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &Pinloom::Ui::List::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
+    connect(resultList_, &Pinloom::Ui::List::currentItemChanged, this, [this] {
+        updateKeyboardHint();
+    });
 
     QWidget::setTabOrder(commandEdit_, rectangleAnchorButton_);
     QWidget::setTabOrder(rectangleAnchorButton_, textAnchorButton_);
@@ -1326,6 +1470,9 @@ int PinloomCommandPanel::preferredWindowHeight() const
 
 bool PinloomCommandPanel::eventFilter(QObject *watched, QEvent *event)
 {
+    if (watched == statusLabel_ && event->type() == QEvent::Resize) {
+        updateStatusDisplay();
+    }
     if (watched == commandEdit_ || watched == resultList_) {
         if (event->type() == QEvent::DragEnter || event->type() == QEvent::DragMove) {
             return handleInboxDragEnter(event);
@@ -1472,9 +1619,15 @@ void PinloomCommandPanel::refreshResults()
     };
     const auto appendUnifiedResults = [this](const QList<PinloomOpenTarget> &targets) {
         for (const PinloomOpenTarget &target : targets) {
-            auto *item = new Pinloom::Ui::ListItem(commandTargetText(target), resultList_);
+            auto *item = new Pinloom::Ui::ListItem(QString(), resultList_);
             item->setToolTip(commandTargetToolTip(target));
-            item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+            const QString iconKey = !target.clipId.isEmpty() ? QStringLiteral("clip")
+                : target.anchor.has_value() ? QStringLiteral("anchor")
+                : QFileInfo(commandTargetLocalPath(target)).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0
+                    ? QStringLiteral("pdf") : QStringLiteral("file");
+            setCommandRowPresentation(item, commandTargetTitle(target), commandTargetDetails(target),
+                                      commandTargetKindLabel(target), iconKey);
+            item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font())));
             item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenUnifiedTarget));
             storeOpenTarget(item, target);
         }
@@ -1667,7 +1820,7 @@ void PinloomCommandPanel::refreshResults()
             updateStatus(tr("Unified search is not configured"));
         } else {
             updateStatus(resultList_->count() > 0
-                             ? tr("Unified search: %n result(s)", nullptr, resultList_->count())
+                             ? tr("%n result(s)", nullptr, resultList_->count())
                              : tr("No unified results"));
         }
     } else if (command.commandNamespace == CommandNamespace::Clip
@@ -1718,7 +1871,7 @@ void PinloomCommandPanel::refreshResults()
             updateStatus(tr("Unified search is not configured"));
         } else {
             updateStatus(resultList_->count() > 0
-                             ? tr("Inbox search: %n result(s)", nullptr, resultList_->count())
+                             ? tr("%n result(s)", nullptr, resultList_->count())
                              : tr("No Inbox results"));
         }
     } else if (command.commandNamespace == CommandNamespace::Root) {
@@ -1731,7 +1884,7 @@ void PinloomCommandPanel::refreshResults()
             updateStatus(tr("Unified search is not configured"));
         } else {
             updateStatus(resultList_->count() > 0
-                             ? tr("Unified search: %n result(s)", nullptr, resultList_->count())
+                             ? tr("%n result(s)", nullptr, resultList_->count())
                              : tr("No unified results"));
         }
     } else if (command.commandNamespace == CommandNamespace::Library
@@ -1782,7 +1935,6 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
     const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
     const QString accent = themeAccent(theme_, scheme).name(QColor::HexRgb);
     const QString panel = tokens.panel.name(QColor::HexRgb);
-    const QString raised = tokens.raisedSurface.name(QColor::HexRgb);
     const QString alternate = tokens.alternateSurface.name(QColor::HexRgb);
     const QString border = tokens.border.name(QColor::HexRgb);
     const QString text = tokens.text.name(QColor::HexRgb);
@@ -1841,8 +1993,8 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
         "QListView#commandResultList {"
         "  background-color: %3;"
         "  alternate-background-color: %11;"
-        "  border: 1px solid %4;"
-        "  border-radius: 8px;"
+        "  border: none;"
+        "  border-radius: 0;"
         "  color: %2;"
         "  outline: 0;"
         "}"
@@ -1855,12 +2007,12 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
         "  background-color: %12;"
         "  color: %5;"
         "}"
-        "QLabel#commandStatusLabel {"
-        "  background-color: %13;"
-        "  border-left: 3px solid %1;"
-        "  border-radius: 4px;"
-        "  color: %2;"
-        "  padding: 4px 8px;"
+        "QWidget#commandFooter { background: transparent; }"
+        "QLabel#commandStatusLabel, QLabel#commandKeyboardHint {"
+        "  background: transparent;"
+        "  border: none;"
+        "  color: %8;"
+        "  padding: 0;"
         "}"
     ).arg(accent,
           text,
@@ -1873,8 +2025,7 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
           disabledText,
           disabledSurface,
           alternate,
-          selection,
-          raised)));
+          selection)));
     update();
 }
 
@@ -1884,6 +2035,7 @@ void PinloomCommandPanel::updatePresentation()
     const bool showQuickActions = !clipPickerMode_;
     quickActionRow_->setVisible(showQuickActions);
     resultList_->setVisible(!nextCompact);
+    footer_->setVisible(!nextCompact);
     statusLabel_->setVisible(!nextCompact);
 
     auto *boxLayout = static_cast<QVBoxLayout *>(layout());
@@ -1893,22 +2045,22 @@ void PinloomCommandPanel::updatePresentation()
         nextHeight += boxLayout->spacing() + quickActionRow_->sizeHint().height();
     }
     if (!nextCompact) {
-        const int visibleRows = std::min(resultList_->count(), 6);
+        const int statusHeight = std::max(28, statusLabel_->fontMetrics().height() + 8);
+        footer_->setFixedHeight(statusHeight);
+        const int availableListHeight = std::max(1, 430 - nextHeight - boxLayout->spacing() * 2 - statusHeight);
+        const int visibleRows = std::min(resultList_->count(), showingResultActions_ ? 8 : 6);
         int listHeight = resultList_->frameWidth() * 2;
         for (int row = 0; row < visibleRows; ++row) {
             const QSize itemSize = resultList_->item(row)->sizeHint();
-            listHeight += itemSize.isValid()
+            const int rowHeight = itemSize.isValid()
                 ? itemSize.height()
                 : resultList_->fontMetrics().lineSpacing() * 2 + 12;
+            if (row > 0 && listHeight + rowHeight > availableListHeight) break;
+            listHeight += rowHeight;
         }
         listHeight = std::max(listHeight, resultList_->fontMetrics().lineSpacing() * 2 + 14);
+        listHeight = std::min(listHeight, availableListHeight);
         resultList_->setFixedHeight(listHeight);
-
-        const int statusWidth = std::max(320, width() - margins.left() - margins.right());
-        const int measuredStatusHeight = statusLabel_->heightForWidth(statusWidth);
-        const int statusHeight = std::max(statusLabel_->fontMetrics().lineSpacing() + 8,
-                                          measuredStatusHeight > 0 ? measuredStatusHeight : 0);
-        statusLabel_->setFixedHeight(statusHeight);
         nextHeight += boxLayout->spacing() * 2 + listHeight + statusHeight;
     }
 
@@ -1937,13 +2089,39 @@ void PinloomCommandPanel::updatePresentation()
 void PinloomCommandPanel::updateStatus(const QString &status)
 {
     statusText_ = status;
-    statusLabel_->setText(statusText_);
+    updateStatusDisplay();
+    updateKeyboardHint();
     commandEdit_->setToolTip(statusText_);
     if (options_.statusChangedHandler) {
         options_.statusChangedHandler(statusText_);
     }
     emit statusChanged(statusText_);
     updatePresentation();
+}
+
+void PinloomCommandPanel::updateStatusDisplay()
+{
+    statusLabel_->setText(statusLabel_->fontMetrics().elidedText(
+        statusText_.simplified(), Qt::ElideRight, std::max(0, statusLabel_->contentsRect().width())));
+    statusLabel_->setToolTip(statusText_);
+    statusLabel_->setAccessibleDescription(statusText_);
+}
+
+void PinloomCommandPanel::updateKeyboardHint()
+{
+    const auto *item = resultList_->currentItem();
+    if (showingResultActions_) {
+        keyboardHintLabel_->setText(resultActionForItem(item).enabled
+            ? tr("Enter Run · Esc / ← Back") : tr("Unavailable · Esc / ← Back"));
+    } else if (canExpandResultActions(item)) {
+        keyboardHintLabel_->setText(tr("Enter %1 · → Actions").arg(commandTargetVerb(openTargetForCommandItem(item))));
+    } else if (item) {
+        const auto action = rowActionForItem(item);
+        keyboardHintLabel_->setText(action == CommandRowAction::ClipInsert ? tr("Enter Insert")
+            : action == CommandRowAction::ClipSave ? tr("Enter Save") : tr("Enter Open"));
+    } else {
+        keyboardHintLabel_->clear();
+    }
 }
 
 bool PinloomCommandPanel::activateCommandItem(Pinloom::Ui::ListItem *item)
@@ -2111,6 +2289,13 @@ QList<PinloomCommandResultAction> PinloomCommandPanel::actionsForTarget(const Pi
         actions.prepend(primary);
     }
 
+    auto folderAction = std::find_if(actions.begin(), actions.end(), [](const auto &action) {
+        return action.id == QLatin1String(OpenFolderResultActionId);
+    });
+    const auto firstAction = folderAction != actions.end() ? *folderAction : openFolderAction(target);
+    if (folderAction != actions.end()) actions.erase(folderAction);
+    actions.prepend(firstAction);
+
     for (PinloomCommandResultAction &action : actions) {
         action.id = action.id.trimmed();
         action.label = action.label.trimmed();
@@ -2135,18 +2320,19 @@ void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target,
     resultList_->clear();
 
     for (const PinloomCommandResultAction &action : actions) {
-        auto *item = new Pinloom::Ui::ListItem(commandActionText(action, target), resultList_);
-        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
-        item->setToolTip(action.disabledReason.trimmed().isEmpty()
+        auto *item = new Pinloom::Ui::ListItem(QString(), resultList_);
+        item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font(), true)));
+        item->setToolTip(action.enabled || action.disabledReason.trimmed().isEmpty()
                              ? action.detail
                              : action.disabledReason);
         storeResultAction(item, target, action);
+        setCommandRowPresentation(item, action.label, QString(), QString(), action.id, true);
     }
     if (resultList_->count() > 0) {
         resultList_->setCurrentRow(0);
     }
 
-    updateStatus(tr("Actions for %1; Enter runs, Esc/Left returns").arg(commandTargetTitle(target)));
+    updateStatus(tr("Actions for %1").arg(commandTargetTitle(target)));
 }
 
 bool PinloomCommandPanel::activateResultActionFromItem(const Pinloom::Ui::ListItem *item)
@@ -2176,6 +2362,12 @@ bool PinloomCommandPanel::activateResultActionFromItem(const Pinloom::Ui::ListIt
         const QString status = commandActionResultStatus(result, fallback);
         updateStatus(status.trimmed().isEmpty() ? fallback : status.trimmed());
         return result.completed();
+    }
+    if (action.id == QLatin1String(OpenFolderResultActionId)) {
+        QString status;
+        const bool opened = openContainingFolderForPinloomEntry(entryFromOpenTarget(target), &status);
+        updateStatus(status);
+        return opened;
     }
     if (action.id == QLatin1String(PrimaryResultActionId)) {
         return activateUnifiedTarget(target);
@@ -2673,10 +2865,26 @@ PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
     return enriched;
 }
 
+bool openContainingFolderForPinloomEntry(const PinloomEntry &entry, QString *status)
+{
+    const auto action = openFolderAction(openTargetFromEntry(entry));
+    if (!action.enabled) {
+        if (status) *status = action.disabledReason;
+        return false;
+    }
+    const bool opened = QDesktopServices::openUrl(QUrl::fromLocalFile(action.detail));
+    if (status) {
+        *status = opened ? QObject::tr("Opened folder: %1").arg(action.detail)
+                         : QObject::tr("Unable to open folder: %1").arg(action.detail);
+    }
+    return opened;
+}
+
 QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry, bool removeEnabled)
 {
     const PinloomOpenTarget target = openTargetFromEntry(entry);
     QList<PinloomCommandResultAction> actions;
+    actions.append(openFolderAction(target));
     const auto addAction = [&actions](const QString &id,
                                       const QString &label,
                                       const QString &detail,
@@ -2702,7 +2910,7 @@ QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEnt
         && entry.metadata.value(QStringLiteral("clipStorageBackend")).toString()
                == QLatin1String("obsidian")) {
         addAction(QStringLiteral("open_source"),
-                  QStringLiteral("Open source note"),
+                  QStringLiteral("Source note"),
                   QStringLiteral("Open this Saved Clip in Obsidian"));
     }
     addAction(QStringLiteral("rename"),
@@ -2711,12 +2919,12 @@ QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEnt
               !deleted,
               restoreFirstReason);
     addAction(QStringLiteral("edit_aliases"),
-              QStringLiteral("Edit aliases"),
+              QStringLiteral("Aliases"),
               QStringLiteral("Edit aliases for this Pinloom entry"),
               !deleted,
               restoreFirstReason);
     addAction(QStringLiteral("edit_tags"),
-              QStringLiteral("Edit tags"),
+              QStringLiteral("Tags"),
               QStringLiteral("Edit tags for this Pinloom entry"),
               !deleted,
               restoreFirstReason);
@@ -2730,13 +2938,13 @@ QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEnt
                   QStringLiteral("Restore"),
                   QStringLiteral("Restore this entry to ordinary Pinloom search"));
         addAction(QStringLiteral("remove"),
-                  QStringLiteral("Delete / Remove"),
+                  QStringLiteral("Remove"),
                   QStringLiteral("Already deleted in Pinloom"),
                   false,
                   QStringLiteral("This entry is already deleted; use Restore"));
     } else {
         addAction(QStringLiteral("remove"),
-                  QStringLiteral("Delete / Remove"),
+                  QStringLiteral("Remove"),
                   entry.type == PinloomEntryType::SavedClip
                       ? QStringLiteral("Archive this Saved Clip inside Pinloom")
                       : entry.type == PinloomEntryType::Anchor

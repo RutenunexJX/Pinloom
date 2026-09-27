@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.8
+    VERSION 0.4.9
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )

@@ -9,6 +9,18 @@ identities, viewer-independent PDF adapter, annotated-copy PDF highlighting and 
 SumatraPDF is the implemented PDF adapter; an adapter boundary does not imply that every viewer is supported.
 Current usage and build instructions are in [readme.md](readme.md); product boundaries are in [goal.md](goal.md).
 
+## 方向右键菜单与搜索结果布局
+
+已完成本地实现与验证，正式包待统筹发布。
+
+- [x] 将方向右键（→）打开的菜单简化为“图标 + 简短名称”，整理当前混乱的布局。
+- [x] 将该菜单的第一项改为“打开所在文件夹”（Open folder）；无本地文件、目录缺失或已删除条目保留不可用原因。
+- [x] 搜索结果改为图标、名称、简短位置和类型标签组成的两行列表；结果数量与键盘提示合并到单行底栏，按结果数量调整高度并保留滚动。
+
+Release 构建及 12/12 个相关 CTest 组通过；两个新增回归用例在 200% 缩放下另行通过。
+已核对明暗主题的 100%/200% 截图。证据位于 `build/validation/command-layout-20260927`。
+本轮验证使用 offscreen 窗口和临时数据，不包含真实桌面手工操作或正式包部署。
+
 ## Anchorless file metadata clearing — source only
 
 - [x] Add `清除全部 Tag 和 Alias` to the Ela file context menu when all selected

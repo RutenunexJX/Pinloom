@@ -1681,6 +1681,9 @@ int main(int argc, char *argv[])
                                         QString *status) {
         const Pinloom::PinloomOpenTarget target = Pinloom::openTargetFromEntry(entry);
         const QString actionId = action.id.trimmed();
+        if (actionId == QLatin1String("open_folder")) {
+            return Pinloom::openContainingFolderForPinloomEntry(entry, status);
+        }
         if (actionId == QLatin1String("primary")) {
             return activateOpenTarget(target, status);
         }

@@ -137,6 +137,8 @@ private slots:
 
 private:
     void updateStatus(const QString &status);
+    void updateStatusDisplay();
+    void updateKeyboardHint();
     bool activateCommandItem(Pinloom::Ui::ListItem *item);
     bool insertClipFromItem(const Pinloom::Ui::ListItem *item);
     bool activateUnifiedTargetFromItem(const Pinloom::Ui::ListItem *item);
@@ -167,7 +169,9 @@ private:
     QToolButton *textAnchorButton_ = nullptr;
     QToolButton *pdfTextClipButton_ = nullptr;
     Pinloom::Ui::List *resultList_ = nullptr;
+    QWidget *footer_ = nullptr;
     QLabel *statusLabel_ = nullptr;
+    QLabel *keyboardHintLabel_ = nullptr;
     QString statusText_;
     QStringList pendingInboxFiles_;
     bool showingResultActions_ = false;
@@ -187,5 +191,6 @@ PinloomEntry enrichedPinloomEntryForAction(const PinloomEntry &entry,
                                            const std::optional<ResourceUsage> &usage = std::nullopt);
 QList<PinloomCommandResultAction> defaultActionsForPinloomEntry(const PinloomEntry &entry,
                                                                 bool removeEnabled = true);
+bool openContainingFolderForPinloomEntry(const PinloomEntry &entry, QString *status = nullptr);
 
 } // namespace Pinloom
