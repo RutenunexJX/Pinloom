@@ -3558,13 +3558,13 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
 
     QCOMPARE(clipSearchCalls, 0);
     QCOMPARE(results->count(), 4);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("clip;search <query>")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] New Saved Clip -> Open")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("clip;new")));
-    QVERIFY(results->item(2)->text().contains(QStringLiteral("[Command] Clip Library -> Open")));
-    QVERIFY(results->item(2)->text().contains(QStringLiteral("clip;library")));
-    QVERIFY(results->item(3)->text().contains(QStringLiteral("clip;pdf-text")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Clip Search"));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("clip;search <query>")));
+    QCOMPARE(results->item(1)->text(), QStringLiteral("New Saved Clip"));
+    QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("clip;new")));
+    QCOMPARE(results->item(2)->text(), QStringLiteral("Clip Library"));
+    QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("clip;library")));
+    QVERIFY(results->item(3)->toolTip().contains(QStringLiteral("clip;pdf-text")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -4357,11 +4357,11 @@ void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
     panel.setCommandText(QStringLiteral("k"));
 
     QCOMPARE(results->count(), 4);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] New Anchor / Capture Anchor -> Capture")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("anchor;new")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("anchor;rectangle")));
-    QVERIFY(results->item(2)->text().contains(QStringLiteral("anchor;text")));
-    QVERIFY(results->item(3)->text().contains(QStringLiteral("[Command] Anchor Library -> Open")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("New Anchor / Capture Anchor"));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("anchor;new")));
+    QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("anchor;rectangle")));
+    QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("anchor;text")));
+    QCOMPARE(results->item(3)->text(), QStringLiteral("Anchor Library"));
     QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -4439,7 +4439,8 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
         panel.setCommandText(abbreviation);
         QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
         QCOMPARE(results->count(), 1);
-        QVERIFY(results->item(0)->text().contains(QStringLiteral("Anchor Library -> Open")));
+        QCOMPARE(results->item(0)->text(), QStringLiteral("Anchor Library"));
+        QCOMPARE(results->item(0)->data(Qt::AccessibleTextRole).toString(), QStringLiteral("Command: Anchor Library"));
     }
 
     QVERIFY(panel.activateCurrentCommandItem());
@@ -4482,10 +4483,10 @@ void WidgetSmokeTest::commandPanelInboxRootCommandShowsCandidates()
     panel.setCommandText(QStringLiteral("i"));
 
     QCOMPARE(results->count(), 2);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Add Inbox Item -> Open")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("inbox;new")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("[Command] Inbox Search -> Open")));
-    QVERIFY(results->item(1)->text().contains(QStringLiteral("inbox;search <query>")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Add Inbox Item"));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("inbox;new")));
+    QCOMPARE(results->item(1)->text(), QStringLiteral("Inbox Search"));
+    QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("inbox;search <query>")));
     QCOMPARE(panel.statusText(), QStringLiteral("Inbox commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -4574,8 +4575,9 @@ void WidgetSmokeTest::commandPanelInboxNewCommandSavesPendingFile()
 
     QCOMPARE(panel.pendingInboxFiles(), QStringList{filePath});
     QCOMPARE(results->count(), 1);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("Review storage and metadata")));
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("Board Spec.txt")));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Review storage and metadata")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Add Inbox Item"));
+    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("Board Spec.txt")));
     QCOMPARE(panel.statusText(), QStringLiteral("Inbox pending: Board Spec.txt"));
 
     QVERIFY(QMetaObject::invokeMethod(commandEdit, "returnPressed", Qt::DirectConnection));
@@ -4838,7 +4840,7 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
     QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
     QCOMPARE(clipCommandSearchCalls, 0);
     QCOMPARE(results->count(), 4);
-    QVERIFY(results->item(0)->text().contains(QStringLiteral("[Command] Clip Search -> Open")));
+    QCOMPARE(results->item(0)->text(), QStringLiteral("Clip Search"));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 }
 
@@ -5104,10 +5106,48 @@ void WidgetSmokeTest::commandPanelResultRowsStayCompactAcrossThemes()
         QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("Rename this Pinloom entry")));
         QVERIFY(snapshot(QStringLiteral("command-actions")));
 
+        panel->setCommandText(QStringLiteral("an;li"));
+        QApplication::processEvents();
+        QCOMPARE(results->item(0)->text(), QStringLiteral("Anchor Library"));
+        QCOMPARE(results->item(0)->data(Qt::AccessibleTextRole).toString(), QStringLiteral("Command: Anchor Library"));
+        QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("anchor;library")));
+        QVERIFY(snapshot(QStringLiteral("command-badge")));
+        QVERIFY(!panel->showActionsForCurrentResult());
+
+        entry.aliases = {QStringLiteral("RapidIO"), QStringLiteral("SRIO"), QStringLiteral("Serial interconnect specification")};
+        entry.tags = {QStringLiteral("protocol"), QStringLiteral("reference"), QStringLiteral("hardware")};
+        entries = {entry};
+        panel->setCommandText(QStringLiteral("s"));
+        QApplication::processEvents();
+        QCOMPARE(results->item(0)->text(), entry.name);
+        QCOMPARE(panel->currentOpenTarget().resourceId, entry.resourceId);
+        const int metadataRowHeight = results->item(0)->sizeHint().height();
+        QVERIFY(metadataRowHeight > searchRowHeight);
+        QVERIFY(results->viewport()->rect().contains(results->visualItemRect(results->item(0))));
+        for (const auto &value : entry.aliases + entry.tags) {
+            QVERIFY(results->item(0)->toolTip().contains(value));
+            QVERIFY(results->item(0)->data(Qt::AccessibleDescriptionRole).toString().contains(value));
+        }
+        QVERIFY(snapshot(QStringLiteral("command-file-metadata")));
+
+        entries[0].aliases.prepend(QStringLiteral("RapidIO specification with an unusually long alternate name"));
+        entries[0].tags.prepend(QStringLiteral("very-long-protocol-reference-tag"));
+        host.resize(480, host.height());
+        panel->setCommandText(QStringLiteral("s"));
+        QApplication::processEvents();
+        QVERIFY(results->viewport()->rect().contains(results->visualItemRect(results->item(0))));
+        QVERIFY(results->item(0)->toolTip().contains(entries[0].aliases.first()));
+        QVERIFY(snapshot(QStringLiteral("command-file-metadata-narrow")));
+        host.resize(760, host.height());
+        entries = {entry};
         for (int row = 1; row < 10; ++row) {
             auto extra = entry;
             extra.resourceId += QString::number(row);
             extra.name = QStringLiteral("Specification %1 with a long descriptive title").arg(row);
+            if (row % 2) {
+                extra.aliases.clear();
+                extra.tags.clear();
+            }
             entries.append(extra);
         }
         panel->setCommandText(QStringLiteral("s"));
@@ -5117,6 +5157,8 @@ void WidgetSmokeTest::commandPanelResultRowsStayCompactAcrossThemes()
         QVERIFY(panel->preferredWindowHeight() <= 430);
         QVERIFY(results->verticalScrollBar()->maximum() > 0);
         QVERIFY(panel->rect().contains(footer->geometry()));
+        QCOMPARE(results->visualItemRect(results->item(0)).height(), metadataRowHeight);
+        QCOMPARE(results->visualItemRect(results->item(1)).height(), searchRowHeight);
         QVERIFY(panel->selectResultAt(9));
         results->scrollToItem(results->item(9));
         QApplication::processEvents();

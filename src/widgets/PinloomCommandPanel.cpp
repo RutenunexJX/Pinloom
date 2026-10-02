@@ -109,6 +109,10 @@ constexpr int ResultSubtitleRole = Qt::UserRole + 165;
 constexpr int ResultBadgeRole = Qt::UserRole + 166;
 constexpr int ResultIconRole = Qt::UserRole + 167;
 constexpr int ResultPresentationRole = Qt::UserRole + 168;
+constexpr int ResultAliasesRole = Qt::UserRole + 169;
+constexpr int ResultTagsRole = Qt::UserRole + 170;
+
+enum class CommandRowPresentation { SearchResult = 1, Action, Command };
 
 constexpr const char *PrimaryResultActionId = "primary";
 constexpr const char *OpenFolderResultActionId = "open_folder";
@@ -482,27 +486,6 @@ QString commandAnchorLocatorSummary(const Anchor &anchor)
     return {};
 }
 
-QString commandAnchorHintsSummary(const Anchor &anchor)
-{
-    QStringList parts;
-    if (!anchor.tags.isEmpty()) {
-        QStringList tags;
-        for (const QString &tag : anchor.tags) {
-            const QString trimmed = tag.trimmed();
-            if (!trimmed.isEmpty()) {
-                tags.append(QStringLiteral("#%1").arg(trimmed));
-            }
-        }
-        if (!tags.isEmpty()) {
-            parts.append(tags.join(QLatin1Char(' ')));
-        }
-    }
-    if (!anchor.aliases.isEmpty()) {
-        parts.append(QStringLiteral("aliases: %1").arg(compactValue(anchor.aliases.join(QStringLiteral(", ")), 64)));
-    }
-    return parts.join(QStringLiteral(" | "));
-}
-
 QString commandTargetTitle(const PinloomOpenTarget &target)
 {
     if (target.anchor.has_value()) {
@@ -613,10 +596,6 @@ QString commandTargetToolTip(const PinloomOpenTarget &target)
         const QString locator = commandAnchorLocatorSummary(anchor);
         if (!locator.isEmpty()) {
             lines.append(QStringLiteral("Locator: %1").arg(locator));
-        }
-        const QString hints = commandAnchorHintsSummary(anchor);
-        if (!hints.isEmpty()) {
-            lines.append(hints);
         }
     }
     return lines.join(QLatin1Char('\n'));
@@ -777,11 +756,14 @@ QFont commandSecondaryFont(QFont font)
     return font;
 }
 
-int commandResultRowHeight(const QFont &font, bool action = false)
+int commandResultRowHeight(const QFont &font,
+                           CommandRowPresentation presentation = CommandRowPresentation::SearchResult,
+                           bool hasMetadata = false)
 {
     const int titleHeight = QFontMetrics(font).height();
-    return action ? std::max(36, titleHeight + 16)
-                  : std::max(56, titleHeight + QFontMetrics(commandSecondaryFont(font)).height() + 20);
+    const int detailHeight = QFontMetrics(commandSecondaryFont(font)).height();
+    return presentation == CommandRowPresentation::Action ? std::max(36, titleHeight + 16)
+        : std::max(56, titleHeight + detailHeight + 20) + (hasMetadata ? detailHeight + 10 : 0);
 }
 
 QIcon commandRowIcon(const QString &key, const QColor &color)
@@ -812,16 +794,84 @@ QIcon commandRowIcon(const QString &key, const QColor &color)
 
 void setCommandRowPresentation(Ui::ListItem *item, const QString &title,
                                const QString &subtitle, const QString &badge,
-                               const QString &iconKey, bool action = false)
+                               const QString &iconKey,
+                               CommandRowPresentation presentation = CommandRowPresentation::SearchResult)
 {
     item->setText(title.simplified());
-    item->setData(ResultPresentationRole, action ? 2 : 1);
+    item->setData(ResultPresentationRole, static_cast<int>(presentation));
     item->setData(ResultSubtitleRole, subtitle.simplified());
     item->setData(ResultBadgeRole, badge);
     item->setData(ResultIconRole, iconKey);
     item->setIcon(commandRowIcon(iconKey, pinloomVisualTokens(activePinloomVisualScheme()).mutedText));
     item->setData(Qt::AccessibleTextRole, badge.isEmpty() ? title : badge + QStringLiteral(": ") + title);
     item->setData(Qt::AccessibleDescriptionRole, item->toolTip());
+}
+
+QStringList commandMetadataValues(const QStringList &values)
+{
+    QStringList result;
+    for (const QString &value : values) {
+        const QString trimmed = value.trimmed();
+        if (!trimmed.isEmpty() && !result.contains(trimmed)) result.append(trimmed);
+    }
+    return result;
+}
+
+// Keep metadata on its own line. Show at most two chips per group, with a
+// count for hidden values; the row tooltip retains every alias and tag.
+int commandMetadataWidth(const QString &label, const QStringList &values, const QFontMetrics &metrics)
+{
+    if (values.isEmpty()) return 0;
+    int width = metrics.horizontalAdvance(label) + 8;
+    for (int i = 0; i < std::min(2, int(values.size())); ++i) {
+        width += metrics.horizontalAdvance(values.at(i).simplified()) + 14 + (i ? 6 : 0);
+    }
+    if (values.size() > 2) width += metrics.horizontalAdvance(QStringLiteral("+%1").arg(values.size() - 2)) + 8;
+    return width;
+}
+
+void paintCommandMetadata(QPainter *painter, const QRect &rect, const QString &label,
+                          const QStringList &values, const QFontMetrics &metrics,
+                          const PinloomVisualTokens &tokens)
+{
+    if (values.isEmpty() || rect.width() <= 0) return;
+    painter->save();
+    painter->setClipRect(rect, Qt::IntersectClip);
+    painter->setPen(tokens.mutedText);
+    const int labelWidth = metrics.horizontalAdvance(label);
+    painter->drawText(QRect(rect.left(), rect.top(), labelWidth, rect.height()), Qt::AlignVCenter, label);
+    int left = rect.left() + labelWidth + 8;
+    int shown = std::min(2, int(values.size()));
+    const auto overflowText = [&](int count) {
+        return count < values.size() ? QStringLiteral("+%1").arg(values.size() - count) : QString();
+    };
+    const int available = std::max(0, rect.right() + 1 - left);
+    const int fullWidth = commandMetadataWidth(label, values, metrics) - labelWidth - 8;
+    if (fullWidth > available) shown = 1;
+    const QString overflow = overflowText(shown);
+    const int reserved = overflow.isEmpty() ? 0 : metrics.horizontalAdvance(overflow) + 8;
+    int remaining = std::max(0, available - reserved);
+    for (int i = 0; i < shown; ++i) {
+        const QString value = values.at(i).simplified();
+        const int width = std::min(metrics.horizontalAdvance(value) + 14, remaining);
+        if (width > 14) {
+            const QRect chip(left, rect.top(), width, rect.height());
+            painter->setPen(Qt::NoPen);
+            painter->setBrush(tokens.alternateSurface);
+            painter->drawRoundedRect(chip, 4, 4);
+            painter->setPen(tokens.text);
+            painter->drawText(chip.adjusted(7, 0, -7, 0), Qt::AlignVCenter,
+                metrics.elidedText(value, Qt::ElideRight, width - 14));
+        }
+        left += width + 6;
+        remaining = std::max(0, remaining - width - 6);
+    }
+    if (!overflow.isEmpty()) {
+        painter->setPen(tokens.mutedText);
+        painter->drawText(QRect(left + 2, rect.top(), std::max(0, rect.right() - left - 1), rect.height()),
+                          Qt::AlignVCenter, overflow);
+    }
+    painter->restore();
 }
 
 class CommandResultDelegate final : public QStyledItemDelegate {
@@ -831,12 +881,12 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
-        const int presentation = index.data(ResultPresentationRole).toInt();
-        if (!presentation) {
+        if (!index.data(ResultPresentationRole).isValid()) {
             QStyledItemDelegate::paint(painter, option, index);
             return;
         }
-        const bool action = presentation == 2;
+        const auto presentation = static_cast<CommandRowPresentation>(index.data(ResultPresentationRole).toInt());
+        const bool action = presentation == CommandRowPresentation::Action;
         const bool enabled = !action || index.data(ResultActionEnabledRole).toBool();
         const auto scheme = activePinloomVisualScheme();
         const auto tokens = pinloomVisualTokens(scheme);
@@ -865,10 +915,6 @@ public:
 
         const QColor titleColor = enabled ? tokens.text : tokens.disabledText;
         const QColor secondaryColor = enabled ? tokens.mutedText : tokens.disabledText;
-        const QRect iconRect(row.left() + 10, row.center().y() - 10, 20, 20);
-        commandRowIcon(index.data(ResultIconRole).toString(), secondaryColor).paint(painter, iconRect);
-        const int textLeft = iconRect.right() + 12;
-        const int textWidth = std::max(0, row.right() - 12 - textLeft);
         QFont titleFont = option.font;
         if (!action) titleFont.setWeight(QFont::DemiBold);
         const QFontMetrics titleMetrics(titleFont);
@@ -876,18 +922,26 @@ public:
         const QFontMetrics detailMetrics(detailFont);
         const int titleTop = action ? row.top() : row.top() + 7;
         const int titleHeight = action ? row.height() : titleMetrics.height();
+        const QRect iconRect(row.left() + 10, titleTop + titleHeight / 2 - 10, 20, 20);
+        commandRowIcon(index.data(ResultIconRole).toString(), secondaryColor).paint(painter, iconRect);
+        const int textLeft = iconRect.right() + 12;
+        const int textWidth = std::max(0, row.right() - 12 - textLeft);
         int titleWidth = textWidth;
 
         if (!action) {
             const QString badge = index.data(ResultBadgeRole).toString();
             const int badgeWidth = std::min(detailMetrics.horizontalAdvance(badge) + 14,
                                              std::max(0, (textWidth - 32) / 3));
-            const QRect chevronRect(row.right() - 24, titleTop, 16, titleHeight);
-            painter->setFont(option.font);
-            painter->setPen(secondaryColor);
-            painter->drawText(chevronRect, Qt::AlignCenter, QStringLiteral("›"));
+            int badgeRight = textLeft + textWidth;
+            if (presentation == CommandRowPresentation::SearchResult) {
+                const QRect chevronRect(row.right() - 24, titleTop, 16, titleHeight);
+                painter->setFont(option.font);
+                painter->setPen(secondaryColor);
+                painter->drawText(chevronRect, Qt::AlignCenter, QStringLiteral("›"));
+                badgeRight = chevronRect.left() - 8;
+            }
             if (badgeWidth > 14) {
-                const QRect badgeRect(chevronRect.left() - badgeWidth - 8, titleTop - 1,
+                const QRect badgeRect(badgeRight - badgeWidth, titleTop - 1,
                                       badgeWidth, detailMetrics.height() + 4);
                 painter->setPen(Qt::NoPen);
                 painter->setBrush(tokens.alternateSurface);
@@ -898,13 +952,32 @@ public:
                     detailMetrics.elidedText(badge, Qt::ElideRight, badgeWidth - 14));
                 titleWidth = std::max(0, badgeRect.left() - 12 - textLeft);
             } else {
-                titleWidth = std::max(0, chevronRect.left() - 8 - textLeft);
+                titleWidth = std::max(0, badgeRight - textLeft);
             }
             const QRect detailRect(textLeft, titleTop + titleHeight + 3, textWidth, detailMetrics.height());
             painter->setFont(detailFont);
             painter->setPen(secondaryColor);
             painter->drawText(detailRect, Qt::AlignLeft | Qt::AlignVCenter,
                 detailMetrics.elidedText(index.data(ResultSubtitleRole).toString(), Qt::ElideMiddle, textWidth));
+
+            const auto aliases = index.data(ResultAliasesRole).toStringList();
+            const auto tags = index.data(ResultTagsRole).toStringList();
+            const QString aliasLabel = QObject::tr("Alias");
+            const QString tagLabel = QObject::tr("Tags");
+            int aliasWidth = commandMetadataWidth(aliasLabel, aliases, detailMetrics);
+            int tagWidth = commandMetadataWidth(tagLabel, tags, detailMetrics);
+            const int gap = aliases.isEmpty() || tags.isEmpty() ? 0 : 18;
+            const int metadataWidth = std::max(0, textWidth - gap);
+            if (aliasWidth + tagWidth > metadataWidth) {
+                const int halfWidth = metadataWidth / 2;
+                aliasWidth = std::min(aliasWidth, std::max(halfWidth, metadataWidth - tagWidth));
+                tagWidth = std::min(tagWidth, metadataWidth - aliasWidth);
+            }
+            const int metadataTop = detailRect.bottom() + 6;
+            paintCommandMetadata(painter, QRect(textLeft, metadataTop, aliasWidth, detailMetrics.height() + 4),
+                                 aliasLabel, aliases, detailMetrics, tokens);
+            paintCommandMetadata(painter, QRect(textLeft + aliasWidth + gap, metadataTop, tagWidth, detailMetrics.height() + 4),
+                                 tagLabel, tags, detailMetrics, tokens);
         }
         painter->setFont(titleFont);
         painter->setPen(titleColor);
@@ -1129,7 +1202,7 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     resultList_->setAccessibleDescription(
         tr("Use Up and Down to select, Enter to activate, and Right Arrow for actions."));
     resultList_->setAlternatingRowColors(false);
-    resultList_->setUniformItemSizes(true);
+    resultList_->setUniformItemSizes(false);
     resultList_->setFrameShape(QFrame::NoFrame);
     resultList_->setItemDelegate(new CommandResultDelegate(resultList_));
     resultList_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
@@ -1591,9 +1664,15 @@ void PinloomCommandPanel::refreshResults()
                                             const QString &title,
                                             const QString &verb,
                                             const QString &detail) {
-        auto *item = new Pinloom::Ui::ListItem(QStringLiteral("[Command] %1 -> %2\n%3").arg(title, verb, detail),
-                                         resultList_);
-        item->setSizeHint(QSize(0, resultList_->fontMetrics().lineSpacing() * 2 + 12));
+        auto *item = new Pinloom::Ui::ListItem(QString(), resultList_);
+        QString summary = detail;
+        const int separator = detail.indexOf(QStringLiteral(" - "));
+        if (detail.startsWith(nextCommandText) && separator >= 0) summary = detail.mid(separator + 3);
+        if (!summary.isEmpty()) summary[0] = summary.at(0).toUpper();
+        item->setToolTip(tr("Command: %1\n%2\nEnter %3").arg(title, detail, verb));
+        setCommandRowPresentation(item, title, summary, tr("Command"), QStringLiteral("command"),
+                                  CommandRowPresentation::Command);
+        item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font(), CommandRowPresentation::Command)));
         item->setData(CommandActionRole, static_cast<int>(action));
         item->setData(CommandSearchTextRole, nextCommandText);
         item->setData(CommandIdRole,
@@ -1617,29 +1696,29 @@ void PinloomCommandPanel::refreshResults()
             storeClipResult(item, result);
         }
     };
-    const auto appendUnifiedResults = [this](const QList<PinloomOpenTarget> &targets) {
-        for (const PinloomOpenTarget &target : targets) {
+    const auto appendUnifiedEntries = [this](const QList<PinloomEntry> &entries) {
+        for (const PinloomEntry &entry : sortedPinloomEntries(entries)) {
+            const PinloomOpenTarget target = openTargetFromEntry(entry);
             auto *item = new Pinloom::Ui::ListItem(QString(), resultList_);
-            item->setToolTip(commandTargetToolTip(target));
+            const QStringList aliases = commandMetadataValues(entry.aliases);
+            const QStringList tags = commandMetadataValues(entry.tags);
+            QString toolTip = commandTargetToolTip(target);
+            if (!aliases.isEmpty()) toolTip += tr("\nAliases: %1").arg(aliases.join(QStringLiteral(", ")));
+            if (!tags.isEmpty()) toolTip += tr("\nTags: #%1").arg(tags.join(QStringLiteral(" #")));
+            item->setToolTip(toolTip);
             const QString iconKey = !target.clipId.isEmpty() ? QStringLiteral("clip")
                 : target.anchor.has_value() ? QStringLiteral("anchor")
                 : QFileInfo(commandTargetLocalPath(target)).suffix().compare(QLatin1String("pdf"), Qt::CaseInsensitive) == 0
                     ? QStringLiteral("pdf") : QStringLiteral("file");
             setCommandRowPresentation(item, commandTargetTitle(target), commandTargetDetails(target),
                                       commandTargetKindLabel(target), iconKey);
-            item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font())));
+            item->setData(ResultAliasesRole, aliases);
+            item->setData(ResultTagsRole, tags);
+            item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font(),
+                CommandRowPresentation::SearchResult, !aliases.isEmpty() || !tags.isEmpty())));
             item->setData(CommandActionRole, static_cast<int>(CommandRowAction::OpenUnifiedTarget));
             storeOpenTarget(item, target);
         }
-    };
-    const auto appendUnifiedEntries = [&appendUnifiedResults](const QList<PinloomEntry> &entries) {
-        QList<PinloomOpenTarget> targets;
-        const QList<PinloomEntry> sortedEntries = sortedPinloomEntries(entries);
-        targets.reserve(sortedEntries.size());
-        for (const PinloomEntry &entry : sortedEntries) {
-            targets.append(openTargetFromEntry(entry));
-        }
-        appendUnifiedResults(targets);
     };
     const auto appendNamespaceCommands =
         [&appendCommandResult](CommandNamespace commandNamespace) {
@@ -2321,12 +2400,12 @@ void PinloomCommandPanel::populateActionResults(const PinloomOpenTarget &target,
 
     for (const PinloomCommandResultAction &action : actions) {
         auto *item = new Pinloom::Ui::ListItem(QString(), resultList_);
-        item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font(), true)));
+        item->setSizeHint(QSize(0, commandResultRowHeight(resultList_->font(), CommandRowPresentation::Action)));
         item->setToolTip(action.enabled || action.disabledReason.trimmed().isEmpty()
                              ? action.detail
                              : action.disabledReason);
         storeResultAction(item, target, action);
-        setCommandRowPresentation(item, action.label, QString(), QString(), action.id, true);
+        setCommandRowPresentation(item, action.label, QString(), QString(), action.id, CommandRowPresentation::Action);
     }
     if (resultList_->count() > 0) {
         resultList_->setCurrentRow(0);

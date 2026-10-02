@@ -1,6 +1,6 @@
 # Pinloom Plan
 
-Current version: `0.4.7`. Schema version: `16`.
+Current version: `0.4.10`. Schema version: `16`.
 
 ## Current baseline
 
@@ -9,9 +9,19 @@ identities, viewer-independent PDF adapter, annotated-copy PDF highlighting and 
 SumatraPDF is the implemented PDF adapter; an adapter boundary does not imply that every viewer is supported.
 Current usage and build instructions are in [readme.md](readme.md); product boundaries are in [goal.md](goal.md).
 
+## Command 标识与文件元信息 — 0.4.10
+
+- 命令结果改为名称、简短说明与右侧 Command 标识；完整命令语法放入悬停提示。
+- 文件结果将名称、位置和 Alias/Tags 分层；每组最多显示两个值，超出显示数量，悬停保留完整元信息。
+- 无元信息的条目保持两行；混合行高、长值、窄窗口与明暗主题的 100%/200% 离屏检查通过。
+- 本地 Release 构建通过，控件回归 123 项通过，2 项依赖真实 PDF 的集成探针按条件跳过；主题检查通过。
+
+用户已授权提交、push 与正式包替换。发布使用干净源码构建，暂存包通过运行时检查后备份并替换正式 Pinloom 目录，同步该组件的版本与校验记录。
+发布证据保存在 `build/validation/release-0.4.10`；布局验证见 `build/validation/command-metadata-20261002`。
+
 ## 方向右键菜单与搜索结果布局
 
-已完成本地实现与验证，正式包待统筹发布。
+已随 0.4.9 发布。
 
 - [x] 将方向右键（→）打开的菜单简化为“图标 + 简短名称”，整理当前混乱的布局。
 - [x] 将该菜单的第一项改为“打开所在文件夹”（Open folder）；无本地文件、目录缺失或已删除条目保留不可用原因。

@@ -1,6 +1,6 @@
 # Pinloom
 
-Current version: `0.4.9`; database Schema: `16`.
+Current version: `0.4.10`; database Schema: `16`.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -219,9 +219,13 @@ session and constrained to the screen's available area. Ela builds use an
 Ela rounded surface with transparent outer corners and Ela tool buttons.
 The version remains in the title bar, not beside Navigate. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
-file/resource results. Unified results use two compact lines: an icon and name,
-a short location or preview, and a separate Anchor/Clip/Inbox/File badge. Hover
-shows the full location. A single footer shows the result count and contextual
+file/resource results. Unified results show an icon and name, a short location
+or preview, and a separate Anchor/Clip/Inbox/File badge on the right. When aliases
+or tags exist, a third line shows separate Alias and Tags chip groups. Each group
+shows up to two values and a count for overflow; hover reveals the full location
+and all metadata. Command rows show a short title, a purpose description, and a
+right-aligned Command badge; command syntax is available on hover.
+A single footer shows the result count and contextual
 keyboard shortcuts. Enter jumps Anchors, inserts Saved Clips into the current
 foreground app, and opens Inbox/File results with the default app.
 With a unified result selected, press Right Arrow (`->`) to open its compact
