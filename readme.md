@@ -1,6 +1,10 @@
 # Pinloom
 
-Current version: `0.4.10`; database Schema: `16`.
+Current version: `0.4.11`; database Schema: `16`.
+
+Release 0.4.11 reuses repository candidate data within a request and indexes
+clip result associations, reducing repeated query and refresh work while
+preserving pending edits and existing library behavior.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 

@@ -39,6 +39,8 @@ private slots:
     void ranksAnchorAndFilenameMatchesBeforePathNoise();
     void ranksExactMatchesWithinMatchType();
     void tracksUsageAndRanksRecallSignals();
+    void searchHydratesEachResourceOncePerQuery();
+    void searchObservesChangesBetweenQueries();
     void softDeletesAndRestoresResourcesAndAnchors();
     void persistsAnchorLibraryManagementOperations();
     void appliesAtomicBatchesAndCoalescesNotifications();
@@ -735,6 +737,228 @@ void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
     QVERIFY(preservedUsage.has_value());
     QCOMPARE(preservedUsage->openCount, 2);
     QVERIFY(preservedUsage->pinned);
+}
+
+static void compareSearchAnchor(const Anchor &actual, const Anchor &expected)
+{
+    QCOMPARE(actual.id, expected.id);
+    QCOMPARE(actual.name, expected.name);
+    QCOMPARE(actual.targetApp, expected.targetApp);
+    QCOMPARE(actual.targetFile, expected.targetFile);
+    QCOMPARE(actual.targetUri, expected.targetUri);
+    QCOMPARE(actual.locatorType, expected.locatorType);
+    QCOMPARE(actual.locatorJson, expected.locatorJson);
+    QCOMPARE(actual.aliases, expected.aliases);
+    QCOMPARE(actual.tags, expected.tags);
+    QCOMPARE(actual.pinned, expected.pinned);
+    QCOMPARE(actual.deleted, expected.deleted);
+    QCOMPARE(actual.createdAt, expected.createdAt);
+    QCOMPARE(actual.updatedAt, expected.updatedAt);
+    QCOMPARE(actual.usedAt, expected.usedAt);
+}
+
+static void compareSearchResource(const Resource &actual, const Resource &expected)
+{
+    QCOMPARE(actual.id, expected.id);
+    QCOMPARE(actual.kind, expected.kind);
+    QCOMPARE(actual.title, expected.title);
+    QCOMPARE(actual.location, expected.location);
+    QCOMPARE(actual.aliases, expected.aliases);
+    QCOMPARE(actual.tags, expected.tags);
+    QCOMPARE(actual.explicitlyRetained, expected.explicitlyRetained);
+    QCOMPARE(actual.deleted, expected.deleted);
+    QCOMPARE(actual.updatedAt, expected.updatedAt);
+    QCOMPARE(actual.anchors.size(), expected.anchors.size());
+    for (qsizetype i = 0; i < actual.anchors.size(); ++i) {
+        compareSearchAnchor(actual.anchors.at(i), expected.anchors.at(i));
+    }
+}
+
+void SqliteRepositoryTest::searchHydratesEachResourceOncePerQuery()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteLibraryRepository repository;
+    QVERIFY(repository.open(dir.filePath(QStringLiteral("search.sqlite3"))));
+    QVERIFY(repository.initialize());
+    const QDateTime timestamp = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    QHash<QString, Resource> stored;
+    for (int i = 0; i < 2; ++i) {
+        Resource resource;
+        resource.id = QStringLiteral("resource-%1").arg(i);
+        resource.kind = ResourceKind::File;
+        resource.title = QStringLiteral("Needle document %1").arg(i);
+        resource.location = QStringLiteral("E:/fixtures/document-%1.txt").arg(i);
+        resource.aliases = {QStringLiteral("document-alias-%1").arg(i)};
+        resource.tags = {QStringLiteral("shared-tag"), QStringLiteral("tag-%1").arg(i)};
+        resource.content = QStringLiteral("Needle resource content %1").arg(i);
+        resource.explicitlyRetained = true;
+        resource.updatedAt = timestamp;
+        for (int j = 0; j < 4; ++j) {
+            Anchor anchor = testAnchor(QStringLiteral("Needle point %1 %2").arg(i).arg(j),
+                                       QStringLiteral("file.line"), j + 1);
+            anchor.id = QStringLiteral("anchor-%1-%2").arg(i).arg(j);
+            anchor.aliases = {QStringLiteral("point-alias-%1-%2").arg(i).arg(j)};
+            anchor.tags = {QStringLiteral("point-tag-%1").arg(j)};
+            anchor.targetApp = QStringLiteral("editor");
+            anchor.targetFile = resource.location;
+            anchor.createdAt = timestamp;
+            anchor.updatedAt = timestamp;
+            anchor.pinned = j == 0;
+            resource.anchors.append(anchor);
+        }
+        QVERIFY2(repository.upsertResource(resource), qPrintable(repository.lastError()));
+        // Exercise positive and missing usage rows in the same query.
+        if (i == 1) {
+            QVERIFY(repository.recordResourceOpen(resource.id));
+            QVERIFY(repository.recordAnchorOpen(resource.id, resource.anchors.first()));
+        }
+        stored.insert(resource.id, repository.findResource(resource.id).value());
+    }
+
+    SearchQuery query{QStringLiteral("Needle")};
+    query.limit = -1;
+    SqliteSearchReadCounts reads{999, 999, 999};
+    const QList<SearchResult> results = repository.search(query, &reads);
+    QCOMPARE(results.size(), 10);
+    QCOMPARE(reads.resourceHydrations, 2);
+    QCOMPARE(reads.resourceUsageReads, 2);
+    QCOMPARE(reads.anchorUsageReads, 8);
+    int resourceResults = 0;
+    int anchorResults = 0;
+    for (const SearchResult &result : results) {
+        const Resource expected = stored.value(result.resource.id);
+        QVERIFY(!expected.id.isEmpty());
+        compareSearchResource(result.resource, expected);
+        if (result.matchedAnchor) {
+            ++anchorResults;
+            QCOMPARE(result.matchedField, QStringLiteral("anchor_name"));
+            // FTS resource content must not contaminate the shared anchor snapshot.
+            QVERIFY(result.resource.content.isEmpty());
+            const auto anchor = std::find_if(expected.anchors.cbegin(), expected.anchors.cend(),
+                                            [&](const Anchor &value) { return value.id == result.matchedAnchor->id; });
+            QVERIFY(anchor != expected.anchors.cend());
+            compareSearchAnchor(*result.matchedAnchor, *anchor);
+        } else {
+            ++resourceResults;
+            QCOMPARE(result.matchedField, QStringLiteral("title"));
+            QCOMPARE(result.resource.content,
+                     QStringLiteral("Needle resource content %1").arg(result.resource.id.right(1)));
+        }
+    }
+    QCOMPARE(resourceResults, 2);
+    QCOMPARE(anchorResults, 8);
+
+    query.limit = 3;
+    const QList<SearchResult> limited = repository.search(query, &reads);
+    QCOMPARE(limited.size(), 3);
+    // Counters reset each call, and truncation still follows ranking.
+    QCOMPARE(reads.resourceHydrations, 2);
+    QCOMPARE(reads.resourceUsageReads, 2);
+    QCOMPARE(reads.anchorUsageReads, 8);
+    for (int i = 0; i < limited.size(); ++i) {
+        QCOMPARE(limited.at(i).resource.id, results.at(i).resource.id);
+        QCOMPARE(limited.at(i).matchedField, results.at(i).matchedField);
+        QCOMPARE(limited.at(i).score, results.at(i).score);
+        QVERIFY(limited.at(i).matchedAnchor.has_value());
+        QVERIFY(results.at(i).matchedAnchor.has_value());
+        QCOMPARE(limited.at(i).matchedAnchor->id, results.at(i).matchedAnchor->id);
+    }
+}
+
+void SqliteRepositoryTest::searchObservesChangesBetweenQueries()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteLibraryRepository repository;
+    QVERIFY(repository.open(dir.filePath(QStringLiteral("fresh.sqlite3"))));
+    QVERIFY(repository.initialize());
+    Resource resource;
+    resource.id = QStringLiteral("fresh-resource");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("Needle document");
+    resource.location = QStringLiteral("E:/fixtures/fresh.txt");
+    Anchor anchor = testAnchor(QStringLiteral("Needle point"), QStringLiteral("file.line"), 7);
+    anchor.id = QStringLiteral("fresh-anchor");
+    resource.anchors = {anchor};
+    QVERIFY(repository.upsertResource(resource));
+    SearchQuery query{QStringLiteral("Needle")};
+    SqliteSearchReadCounts reads;
+    const auto initial = repository.search(query, &reads);
+    QCOMPARE(initial.size(), 2);
+    QCOMPARE(reads.resourceHydrations, 1);
+    QVERIFY(initial.first().matchedAnchor.has_value());
+    const double originalAnchorScore = initial.first().score;
+    QVERIFY(repository.setResourcePinned(resource.id, true));
+    const auto pinned = repository.search(query, &reads);
+    QCOMPARE(pinned.size(), 2);
+    QCOMPARE(reads.resourceUsageReads, 1);
+    QVERIFY(pinned.first().score < originalAnchorScore);
+    QVERIFY(repository.setResourcePinned(resource.id, false));
+    const auto unpinned = repository.search(query, &reads);
+    QCOMPARE(unpinned.size(), 2);
+    QCOMPARE(unpinned.first().score, originalAnchorScore);
+    QVERIFY(repository.recordResourceOpen(resource.id));
+    const auto opened = repository.search(query, &reads);
+    QCOMPARE(opened.size(), 2);
+    QVERIFY(opened.first().score < unpinned.first().score);
+    QVERIFY(repository.recordAnchorOpen(resource.id, anchor));
+    const auto anchorOpened = repository.search(query, &reads);
+    QCOMPARE(anchorOpened.size(), 2);
+    QVERIFY(anchorOpened.first().score < opened.first().score);
+    QVERIFY(anchorOpened.first().matchedAnchor.has_value());
+    QVERIFY(anchorOpened.first().matchedAnchor->usedAt.isValid());
+    QCOMPARE(reads.resourceHydrations, 1);
+    QCOMPARE(reads.anchorUsageReads, 1);
+
+    resource = repository.findResource(resource.id).value();
+    resource.title = QStringLiteral("Needle revised document");
+    resource.aliases = {QStringLiteral("fresh-alias")};
+    resource.tags = {QStringLiteral("fresh-tag")};
+    resource.anchors[0].name = QStringLiteral("Needle revised point");
+    resource.anchors[0].aliases = {QStringLiteral("fresh-point-alias")};
+    resource.anchors[0].tags = {QStringLiteral("fresh-point-tag")};
+    resource.anchors[0].pinned = true;
+    QVERIFY(repository.upsertResource(resource));
+    const Resource edited = repository.findResource(resource.id).value();
+    const auto afterEdit = repository.search(query, &reads);
+    QCOMPARE(afterEdit.size(), 2);
+    for (const SearchResult &result : afterEdit) compareSearchResource(result.resource, edited);
+    QVERIFY(afterEdit.first().matchedAnchor.has_value());
+    compareSearchAnchor(*afterEdit.first().matchedAnchor, edited.anchors.first());
+
+    QVERIFY(repository.softDeleteAnchor(resource.id, edited.anchors.first()));
+    QCOMPARE(repository.search(query, &reads).size(), 1);
+    SearchQuery trash = query;
+    trash.deletedOnly = true;
+    auto deleted = repository.search(trash, &reads);
+    QCOMPARE(deleted.size(), 1);
+    QVERIFY(deleted.first().matchedAnchor.has_value());
+    QVERIFY(deleted.first().matchedAnchor->deleted);
+    QVERIFY(!deleted.first().resource.deleted);
+    QCOMPARE(reads.resourceHydrations, 1);
+    trash.text.clear();
+    deleted = repository.search(trash, &reads);
+    QCOMPARE(deleted.size(), 1);
+    QCOMPARE(deleted.first().matchedField, QStringLiteral("anchor"));
+    QVERIFY(deleted.first().matchedAnchor.has_value());
+    QVERIFY(deleted.first().matchedAnchor->deleted);
+    QVERIFY(repository.restoreAnchor(resource.id, edited.anchors.first()));
+    QCOMPARE(repository.search(query, &reads).size(), 2);
+    QVERIFY(repository.softDeleteResource(resource.id));
+    QVERIFY(repository.search(query, &reads).isEmpty());
+    QCOMPARE(reads.resourceHydrations, 0);
+    trash.text = query.text;
+    deleted = repository.search(trash, &reads);
+    QCOMPARE(deleted.size(), 1);
+    QVERIFY(deleted.first().resource.deleted);
+    QVERIFY(!deleted.first().matchedAnchor.has_value());
+    SearchQuery all = query;
+    all.includeDeleted = true;
+    QCOMPARE(repository.search(all, &reads).size(), 2);
+    QCOMPARE(reads.resourceHydrations, 1);
+    QVERIFY(repository.restoreResource(resource.id));
+    QCOMPARE(repository.search(query, &reads).size(), 2);
 }
 
 void SqliteRepositoryTest::softDeletesAndRestoresResourcesAndAnchors()

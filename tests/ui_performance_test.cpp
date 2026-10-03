@@ -83,9 +83,49 @@ private slots:
             anchors.close();
             ClipLibraryWindowOptions clipOptions;
             clipOptions.clipsProvider = [&] { return clips; };
+            QList<ClipLibraryRefreshMetrics> stages;
+            stages.reserve(12);
+            bool captureStages = false;
+            clipOptions.refreshMetricsHandler = [&](const ClipLibraryRefreshMetrics &metrics) {
+                if (captureStages) stages.append(metrics);
+            };
             ClipLibraryWindow clipWindow(clipOptions);
             clipWindow.resize(size);
-            results.append(measure(clipWindow, QStringLiteral("clips"), [&](const QString &q) { clipWindow.setSearchText(q); }));
+            QJsonObject clipResult = measure(clipWindow, QStringLiteral("clips"), [&](const QString &q) {
+                captureStages = true;
+                clipWindow.setSearchText(q);
+                captureStages = false;
+            });
+            QCOMPARE(stages.size(), 12);
+            QJsonArray stageSamples;
+            for (const auto &stage : stages) {
+                stageSamples.append(QJsonObject{
+                    {"snapshotRows", stage.snapshotRows}, {"searchResults", stage.searchResults},
+                    {"visibleRows", stage.visibleRows}, {"snapshotNs", stage.snapshotNs},
+                    {"indexNs", stage.indexNs}, {"searchNs", stage.searchNs},
+                    {"joinNs", stage.joinNs}, {"projectionNs", stage.projectionNs},
+                    {"modelUpdateNs", stage.modelUpdateNs}, {"restoreAndPreviewNs", stage.restoreAndPreviewNs},
+                    {"totalNs", stage.totalNs}});
+            }
+            const auto medianMs = [&](auto member) {
+                QList<double> values;
+                for (const auto &stage : stages) values.append(stage.*member / 1000000.0);
+                std::sort(values.begin(), values.end());
+                return values.at(values.size() / 2);
+            };
+            clipResult.insert(QStringLiteral("stageSamples"), stageSamples);
+            clipResult.insert(QStringLiteral("stageMedianMs"), QJsonObject{
+                {"snapshot", medianMs(&ClipLibraryRefreshMetrics::snapshotNs)},
+                {"index", medianMs(&ClipLibraryRefreshMetrics::indexNs)},
+                {"search", medianMs(&ClipLibraryRefreshMetrics::searchNs)},
+                {"join", medianMs(&ClipLibraryRefreshMetrics::joinNs)},
+                {"projection", medianMs(&ClipLibraryRefreshMetrics::projectionNs)},
+                {"modelUpdate", medianMs(&ClipLibraryRefreshMetrics::modelUpdateNs)},
+                {"restoreAndPreview", medianMs(&ClipLibraryRefreshMetrics::restoreAndPreviewNs)}});
+            clipResult.insert(QStringLiteral("stageMethod"), QStringLiteral(
+                "refreshRows synchronous CPU stages; index construction separate from result association; "
+                "provider I/O and deferred paint excluded; no display latency claim"));
+            results.append(clipResult);
             QCOMPARE(clipWindow.visibleClipCount(), 2000);
             clipWindow.close();
         }

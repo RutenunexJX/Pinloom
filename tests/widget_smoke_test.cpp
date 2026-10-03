@@ -77,6 +77,7 @@
 #include <QPlainTextEdit>
 #include <QScrollArea>
 #include <QScrollBar>
+#include <QSet>
 #include <QScopeGuard>
 #include <QScreen>
 #include <QSettings>
@@ -145,6 +146,8 @@ private slots:
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
     void clipLibraryWindowBrowsesSavedHistoryAndTrash();
+    void clipLibraryRefreshUsesPendingSnapshotAndFreshMetadata();
+    void clipLibraryRefreshPreservesSelectionFocusAndScroll();
     void commandPanelAnchorCaptureCommandCallsHandler();
     void commandPanelAnchorLibraryUsesOrderedSubsequenceCommands();
     void commandPanelInboxRootCommandShowsCandidates();
@@ -4060,6 +4063,170 @@ void WidgetSmokeTest::commandPanelClipNewCommandShowsTemporaryHistoryAndSaves()
 
     panel.setCommandText(QStringLiteral("clip;new"));
     QCOMPARE(results->count(), 0);
+}
+
+void WidgetSmokeTest::clipLibraryRefreshUsesPendingSnapshotAndFreshMetadata()
+{
+    QList<Clip> clips;
+    for (int i = 0; i < 4; ++i) {
+        Clip clip;
+        clip.id = QStringLiteral("clip-%1").arg(i);
+        clip.name = QStringLiteral("Document %1").arg(i);
+        clip.aliases = {QStringLiteral("original-alias-%1").arg(i)};
+        clip.tags = {QStringLiteral("original-tag")};
+        clip.text = QStringLiteral("bodyneedle content %1").arg(i);
+        clip.state = i < 2 ? ClipState::Saved : i == 2 ? ClipState::Temporary : ClipState::Deleted;
+        clips.append(clip);
+    }
+    QList<ClipLibraryRefreshMetrics> samples;
+    ClipLibraryWindowOptions options;
+    options.clipsProvider = [&] { return clips; };
+    options.refreshMetricsHandler = [&](const ClipLibraryRefreshMetrics &metrics) { samples.append(metrics); };
+    ClipLibraryWindow window(options);
+    auto *table = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("clipLibraryTable"));
+    auto *preview = window.findChild<QPlainTextEdit *>(QStringLiteral("clipLibraryPreview"));
+    QVERIFY(table);
+    QVERIFY(preview);
+    window.show();
+    QApplication::processEvents();
+
+    // The join must retain the search service's order and per-scope explanation.
+    window.setSearchText(QStringLiteral("bodyneedle"));
+    for (ClipLibraryScope scope : {ClipLibraryScope::Saved, ClipLibraryScope::History, ClipLibraryScope::Trash}) {
+        window.setScope(scope);
+        ClipSearchOptions searchOptions;
+        searchOptions.includeSaved = scope == ClipLibraryScope::Saved;
+        searchOptions.includeTemporary = scope == ClipLibraryScope::History;
+        searchOptions.includeDeleted = scope == ClipLibraryScope::Trash;
+        searchOptions.limit = -1;
+        const auto expected = searchClips(clips, QStringLiteral("bodyneedle"), searchOptions);
+        QCOMPARE(table->rowCount(), expected.size());
+        for (int row = 0; row < table->rowCount(); ++row) {
+            QCOMPARE(table->item(row, 0)->data(Qt::UserRole + 1).toString(), expected.at(row).clipId);
+            QCOMPARE(table->item(row, 4)->text(), QStringLiteral("Content match"));
+            QCOMPARE(bool(table->item(row, 1)->flags() & Qt::ItemIsEditable), scope != ClipLibraryScope::Trash);
+        }
+    }
+    window.setScope(ClipLibraryScope::Saved);
+    window.setSearchText(QStringLiteral("Document 0"));
+    QCOMPARE(table->rowCount(), 1);
+    table->item(0, 1)->setText(QStringLiteral("pending-alias"));
+    QVERIFY(QMetaObject::invokeMethod(table, "itemClicked", Qt::DirectConnection,
+                                      Q_ARG(Pinloom::Ui::TableItem *, table->item(0, 2))));
+    QApplication::processEvents();
+    auto *popup = window.findChild<QFrame *>(QStringLiteral("clipLibraryTagEditorPopup"));
+    QVERIFY(popup);
+    auto *tagQuery = popup->findChild<QLineEdit *>(QStringLiteral("clipLibraryTagEditorFilter"));
+    auto *createTag = popup->findChild<QToolButton *>(QStringLiteral("clipLibraryCreateTagButton"));
+    QVERIFY(tagQuery);
+    QVERIFY(createTag);
+    tagQuery->setText(QStringLiteral("pending-tag"));
+    QVERIFY(createTag->isEnabled());
+    createTag->click();
+    popup->close();
+    QApplication::processEvents();
+
+    window.setSearchText(QStringLiteral("#pending-tag;pending-alias"));
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 0)->data(Qt::UserRole + 1).toString(), clips.first().id);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("pending-alias"));
+    QVERIFY(table->item(0, 2)->data(Qt::UserRole + 2).toStringList().contains(QStringLiteral("pending-tag")));
+    QCOMPARE(clips.first().aliases, QStringList{QStringLiteral("original-alias-0")});
+    QVERIFY(!clips.first().tags.contains(QStringLiteral("pending-tag")));
+
+    // Same IDs must still repaint changed metadata and preview, retaining pending edits.
+    clips[0].name = QStringLiteral("Revised document");
+    clips[0].text = QStringLiteral("fresh bodyneedle content");
+    clips[0].actionType = ClipActionType::OpenWebUrl;
+    clips[0].pinned = true;
+    clips[0].updatedAt = QDateTime::fromString(QStringLiteral("2026-01-02T03:04:00Z"), Qt::ISODate);
+    window.refresh();
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 0)->text(), clips.first().name);
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("pending-alias"));
+    QCOMPARE(table->item(0, 3)->text(), QStringLiteral("Open URL"));
+    QVERIFY(table->item(0, 4)->text().isEmpty());
+    QCOMPARE(table->item(0, 5)->text(), clips.first().updatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
+    QCOMPARE(table->item(0, 6)->text(), QStringLiteral("Yes"));
+    QCOMPARE(preview->toPlainText(), clips.first().text);
+    QVERIFY(!samples.isEmpty());
+    const auto &metrics = samples.last();
+    QCOMPARE(metrics.snapshotRows, 4);
+    QCOMPARE(metrics.searchResults, 1);
+    QCOMPARE(metrics.visibleRows, 1);
+    const qint64 stageSum = metrics.snapshotNs + metrics.indexNs + metrics.searchNs + metrics.joinNs
+        + metrics.projectionNs + metrics.modelUpdateNs + metrics.restoreAndPreviewNs;
+    QVERIFY(metrics.totalNs >= stageSum);
+}
+
+void WidgetSmokeTest::clipLibraryRefreshPreservesSelectionFocusAndScroll()
+{
+    QList<Clip> clips;
+    for (int i = 0; i < 60; ++i) {
+        Clip clip;
+        clip.id = QStringLiteral("clip-%1").arg(i, 3, 10, QLatin1Char('0'));
+        clip.name = QStringLiteral("Record %1").arg(i, 3, 10, QLatin1Char('0'));
+        clip.text = QStringLiteral("Content %1").arg(i);
+        clip.state = ClipState::Saved;
+        clips.append(clip);
+    }
+    ClipLibraryWindowOptions options;
+    options.clipsProvider = [&] { return clips; };
+    ClipLibraryWindow window(options);
+    auto *table = window.findChild<Pinloom::Ui::Table *>(QStringLiteral("clipLibraryTable"));
+    auto *search = window.findChild<QLineEdit *>(QStringLiteral("clipLibrarySearchEdit"));
+    QVERIFY(table);
+    QVERIFY(search);
+    // Keep the application's default interaction; also cover callers using multi-selection.
+    QCOMPARE(table->selectionMode(), QAbstractItemView::SingleSelection);
+    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::Fixed);
+    for (int column = 0; column < table->columnCount(); ++column) table->setColumnWidth(column, 250);
+    window.resize(1000, 650);
+    window.show();
+    window.setSearchText(QStringLiteral("Record"));
+    QApplication::processEvents();
+    table->clearSelection();
+    table->selectionModel()->select(table->model()->index(10, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    table->selectionModel()->select(table->model()->index(11, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    table->setCurrentCell(11, 1, QItemSelectionModel::NoUpdate);
+    const QString currentId = table->item(11, 0)->data(Qt::UserRole + 1).toString();
+    const QString survivorId = table->item(10, 0)->data(Qt::UserRole + 1).toString();
+    const QString survivorName = table->item(10, 0)->text();
+    const QSet<QString> expectedSelection{currentId, survivorId};
+    search->setFocus();
+    QApplication::processEvents();
+    QCOMPARE(QApplication::focusWidget(), search);
+    QVERIFY(table->verticalScrollBar()->maximum() > 0);
+    QVERIFY(table->horizontalScrollBar()->maximum() > 0);
+    table->verticalScrollBar()->setValue(qMin(10, table->verticalScrollBar()->maximum()));
+    table->horizontalScrollBar()->setValue(qMin(30, table->horizontalScrollBar()->maximum()));
+    const int verticalScroll = table->verticalScrollBar()->value();
+    const int horizontalScroll = table->horizontalScrollBar()->value();
+    // Move the focused record to the top: preserving row numbers would select wrong IDs.
+    for (Clip &clip : clips) {
+        if (clip.id == currentId) clip.pinned = true;
+    }
+    window.refresh();
+    QApplication::processEvents();
+    QSet<QString> actualSelection;
+    for (const QModelIndex &index : table->selectionModel()->selectedRows()) {
+        actualSelection.insert(index.data(Qt::UserRole + 1).toString());
+    }
+    QCOMPARE(actualSelection, expectedSelection);
+    QVERIFY(window.selectedClip().has_value());
+    QCOMPARE(window.selectedClip()->id, currentId);
+    QCOMPARE(table->currentColumn(), 1);
+    QCOMPARE(QApplication::focusWidget(), search);
+    QCOMPARE(table->verticalScrollBar()->value(), verticalScroll);
+    QCOMPARE(table->horizontalScrollBar()->value(), horizontalScroll);
+
+    window.setSearchText(survivorName);
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->selectionModel()->selectedRows().size(), 1);
+    QVERIFY(window.selectedClip().has_value());
+    QCOMPARE(window.selectedClip()->id, survivorId);
+    QCOMPARE(QApplication::focusWidget(), search);
 }
 
 void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()

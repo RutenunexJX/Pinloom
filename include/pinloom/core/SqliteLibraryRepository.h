@@ -9,6 +9,14 @@ class QSqlQuery;
 
 namespace Pinloom {
 
+// Optional diagnostics for one search, counted at the actual read sites.
+// These count hydration/usage reads, not every SQL statement in a search.
+struct SqliteSearchReadCounts {
+    qsizetype resourceHydrations = 0;
+    qsizetype resourceUsageReads = 0;
+    qsizetype anchorUsageReads = 0;
+};
+
 class SqliteLibraryRepository final : public ILibraryRepository {
 public:
     SqliteLibraryRepository();
@@ -24,6 +32,7 @@ public:
     bool upsertResource(const Resource &resource) override;
     std::optional<Resource> findResource(const QString &id) const override;
     QList<SearchResult> search(const SearchQuery &query) const override;
+    QList<SearchResult> search(const SearchQuery &query, SqliteSearchReadCounts *readCounts) const;
     bool softDeleteResource(const QString &resourceId) override;
     bool restoreResource(const QString &resourceId) override;
     bool softDeleteAnchor(const QString &resourceId, const Anchor &anchor) override;
@@ -72,11 +81,15 @@ private:
     bool clearResourceTables();
     void notifyChange(LibraryChangeKind kind, const QStringList &resourceIds = {});
     QList<Resource> allResourcesForIdentity() const;
-    Resource hydrateResource(const QString &id) const;
+    std::optional<Resource> findResource(const QString &id, SqliteSearchReadCounts *readCounts) const;
+    Resource hydrateResource(const QString &id, SqliteSearchReadCounts *readCounts = nullptr) const;
+    std::optional<ResourceUsage> readResourceUsage(const QString &resourceId,
+                                                  SqliteSearchReadCounts *readCounts) const;
+    std::optional<AnchorUsage> readAnchorUsage(const QString &resourceId, const Anchor &storedAnchor,
+                                              SqliteSearchReadCounts *readCounts) const;
     LibraryRoot hydrateLibraryRoot(QSqlQuery &query) const;
     ResourceUsage hydrateResourceUsage(QSqlQuery &query) const;
     AnchorUsage hydrateAnchorUsage(QSqlQuery &query) const;
-    void applyRankingSignals(SearchResult &result, const SearchQuery &query) const;
     QStringList readStrings(const QString &table, const QString &column, const QString &resourceId) const;
     QList<Anchor> readAnchors(const QString &resourceId) const;
     void setLastError(const QString &message) const;

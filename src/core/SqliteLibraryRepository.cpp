@@ -927,6 +927,12 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
 
 std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id) const
 {
+    return findResource(id, nullptr);
+}
+
+std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id,
+                                                              SqliteSearchReadCounts *readCounts) const
+{
     if (!isOpen()) {
         setLastError(QStringLiteral("Database is not open"));
         return std::nullopt;
@@ -943,16 +949,63 @@ std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id)
         return std::nullopt;
     }
 
-    return hydrateResource(id);
+    return hydrateResource(id, readCounts);
 }
 
 QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) const
 {
+    return search(query, nullptr);
+}
+
+QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
+                                                   SqliteSearchReadCounts *readCounts) const
+{
+    if (readCounts) *readCounts = {};
     QList<SearchResult> results;
     if (!isOpen()) {
         setLastError(QStringLiteral("Database is not open"));
         return results;
     }
+
+    // Lifetime is one search: the next call must observe edits and usage changes.
+    // Cache missing usage too, since most newly captured items have no usage row.
+    QHash<QString, std::optional<Resource>> resources;
+    QHash<QString, std::optional<ResourceUsage>> resourceUsages;
+    QHash<QString, QHash<QString, std::optional<AnchorUsage>>> anchorUsages;
+    const auto cachedResource = [&](const QString &id) {
+        auto found = resources.constFind(id);
+        if (found == resources.constEnd()) {
+            found = resources.insert(id, findResource(id, readCounts));
+        }
+        // Return a copy: resource FTS content belongs only to that result, and
+        // must not leak into anchor results sharing the hydrated resource.
+        return found.value();
+    };
+    const auto applyRankingSignals = [&](SearchResult &result) {
+        result.score += contextScoreAdjustment(result.resource, query);
+        const QString &resourceId = result.resource.id;
+        auto usage = resourceUsages.constFind(resourceId);
+        if (usage == resourceUsages.constEnd()) {
+            usage = resourceUsages.insert(resourceId, readResourceUsage(resourceId, readCounts));
+        }
+        if (usage->has_value()) {
+            result.score += usageScoreAdjustment(usage->value());
+        }
+        if (result.matchedAnchor.has_value()) {
+            const Anchor &anchor = result.matchedAnchor.value();
+            result.score += anchorScoreAdjustment(anchor);
+            auto &perResource = anchorUsages[resourceId];
+            const QString key = anchorUsageKey(anchor);
+            auto anchorUsageValue = perResource.constFind(key);
+            if (anchorUsageValue == perResource.constEnd()) {
+                // Search anchors already come from this resource's stored snapshot.
+                anchorUsageValue = perResource.insert(key, readAnchorUsage(resourceId, anchor, readCounts));
+            }
+            if (anchorUsageValue->has_value()) {
+                result.score += anchorUsageScoreAdjustment(anchorUsageValue->value());
+            }
+        }
+    };
 
     const QString ftsQuery = ftsQueryFromText(query.text);
     const QStringList plainTokens = plainSearchTokensFromText(query.text);
@@ -1034,7 +1087,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
 
     while (sqlQuery.next()) {
         const QString id = sqlQuery.value(0).toString();
-        std::optional<Resource> resource = findResource(id);
+        std::optional<Resource> resource = cachedResource(id);
         if (!resource.has_value()) {
             continue;
         }
@@ -1052,7 +1105,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             resource->content = sqlQuery.value(3).toString();
         }
         SearchResult result = resourceSearchResult(resource.value(), plainTokens, query.text);
-        applyRankingSignals(result, query);
+        applyRankingSignals(result);
         results.append(result);
     }
 
@@ -1127,7 +1180,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
         while (anchorQuery.next()) {
             const QString id = anchorQuery.value(0).toString();
             const QString anchorId = anchorQuery.value(1).toString();
-            const std::optional<Resource> resource = findResource(id);
+            const std::optional<Resource> resource = cachedResource(id);
             if (!resource.has_value()) {
                 continue;
             }
@@ -1155,7 +1208,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
             SearchResult result = ftsQuery.isEmpty()
                 ? SearchResult{resource.value(), 100.0, QStringLiteral("anchor"), anchor}
                 : anchorSearchResult(resource.value(), anchor, plainTokens, query.text);
-            applyRankingSignals(result, query);
+            applyRankingSignals(result);
             results.append(result);
         }
     }
@@ -1560,6 +1613,12 @@ bool SqliteLibraryRepository::setResourcePinned(const QString &resourceId, bool 
 
 std::optional<ResourceUsage> SqliteLibraryRepository::resourceUsage(const QString &resourceId) const
 {
+    return readResourceUsage(resourceId, nullptr);
+}
+
+std::optional<ResourceUsage> SqliteLibraryRepository::readResourceUsage(
+    const QString &resourceId, SqliteSearchReadCounts *readCounts) const
+{
     if (!isOpen()) {
         setLastError(QStringLiteral("Database is not open"));
         return std::nullopt;
@@ -1569,6 +1628,7 @@ std::optional<ResourceUsage> SqliteLibraryRepository::resourceUsage(const QStrin
     query.prepare(QStringLiteral("SELECT resource_id, open_count, last_opened_at, pinned "
                                  "FROM resource_usage WHERE resource_id = ?"));
     query.addBindValue(resourceId);
+    if (readCounts) ++readCounts->resourceUsageReads;
     if (!query.exec()) {
         setLastError(query.lastError().text());
         return std::nullopt;
@@ -1652,12 +1712,19 @@ std::optional<AnchorUsage> SqliteLibraryRepository::anchorUsage(const QString &r
         }
     }
 
-    for (const QString &key : anchorUsageKeys(effective)) {
+    return readAnchorUsage(resourceId, effective, nullptr);
+}
+
+std::optional<AnchorUsage> SqliteLibraryRepository::readAnchorUsage(
+    const QString &resourceId, const Anchor &storedAnchor, SqliteSearchReadCounts *readCounts) const
+{
+    for (const QString &key : anchorUsageKeys(storedAnchor)) {
         QSqlQuery query(database_);
         query.prepare(QStringLiteral("SELECT resource_id, open_count, last_opened_at "
                                      "FROM anchor_usage WHERE resource_id = ? AND anchor_key = ?"));
         query.addBindValue(resourceId);
         query.addBindValue(key);
+        if (readCounts) ++readCounts->anchorUsageReads;
         if (!query.exec()) {
             setLastError(query.lastError().text());
             return std::nullopt;
@@ -2804,8 +2871,9 @@ QList<Resource> SqliteLibraryRepository::allResourcesForIdentity() const
     return resources;
 }
 
-Resource SqliteLibraryRepository::hydrateResource(const QString &id) const
+Resource SqliteLibraryRepository::hydrateResource(const QString &id, SqliteSearchReadCounts *readCounts) const
 {
+    if (readCounts) ++readCounts->resourceHydrations;
     Resource resource;
 
     QSqlQuery query(database_);
@@ -2863,23 +2931,6 @@ AnchorUsage SqliteLibraryRepository::hydrateAnchorUsage(QSqlQuery &query) const
     usage.openCount = query.value(1).toInt();
     usage.lastOpenedAt = QDateTime::fromString(query.value(2).toString(), Qt::ISODate);
     return usage;
-}
-
-void SqliteLibraryRepository::applyRankingSignals(SearchResult &result, const SearchQuery &query) const
-{
-    result.score += contextScoreAdjustment(result.resource, query);
-    const std::optional<ResourceUsage> usage = resourceUsage(result.resource.id);
-    if (usage.has_value()) {
-        result.score += usageScoreAdjustment(usage.value());
-    }
-
-    if (result.matchedAnchor.has_value()) {
-        result.score += anchorScoreAdjustment(result.matchedAnchor.value());
-        const std::optional<AnchorUsage> anchorUsageValue = anchorUsage(result.resource.id, result.matchedAnchor.value());
-        if (anchorUsageValue.has_value()) {
-            result.score += anchorUsageScoreAdjustment(anchorUsageValue.value());
-        }
-    }
 }
 
 QStringList SqliteLibraryRepository::readStrings(const QString &table, const QString &column, const QString &resourceId) const

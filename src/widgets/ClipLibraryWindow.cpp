@@ -11,10 +11,12 @@
 #include <QDateTime>
 #include <QDialog>
 #include <QDialogButtonBox>
+#include <QElapsedTimer>
 #include <QFormLayout>
 #include <QFrame>
 #include <QHeaderView>
 #include <QHBoxLayout>
+#include <QItemSelectionModel>
 #include <QKeyEvent>
 #include <QLabel>
 #include <QLineEdit>
@@ -25,6 +27,8 @@
 #include <QPainter>
 #include <QRegularExpression>
 #include <QScreen>
+#include <QScrollBar>
+#include <QSet>
 #include <QShowEvent>
 #include <QSplitter>
 #include <QStyledItemDelegate>
@@ -678,7 +682,24 @@ void ClipLibraryWindow::rebuildTagFilter(const QList<Clip> &clips)
 
 void ClipLibraryWindow::refreshRows()
 {
-    const QString selectedId = selectedClip().has_value() ? selectedClip()->id : QString();
+    ClipLibraryRefreshMetrics metrics;
+    QElapsedTimer timer;
+    const bool measure = bool(options_.refreshMetricsHandler);
+    if (measure) timer.start();
+    const auto elapsed = [&] { return measure ? timer.nsecsElapsed() : qint64(0); };
+    qint64 stageStart = 0;
+
+    // Snapshot identities before replacing model items, even when row count is unchanged.
+    QSet<QString> selectedIds;
+    for (const QModelIndex &index : table_->selectionModel()->selectedRows()) {
+        selectedIds.insert(index.data(ClipIdRole).toString());
+    }
+    const int currentRow = table_->currentRow();
+    const auto *currentItem = currentRow >= 0 ? table_->item(currentRow, ClipNameColumn) : nullptr;
+    const QString currentId = currentItem ? currentItem->data(ClipIdRole).toString() : QString();
+    const int currentColumn = qMax(0, table_->currentColumn());
+    const int verticalScroll = table_->verticalScrollBar()->value();
+    const int horizontalScroll = table_->horizontalScrollBar()->value();
     const QString query = searchEdit_->text().trimmed();
     QString effectiveQuery = query;
     QString qualifiedTag;
@@ -714,38 +735,61 @@ void ClipLibraryWindow::refreshRows()
     searchOptions.limit = -1;
     searchOptions.mode = ClipSearchMode::AllFields;
 
-    QList<Clip> visible;
+    metrics.snapshotRows = searchable.size();
+    metrics.snapshotNs = elapsed();
+    stageStart = elapsed();
+    QHash<QString, qsizetype> clipIndices;
+    clipIndices.reserve(searchable.size());
+    for (qsizetype index = 0; index < searchable.size(); ++index) {
+        const QString &id = searchable.at(index).id;
+        // Match the old find_if behavior if a provider contains duplicate IDs.
+        if (!clipIndices.contains(id)) clipIndices.insert(id, index);
+    }
+    metrics.indexNs = elapsed() - stageStart;
+
+    stageStart = elapsed();
+    const QList<ClipSearchResult> searchResults = searchClips(searchable, effectiveQuery, searchOptions);
+    metrics.searchResults = searchResults.size();
+    metrics.searchNs = elapsed() - stageStart;
+
+    stageStart = elapsed();
+    QList<qsizetype> visible;
+    visible.reserve(searchResults.size());
     QHash<QString, QString> matchLabels;
-    for (const ClipSearchResult &result : searchClips(searchable, effectiveQuery, searchOptions)) {
-        const auto found = std::find_if(searchable.cbegin(), searchable.cend(), [&result](const Clip &clip) {
-            return clip.id == result.clipId;
-        });
-        if (found == searchable.cend()) {
+    for (const ClipSearchResult &result : searchResults) {
+        const auto found = clipIndices.constFind(result.clipId);
+        if (found == clipIndices.constEnd()) {
             continue;
         }
-        if (!tag.isEmpty() && !found->tags.contains(tag, Qt::CaseInsensitive)) {
+        const Clip &clip = searchable.at(found.value());
+        if (!tag.isEmpty() && !clip.tags.contains(tag, Qt::CaseInsensitive)) {
             continue;
         }
         if (!qualifiedTag.isEmpty()
-            && !found->tags.contains(qualifiedTag, Qt::CaseInsensitive)) {
+            && !clip.tags.contains(qualifiedTag, Qt::CaseInsensitive)) {
             continue;
         }
-        visible.append(*found);
+        visible.append(found.value());
         if (!effectiveQuery.isEmpty()
             && (result.matchedField == QLatin1String("text")
                 || result.matchedField == QLatin1String("preview"))) {
-            matchLabels.insert(found->id, tr("Content match"));
+            matchLabels.insert(clip.id, tr("Content match"));
         }
     }
+    metrics.visibleRows = visible.size();
+    metrics.joinNs = elapsed() - stageStart;
 
-    populatingTable_ = true;
-    const QSignalBlocker tableSignals(table_);
-    const QSignalBlocker selectionSignals(table_->selectionModel());
-    table_->setUpdatesEnabled(false);
-    table_->setRowCount(visible.size());
-    for (int row = 0; row < visible.size(); ++row) {
-        const Clip &clip = visible.at(row);
-        const QStringList values{
+    stageStart = elapsed();
+    struct ProjectedRow {
+        QString id;
+        QStringList tags;
+        QStringList values;
+    };
+    QList<ProjectedRow> rows;
+    rows.reserve(visible.size());
+    for (qsizetype index : visible) {
+        const Clip &clip = searchable.at(index);
+        rows.append({clip.id, clip.tags, {
             displayName(clip),
             clip.aliases.join(QLatin1Char(',')),
             tagsText(clip.tags),
@@ -753,40 +797,72 @@ void ClipLibraryWindow::refreshRows()
             matchLabels.value(clip.id),
             sortTimestamp(clip).isValid() ? sortTimestamp(clip).toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")) : QString(),
             clip.pinned ? tr("Yes") : QString()
-        };
-        for (int column = 0; column < values.size(); ++column) {
-            auto *item = new Pinloom::Ui::TableItem(values.at(column));
-            item->setData(ClipIdRole, clip.id);
+        }});
+    }
+    metrics.projectionNs = elapsed() - stageStart;
+
+    stageStart = elapsed();
+    populatingTable_ = true;
+    const QSignalBlocker tableSignals(table_);
+    const QSignalBlocker selectionSignals(table_->selectionModel());
+    table_->setUpdatesEnabled(false);
+    table_->setRowCount(rows.size());
+    for (int row = 0; row < rows.size(); ++row) {
+        const ProjectedRow &projected = rows.at(row);
+        for (int column = 0; column < projected.values.size(); ++column) {
+            auto *item = new Pinloom::Ui::TableItem(projected.values.at(column));
+            item->setData(ClipIdRole, projected.id);
             if (column == ClipAliasesColumn && scope() != ClipLibraryScope::Trash) {
                 item->setFlags(item->flags() | Qt::ItemIsEditable);
             } else {
                 item->setFlags(item->flags() & ~Qt::ItemIsEditable);
             }
             if (column == ClipTagsColumn) {
-                item->setData(TagValuesRole, clip.tags);
+                item->setData(TagValuesRole, projected.tags);
             }
             table_->setItem(row, column, item);
         }
-        applyInlineCellState(row, ClipAliasesColumn, clip.id);
-        applyInlineCellState(row, ClipTagsColumn, clip.id);
+        applyInlineCellState(row, ClipAliasesColumn, projected.id);
+        applyInlineCellState(row, ClipTagsColumn, projected.id);
     }
     table_->verticalHeader()->setDefaultSectionSize(qMax(34, table_->fontMetrics().height() + 16));
+    metrics.modelUpdateNs = elapsed() - stageStart;
+
+    stageStart = elapsed();
+    QItemSelection retainedSelection;
+    int retainedCurrentRow = -1;
+    int firstSelectedRow = -1;
+    for (int row = 0; row < rows.size(); ++row) {
+        const QString &id = rows.at(row).id;
+        if (id == currentId && retainedCurrentRow < 0) retainedCurrentRow = row;
+        if (selectedIds.contains(id)) {
+            retainedSelection.select(table_->model()->index(row, 0),
+                                     table_->model()->index(row, table_->columnCount() - 1));
+            if (firstSelectedRow < 0) firstSelectedRow = row;
+        }
+    }
+    table_->selectionModel()->select(retainedSelection, QItemSelectionModel::ClearAndSelect);
+    if (retainedCurrentRow >= 0 || firstSelectedRow >= 0) {
+        table_->setCurrentCell(retainedCurrentRow >= 0 ? retainedCurrentRow : firstSelectedRow,
+                               currentColumn, QItemSelectionModel::NoUpdate);
+    } else if (!rows.isEmpty()) {
+        table_->selectRow(0);
+    } else {
+        table_->selectionModel()->clearCurrentIndex();
+    }
+    table_->verticalScrollBar()->setValue(verticalScroll);
+    table_->horizontalScrollBar()->setValue(horizontalScroll);
     table_->setUpdatesEnabled(true);
     populatingTable_ = false;
-
-    if (!selectedId.isEmpty() && reselectClip(selectedId)) {
-        updatePreview();
-    } else if (table_->rowCount() > 0) {
-        table_->selectRow(0);
-        updatePreview();
-    } else {
-        updatePreview();
-    }
+    updatePreview();
     if (pendingEdits_.isEmpty()) {
         setStatus(tr("%n Clip(s)", nullptr, table_->rowCount()), false);
     } else {
         updateInlineEditStatus();
     }
+    metrics.restoreAndPreviewNs = elapsed() - stageStart;
+    metrics.totalNs = elapsed();
+    if (options_.refreshMetricsHandler) options_.refreshMetricsHandler(metrics);
 }
 
 void ClipLibraryWindow::updatePreview()

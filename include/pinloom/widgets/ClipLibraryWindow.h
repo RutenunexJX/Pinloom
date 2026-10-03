@@ -27,6 +27,20 @@ enum class ClipLibraryScope {
     Trash
 };
 
+struct ClipLibraryRefreshMetrics {
+    qsizetype snapshotRows = 0;
+    qsizetype searchResults = 0;
+    qsizetype visibleRows = 0;
+    qint64 snapshotNs = 0;
+    qint64 indexNs = 0;
+    qint64 searchNs = 0;
+    qint64 joinNs = 0;
+    qint64 projectionNs = 0;
+    qint64 modelUpdateNs = 0;
+    qint64 restoreAndPreviewNs = 0;
+    qint64 totalNs = 0;
+};
+
 struct ClipLibraryWindowOptions {
     std::function<QList<Clip>()> clipsProvider;
     std::function<bool(const Clip &clip, QString *error)> saveClipHandler;
@@ -35,6 +49,8 @@ struct ClipLibraryWindowOptions {
     std::function<bool(const QString &clipId, QString *error)> permanentlyDeleteClipHandler;
     std::function<bool(const QString &clipId, QString *error)> openSourceHandler;
     QSettings *settings = nullptr;
+    // Optional synchronous diagnostics; excludes provider I/O and deferred paint.
+    std::function<void(const ClipLibraryRefreshMetrics &)> refreshMetricsHandler;
 };
 
 class ClipLibraryWindow final : public Ui::MainWindow {
