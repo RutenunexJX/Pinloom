@@ -40,6 +40,8 @@ if(PINLOOM_UI_BACKEND STREQUAL "ELA")
         "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/FontAwesome-LICENSE.txt" COPYONLY)
     configure_file(thirdparty/elawidgettools/UPSTREAM-REVISION.md
         "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/UPSTREAM-REVISION.md" COPYONLY)
+    configure_file(thirdparty/elawidgettools/ZeroSlack-Apache-2.0.txt
+        "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools/ZeroSlack-Apache-2.0.txt" COPYONLY)
     file(COPY thirdparty/elawidgettools/patches DESTINATION "${CMAKE_BINARY_DIR}/notices/ElaWidgetTools")
 endif()
 find_package(Git QUIET)

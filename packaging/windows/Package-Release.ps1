@@ -52,7 +52,7 @@ if ($usesEla) {
     if (-not (Test-Path -LiteralPath (Join-Path $BuildDirectory 'ElaWidgetTools.dll') -PathType Leaf)) {
         throw 'Missing ElaWidgetTools.dll in the selected build.'
     }
-    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md', 'patches/12-pinloom-native-interactions.patch', 'patches/13-pinloom-combo-popup-padding.patch')) {
+    foreach ($name in @('LICENSE', 'FontAwesome-LICENSE.txt', 'UPSTREAM-REVISION.md', 'ZeroSlack-Apache-2.0.txt', 'patches/12-pinloom-native-interactions.patch', 'patches/13-pinloom-combo-popup-padding.patch')) {
         if (-not (Test-Path -LiteralPath (Join-Path $elaNotices $name) -PathType Leaf)) { throw "Missing Ela notice: $name" }
     }
 }
@@ -135,6 +135,14 @@ if ($ReplaceExisting) {
 }
 
 New-Item -ItemType Directory -Path $packageDirectory | Out-Null
+foreach ($name in @('LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot $name) -Destination $packageDirectory
+}
+$publicDocs = Join-Path $packageDirectory 'docs'
+New-Item -ItemType Directory -Path $publicDocs | Out-Null
+foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md')) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs/$name") -Destination $publicDocs
+}
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 Copy-Item -LiteralPath $sourcePdfProbe -Destination $packageDirectory
 
@@ -179,6 +187,7 @@ $packageReadme = @(
     "Package staging root: $packageDirectory",
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
+    "Licensing: see LICENSE, NOTICE, THIRD-PARTY-NOTICES.md and licenses/.",
     "Pinloom is a resident application; Shift+Space opens its command window.",
     "Only the Ela UI is supported; leave PINLOOM_UI_STYLE unset or set it to ela.",
     "Configure the data directory, default root, SumatraPDF, and Obsidian paths",

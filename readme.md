@@ -588,3 +588,11 @@ under `notices/ElaWidgetTools`, together with replayable patches. The release
 script verifies the configured clean source revision and copies the Ela DLL,
 patches and Qt/compiler notices. It writes release metadata and all-file hashes
 beside the package. See [0.4.8 verification](docs/ELA_NATIVE_0.4.8.md).
+
+
+## License and public-release status
+
+Original application code is licensed under [Apache-2.0](LICENSE); see [NOTICE](NOTICE).
+Third-party code, fonts and data retain their licenses in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
+[Asset provenance](docs/ASSET-PROVENANCE.md) records the known sources and unresolved permissions.
+[Public-release review](docs/PUBLIC-RELEASE-REVIEW.md) lists the checks still required before publication.
