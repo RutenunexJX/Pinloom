@@ -51,6 +51,21 @@ void Table::insertRow(int row) { items_->insertRow(row); }
 void Table::removeRow(int row) { items_->removeRow(row); }
 TableItem *Table::item(int row, int column) const { return dynamic_cast<TableItem *>(items_->item(row, column)); }
 void Table::setItem(int row, int column, TableItem *item) { items_->setItem(row, column, item); }
+TableItem *Table::updateItem(int row, int column, const QVariant &displayValue)
+{
+    auto *cell = item(row, column);
+    if (!cell) {
+        cell = new TableItem;
+        cell->setData(Qt::DisplayRole, displayValue);
+        setItem(row, column, cell);
+    } else {
+        const QVariant previous = cell->data(Qt::DisplayRole);
+        if (previous.metaType() != displayValue.metaType() || previous != displayValue) {
+            cell->setData(Qt::DisplayRole, displayValue);
+        }
+    }
+    return cell;
+}
 TableItem *Table::currentItem() const { return item(currentRow(), currentColumn()); }
 int Table::currentRow() const { return currentIndex().row(); }
 int Table::currentColumn() const { return currentIndex().column(); }

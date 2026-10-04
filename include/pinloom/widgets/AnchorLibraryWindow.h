@@ -16,6 +16,8 @@
 class QComboBox;
 class QLabel;
 class QLineEdit;
+class QHideEvent;
+class QShowEvent;
 class QPoint;
 class QSettings;
 #include "pinloom/widgets/PinloomItemViews.h"
@@ -118,12 +120,20 @@ signals:
     void anchorDeleted(const QString &resourceId, const QString &anchorId);
     void anchorRestored(const QString &resourceId, const QString &anchorId);
 
+protected:
+    void hideEvent(QHideEvent *event) override;
+    void showEvent(QShowEvent *event) override;
+
 private slots:
     void applyFilter();
     void populateSelectedFileAnchors();
     void populateInspector();
 
 private:
+    struct FileViewData;
+    struct AnchorViewData;
+    struct PdfPreviewRequest;
+
     struct SortKey {
         int column = 0;
         Qt::SortOrder order = Qt::AscendingOrder;
@@ -161,8 +171,8 @@ private:
     QStringList selectedResourceIds() const;
     QList<AnchorReference> selectedAnchorReferences() const;
     bool showingTrash() const;
-    bool fileMatchesFilter(const AnchorLibraryFile &file) const;
-    bool fileHasInvalidLocator(const AnchorLibraryFile &file) const;
+    bool fileMatchesFilter(const FileViewData &view) const;
+    bool fileHasInvalidLocator(const FileViewData &view) const;
     bool confirmOperation(const QString &title, const QString &message);
     bool createSafetyBackup(const QString &operation);
     void promptAnchorTagUpdate(bool remove);
@@ -205,7 +215,10 @@ private:
     bool startPdfLocatorPreview(const AnchorLibraryFile &file,
                                 const AnchorLibraryAnchor &anchor,
                                 const QString &cacheKey,
+                                const PdfLocatorPreviewRenderOptions &renderOptions,
                                 bool showExpanded);
+    void launchPdfLocatorPreview(const std::shared_ptr<PdfPreviewRequest> &request);
+    void cancelPdfLocatorPreview();
     void applyLocatorPreviewResult(const QString &cacheKey,
                                    const QPixmap &screenshot,
                                    const QString &status,
@@ -215,8 +228,8 @@ private:
     QColor colorForTag(const QString &tag);
     QList<AnchorReference> allAnchorReferencesForSelectedFiles(bool deletedOnly) const;
     const AnchorLibraryAnchor *anchorForInlineKey(const QString &key) const;
-    QList<const AnchorLibraryFile *> sortedVisibleFiles() const;
-    QList<AnchorLibraryAnchor> sortedAnchors(const QList<AnchorLibraryAnchor> &anchors) const;
+    QList<FileViewData> sortedVisibleFiles() const;
+    QList<AnchorViewData> sortedAnchors(const QList<AnchorLibraryAnchor> &anchors) const;
 
     AnchorLibraryWindowOptions options_;
     QList<AnchorLibraryFile> files_;
@@ -259,6 +272,8 @@ private:
     QString statusText_;
     QCache<QString, LocatorPreviewCacheEntry> locatorPreviewMemoryCache_{128 * 1024};
     quint64 locatorPreviewRequestGeneration_ = 0;
+    std::shared_ptr<PdfPreviewRequest> activePdfPreview_;
+    std::shared_ptr<PdfPreviewRequest> pendingPdfPreview_;
     QList<SortKey> fileSortKeys_{{6, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
     QList<SortKey> anchorSortKeys_{{4, Qt::DescendingOrder}, {0, Qt::AscendingOrder}};
     QHash<QString, InlineFileEdit> pendingFileInlineEdits_;

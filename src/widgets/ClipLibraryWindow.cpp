@@ -689,7 +689,7 @@ void ClipLibraryWindow::refreshRows()
     const auto elapsed = [&] { return measure ? timer.nsecsElapsed() : qint64(0); };
     qint64 stageStart = 0;
 
-    // Snapshot identities before replacing model items, even when row count is unchanged.
+    // Snapshot identities before reusing cells for the newly ordered rows.
     QSet<QString> selectedIds;
     for (const QModelIndex &index : table_->selectionModel()->selectedRows()) {
         selectedIds.insert(index.data(ClipIdRole).toString());
@@ -810,7 +810,7 @@ void ClipLibraryWindow::refreshRows()
     for (int row = 0; row < rows.size(); ++row) {
         const ProjectedRow &projected = rows.at(row);
         for (int column = 0; column < projected.values.size(); ++column) {
-            auto *item = new Pinloom::Ui::TableItem(projected.values.at(column));
+            auto *item = table_->updateItem(row, column, projected.values.at(column));
             item->setData(ClipIdRole, projected.id);
             if (column == ClipAliasesColumn && scope() != ClipLibraryScope::Trash) {
                 item->setFlags(item->flags() | Qt::ItemIsEditable);
@@ -820,7 +820,6 @@ void ClipLibraryWindow::refreshRows()
             if (column == ClipTagsColumn) {
                 item->setData(TagValuesRole, projected.tags);
             }
-            table_->setItem(row, column, item);
         }
         applyInlineCellState(row, ClipAliasesColumn, projected.id);
         applyInlineCellState(row, ClipTagsColumn, projected.id);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include "pinloom/core/Resource.h"
+#include "pinloom/core/ResourceUsage.h"
 
 #include <QString>
 #include <QStringList>
@@ -32,6 +33,10 @@ struct SearchResult {
     double score = 0.0;
     QString matchedField;
     std::optional<Anchor> matchedAnchor;
+    // Ranking's per-search snapshot. Loaded + nullopt means no usage record;
+    // false keeps consumers compatible with repositories that omit snapshots.
+    std::optional<ResourceUsage> resourceUsage;
+    bool resourceUsageLoaded = false;
 };
 
 } // namespace Pinloom

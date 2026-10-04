@@ -1,10 +1,11 @@
 # Pinloom
 
-Current version: `0.4.11`; database Schema: `16`.
+Current version: `0.4.12`; database Schema: `16`.
 
-Release 0.4.11 reuses repository candidate data within a request and indexes
-clip result associations, reducing repeated query and refresh work while
-preserving pending edits and existing library behavior.
+Release 0.4.12 reuses library table cells, anchor display values and search usage
+snapshots, and skips Clip match work that cannot improve the current result.
+PDF previews merge duplicate requests, run one renderer per library window and
+cancel obsolete work when the selection changes or the window is hidden.
 
 Pinloom is being reset as a Listary-style deterministic anchor launcher.
 
@@ -484,11 +485,12 @@ Build the Release target first, then run
 uncommitted or untracked files. `-AllowDirty` is an explicit diagnostic-only
 override. The script produces only a directly runnable `Pinloom` directory with
 the required Qt/MinGW runtime and SQLite driver. It does not create an installer,
-ZIP archive, checksum manifest, launcher script, or user database.
+ZIP archive, launcher script, or user database. Release metadata and the checksum
+manifest are written beside the portable directory.
 The generated `qt.conf` confines Qt plugin lookup to the deployed runtime.
 
-`E:\Pinloom\artifacts\Pinloom` is a staging artifact, not the installed release.
-The formal package is `E:\PinloomRoot\AppPackage\AppSuite\Apps\Pinloom`.
+The packaging output is a staging artifact, not the installed release.
+The formal package on this machine is `D:\PinloomRoot\AppPackage\AppSuite\Apps\Pinloom`.
 Back up that exact directory before replacing it, preserve its runtime license
 notices, and update only Pinloom's component/version and checksum entries in the
 suite metadata. Other application/runtime directories and user data stay intact.

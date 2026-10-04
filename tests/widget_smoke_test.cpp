@@ -5,6 +5,7 @@
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/LibraryRoot.h"
@@ -75,6 +76,7 @@
 #include <QPainter>
 #include <QPushButton>
 #include <QPlainTextEdit>
+#include <QPersistentModelIndex>
 #include <QScrollArea>
 #include <QScrollBar>
 #include <QSet>
@@ -123,6 +125,10 @@ private slots:
     void anchorLibraryWindowListsFiltersAndJumpsMarkedFiles();
     void anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManagement();
     void anchorLibraryWindowSupportsInlineEditingAndContextLifecycle();
+    void anchorLibraryRefreshReusesCellsAndClearsOldRowState();
+    void anchorLibraryRefreshPreservesSelectionFocusAndScroll();
+    void anchorLibrarySortsDerivedFileAndAnchorValues();
+    void anchorLibraryRefreshesScopedAndFilesystemValues();
     void anchorLibraryWindowShowsMetadataOnlyInboxFiles();
     void anchorLibraryClearsAnchorlessFileMetadataFromContextMenu();
     void anchorLibraryConfirmationDefaultsToCancelAndUsesEla();
@@ -171,6 +177,8 @@ private slots:
     void commandPanelDoesNotDependOnAltCtrlDeleteActionShortcuts();
     void pinloomEntriesSortMixedResultsByMatchBucketAndSignals();
     void entryServicesSearchOpenAndRecordUsageWithoutPanel();
+    void entrySearchReusesUsageSnapshots_data();
+    void entrySearchReusesUsageSnapshots();
     void commandPanelPlainQueryUsesUnifiedEntrySearchHandler();
     void entryActionProviderBuildsActionsForUnifiedTypes();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
@@ -2106,10 +2114,12 @@ void WidgetSmokeTest::anchorLibraryWindowManagesLifecycleFiltersLocatorsAndManag
     }
     QVERIFY(window.selectFileAt(boardRow));
     QVERIFY(window.selectAnchorAt(0));
+    window.show(); // Automatic previews only run while the library is visible.
     QTRY_VERIFY_WITH_TIMEOUT(previewCount >= 1, 1000);
     const int previewsBeforeExplicitRequest = previewCount;
     QVERIFY(window.previewSelectedAnchor());
     QCOMPARE(previewCount, previewsBeforeExplicitRequest + 1);
+    window.hide(); // Keep the remaining management checks free of modal UI.
     QVERIFY(window.recaptureSelectedAnchor());
     QCOMPARE(recaptureCount, 1);
     QVERIFY(lastConfirmationMessage.contains(QStringLiteral("Current:")));
@@ -2800,6 +2810,392 @@ void WidgetSmokeTest::anchorLibraryClearsAnchorlessFileMetadataFromContextMenu()
              QStringList{QStringLiteral("file alias 0")});
     QCOMPARE(repository.findResource(QStringLiteral("metadata-1"))->tags,
              QStringList{QStringLiteral("file-tag-1")});
+}
+
+void WidgetSmokeTest::anchorLibraryRefreshReusesCellsAndClearsOldRowState()
+{
+    QList<AnchorLibraryFile> files;
+    for (int i = 0; i < 2; ++i) {
+        AnchorLibraryFile file;
+        file.resource.id = QStringLiteral("resource-%1").arg(i);
+        file.resource.kind = ResourceKind::File;
+        file.resource.title = QStringLiteral("Document %1").arg(i);
+        file.resource.location = QStringLiteral("C:/Pinloom-test-fixtures/document-%1.txt").arg(i);
+        file.resource.aliases = {QStringLiteral("file-alias-%1").arg(i)};
+        file.resource.tags = {QStringLiteral("file-tag-%1").arg(i)};
+        file.resource.deleted = i == 1;
+        Anchor anchor;
+        anchor.id = QStringLiteral("anchor-%1").arg(i);
+        anchor.name = QStringLiteral("Point %1").arg(i);
+        anchor.aliases = {QStringLiteral("anchor-alias-%1").arg(i)};
+        anchor.tags = {QStringLiteral("anchor-tag-%1").arg(i)};
+        anchor.deleted = i == 1;
+        file.anchors.append({file.resource.id, anchor});
+        files.append(file);
+    }
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&] { return files; };
+    AnchorLibraryWindow window(options);
+    auto *fileTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
+    QVERIFY(fileTable && anchorTable && scope);
+    const int activeScope = scope->currentIndex();
+    QCOMPARE(fileTable->rowCount(), 1);
+    QCOMPARE(anchorTable->rowCount(), 1);
+    const QPersistentModelIndex fileCell(fileTable->model()->index(0, 1));
+    const QPersistentModelIndex anchorCell(anchorTable->model()->index(0, 1));
+    QSignalSpy fileLayouts(fileTable->model(), &QAbstractItemModel::layoutChanged);
+    QSignalSpy anchorLayouts(anchorTable->model(), &QAbstractItemModel::layoutChanged);
+    QSignalSpy fileRowsRemoved(fileTable->model(), &QAbstractItemModel::rowsRemoved);
+    QSignalSpy anchorRowsRemoved(anchorTable->model(), &QAbstractItemModel::rowsRemoved);
+
+    fileTable->item(0, 1)->setText(QStringLiteral("pending-file-alias"));
+    anchorTable->item(0, 1)->setText(QStringLiteral("pending-anchor-alias"));
+    files[0].resource.title = QStringLiteral("Revised document");
+    files[0].resource.tags = {QStringLiteral("fresh-file-tag")};
+    files[0].anchors[0].anchor.name = QStringLiteral("Revised point");
+    files[0].anchors[0].anchor.tags = {QStringLiteral("fresh-anchor-tag")};
+    files[0].anchors[0].usage.openCount = 7;
+    window.refreshLibrary();
+    QVERIFY(fileCell.isValid());
+    QVERIFY(anchorCell.isValid());
+    QCOMPARE(fileTable->item(0, 0)->text(), QStringLiteral("Revised document"));
+    QCOMPARE(anchorTable->item(0, 0)->text(), QStringLiteral("Revised point"));
+    QCOMPARE(fileCell.data().toString(), QStringLiteral("pending-file-alias"));
+    QCOMPARE(anchorCell.data().toString(), QStringLiteral("pending-anchor-alias"));
+    QCOMPARE(fileTable->item(0, 5)->data(Qt::UserRole + 5).toStringList(), files[0].resource.tags);
+    QCOMPARE(anchorTable->item(0, 2)->data(Qt::UserRole + 5).toStringList(), files[0].anchors[0].anchor.tags);
+    QCOMPARE(anchorTable->item(0, 5)->data(Qt::DisplayRole).toInt(), 7);
+    QCOMPARE(fileLayouts.count(), 0);
+    QCOMPARE(anchorLayouts.count(), 0);
+    QCOMPARE(fileRowsRemoved.count(), 0);
+    QCOMPARE(anchorRowsRemoved.count(), 0);
+    QSignalSpy fileChanges(fileTable->model(), &QAbstractItemModel::dataChanged);
+    QSignalSpy anchorChanges(anchorTable->model(), &QAbstractItemModel::dataChanged);
+    window.refreshLibrary();
+    QCOMPARE(fileChanges.count(), 0);
+    QCOMPARE(anchorChanges.count(), 0);
+
+    window.showTrash();
+    QCOMPARE(fileTable->rowCount(), 1);
+    QCOMPARE(anchorTable->rowCount(), 1);
+    QCOMPARE(fileTable->item(0, 1)->text(), QStringLiteral("file-alias-1"));
+    QCOMPARE(anchorTable->item(0, 1)->text(), QStringLiteral("anchor-alias-1"));
+    QVERIFY(!fileTable->item(0, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(!anchorTable->item(0, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(fileTable->item(0, 0)->data(Qt::ForegroundRole).isValid());
+    QCOMPARE(fileTable->item(0, 1)->background().style(), Qt::NoBrush);
+    QCOMPARE(anchorTable->item(0, 1)->background().style(), Qt::NoBrush);
+    scope->setCurrentIndex(activeScope);
+    QVERIFY(fileTable->item(0, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(anchorTable->item(0, 1)->flags().testFlag(Qt::ItemIsEditable));
+    QVERIFY(!fileTable->item(0, 0)->data(Qt::ForegroundRole).isValid());
+    QCOMPARE(fileTable->item(0, 1)->text(), QStringLiteral("pending-file-alias"));
+    QCOMPARE(anchorTable->item(0, 1)->text(), QStringLiteral("pending-anchor-alias"));
+}
+
+void WidgetSmokeTest::anchorLibraryRefreshPreservesSelectionFocusAndScroll()
+{
+    QList<AnchorLibraryFile> files;
+    for (int i = 0; i < 60; ++i) {
+        AnchorLibraryFile file;
+        file.resource.id = QStringLiteral("resource-%1").arg(i, 3, 10, QLatin1Char('0'));
+        file.resource.title = QStringLiteral("Record %1").arg(i, 3, 10, QLatin1Char('0'));
+        file.resource.location = QStringLiteral("C:/Pinloom-test-fixtures/%1.txt").arg(file.resource.id);
+        for (int j = 0; j < 40; ++j) {
+            Anchor anchor;
+            anchor.id = QStringLiteral("anchor-%1").arg(j, 3, 10, QLatin1Char('0'));
+            anchor.name = QStringLiteral("Point %1").arg(j, 3, 10, QLatin1Char('0'));
+            file.anchors.append({file.resource.id, anchor});
+        }
+        files.append(file);
+    }
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&] { return files; };
+    AnchorLibraryWindow window(options);
+    auto *fileTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
+    auto *search = window.findChild<QLineEdit *>(QStringLiteral("anchorLibraryFilterEdit"));
+    QVERIFY(fileTable && anchorTable && search);
+    window.resize(1100, 700);
+    window.show();
+    QApplication::processEvents();
+    QVERIFY(window.selectFileAt(11));
+    fileTable->selectionModel()->select(fileTable->model()->index(12, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    fileTable->setCurrentCell(11, 1, QItemSelectionModel::NoUpdate);
+    QVERIFY(window.selectAnchorAt(11));
+    anchorTable->selectionModel()->select(anchorTable->model()->index(12, 0), QItemSelectionModel::Select | QItemSelectionModel::Rows);
+    anchorTable->setCurrentCell(11, 1, QItemSelectionModel::NoUpdate);
+    const auto selectedKeys = [](Ui::Table *table, int role) {
+        QSet<QString> keys;
+        for (const QModelIndex &index : table->selectionModel()->selectedRows()) keys.insert(index.data(role).toString());
+        return keys;
+    };
+    const auto expectedFiles = selectedKeys(fileTable, Qt::UserRole + 1);
+    const auto expectedAnchors = selectedKeys(anchorTable, Qt::UserRole + 3);
+    QCOMPARE(expectedFiles.size(), 2);
+    QCOMPARE(expectedAnchors.size(), 2);
+    const QString currentFile = fileTable->item(11, 0)->data(Qt::UserRole + 1).toString();
+    const QString currentAnchor = anchorTable->item(11, 0)->data(Qt::UserRole + 3).toString();
+    search->setFocus();
+    QApplication::processEvents();
+    QVERIFY(fileTable->verticalScrollBar()->maximum() > 0);
+    QVERIFY(anchorTable->verticalScrollBar()->maximum() > 0);
+    fileTable->verticalScrollBar()->setValue(qMin(10, fileTable->verticalScrollBar()->maximum()));
+    anchorTable->verticalScrollBar()->setValue(qMin(8, anchorTable->verticalScrollBar()->maximum()));
+    const int fileScroll = fileTable->verticalScrollBar()->value();
+    const int anchorScroll = anchorTable->verticalScrollBar()->value();
+    files[11].resource.title = QStringLiteral("A revised record");
+    files[11].anchors[11].anchor.name = QStringLiteral("A revised point");
+    window.refreshLibrary();
+    QApplication::processEvents();
+    QCOMPARE(selectedKeys(fileTable, Qt::UserRole + 1), expectedFiles);
+    QCOMPARE(selectedKeys(anchorTable, Qt::UserRole + 3), expectedAnchors);
+    QCOMPARE(fileTable->item(fileTable->currentRow(), 0)->data(Qt::UserRole + 1).toString(), currentFile);
+    QCOMPARE(anchorTable->item(anchorTable->currentRow(), 0)->data(Qt::UserRole + 3).toString(), currentAnchor);
+    QCOMPARE(fileTable->currentColumn(), 1);
+    QCOMPARE(anchorTable->currentColumn(), 1);
+    QCOMPARE(QApplication::focusWidget(), search);
+    QCOMPARE(fileTable->verticalScrollBar()->value(), fileScroll);
+    QCOMPARE(anchorTable->verticalScrollBar()->value(), anchorScroll);
+
+    window.setFilterText(QStringLiteral("Record 012"));
+    QCOMPARE(window.visibleFileCount(), 1);
+    QCOMPARE(window.selectedFileCount(), 1);
+    QCOMPARE(fileTable->item(fileTable->currentRow(), 0)->text(), QStringLiteral("Record 012"));
+    // Repeated anchor IDs in another resource must not retain the old selection.
+    QCOMPARE(window.selectedAnchorCount(), 1);
+    window.setFilterText(QStringLiteral("does-not-exist"));
+    QCOMPARE(window.visibleFileCount(), 0);
+    QCOMPARE(window.visibleAnchorCount(), 0);
+    QVERIFY(!fileTable->currentIndex().isValid());
+    QVERIFY(!anchorTable->currentIndex().isValid());
+}
+
+void WidgetSmokeTest::anchorLibrarySortsDerivedFileAndAnchorValues()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    QList<AnchorLibraryFile> files;
+    for (int i = 0; i < 3; ++i) {
+        AnchorLibraryFile file;
+        file.resource.id = QStringLiteral("file-%1").arg(i);
+        file.resource.location = directory.filePath(QString(QChar('a' + i)) + QStringLiteral(".txt"));
+        file.resource.title = i == 0 ? QStringLiteral("  Same  ") : i == 1 ? QStringLiteral("same") : QString();
+        file.resource.kind = i == 0 ? ResourceKind::File : i == 1 ? ResourceKind::Pdf : ResourceKind::Folder;
+        file.resource.aliases = i == 0 ? QStringList{QStringLiteral("x"), QStringLiteral("z")}
+            : i == 1 ? QStringList{QStringLiteral("X"), QStringLiteral("a")} : QStringList{QStringLiteral("a")};
+        file.resource.tags = {i == 0 ? QStringLiteral("x") : i == 1 ? QStringLiteral("X") : QStringLiteral("y")};
+        files.append(file);
+    }
+    QFile existing(files[0].resource.location);
+    QVERIFY(existing.open(QIODevice::WriteOnly));
+    existing.close();
+    QVERIFY(QDir().mkpath(files[2].resource.location));
+    files[0].resource.updatedAt = base.addSecs(2);
+    files[0].usage.openCount = 1;
+    files[0].usage.lastOpenedAt = base.addSecs(1);
+    Anchor active;
+    active.id = QStringLiteral("active");
+    active.createdAt = base.addSecs(1);
+    AnchorUsage activeUsage;
+    activeUsage.openCount = 2;
+    activeUsage.lastOpenedAt = base.addSecs(2);
+    files[0].anchors.append({files[0].resource.id, active, false, activeUsage});
+    Anchor deleted;
+    deleted.id = QStringLiteral("deleted");
+    deleted.deleted = true;
+    deleted.updatedAt = base.addSecs(9);
+    AnchorUsage deletedUsage;
+    deletedUsage.openCount = 7;
+    deletedUsage.lastOpenedAt = base.addSecs(7);
+    files[0].anchors.append({files[0].resource.id, deleted, false, deletedUsage});
+    files[1].resource.updatedAt = base;
+    files[1].usage.openCount = 3;
+    files[1].usage.lastOpenedAt = base.addSecs(5);
+    for (int i = 0; i < 3; ++i) {
+        Anchor anchor;
+        anchor.id = QStringLiteral("point-%1").arg(QChar('a' + i));
+        anchor.name = files[i].resource.title;
+        anchor.aliases = files[i].resource.aliases;
+        anchor.tags = files[i].resource.tags;
+        anchor.locatorType = i == 0 ? QStringLiteral("file.line")
+            : i == 1 ? QStringLiteral("pdf.page") : QStringLiteral("text.selection");
+        if (i == 0) anchor.createdAt = base.addSecs(1);
+        if (i == 1) anchor.updatedAt = base.addSecs(3);
+        AnchorUsage usage;
+        usage.openCount = i == 0 ? 2 : 1;
+        if (i < 2) usage.lastOpenedAt = base.addSecs(2 - i);
+        files[1].anchors.append({files[1].resource.id, anchor, false, usage});
+    }
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&] {
+        QList<AnchorLibraryFile> reversed{files[2], files[1], files[0]};
+        std::reverse(reversed[1].anchors.begin(), reversed[1].anchors.end());
+        return reversed;
+    };
+    AnchorLibraryWindow window(options);
+    auto *fileTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *anchorTable = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryAnchorTable"));
+    QVERIFY(fileTable && anchorTable);
+    QCOMPARE(fileTable->rowCount(), 3);
+    QCOMPARE(fileTable->item(0, 0)->toolTip(), files[1].resource.location);
+    QCOMPARE(fileTable->item(1, 4)->data(Qt::DisplayRole).toInt(), 1);
+    QCOMPARE(fileTable->item(1, 8)->data(Qt::DisplayRole).toInt(), 10);
+    QCOMPARE(fileTable->item(1, 6)->data(Qt::UserRole + 4).toDateTime(), base.addSecs(2));
+    QCOMPARE(fileTable->item(1, 9)->data(Qt::UserRole + 4).toDateTime(), base.addSecs(7));
+    fileTable->item(0, 1)->setText(QStringLiteral("ZZZ pending file alias"));
+
+    struct ExpectedOrder {
+        int column;
+        QList<int> ascending;
+        QList<int> descending;
+    };
+    const QList<ExpectedOrder> fileOrders{
+        {0, {2, 0, 1}, {0, 1, 2}}, {1, {2, 1, 0}, {0, 1, 2}},
+        {2, {0, 1, 2}, {2, 1, 0}}, {3, {0, 2, 1}, {1, 2, 0}},
+        {4, {2, 0, 1}, {1, 0, 2}}, {5, {0, 1, 2}, {2, 0, 1}},
+        {6, {2, 0, 1}, {1, 0, 2}}, {7, {1, 0, 2}, {0, 2, 1}},
+        {8, {2, 1, 0}, {0, 1, 2}}, {9, {2, 1, 0}, {0, 1, 2}}
+    };
+    for (const ExpectedOrder &expected : fileOrders) {
+        for (const Qt::SortOrder order : {Qt::AscendingOrder, Qt::DescendingOrder}) {
+            auto *header = fileTable->horizontalHeader();
+            QVERIFY(QMetaObject::invokeMethod(header, "sectionClicked", Qt::DirectConnection, Q_ARG(int, expected.column)));
+            if (header->sortIndicatorOrder() != order) {
+                QVERIFY(QMetaObject::invokeMethod(header, "sectionClicked", Qt::DirectConnection, Q_ARG(int, expected.column)));
+            }
+            const QList<int> indexes = order == Qt::AscendingOrder ? expected.ascending : expected.descending;
+            for (int row = 0; row < indexes.size(); ++row) {
+                QCOMPARE(fileTable->item(row, 0)->toolTip(), files[indexes[row]].resource.location);
+                if (indexes[row] == 1) QCOMPARE(fileTable->item(row, 1)->text(), QStringLiteral("ZZZ pending file alias"));
+            }
+        }
+    }
+    int selectedRow = -1;
+    for (int row = 0; row < fileTable->rowCount(); ++row) {
+        if (fileTable->item(row, 0)->toolTip() == files[1].resource.location) selectedRow = row;
+    }
+    QVERIFY(window.selectFileAt(selectedRow));
+    QCOMPARE(anchorTable->rowCount(), 3);
+    QCOMPARE(anchorTable->item(0, 0)->data(Qt::UserRole + 3).toString(), QStringLiteral("id|point-b"));
+    QCOMPARE(anchorTable->item(2, 0)->text(), QStringLiteral("point-c"));
+    anchorTable->item(0, 1)->setText(QStringLiteral("ZZZ pending anchor alias"));
+    const QList<ExpectedOrder> anchorOrders{
+        {0, {2, 0, 1}, {0, 1, 2}}, {1, {2, 1, 0}, {0, 1, 2}},
+        {2, {0, 1, 2}, {2, 0, 1}}, {3, {2, 0, 1}, {1, 0, 2}},
+        {4, {2, 0, 1}, {1, 0, 2}}, {5, {1, 2, 0}, {0, 1, 2}},
+        {6, {2, 1, 0}, {0, 1, 2}}, {7, {0, 1, 2}, {2, 1, 0}}
+    };
+    for (const ExpectedOrder &expected : anchorOrders) {
+        for (const Qt::SortOrder order : {Qt::AscendingOrder, Qt::DescendingOrder}) {
+            auto *header = anchorTable->horizontalHeader();
+            QVERIFY(QMetaObject::invokeMethod(header, "sectionClicked", Qt::DirectConnection, Q_ARG(int, expected.column)));
+            if (header->sortIndicatorOrder() != order) {
+                QVERIFY(QMetaObject::invokeMethod(header, "sectionClicked", Qt::DirectConnection, Q_ARG(int, expected.column)));
+            }
+            const QList<int> indexes = order == Qt::AscendingOrder ? expected.ascending : expected.descending;
+            for (int row = 0; row < indexes.size(); ++row) {
+                QCOMPARE(anchorTable->item(row, 0)->data(Qt::UserRole + 3).toString(),
+                         QStringLiteral("id|point-%1").arg(QChar('a' + indexes[row])));
+                if (indexes[row] == 1) QCOMPARE(anchorTable->item(row, 1)->text(), QStringLiteral("ZZZ pending anchor alias"));
+            }
+        }
+    }
+}
+
+void WidgetSmokeTest::anchorLibraryRefreshesScopedAndFilesystemValues()
+{
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    AnchorLibraryFile file;
+    file.resource.id = QStringLiteral("changing-file");
+    file.resource.location = directory.filePath(QStringLiteral("changing.txt"));
+    file.resource.tags = {QStringLiteral("file-tag")};
+    Anchor active;
+    active.id = QStringLiteral("active");
+    active.name = QStringLiteral("Active only");
+    active.updatedAt = now.addDays(-45);
+    Anchor deleted;
+    deleted.id = QStringLiteral("deleted");
+    deleted.name = QStringLiteral("Trash only");
+    deleted.deleted = true;
+    deleted.pinned = true;
+    deleted.updatedAt = now.addDays(-1);
+    AnchorUsage deletedUsage;
+    deletedUsage.openCount = 4;
+    deletedUsage.lastOpenedAt = now.addDays(-1);
+    file.anchors = {{file.resource.id, active}, {file.resource.id, deleted, false, deletedUsage}};
+    AnchorLibraryWindowOptions options;
+    options.filesProvider = [&] { return QList<AnchorLibraryFile>{file}; };
+    AnchorLibraryWindow window(options);
+    auto *table = window.findChild<Ui::Table *>(QStringLiteral("anchorLibraryFileTable"));
+    auto *scope = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryScopeCombo"));
+    auto *usage = window.findChild<QComboBox *>(QStringLiteral("anchorLibraryUsageFilterCombo"));
+    QVERIFY(table && scope && usage);
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 4)->data(Qt::DisplayRole).toInt(), 1);
+    QCOMPARE(table->item(0, 6)->data(Qt::UserRole + 4).toDateTime(), active.updatedAt);
+    QCOMPARE(table->item(0, 8)->data(Qt::DisplayRole).toInt(), 4);
+    scope->setCurrentIndex(scope->findData(6)); // Recently modified uses active anchors.
+    QCOMPARE(table->rowCount(), 0);
+    scope->setCurrentIndex(scope->findData(7)); // Recently deleted uses Trash anchors.
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 6)->data(Qt::UserRole + 4).toDateTime(), deleted.updatedAt);
+    window.setFilterText(QStringLiteral("Trash only"));
+    QCOMPARE(table->rowCount(), 1);
+    scope->setCurrentIndex(scope->findData(0));
+    QCOMPARE(table->rowCount(), 0);
+    window.setFilterText({});
+    file.anchors[0].anchor.updatedAt = now;
+    file.anchors[0].anchor.name = QStringLiteral("Revised active");
+    window.refreshLibrary();
+    scope->setCurrentIndex(scope->findData(6));
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 6)->data(Qt::UserRole + 4).toDateTime(), now);
+    window.setFilterText(QStringLiteral("Revised active"));
+    QCOMPARE(table->rowCount(), 1);
+    window.setFilterText({});
+
+    scope->setCurrentIndex(scope->findData(2)); // Missing files are rechecked every refresh.
+    QCOMPARE(table->rowCount(), 1);
+    QFile target(file.resource.location);
+    QVERIFY(target.open(QIODevice::WriteOnly));
+    target.close();
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 0);
+    scope->setCurrentIndex(scope->findData(0));
+    QCOMPARE(table->item(0, 7)->text(), QStringLiteral("Ready"));
+    QVERIFY(target.remove());
+    window.refreshLibrary();
+    QCOMPARE(table->item(0, 7)->text(), QStringLiteral("Missing"));
+
+    usage->setCurrentIndex(usage->findData(1)); // Pin/open usage still includes deleted anchors.
+    QCOMPARE(table->rowCount(), 1);
+    file.anchors[1].anchor.pinned = false;
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 0);
+    file.usage.pinned = true;
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 1);
+    usage->setCurrentIndex(usage->findData(3));
+    QCOMPARE(table->rowCount(), 0);
+    file.anchors[1].usage.openCount = 0;
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 8)->data(Qt::DisplayRole).toInt(), 0);
+    usage->setCurrentIndex(usage->findData(2));
+    QCOMPARE(table->rowCount(), 1);
+    file.anchors[1].usage.lastOpenedAt = now.addDays(-60);
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 0);
+    file.usage.lastOpenedAt = now;
+    window.refreshLibrary();
+    QCOMPARE(table->rowCount(), 1);
+    QCOMPARE(table->item(0, 9)->data(Qt::UserRole + 4).toDateTime(), now);
 }
 
 void WidgetSmokeTest::anchorLibraryWindowShowsMetadataOnlyInboxFiles()
@@ -4134,6 +4530,8 @@ void WidgetSmokeTest::clipLibraryRefreshUsesPendingSnapshotAndFreshMetadata()
     QCOMPARE(clips.first().aliases, QStringList{QStringLiteral("original-alias-0")});
     QVERIFY(!clips.first().tags.contains(QStringLiteral("pending-tag")));
 
+    const QPersistentModelIndex retainedCell(table->model()->index(0, 1));
+    QSignalSpy layoutChanges(table->model(), &QAbstractItemModel::layoutChanged);
     // Same IDs must still repaint changed metadata and preview, retaining pending edits.
     clips[0].name = QStringLiteral("Revised document");
     clips[0].text = QStringLiteral("fresh bodyneedle content");
@@ -4149,6 +4547,12 @@ void WidgetSmokeTest::clipLibraryRefreshUsesPendingSnapshotAndFreshMetadata()
     QCOMPARE(table->item(0, 5)->text(), clips.first().updatedAt.toLocalTime().toString(QStringLiteral("yyyy-MM-dd HH:mm")));
     QCOMPARE(table->item(0, 6)->text(), QStringLiteral("Yes"));
     QCOMPARE(preview->toPlainText(), clips.first().text);
+    QVERIFY(retainedCell.isValid());
+    QCOMPARE(retainedCell.data().toString(), QStringLiteral("pending-alias"));
+    QCOMPARE(layoutChanges.count(), 0);
+    QSignalSpy unchangedCells(table->model(), &QAbstractItemModel::dataChanged);
+    window.refresh();
+    QCOMPARE(unchangedCells.count(), 0);
     QVERIFY(!samples.isEmpty());
     const auto &metrics = samples.last();
     QCOMPARE(metrics.snapshotRows, 4);
@@ -9342,6 +9746,181 @@ void WidgetSmokeTest::panelFallbackOpensUrlFragmentAnchor()
     const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
     QVERIFY(anchorUsage.has_value());
     QCOMPARE(anchorUsage->openCount, 1);
+}
+
+namespace {
+
+class UsageObservingRepository final : public ILibraryRepository {
+public:
+    explicit UsageObservingRepository(ILibraryRepository &backing) : backing_(backing) {}
+
+    bool upsertResource(const Resource &value) override { return backing_.upsertResource(value); }
+    std::optional<Resource> findResource(const QString &id) const override { return backing_.findResource(id); }
+    QList<SearchResult> search(const SearchQuery &query) const override
+    {
+        QList<SearchResult> results = backing_.search(query);
+        if (omitUsageSnapshots) {
+            for (SearchResult &result : results) {
+                result.resourceUsage.reset();
+                result.resourceUsageLoaded = false;
+            }
+        }
+        return results;
+    }
+    bool softDeleteResource(const QString &id) override { return backing_.softDeleteResource(id); }
+    bool restoreResource(const QString &id) override { return backing_.restoreResource(id); }
+    bool softDeleteAnchor(const QString &id, const Anchor &anchor) override { return backing_.softDeleteAnchor(id, anchor); }
+    bool restoreAnchor(const QString &id, const Anchor &anchor) override { return backing_.restoreAnchor(id, anchor); }
+    bool clearResources() override { return backing_.clearResources(); }
+    bool applyBatch(const LibraryBatchMutation &mutation) override { return backing_.applyBatch(mutation); }
+    bool upsertLibraryRoot(const LibraryRoot &root) override { return backing_.upsertLibraryRoot(root); }
+    QList<LibraryRoot> libraryRoots() const override { return backing_.libraryRoots(); }
+    std::optional<LibraryRoot> findLibraryRoot(const QString &id) const override { return backing_.findLibraryRoot(id); }
+    bool removeLibraryRoot(const QString &id) override { return backing_.removeLibraryRoot(id); }
+    bool recordResourceOpen(const QString &id) override { return backing_.recordResourceOpen(id); }
+    bool setResourcePinned(const QString &id, bool pinned) override { return backing_.setResourcePinned(id, pinned); }
+    std::optional<ResourceUsage> resourceUsage(const QString &id) const override
+    {
+        resourceUsageReads.append(id);
+        return backing_.resourceUsage(id);
+    }
+    bool recordAnchorOpen(const QString &id, const Anchor &anchor) override { return backing_.recordAnchorOpen(id, anchor); }
+    std::optional<AnchorUsage> anchorUsage(const QString &id, const Anchor &anchor) const override
+    {
+        ++anchorUsageReads;
+        return backing_.anchorUsage(id, anchor);
+    }
+    QString lastError() const override { return backing_.lastError(); }
+
+    bool omitUsageSnapshots = false;
+    mutable QStringList resourceUsageReads;
+    mutable int anchorUsageReads = 0;
+
+private:
+    ILibraryRepository &backing_;
+};
+
+} // namespace
+
+void WidgetSmokeTest::entrySearchReusesUsageSnapshots_data()
+{
+    QTest::addColumn<bool>("useSqlite");
+    QTest::newRow("memory") << false;
+    QTest::newRow("sqlite") << true;
+}
+
+void WidgetSmokeTest::entrySearchReusesUsageSnapshots()
+{
+    QFETCH(bool, useSqlite);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    InMemoryLibraryRepository memory;
+    SqliteLibraryRepository sqlite;
+    if (useSqlite) {
+        QVERIFY(sqlite.open(directory.filePath(QStringLiteral("usage.sqlite3"))));
+        QVERIFY(sqlite.initialize());
+    }
+    ILibraryRepository &backing = useSqlite
+        ? static_cast<ILibraryRepository &>(sqlite) : static_cast<ILibraryRepository &>(memory);
+    Resource hot;
+    hot.id = QStringLiteral("snapshot-hot");
+    hot.kind = ResourceKind::File;
+    hot.title = QStringLiteral("Usage snapshot hot");
+    hot.location = QStringLiteral("E:/fixtures/snapshot-hot.txt");
+    hot.aliases = {QStringLiteral("hot alias")};
+    hot.tags = {QStringLiteral("hot-tag")};
+    Anchor anchor;
+    anchor.id = QStringLiteral("snapshot-anchor");
+    anchor.name = QStringLiteral("Usage snapshot anchor");
+    anchor.aliases = {QStringLiteral("anchor alias")};
+    anchor.tags = {QStringLiteral("anchor-tag")};
+    anchor.locatorType = QStringLiteral("manual");
+    anchor.locatorJson = QStringLiteral("{\"type\":\"manual\"}");
+    anchor.usedAt = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    hot.anchors = {anchor};
+    Resource cold;
+    cold.id = QStringLiteral("snapshot-cold");
+    cold.kind = ResourceKind::File;
+    cold.title = QStringLiteral("Usage snapshot cold");
+    cold.location = QStringLiteral("E:/fixtures/snapshot-cold.txt");
+    QVERIFY(backing.upsertResource(hot));
+    QVERIFY(backing.upsertResource(cold));
+    QVERIFY(backing.recordResourceOpen(hot.id));
+    QVERIFY(backing.setResourcePinned(hot.id, true));
+    QVERIFY(!backing.resourceUsage(cold.id).has_value());
+
+    UsageObservingRepository repository(backing);
+    PinloomEntrySearchService service(repository);
+    repository.omitUsageSnapshots = true;
+    const QList<PinloomEntry> legacy = service.search(QStringLiteral("Usage snapshot"));
+    QCOMPARE(legacy.size(), 3);
+    QCOMPARE(repository.resourceUsageReads.size(), 2);
+    QVERIFY(repository.resourceUsageReads.contains(hot.id));
+    QVERIFY(repository.resourceUsageReads.contains(cold.id));
+    QCOMPARE(repository.anchorUsageReads, 0);
+    repository.resourceUsageReads.clear();
+    repository.omitUsageSnapshots = false;
+    const QList<PinloomEntry> entries = service.search(QStringLiteral("Usage snapshot"));
+    QCOMPARE(repository.resourceUsageReads.size(), 0);
+    QCOMPARE(repository.anchorUsageReads, 0);
+    QCOMPARE(entries.size(), legacy.size());
+    for (int row = 0; row < entries.size(); ++row) {
+        const PinloomEntry &actual = entries[row];
+        const PinloomEntry &expected = legacy[row];
+        QCOMPARE(actual.id, expected.id);
+        QCOMPARE(actual.type, expected.type);
+        QCOMPARE(actual.name, expected.name);
+        QCOMPARE(actual.aliases, expected.aliases);
+        QCOMPARE(actual.tags, expected.tags);
+        QCOMPARE(actual.pinned, expected.pinned);
+        QCOMPARE(actual.usedAt, expected.usedAt);
+        QCOMPARE(actual.frequency, expected.frequency);
+        QCOMPARE(actual.score, expected.score);
+        QCOMPARE(actual.matchedField, expected.matchedField);
+        QCOMPARE(actual.matchSummary, expected.matchSummary);
+        QCOMPARE(actual.resultRow, row);
+        if (actual.anchor) {
+            QVERIFY(!actual.pinned); // Parent usage must not replace Anchor metadata.
+            QCOMPARE(actual.usedAt, anchor.usedAt);
+            QCOMPARE(actual.frequency, 0);
+        }
+    }
+    const auto fileEntry = [](const QList<PinloomEntry> &values, const QString &id) {
+        return std::find_if(values.cbegin(), values.cend(), [&](const PinloomEntry &entry) {
+            return entry.resourceId == id && !entry.anchor.has_value();
+        });
+    };
+    const auto oldHot = fileEntry(entries, hot.id);
+    QVERIFY(oldHot != entries.cend());
+    QVERIFY(oldHot->pinned);
+    QCOMPARE(oldHot->frequency, 1);
+    QVERIFY(backing.recordResourceOpen(hot.id));
+    QVERIFY(backing.setResourcePinned(hot.id, false));
+    QVERIFY(backing.setResourcePinned(cold.id, true));
+    const QList<PinloomEntry> refreshed = service.search(QStringLiteral("Usage snapshot"));
+    const auto newHot = fileEntry(refreshed, hot.id);
+    const auto newCold = fileEntry(refreshed, cold.id);
+    QVERIFY(newHot != refreshed.cend() && newCold != refreshed.cend());
+    QVERIFY(!newHot->pinned);
+    QCOMPARE(newHot->frequency, 2);
+    QVERIFY(newCold->pinned);
+    QCOMPARE(newCold->frequency, 0);
+    QVERIFY(oldHot->pinned);
+    QCOMPARE(oldHot->frequency, 1);
+    QCOMPARE(repository.resourceUsageReads.size(), 0);
+    QCOMPARE(repository.anchorUsageReads, 0);
+    PinloomEntrySearchOptions limited;
+    limited.limit = 1;
+    repository.omitUsageSnapshots = true;
+    const QList<PinloomEntry> legacyLimited = service.search(QStringLiteral("Usage snapshot"), limited);
+    repository.omitUsageSnapshots = false;
+    repository.resourceUsageReads.clear();
+    const QList<PinloomEntry> limitedEntries = service.search(QStringLiteral("Usage snapshot"), limited);
+    QCOMPARE(limitedEntries.size(), 1);
+    QCOMPARE(limitedEntries.size(), legacyLimited.size());
+    QCOMPARE(limitedEntries.first().id, legacyLimited.first().id);
+    QCOMPARE(limitedEntries.first().resultRow, 0);
+    QCOMPARE(repository.resourceUsageReads.size(), 0);
 }
 
 void WidgetSmokeTest::entryServicesSearchOpenAndRecordUsageWithoutPanel()

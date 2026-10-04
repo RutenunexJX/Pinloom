@@ -252,6 +252,10 @@ void applyRankingSignals(SearchResult &result,
     result.score += contextScoreAdjustment(result.resource, query);
 
     const auto usageIt = usage.constFind(result.resource.id);
+    result.resourceUsageLoaded = true;
+    result.resourceUsage = usageIt != usage.constEnd()
+        ? std::optional<ResourceUsage>(usageIt.value())
+        : std::nullopt;
     if (usageIt != usage.constEnd()) {
         result.score += usageScoreAdjustment(usageIt.value());
     }

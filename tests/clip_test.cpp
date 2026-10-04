@@ -367,6 +367,8 @@ private slots:
     void sqliteCreatesSavedClipLocatorAnchorAfterRestart();
     void clipSearchRanksExactSavedNameFirst();
     void clipSearchFindsAliasTagHashTagPreviewAndText();
+    void clipSearchKeepsStrongestMatchAndOriginalValue_data();
+    void clipSearchKeepsStrongestMatchAndOriginalValue();
     void clipIdentitySearchUsesTagSemicolonAndNameAliasOnly();
     void sqliteIndexedSearchMatchesReferenceSearch();
     void sqliteBoundedSearchKeepsBestIdentityMatch();
@@ -1061,6 +1063,121 @@ void ClipTest::clipSearchFindsAliasTagHashTagPreviewAndText()
     QCOMPARE(results.size(), 1);
     QCOMPARE(results.first().clipId, textId);
     QCOMPARE(results.first().matchedField, QStringLiteral("text"));
+}
+
+void ClipTest::clipSearchKeepsStrongestMatchAndOriginalValue_data()
+{
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QStringList>("aliases");
+    QTest::addColumn<QStringList>("tags");
+    QTest::addColumn<QString>("preview");
+    QTest::addColumn<QString>("text");
+    QTest::addColumn<QString>("query");
+    QTest::addColumn<bool>("identityMode");
+    QTest::addColumn<QString>("matchedField");
+    QTest::addColumn<QString>("matchedValue");
+    QTest::addColumn<int>("priority");
+
+    const auto row = [](const char *label,
+                        const QString &name,
+                        const QStringList &aliases,
+                        const QStringList &tags,
+                        const QString &preview,
+                        const QString &text,
+                        const QString &field,
+                        const QString &value,
+                        int priority,
+                        const QString &query = QStringLiteral("needle"),
+                        bool identityMode = false) {
+        QTest::newRow(label) << name << aliases << tags << preview << text << query << identityMode
+                             << field << value << priority;
+    };
+    const QString exact = QStringLiteral("Needle");
+    const QString prefix = QStringLiteral("Needle first");
+    const QString contains = QStringLiteral("Before Needle");
+    const QString unrelated = QStringLiteral("Unrelated");
+    const QString longPrefix = exact + QLatin1Char(' ') + QString(128 * 1024, QLatin1Char('x'));
+    const QString longContains = QString(128 * 1024, QLatin1Char('x')) + QLatin1Char(' ') + exact;
+
+    row("exact-name", exact, {exact}, {exact}, exact, longPrefix,
+        QStringLiteral("name"), exact, 1000);
+    row("name-prefix-beats-other-prefixes", prefix, {prefix}, {prefix}, prefix, longPrefix,
+        QStringLiteral("name"), prefix, 700);
+    row("later-exact-alias-beats-name-prefix", prefix, {contains, prefix, exact}, {exact}, exact, longPrefix,
+        QStringLiteral("alias"), exact, 900);
+    row("later-exact-tag-beats-name-and-alias-prefix", prefix, {prefix}, {contains, prefix, exact}, exact, longPrefix,
+        QStringLiteral("tag"), exact, 800);
+    row("alias-prefix-beats-name-contains", contains, {contains, prefix}, {prefix}, prefix, longPrefix,
+        QStringLiteral("alias"), prefix, 690);
+    row("tag-prefix-beats-name-and-alias-contains", contains, {contains}, {contains, prefix}, prefix, longPrefix,
+        QStringLiteral("tag"), prefix, 680);
+    row("preview-prefix-beats-metadata-contains", contains, {contains}, {contains}, prefix, longPrefix,
+        QStringLiteral("preview"), prefix, 660);
+    row("body-prefix-beats-preview-and-metadata-contains", contains, {contains}, {contains}, contains, longPrefix,
+        QStringLiteral("text"), longPrefix, 650);
+    row("preview-contains-beats-body-contains", unrelated, {}, {}, contains, longContains,
+        QStringLiteral("preview"), contains, 560);
+    row("body-contains-fallback", unrelated, {}, {}, unrelated, longContains,
+        QStringLiteral("text"), longContains, 550);
+    row("equal-exact-alias-keeps-first-original-value", unrelated,
+        {QStringLiteral(" NeEdLe "), exact}, {}, unrelated, unrelated,
+        QStringLiteral("alias"), QStringLiteral("NeEdLe"), 900);
+    row("equal-prefix-alias-keeps-first-value", unrelated,
+        {prefix, QStringLiteral("needle second")}, {}, unrelated, unrelated,
+        QStringLiteral("alias"), prefix, 690);
+    row("hash-tag-keeps-first-strongest-value", exact, {exact},
+        {contains, prefix, QStringLiteral(" NeEdLe "), exact}, exact, longPrefix,
+        QStringLiteral("tag"), QStringLiteral("NeEdLe"), 1100, QStringLiteral("#needle"));
+    row("equal-prefix-hash-tag-keeps-first-value", unrelated, {},
+        {prefix, QStringLiteral("needle second")}, unrelated, unrelated,
+        QStringLiteral("tag"), prefix, 1000, QStringLiteral("#needle"));
+    row("identity-later-alias-beats-name-prefix", prefix,
+        {contains, QStringLiteral(" NeEdLe "), exact}, {QStringLiteral("OPS")}, exact, longPrefix,
+        QStringLiteral("alias"), QStringLiteral("NeEdLe"), 900, QStringLiteral("ops;needle"), true);
+    row("identity-unicode-and-whitespace", QStringLiteral("  ÅLPHA   部署  "),
+        {QStringLiteral("ålpha 部署")}, {QStringLiteral(" OPS ")}, unrelated, unrelated,
+        QStringLiteral("name"), QStringLiteral("ÅLPHA   部署"), 1000,
+        QStringLiteral(" #ops ; ålpha   部署 "), true);
+    row("identity-ignores-stronger-preview-and-body", contains, {}, {exact}, exact, longPrefix,
+        QStringLiteral("name"), contains, 600, QStringLiteral("needle"), true);
+}
+
+void ClipTest::clipSearchKeepsStrongestMatchAndOriginalValue()
+{
+    QFETCH(QString, name);
+    QFETCH(QStringList, aliases);
+    QFETCH(QStringList, tags);
+    QFETCH(QString, preview);
+    QFETCH(QString, text);
+    QFETCH(QString, query);
+    QFETCH(bool, identityMode);
+    QFETCH(QString, matchedField);
+    QFETCH(QString, matchedValue);
+    QFETCH(int, priority);
+
+    Clip clip;
+    clip.id = QStringLiteral("competing-fields");
+    clip.state = ClipState::Saved;
+    clip.name = name;
+    clip.aliases = aliases;
+    clip.tags = tags;
+    clip.preview = preview;
+    clip.text = text;
+    ClipSearchOptions options;
+    options.mode = identityMode ? ClipSearchMode::Identity : ClipSearchMode::AllFields;
+
+    const QList<ClipSearchResult> results = searchClips({clip}, query, options);
+    QCOMPARE(results.size(), 1);
+    const ClipSearchResult &result = results.first();
+    QCOMPARE(result.clipId, clip.id);
+    QCOMPARE(result.displayName, name.trimmed());
+    QCOMPARE(result.preview, preview);
+    QCOMPARE(result.aliases, aliases);
+    QCOMPARE(result.tags, tags);
+    QCOMPARE(result.matchedField, matchedField);
+    QCOMPARE(result.matchedValue, matchedValue);
+    QCOMPARE(result.score, static_cast<double>(priority));
+    QCOMPARE(result.rank, 1);
 }
 
 void ClipTest::clipIdentitySearchUsesTagSemicolonAndNameAliasOnly()

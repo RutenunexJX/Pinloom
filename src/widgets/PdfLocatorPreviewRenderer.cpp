@@ -6,6 +6,7 @@
 #include <QCryptographicHash>
 #include <QDateTime>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageWriter>
@@ -153,7 +154,8 @@ void prunePreviewCache(const QString &cacheDirectory, qint64 maximumBytes)
 
 bool writePreviewCache(const QString &cachePath,
                        const QImage &image,
-                       qint64 maximumCacheBytes)
+                       qint64 maximumCacheBytes,
+                       const PdfLocatorPreviewCancellation &cancellation)
 {
     if (cachePath.isEmpty() || image.isNull()) return false;
     const QString directory = QFileInfo(cachePath).absolutePath();
@@ -161,7 +163,9 @@ bool writePreviewCache(const QString &cachePath,
     QSaveFile file(cachePath);
     if (!file.open(QIODevice::WriteOnly)) return false;
     QImageWriter writer(&file, "png");
-    if (!writer.write(image) || !file.commit()) return false;
+    if (!writer.write(image)) return false;
+    if (cancellation && cancellation->load(std::memory_order_relaxed)) return false;
+    if (!file.commit()) return false;
     prunePreviewCache(directory, maximumCacheBytes);
     return QFileInfo::exists(cachePath);
 }
@@ -170,7 +174,7 @@ bool writePreviewCache(const QString &cachePath,
 
 bool PdfLocatorPreviewRenderResult::success() const
 {
-    return !image.isNull() && error.isEmpty();
+    return !cancelled && !image.isNull() && error.isEmpty();
 }
 
 QString resolvePdfLocatorPreviewRendererPath(const QString &sumatraPdfExecutablePath)
@@ -203,6 +207,29 @@ QString pdfLocatorPreviewCacheFilePath(
     const QString pdfPath = localPdfPath(resource, anchor);
     if (pdfPath.isEmpty()) return {};
     return previewCachePath(previewCacheDirectory(options), pdfPath, anchor, options);
+}
+
+QString pdfLocatorPreviewRequestKey(
+    const Resource &resource,
+    const Anchor &anchor,
+    const PdfLocatorPreviewRenderOptions &options)
+{
+    const QString pdfPath = localPdfPath(resource, anchor);
+    QJsonObject key;
+    key.insert(QStringLiteral("image"), previewCachePath(QStringLiteral("."), pdfPath, anchor, options));
+    if (pdfPath.isEmpty()) {
+        key.insert(QStringLiteral("resource"), resource.location);
+        key.insert(QStringLiteral("targetFile"), anchor.targetFile);
+        key.insert(QStringLiteral("targetUri"), anchor.targetUri);
+    }
+    key.insert(QStringLiteral("renderer"), options.rendererExecutablePath.trimmed().isEmpty()
+                   ? resolvePdfLocatorPreviewRendererPath() : options.rendererExecutablePath.trimmed());
+    key.insert(QStringLiteral("cache"), previewCacheDirectory(options));
+    key.insert(QStringLiteral("persistent"), options.usePersistentCache);
+    key.insert(QStringLiteral("maximumCacheBytes"), QString::number(options.maximumCacheBytes));
+    key.insert(QStringLiteral("timeout"), std::max(1000, options.timeoutMilliseconds));
+    return QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(key).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
 }
 
 QImage cropPdfLocatorPreviewImage(const QImage &pageImage,
@@ -248,9 +275,19 @@ QImage cropPdfLocatorPreviewImage(const QImage &pageImage,
 PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
     const Resource &resource,
     const Anchor &anchor,
-    const PdfLocatorPreviewRenderOptions &options)
+    const PdfLocatorPreviewRenderOptions &options,
+    const PdfLocatorPreviewCancellation &cancellation)
 {
     PdfLocatorPreviewRenderResult result;
+    const auto isCancelled = [&]() {
+        if (!cancellation || !cancellation->load(std::memory_order_relaxed)) return false;
+        result.cancelled = true;
+        result.image = {};
+        result.error.clear();
+        result.cacheFilePath.clear();
+        return true;
+    };
+    if (isCancelled()) return result;
     const PdfLocatorGeometry geometry = parsePdfLocatorGeometry(anchor);
     result.page = geometry.page;
     result.locatorRectangle = geometry.rectangle;
@@ -266,6 +303,7 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
     }
     const QString cachePath = pdfLocatorPreviewCacheFilePath(resource, anchor, options);
     result.image = readPreviewCache(cachePath);
+    if (isCancelled()) return result;
     if (!result.image.isNull()) {
         result.cacheFilePath = QFileInfo(cachePath).absoluteFilePath();
         result.cropped = geometry.rectangle.isValid();
@@ -298,14 +336,47 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
                           pdfPath,
                           QString::number(geometry.page)});
     process.setWorkingDirectory(temporaryDirectory.path());
+    if (isCancelled()) return result;
     process.start();
-    if (!process.waitForStarted(5000)) {
+    const auto stopProcess = [&]() {
+        if (process.state() == QProcess::NotRunning) return;
+        process.kill();
+        process.waitForFinished();
+    };
+    QElapsedTimer started;
+    started.start();
+    while (process.state() == QProcess::Starting && started.elapsed() < 5000) {
+        if (isCancelled()) {
+            stopProcess();
+            return result;
+        }
+        process.waitForStarted(50);
+    }
+    if (isCancelled()) {
+        stopProcess();
+        return result;
+    }
+    if (process.error() == QProcess::FailedToStart || process.state() == QProcess::Starting) {
+        stopProcess();
         result.error = QStringLiteral("Unable to start the SumatraPDF preview renderer");
         return result;
     }
-    if (!process.waitForFinished(timeoutMilliseconds)) {
-        process.kill();
-        process.waitForFinished();
+    QElapsedTimer rendering;
+    rendering.start();
+    while (process.state() != QProcess::NotRunning && rendering.elapsed() < timeoutMilliseconds) {
+        if (isCancelled()) {
+            stopProcess();
+            return result;
+        }
+        process.waitForFinished(static_cast<int>(std::clamp<qint64>(
+            timeoutMilliseconds - rendering.elapsed(), 1, 50)));
+    }
+    if (isCancelled()) {
+        stopProcess();
+        return result;
+    }
+    if (process.state() != QProcess::NotRunning) {
+        stopProcess();
         result.error = QStringLiteral("PDF preview rendering timed out");
         return result;
     }
@@ -324,6 +395,7 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         return result;
     }
     const QImage pageImage(images.first().absoluteFilePath());
+    if (isCancelled()) return result;
     if (pageImage.isNull()) {
         result.error = QStringLiteral("Unable to read the rendered PDF page");
         return result;
@@ -341,11 +413,13 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
     } else {
         result.image = pageImage;
     }
+    if (isCancelled()) return result;
     if (result.success()) {
-        if (writePreviewCache(cachePath, result.image, options.maximumCacheBytes)) {
+        if (writePreviewCache(cachePath, result.image, options.maximumCacheBytes, cancellation)) {
             result.cacheFilePath = QFileInfo(cachePath).absoluteFilePath();
         }
     }
+    isCancelled();
     return result;
 }
 

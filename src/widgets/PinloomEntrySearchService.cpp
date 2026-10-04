@@ -114,7 +114,9 @@ QList<PinloomEntry> PinloomEntrySearchService::search(
         if (!result.matchedAnchor.has_value()) {
             entry.aliases = result.resource.aliases;
             entry.tags = result.resource.tags;
-            const std::optional<ResourceUsage> usage = repository_.resourceUsage(result.resource.id);
+            const std::optional<ResourceUsage> usage = result.resourceUsageLoaded
+                ? result.resourceUsage
+                : repository_.resourceUsage(result.resource.id);
             if (usage.has_value()) {
                 entry.pinned = usage->pinned;
                 entry.usedAt = usage->lastOpenedAt;

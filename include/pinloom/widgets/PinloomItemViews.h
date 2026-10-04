@@ -53,6 +53,8 @@ public:
     void removeRow(int row);
     TableItem *item(int row, int column) const;
     void setItem(int row, int column, TableItem *item);
+    // Reuse the cell and retain its other roles; callers refresh row-specific state.
+    TableItem *updateItem(int row, int column, const QVariant &displayValue);
     TableItem *currentItem() const;
     int currentRow() const;
     int currentColumn() const;

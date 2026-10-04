@@ -90,6 +90,22 @@ void considerMatch(FieldMatch &best, const FieldMatch &match)
     }
 }
 
+void considerValueMatch(FieldMatch &best,
+                        const QString &field,
+                        const QString &value,
+                        const QString &query,
+                        int exactPriority,
+                        int prefixPriority,
+                        int containsPriority)
+{
+    // Equal-priority matches retain the first field/value, so they cannot improve the result.
+    if (best.matched && best.priority >= std::max({exactPriority, prefixPriority, containsPriority})) {
+        return;
+    }
+
+    considerMatch(best, matchValue(field, value, query, exactPriority, prefixPriority, containsPriority));
+}
+
 void considerListMatch(FieldMatch &best,
                        const QString &field,
                        const QStringList &values,
@@ -98,7 +114,11 @@ void considerListMatch(FieldMatch &best,
                        int prefixPriority,
                        int containsPriority)
 {
+    const int maximumPriority = std::max({exactPriority, prefixPriority, containsPriority});
     for (const QString &value : values) {
+        if (best.matched && best.priority >= maximumPriority) {
+            break;
+        }
         considerMatch(best, matchValue(field, value, query, exactPriority, prefixPriority, containsPriority));
     }
 }
@@ -118,11 +138,11 @@ FieldMatch bestMatchForClip(const Clip &clip, const QString &query, bool tagQuer
         return best;
     }
 
-    considerMatch(best, matchValue(QStringLiteral("name"), clip.name, query, 1000, 700, 600));
+    considerValueMatch(best, QStringLiteral("name"), clip.name, query, 1000, 700, 600);
     considerListMatch(best, QStringLiteral("alias"), clip.aliases, query, 900, 690, 590);
     considerListMatch(best, QStringLiteral("tag"), clip.tags, query, 800, 680, 580);
-    considerMatch(best, matchValue(QStringLiteral("preview"), clip.preview, query, 660, 660, 560));
-    considerMatch(best, matchValue(QStringLiteral("text"), clip.text, query, 650, 650, 550));
+    considerValueMatch(best, QStringLiteral("preview"), clip.preview, query, 660, 660, 560);
+    considerValueMatch(best, QStringLiteral("text"), clip.text, query, 650, 650, 550);
 
     return best;
 }
@@ -148,13 +168,13 @@ FieldMatch bestIdentityMatchForClip(const Clip &clip, const ClipIdentityQuery &q
     }
 
     FieldMatch best;
-    considerMatch(best,
-                  matchValue(QStringLiteral("name"),
-                             clip.name,
-                             query.nameOrAlias,
-                             1000,
-                             700,
-                             600));
+    considerValueMatch(best,
+                      QStringLiteral("name"),
+                      clip.name,
+                      query.nameOrAlias,
+                      1000,
+                      700,
+                      600);
     considerListMatch(best,
                       QStringLiteral("alias"),
                       clip.aliases,

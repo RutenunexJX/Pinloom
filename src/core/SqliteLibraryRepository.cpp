@@ -988,6 +988,8 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
         if (usage == resourceUsages.constEnd()) {
             usage = resourceUsages.insert(resourceId, readResourceUsage(resourceId, readCounts));
         }
+        result.resourceUsage = usage.value();
+        result.resourceUsageLoaded = true;
         if (usage->has_value()) {
             result.score += usageScoreAdjustment(usage->value());
         }

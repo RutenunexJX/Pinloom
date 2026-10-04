@@ -739,6 +739,19 @@ void SqliteRepositoryTest::tracksUsageAndRanksRecallSignals()
     QVERIFY(preservedUsage->pinned);
 }
 
+static void compareSearchResourceUsage(const SearchResult &result,
+                                       const std::optional<ResourceUsage> &expected)
+{
+    QVERIFY(result.resourceUsageLoaded);
+    QCOMPARE(result.resourceUsage.has_value(), expected.has_value());
+    if (expected.has_value()) {
+        QCOMPARE(result.resourceUsage->resourceId, expected->resourceId);
+        QCOMPARE(result.resourceUsage->openCount, expected->openCount);
+        QCOMPARE(result.resourceUsage->lastOpenedAt, expected->lastOpenedAt);
+        QCOMPARE(result.resourceUsage->pinned, expected->pinned);
+    }
+}
+
 static void compareSearchAnchor(const Anchor &actual, const Anchor &expected)
 {
     QCOMPARE(actual.id, expected.id);
@@ -830,6 +843,7 @@ void SqliteRepositoryTest::searchHydratesEachResourceOncePerQuery()
         const Resource expected = stored.value(result.resource.id);
         QVERIFY(!expected.id.isEmpty());
         compareSearchResource(result.resource, expected);
+        compareSearchResourceUsage(result, repository.resourceUsage(expected.id));
         if (result.matchedAnchor) {
             ++anchorResults;
             QCOMPARE(result.matchedField, QStringLiteral("anchor_name"));
@@ -860,6 +874,7 @@ void SqliteRepositoryTest::searchHydratesEachResourceOncePerQuery()
         QCOMPARE(limited.at(i).resource.id, results.at(i).resource.id);
         QCOMPARE(limited.at(i).matchedField, results.at(i).matchedField);
         QCOMPARE(limited.at(i).score, results.at(i).score);
+        compareSearchResourceUsage(limited.at(i), results.at(i).resourceUsage);
         QVERIFY(limited.at(i).matchedAnchor.has_value());
         QVERIFY(results.at(i).matchedAnchor.has_value());
         QCOMPARE(limited.at(i).matchedAnchor->id, results.at(i).matchedAnchor->id);
@@ -887,20 +902,37 @@ void SqliteRepositoryTest::searchObservesChangesBetweenQueries()
     const auto initial = repository.search(query, &reads);
     QCOMPARE(initial.size(), 2);
     QCOMPARE(reads.resourceHydrations, 1);
+    QCOMPARE(reads.resourceUsageReads, 1);
+    for (const SearchResult &result : initial) compareSearchResourceUsage(result, std::nullopt);
     QVERIFY(initial.first().matchedAnchor.has_value());
     const double originalAnchorScore = initial.first().score;
     QVERIFY(repository.setResourcePinned(resource.id, true));
     const auto pinned = repository.search(query, &reads);
     QCOMPARE(pinned.size(), 2);
     QCOMPARE(reads.resourceUsageReads, 1);
+    const auto pinnedUsage = repository.resourceUsage(resource.id);
+    QVERIFY(pinnedUsage.has_value());
+    QVERIFY(pinnedUsage->pinned);
+    for (const SearchResult &result : pinned) compareSearchResourceUsage(result, pinnedUsage);
     QVERIFY(pinned.first().score < originalAnchorScore);
     QVERIFY(repository.setResourcePinned(resource.id, false));
     const auto unpinned = repository.search(query, &reads);
     QCOMPARE(unpinned.size(), 2);
+    QCOMPARE(reads.resourceUsageReads, 1);
+    const auto unpinnedUsage = repository.resourceUsage(resource.id);
+    QVERIFY(unpinnedUsage.has_value());
+    QVERIFY(!unpinnedUsage->pinned);
+    for (const SearchResult &result : unpinned) compareSearchResourceUsage(result, unpinnedUsage);
     QCOMPARE(unpinned.first().score, originalAnchorScore);
     QVERIFY(repository.recordResourceOpen(resource.id));
     const auto opened = repository.search(query, &reads);
     QCOMPARE(opened.size(), 2);
+    QCOMPARE(reads.resourceUsageReads, 1);
+    const auto openedUsage = repository.resourceUsage(resource.id);
+    QVERIFY(openedUsage.has_value());
+    QCOMPARE(openedUsage->openCount, 1);
+    QVERIFY(openedUsage->lastOpenedAt.isValid());
+    for (const SearchResult &result : opened) compareSearchResourceUsage(result, openedUsage);
     QVERIFY(opened.first().score < unpinned.first().score);
     QVERIFY(repository.recordAnchorOpen(resource.id, anchor));
     const auto anchorOpened = repository.search(query, &reads);
@@ -909,7 +941,14 @@ void SqliteRepositoryTest::searchObservesChangesBetweenQueries()
     QVERIFY(anchorOpened.first().matchedAnchor.has_value());
     QVERIFY(anchorOpened.first().matchedAnchor->usedAt.isValid());
     QCOMPARE(reads.resourceHydrations, 1);
+    QCOMPARE(reads.resourceUsageReads, 1);
     QCOMPARE(reads.anchorUsageReads, 1);
+    for (const SearchResult &result : anchorOpened) compareSearchResourceUsage(result, openedUsage);
+
+    // Later mutations must not rewrite results already returned to a caller.
+    for (const SearchResult &result : initial) compareSearchResourceUsage(result, std::nullopt);
+    for (const SearchResult &result : pinned) compareSearchResourceUsage(result, pinnedUsage);
+    for (const SearchResult &result : unpinned) compareSearchResourceUsage(result, unpinnedUsage);
 
     resource = repository.findResource(resource.id).value();
     resource.title = QStringLiteral("Needle revised document");

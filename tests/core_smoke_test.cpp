@@ -2141,6 +2141,62 @@ void CoreSmokeTest::ranksPinnedAndOpenedResourcesWithinMatchType()
     QCOMPARE(results.size(), 2);
     QCOMPARE(results.first().resource.id, hot.id);
     QCOMPARE(results.first().matchedField, QStringLiteral("title"));
+    QVERIFY(results.first().resourceUsageLoaded);
+    QVERIFY(results.first().resourceUsage.has_value());
+    QCOMPARE(results.first().resourceUsage->resourceId, usage->resourceId);
+    QCOMPARE(results.first().resourceUsage->openCount, usage->openCount);
+    QCOMPARE(results.first().resourceUsage->lastOpenedAt, usage->lastOpenedAt);
+    QCOMPARE(results.first().resourceUsage->pinned, usage->pinned);
+    QCOMPARE(results.last().resource.id, cold.id);
+    QVERIFY(results.last().resourceUsageLoaded);
+    QVERIFY(!results.last().resourceUsage.has_value());
+
+    QVERIFY(repository.setResourcePinned(hot.id, false));
+    const auto unpinned = repository.search(SearchQuery{QStringLiteral("UART Zulu")});
+    QCOMPARE(unpinned.size(), 1);
+    QVERIFY(unpinned.first().resourceUsageLoaded);
+    QVERIFY(unpinned.first().resourceUsage.has_value());
+    QVERIFY(!unpinned.first().resourceUsage->pinned);
+    QCOMPARE(unpinned.first().resourceUsage->openCount, 2);
+    QCOMPARE(unpinned.first().resourceUsage->lastOpenedAt, usage->lastOpenedAt);
+
+    QVERIFY(repository.recordResourceOpen(hot.id));
+    const auto opened = repository.search(SearchQuery{QStringLiteral("UART Zulu")});
+    QCOMPARE(opened.size(), 1);
+    QVERIFY(opened.first().resourceUsageLoaded);
+    QVERIFY(opened.first().resourceUsage.has_value());
+    QCOMPARE(opened.first().resourceUsage->openCount, 3);
+    QCOMPARE(opened.first().resourceUsage->lastOpenedAt,
+             repository.resourceUsage(hot.id)->lastOpenedAt);
+    QVERIFY(!opened.first().resourceUsage->pinned);
+
+    QVERIFY(repository.setResourcePinned(hot.id, true));
+    const auto repinned = repository.search(SearchQuery{QStringLiteral("UART Zulu")});
+    QCOMPARE(repinned.size(), 1);
+    QVERIFY(repinned.first().resourceUsageLoaded);
+    QVERIFY(repinned.first().resourceUsage.has_value());
+    QVERIFY(repinned.first().resourceUsage->pinned);
+    QCOMPARE(repinned.first().resourceUsage->openCount, 3);
+
+    QVERIFY(repository.recordResourceOpen(cold.id));
+    const auto newlyOpened = repository.search(SearchQuery{QStringLiteral("UART Alpha")});
+    QCOMPARE(newlyOpened.size(), 1);
+    QVERIFY(newlyOpened.first().resourceUsageLoaded);
+    QVERIFY(newlyOpened.first().resourceUsage.has_value());
+    QCOMPARE(newlyOpened.first().resourceUsage->resourceId, cold.id);
+    QCOMPARE(newlyOpened.first().resourceUsage->openCount, 1);
+    QCOMPARE(newlyOpened.first().resourceUsage->lastOpenedAt,
+             repository.resourceUsage(cold.id)->lastOpenedAt);
+    QVERIFY(!newlyOpened.first().resourceUsage->pinned);
+
+    // Positive and missing usage snapshots belong to their original search.
+    QVERIFY(results.first().resourceUsage->pinned);
+    QCOMPARE(results.first().resourceUsage->openCount, 2);
+    QCOMPARE(results.first().resourceUsage->lastOpenedAt, usage->lastOpenedAt);
+    QVERIFY(!results.last().resourceUsage.has_value());
+    QVERIFY(!unpinned.first().resourceUsage->pinned);
+    QCOMPARE(unpinned.first().resourceUsage->openCount, 2);
+    QVERIFY(!opened.first().resourceUsage->pinned);
 }
 
 void CoreSmokeTest::filtersByRequiredLocationPrefixes()

@@ -25,6 +25,7 @@
 #include <QGridLayout>
 #include <QHeaderView>
 #include <QHash>
+#include <QHideEvent>
 #include <QHBoxLayout>
 #include <QInputDialog>
 #include <QItemSelectionModel>
@@ -40,6 +41,7 @@
 #include <QScreen>
 #include <QSettings>
 #include <QShortcut>
+#include <QShowEvent>
 #include <QSignalBlocker>
 #include <QSplitter>
 #include <QStyledItemDelegate>
@@ -47,6 +49,7 @@
 #include <QStatusBar>
 
 #include <QTimer>
+#include <QScrollBar>
 #include <QToolButton>
 #include <QToolBar>
 #include <QUrl>
@@ -117,7 +120,8 @@ enum class UsageFilter {
     NeverOpened = 3
 };
 
-QString locatorPreviewCacheKey(const AnchorLibraryFile &file, const Anchor &anchor)
+QString locatorPreviewCacheKey(const AnchorLibraryFile &file, const Anchor &anchor,
+                               const PdfLocatorPreviewRenderOptions *pdfOptions = nullptr)
 {
     QString targetPath = anchor.targetFile.trimmed();
     if (targetPath.isEmpty()) targetPath = anchor.targetUri.trimmed();
@@ -125,7 +129,7 @@ QString locatorPreviewCacheKey(const AnchorLibraryFile &file, const Anchor &anch
     const QUrl targetUrl(targetPath);
     if (targetUrl.isLocalFile()) targetPath = targetUrl.toLocalFile();
     const QFileInfo target(targetPath);
-    return QStringList{file.resource.id,
+    QString key = QStringList{file.resource.id,
                        QDir::fromNativeSeparators(target.absoluteFilePath()),
                        QString::number(target.size()),
                        QString::number(target.lastModified().toMSecsSinceEpoch()),
@@ -135,6 +139,15 @@ QString locatorPreviewCacheKey(const AnchorLibraryFile &file, const Anchor &anch
                        anchor.locatorType,
                        anchor.locatorJson}
         .join(QChar(0x1f));
+    if (pdfOptions) key += QChar(0x1f) + pdfLocatorPreviewRequestKey(file.resource, anchor, *pdfOptions);
+    return key;
+}
+
+bool isDirectPdfPreview(const Resource &resource, const Anchor &anchor)
+{
+    return resource.kind == ResourceKind::Pdf
+        || resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)
+        || isSumatraPdfAnchor(anchor);
 }
 
 QString resourceKindLabel(ResourceKind kind)
@@ -504,6 +517,102 @@ QString compactLocator(const AnchorLocatorUpdate &locator)
 }
 
 } // namespace
+
+// These rows belong to one refresh, so provider, scope and filesystem changes are
+// observed on the next refresh without maintaining a persistent derived cache.
+struct AnchorLibraryWindow::PdfPreviewRequest {
+    Resource resource;
+    Anchor anchor;
+    PdfLocatorPreviewRenderOptions options;
+    QString cacheKey;
+    quint64 generation = 0;
+    bool showExpanded = false;
+    PdfLocatorPreviewCancellation cancellation = std::make_shared<std::atomic_bool>(false);
+};
+
+struct AnchorLibraryWindow::FileViewData {
+    FileViewData(const AnchorLibraryFile *source, QList<AnchorLibraryAnchor> scoped)
+        : file(source), anchors(std::move(scoped))
+    {
+    }
+
+    const QString &name() const
+    {
+        if (!nameValue) nameValue = fileDisplayName(*file);
+        return *nameValue;
+    }
+
+    const QDateTime &markedAt() const
+    {
+        if (!markedValue) markedValue = lastMarkedAt(file->resource, anchors);
+        return *markedValue;
+    }
+
+    const QDateTime &openedAt() const
+    {
+        if (!openedValue) openedValue = lastOpenedAt(*file);
+        return *openedValue;
+    }
+
+    int openCount() const
+    {
+        if (!openCountValue) openCountValue = totalOpenCount(*file);
+        return *openCountValue;
+    }
+
+    bool targetExists() const
+    {
+        if (!targetExistsValue) targetExistsValue = localTargetExists(file->resource);
+        return *targetExistsValue;
+    }
+
+    void prepareForDisplay(bool sortTags)
+    {
+        key = fileGroupingKey(file->resource);
+        aliases = file->resource.aliases.join(QLatin1Char(','));
+        if (sortTags) tags = file->resource.tags.join(QLatin1Char(','));
+        type = resourceKindLabel(file->resource.kind);
+        name();
+        markedAt();
+        openedAt();
+        openCount();
+        targetExists();
+    }
+
+    const AnchorLibraryFile *file;
+    QList<AnchorLibraryAnchor> anchors;
+    QString key;
+    QString aliases;
+    QString tags;
+    QString type;
+    mutable std::optional<QString> nameValue;
+    mutable std::optional<QDateTime> markedValue;
+    mutable std::optional<QDateTime> openedValue;
+    mutable std::optional<int> openCountValue;
+    mutable std::optional<bool> targetExistsValue;
+    mutable std::optional<bool> invalidLocator;
+};
+
+struct AnchorLibraryWindow::AnchorViewData {
+    AnchorViewData(const AnchorLibraryAnchor &source, bool sortTags)
+        : entry(source)
+        , identity(anchorIdentityKey(source.anchor))
+        , name(anchorDisplayName(source.anchor))
+        , aliases(source.anchor.aliases.join(QLatin1Char(',')))
+        , tags(sortTags ? source.anchor.tags.join(QLatin1Char(',')) : QString())
+        , type(locatorTypeLabel(source.anchor.locatorType))
+        , updated(source.anchor.updatedAt.isValid() ? source.anchor.updatedAt : source.anchor.createdAt)
+    {
+    }
+
+    AnchorLibraryAnchor entry;
+    QString identity;
+    QString name;
+    QString aliases;
+    QString tags;
+    QString type;
+    QDateTime updated;
+};
 
 AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWidget *parent)
     : Ui::MainWindow(parent)
@@ -1010,9 +1119,23 @@ AnchorLibraryWindow::AnchorLibraryWindow(AnchorLibraryWindowOptions options, QWi
 
 AnchorLibraryWindow::~AnchorLibraryWindow()
 {
+    cancelPdfLocatorPreview();
     if (options_.repository && repositoryListenerId_ >= 0) {
         options_.repository->removeChangeListener(repositoryListenerId_);
     }
+}
+
+void AnchorLibraryWindow::hideEvent(QHideEvent *event)
+{
+    ++locatorPreviewRequestGeneration_;
+    cancelPdfLocatorPreview();
+    Ui::MainWindow::hideEvent(event);
+}
+
+void AnchorLibraryWindow::showEvent(QShowEvent *event)
+{
+    Ui::MainWindow::showEvent(event);
+    scheduleSelectedAnchorPreview();
 }
 
 void AnchorLibraryWindow::refreshLibrary()
@@ -1434,13 +1557,22 @@ bool AnchorLibraryWindow::renderSelectedAnchorPreview(bool showExpanded, bool fo
     ++locatorPreviewRequestGeneration_;
     const AnchorLibraryFile *file = selectedFile();
     const auto entry = selectedAnchor();
-    if (!file || !entry) return false;
+    if (!file || !entry) {
+        cancelPdfLocatorPreview();
+        return false;
+    }
 
     const Anchor &anchor = entry->anchor;
-    const QString cacheKey = locatorPreviewCacheKey(*file, anchor);
+    const bool directPdfPreview = isDirectPdfPreview(file->resource, anchor);
+    const std::optional<PdfLocatorPreviewRenderOptions> pdfOptions =
+        directPdfPreview && options_.pdfPreviewOptionsProvider
+        ? std::optional<PdfLocatorPreviewRenderOptions>(options_.pdfPreviewOptionsProvider())
+        : std::nullopt;
+    const QString cacheKey = locatorPreviewCacheKey(*file, anchor, pdfOptions ? &*pdfOptions : nullptr);
     if (!forceRender) {
         const LocatorPreviewCacheEntry *cached = locatorPreviewMemoryCache_.object(cacheKey);
         if (cached) {
+            cancelPdfLocatorPreview();
             locatorPreview_->setScreenshot(cached->image);
             if (showExpanded) locatorPreview_->showExpandedPreview();
             statusText_ = cached->status;
@@ -1449,13 +1581,11 @@ bool AnchorLibraryWindow::renderSelectedAnchorPreview(bool showExpanded, bool fo
         }
     }
 
-    const bool directPdfPreview = file->resource.kind == ResourceKind::Pdf
-        || file->resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)
-        || isSumatraPdfAnchor(anchor);
-    if (directPdfPreview && options_.pdfPreviewOptionsProvider) {
-        return startPdfLocatorPreview(*file, entry.value(), cacheKey, showExpanded);
+    if (pdfOptions) {
+        return startPdfLocatorPreview(*file, entry.value(), cacheKey, *pdfOptions, showExpanded);
     }
 
+    cancelPdfLocatorPreview();
     QString status;
     QPixmap screenshot;
     if (options_.locatorPreviewHandler) {
@@ -1480,39 +1610,80 @@ bool AnchorLibraryWindow::renderSelectedAnchorPreview(bool showExpanded, bool fo
 bool AnchorLibraryWindow::startPdfLocatorPreview(const AnchorLibraryFile &file,
                                                   const AnchorLibraryAnchor &anchor,
                                                   const QString &cacheKey,
+                                                  const PdfLocatorPreviewRenderOptions &renderOptions,
                                                   bool showExpanded)
 {
-    const PdfLocatorPreviewRenderOptions renderOptions = options_.pdfPreviewOptionsProvider();
-    const Resource resource = file.resource;
-    const Anchor locator = anchor.anchor;
-    const quint64 requestGeneration = locatorPreviewRequestGeneration_;
+    for (const auto &request : {activePdfPreview_, pendingPdfPreview_}) {
+        if (request && request->cacheKey == cacheKey
+            && !request->cancellation->load(std::memory_order_relaxed)) {
+            request->generation = locatorPreviewRequestGeneration_;
+            request->showExpanded = request->showExpanded || showExpanded;
+            return true;
+        }
+    }
+    cancelPdfLocatorPreview();
+    auto request = std::make_shared<PdfPreviewRequest>();
+    request->resource = file.resource;
+    request->anchor = anchor.anchor;
+    request->options = renderOptions;
+    request->cacheKey = cacheKey;
+    request->generation = locatorPreviewRequestGeneration_;
+    request->showExpanded = showExpanded;
 
     statusText_ = tr("Rendering PDF preview...");
     Pinloom::Ui::setStatusText(statusLabel_, statusText_, showExpanded);
+    if (activePdfPreview_) {
+        pendingPdfPreview_ = std::move(request);
+    } else {
+        launchPdfLocatorPreview(request);
+    }
+    return true;
+}
+
+void AnchorLibraryWindow::cancelPdfLocatorPreview()
+{
+    if (activePdfPreview_) activePdfPreview_->cancellation->store(true, std::memory_order_relaxed);
+    pendingPdfPreview_.reset();
+}
+
+void AnchorLibraryWindow::launchPdfLocatorPreview(const std::shared_ptr<PdfPreviewRequest> &request)
+{
+    activePdfPreview_ = request;
+    // Only value-owned render inputs cross the worker boundary. UI intent can be
+    // merged while rendering without racing with worker reads.
+    const Resource resource = request->resource;
+    const Anchor locator = request->anchor;
+    const PdfLocatorPreviewRenderOptions renderOptions = request->options;
+    const PdfLocatorPreviewCancellation cancellation = request->cancellation;
 
     auto *watcher = new QFutureWatcher<PdfLocatorPreviewRenderResult>(this);
     connect(watcher,
             &QFutureWatcher<PdfLocatorPreviewRenderResult>::finished,
             this,
-            [this, watcher, requestGeneration, cacheKey, showExpanded]() {
+            [this, watcher, request]() {
                 const PdfLocatorPreviewRenderResult result = watcher->result();
                 watcher->deleteLater();
-                if (requestGeneration != locatorPreviewRequestGeneration_) return;
-
-                const QString status = result.success()
-                    ? (result.cropped
-                           ? tr("Showing page %1 anchor region").arg(result.page)
-                           : tr("Showing rendered PDF page %1").arg(result.page))
-                    : result.error;
-                applyLocatorPreviewResult(cacheKey,
-                                          result.success() ? QPixmap::fromImage(result.image) : QPixmap{},
-                                          status,
-                                          showExpanded);
+                activePdfPreview_.reset();
+                if (!result.cancelled && !request->cancellation->load(std::memory_order_relaxed)
+                    && request->generation == locatorPreviewRequestGeneration_) {
+                    const QString status = result.success()
+                        ? (result.cropped
+                               ? tr("Showing page %1 anchor region").arg(result.page)
+                               : tr("Showing rendered PDF page %1").arg(result.page))
+                        : result.error;
+                    applyLocatorPreviewResult(request->cacheKey,
+                                              result.success() ? QPixmap::fromImage(result.image) : QPixmap{},
+                                              status,
+                                              request->showExpanded);
+                }
+                auto pending = std::exchange(pendingPdfPreview_, {});
+                if (pending && pending->generation == locatorPreviewRequestGeneration_) {
+                    launchPdfLocatorPreview(pending);
+                }
             });
-    watcher->setFuture(QtConcurrent::run([resource, locator, renderOptions]() {
-        return renderPdfLocatorPreview(resource, locator, renderOptions);
+    watcher->setFuture(QtConcurrent::run([resource, locator, renderOptions, cancellation]() {
+        return renderPdfLocatorPreview(resource, locator, renderOptions, cancellation);
     }));
-    return true;
 }
 
 void AnchorLibraryWindow::applyLocatorPreviewResult(const QString &cacheKey,
@@ -1540,10 +1711,30 @@ void AnchorLibraryWindow::applyLocatorPreviewResult(const QString &cacheKey,
 void AnchorLibraryWindow::scheduleSelectedAnchorPreview()
 {
     const quint64 requestGeneration = ++locatorPreviewRequestGeneration_;
+    if (!isVisible()) {
+        cancelPdfLocatorPreview();
+        return;
+    }
     const AnchorLibraryFile *file = selectedFile();
     const auto entry = selectedAnchor();
-    if (file && entry
-        && locatorPreviewMemoryCache_.contains(locatorPreviewCacheKey(*file, entry->anchor))) {
+    if (!file || !entry) {
+        cancelPdfLocatorPreview();
+        return;
+    }
+    const std::optional<PdfLocatorPreviewRenderOptions> pdfOptions =
+        isDirectPdfPreview(file->resource, entry->anchor) && options_.pdfPreviewOptionsProvider
+        ? std::optional<PdfLocatorPreviewRenderOptions>(options_.pdfPreviewOptionsProvider())
+        : std::nullopt;
+    const QString cacheKey = locatorPreviewCacheKey(*file, entry->anchor, pdfOptions ? &*pdfOptions : nullptr);
+    for (const auto &request : {activePdfPreview_, pendingPdfPreview_}) {
+        if (request && request->cacheKey == cacheKey
+            && !request->cancellation->load(std::memory_order_relaxed)) {
+            request->generation = requestGeneration;
+            return;
+        }
+    }
+    cancelPdfLocatorPreview();
+    if (locatorPreviewMemoryCache_.contains(cacheKey)) {
         renderSelectedAnchorPreview(false, false);
         return;
     }
@@ -1552,10 +1743,7 @@ void AnchorLibraryWindow::scheduleSelectedAnchorPreview()
         const AnchorLibraryFile *file = selectedFile();
         const auto entry = selectedAnchor();
         if (!file || !entry) return;
-        const bool directPdfPreview = file->resource.kind == ResourceKind::Pdf
-            || file->resource.location.trimmed().endsWith(QStringLiteral(".pdf"), Qt::CaseInsensitive)
-            || isSumatraPdfAnchor(entry->anchor);
-        if (directPdfPreview) renderSelectedAnchorPreview(false, false);
+        if (isDirectPdfPreview(file->resource, entry->anchor)) renderSelectedAnchorPreview(false, false);
     });
 }
 
@@ -1793,87 +1981,96 @@ void AnchorLibraryWindow::applyFilter()
             appendUnique(selectedKeys, fileTable_->item(index.row(), FileNameColumn)->data(FileKeyRole).toString());
         }
     }
+    const auto *current = fileTable_->item(fileTable_->currentRow(), FileNameColumn);
+    const QString currentKey = current ? current->data(FileKeyRole).toString() : QString();
+    const int currentColumn = qMax(0, fileTable_->currentColumn());
+    const int verticalScroll = fileTable_->verticalScrollBar()->value();
+    const int horizontalScroll = fileTable_->horizontalScrollBar()->value();
     populatingFileTable_ = true;
     const QSignalBlocker tableSignals(fileTable_);
     const QSignalBlocker selectionSignals(fileTable_->selectionModel());
     fileTable_->setUpdatesEnabled(false);
-    fileTable_->setRowCount(0);
-    const QList<const AnchorLibraryFile *> visible = sortedVisibleFiles();
-    for (const AnchorLibraryFile *file : visible) {
-        const QList<AnchorLibraryAnchor> anchors = scopedAnchors(*file);
-        const QString key = fileGroupingKey(file->resource);
+    const QList<FileViewData> visible = sortedVisibleFiles();
+    fileTable_->setRowCount(visible.size());
+    for (int row = 0; row < visible.size(); ++row) {
+        const FileViewData &view = visible.at(row);
+        const AnchorLibraryFile *file = view.file;
+        const QString &key = view.key;
         const auto pending = pendingFileInlineEdits_.constFind(key);
-        const QStringList aliases = pending != pendingFileInlineEdits_.constEnd() && pending->aliasesDirty
-            ? pending->aliases
-            : file->resource.aliases;
+        const QString aliases = pending != pendingFileInlineEdits_.constEnd() && pending->aliasesDirty
+            ? pending->aliases.join(QLatin1Char(','))
+            : view.aliases;
         const QStringList tags = pending != pendingFileInlineEdits_.constEnd() && pending->tagsDirty
             ? pending->tags
             : file->resource.tags;
-        const int row = fileTable_->rowCount();
-        fileTable_->insertRow(row);
-        auto *name = new Pinloom::Ui::TableItem(fileDisplayName(*file));
+        auto *name = fileTable_->updateItem(row, FileNameColumn, view.name());
         name->setData(FileKeyRole, key);
         name->setToolTip(file->resource.location);
         name->setFlags(name->flags() & ~Qt::ItemIsEditable);
-        if (file->resource.deleted) name->setForeground(palette().color(QPalette::Disabled, QPalette::Text));
-        fileTable_->setItem(row, FileNameColumn, name);
-        auto *aliasesItem = new Pinloom::Ui::TableItem(aliases.join(QLatin1Char(',')));
-        if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileAliasesColumn, aliasesItem);
-        auto *location = new Pinloom::Ui::TableItem(fileLocationLabel(*file));
+        const QVariant foreground = file->resource.deleted
+            ? QVariant(QBrush(palette().color(QPalette::Disabled, QPalette::Text)))
+            : QVariant();
+        if (name->data(Qt::ForegroundRole) != foreground) name->setData(Qt::ForegroundRole, foreground);
+        auto *aliasesItem = fileTable_->updateItem(row, FileAliasesColumn, aliases);
+        aliasesItem->setFlags(showingTrash() ? aliasesItem->flags() & ~Qt::ItemIsEditable
+                                            : aliasesItem->flags() | Qt::ItemIsEditable);
+        auto *location = fileTable_->updateItem(row, FileLocationColumn, fileLocationLabel(*file));
         location->setToolTip(file->resource.location);
         location->setFlags(location->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileLocationColumn, location);
-        auto *type = new Pinloom::Ui::TableItem(resourceKindLabel(file->resource.kind));
+        auto *type = fileTable_->updateItem(row, FileTypeColumn, view.type);
         type->setFlags(type->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileTypeColumn, type);
-        auto *count = new Pinloom::Ui::TableItem;
-        count->setData(Qt::DisplayRole, anchors.size());
+        auto *count = fileTable_->updateItem(row, FileAnchorCountColumn, view.anchors.size());
         count->setFlags(count->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileAnchorCountColumn, count);
-        auto *tagsItem = new Pinloom::Ui::TableItem(tags.join(QStringLiteral(", ")));
+        auto *tagsItem = fileTable_->updateItem(row, FileTagsColumn, tags.join(QStringLiteral(", ")));
         tagsItem->setData(TagValuesRole, tags);
         tagsItem->setToolTip(tags.join(QStringLiteral(", ")));
         tagsItem->setFlags(tagsItem->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileTagsColumn, tagsItem);
-        const QDateTime marked = lastMarkedAt(file->resource, anchors);
-        auto *markedItem = new Pinloom::Ui::TableItem(marked.isValid() ? QLocale().toString(marked.toLocalTime(), QLocale::ShortFormat) : QString());
+        const QDateTime &marked = view.markedAt();
+        auto *markedItem = fileTable_->updateItem(row, FileLastMarkedColumn, marked.isValid() ? QLocale().toString(marked.toLocalTime(), QLocale::ShortFormat) : QString());
         markedItem->setData(SortValueRole, marked);
         markedItem->setFlags(markedItem->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileLastMarkedColumn, markedItem);
         QStringList states;
+        const bool targetExists = view.targetExists();
         if (file->resource.deleted) states.append(tr("Archived"));
-        else states.append(localTargetExists(file->resource) ? tr("Ready") : tr("Missing"));
+        else states.append(targetExists ? tr("Ready") : tr("Missing"));
         const int records = resourceIdsForFile(*file).size();
         if (records > 1) states.append(tr("%1 records").arg(records));
-        if (localTargetExists(file->resource) && fileHasInvalidLocator(*file)) {
+        if (targetExists && fileHasInvalidLocator(view)) {
             states.append(tr("Invalid locator"));
         }
-        auto *status = new Pinloom::Ui::TableItem(states.join(QStringLiteral(" | ")));
+        auto *status = fileTable_->updateItem(row, FileStatusColumn, states.join(QStringLiteral(" | ")));
         status->setFlags(status->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileStatusColumn, status);
-        auto *opens = new Pinloom::Ui::TableItem;
-        opens->setData(Qt::DisplayRole, totalOpenCount(*file));
+        auto *opens = fileTable_->updateItem(row, FileOpenCountColumn, view.openCount());
         opens->setFlags(opens->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileOpenCountColumn, opens);
-        const QDateTime opened = lastOpenedAt(*file);
-        auto *openedItem = new Pinloom::Ui::TableItem(opened.isValid() ? QLocale().toString(opened.toLocalTime(), QLocale::ShortFormat) : QString());
+        const QDateTime &opened = view.openedAt();
+        auto *openedItem = fileTable_->updateItem(row, FileLastOpenedColumn, opened.isValid() ? QLocale().toString(opened.toLocalTime(), QLocale::ShortFormat) : QString());
         openedItem->setData(SortValueRole, opened);
         openedItem->setFlags(openedItem->flags() & ~Qt::ItemIsEditable);
-        fileTable_->setItem(row, FileLastOpenedColumn, openedItem);
         applyFileInlineCellState(row, FileAliasesColumn, key);
         applyFileInlineCellState(row, FileTagsColumn, key);
     }
     populatingFileTable_ = false;
-    bool restored = false;
+    QItemSelection retainedSelection;
+    int retainedCurrentRow = -1;
+    int firstSelectedRow = -1;
     for (int row = 0; row < fileTable_->rowCount(); ++row) {
-        if (selectedKeys.contains(fileTable_->item(row, FileNameColumn)->data(FileKeyRole).toString())) {
-            fileTable_->selectionModel()->select(fileTable_->model()->index(row, FileNameColumn), QItemSelectionModel::Select | QItemSelectionModel::Rows);
-            if (!restored) fileTable_->setCurrentCell(row, FileNameColumn);
-            restored = true;
+        const QString key = fileTable_->item(row, FileNameColumn)->data(FileKeyRole).toString();
+        if (key == currentKey && retainedCurrentRow < 0) retainedCurrentRow = row;
+        if (selectedKeys.contains(key)) {
+            retainedSelection.select(fileTable_->model()->index(row, 0),
+                                     fileTable_->model()->index(row, fileTable_->columnCount() - 1));
+            if (firstSelectedRow < 0) firstSelectedRow = row;
         }
     }
-    if (!restored && fileTable_->rowCount() > 0) fileTable_->selectRow(0);
+    fileTable_->selectionModel()->select(retainedSelection, QItemSelectionModel::ClearAndSelect);
+    if (retainedCurrentRow >= 0 || firstSelectedRow >= 0) {
+        fileTable_->setCurrentCell(retainedCurrentRow >= 0 ? retainedCurrentRow : firstSelectedRow,
+                                  currentColumn, QItemSelectionModel::NoUpdate);
+    } else if (fileTable_->rowCount() > 0) {
+        fileTable_->selectRow(0);
+    } else {
+        fileTable_->selectionModel()->clearCurrentIndex();
+    }
     if (fileTable_->rowCount() == 0) {
         anchorTable_->setRowCount(0);
         populateInspector();
@@ -1881,6 +2078,8 @@ void AnchorLibraryWindow::applyFilter()
         populateSelectedFileAnchors();
     }
     fileTable_->verticalHeader()->setDefaultSectionSize(qMax(34, fileTable_->fontMetrics().height() + 16));
+    fileTable_->verticalScrollBar()->setValue(verticalScroll);
+    fileTable_->horizontalScrollBar()->setValue(horizontalScroll);
     fileTable_->setUpdatesEnabled(true);
     updateStatus();
 }
@@ -1898,77 +2097,90 @@ void AnchorLibraryWindow::populateSelectedFileAnchors()
             selectedIds.append(item->data(ResourceIdRole).toString() + QLatin1Char('|') + item->data(AnchorIdentityRole).toString());
         }
     }
-    anchorTable_->setRowCount(0);
+    const auto *current = anchorTable_->item(anchorTable_->currentRow(), AnchorNameColumn);
+    const QString currentKey = current
+        ? current->data(ResourceIdRole).toString() + QLatin1Char('|') + current->data(AnchorIdentityRole).toString()
+        : QString();
+    const int currentColumn = qMax(0, anchorTable_->currentColumn());
+    const int verticalScroll = anchorTable_->verticalScrollBar()->value();
+    const int horizontalScroll = anchorTable_->horizontalScrollBar()->value();
     const AnchorLibraryFile *file = selectedFile();
+    const QList<AnchorViewData> anchors = file ? sortedAnchors(scopedAnchors(*file)) : QList<AnchorViewData>{};
+    anchorTable_->setRowCount(anchors.size());
     if (file) {
-        for (const AnchorLibraryAnchor &entry : sortedAnchors(scopedAnchors(*file))) {
-            const int row = anchorTable_->rowCount();
-            anchorTable_->insertRow(row);
-            auto *name = new Pinloom::Ui::TableItem(anchorDisplayName(entry.anchor));
-            name->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
+        for (int row = 0; row < anchors.size(); ++row) {
+            const AnchorViewData &view = anchors.at(row);
+            const AnchorLibraryAnchor &entry = view.entry;
+            auto *name = anchorTable_->updateItem(row, AnchorNameColumn, view.name);
+            name->setData(AnchorIdentityRole, view.identity);
             name->setData(ResourceIdRole, entry.resourceId);
             name->setFlags(name->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorNameColumn, name);
-            const QString key = inlineAnchorKey(entry.resourceId, anchorIdentityKey(entry.anchor));
+            const QString key = inlineAnchorKey(entry.resourceId, view.identity);
             const auto pending = pendingInlineEdits_.constFind(key);
-            const QStringList aliases = pending != pendingInlineEdits_.constEnd() && pending->aliasesDirty
-                ? pending->aliases
-                : entry.anchor.aliases;
+            const QString aliases = pending != pendingInlineEdits_.constEnd() && pending->aliasesDirty
+                ? pending->aliases.join(QLatin1Char(','))
+                : view.aliases;
             const QStringList tags = pending != pendingInlineEdits_.constEnd() && pending->tagsDirty
                 ? pending->tags
                 : entry.anchor.tags;
-            auto *aliasesItem = new Pinloom::Ui::TableItem(aliases.join(QLatin1Char(',')));
+            auto *aliasesItem = anchorTable_->updateItem(row, AnchorAliasesColumn, aliases);
             aliasesItem->setData(AnchorIdentityRole, anchorIdentityKey(entry.anchor));
             aliasesItem->setData(ResourceIdRole, entry.resourceId);
-            if (showingTrash()) aliasesItem->setFlags(aliasesItem->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorAliasesColumn, aliasesItem);
-            auto *tagsItem = new Pinloom::Ui::TableItem(tags.join(QStringLiteral(", ")));
+            aliasesItem->setFlags(showingTrash() ? aliasesItem->flags() & ~Qt::ItemIsEditable
+                                               : aliasesItem->flags() | Qt::ItemIsEditable);
+            auto *tagsItem = anchorTable_->updateItem(row, AnchorTagsColumn, tags.join(QStringLiteral(", ")));
             tagsItem->setData(TagValuesRole, tags);
             tagsItem->setToolTip(tags.join(QStringLiteral(", ")));
             tagsItem->setFlags(tagsItem->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorTagsColumn, tagsItem);
-            auto *typeItem = new Pinloom::Ui::TableItem(locatorTypeLabel(entry.anchor.locatorType));
+            auto *typeItem = anchorTable_->updateItem(row, AnchorTypeColumn, view.type);
             typeItem->setToolTip(anchorLocatorSummary(entry.anchor));
             typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorTypeColumn, typeItem);
-            const QDateTime updated = entry.anchor.updatedAt.isValid() ? entry.anchor.updatedAt : entry.anchor.createdAt;
-            auto *updatedItem = new Pinloom::Ui::TableItem(updated.isValid() ? QLocale().toString(updated.toLocalTime(), QLocale::ShortFormat) : QString());
+            const QDateTime &updated = view.updated;
+            auto *updatedItem = anchorTable_->updateItem(row, AnchorUpdatedColumn, updated.isValid() ? QLocale().toString(updated.toLocalTime(), QLocale::ShortFormat) : QString());
             updatedItem->setData(SortValueRole, updated);
             updatedItem->setFlags(updatedItem->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorUpdatedColumn, updatedItem);
-            auto *opens = new Pinloom::Ui::TableItem;
-            opens->setData(Qt::DisplayRole, entry.usage.openCount);
+            auto *opens = anchorTable_->updateItem(row, AnchorOpenCountColumn, entry.usage.openCount);
             opens->setFlags(opens->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorOpenCountColumn, opens);
-            auto *opened = new Pinloom::Ui::TableItem(entry.usage.lastOpenedAt.isValid() ? QLocale().toString(entry.usage.lastOpenedAt.toLocalTime(), QLocale::ShortFormat) : QString());
+            auto *opened = anchorTable_->updateItem(row, AnchorLastOpenedColumn, entry.usage.lastOpenedAt.isValid() ? QLocale().toString(entry.usage.lastOpenedAt.toLocalTime(), QLocale::ShortFormat) : QString());
             opened->setData(SortValueRole, entry.usage.lastOpenedAt);
             opened->setFlags(opened->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorLastOpenedColumn, opened);
             QString validity = tr("Unknown");
             if (options_.managementService) {
                 const AnchorValidationResult result = options_.managementService->validateAnchor(file->resource, entry.anchor);
                 validity = result.valid ? tr("Valid") : tr("Invalid");
             }
-            auto *validityItem = new Pinloom::Ui::TableItem(validity);
+            auto *validityItem = anchorTable_->updateItem(row, AnchorValidityColumn, validity);
             validityItem->setFlags(validityItem->flags() & ~Qt::ItemIsEditable);
-            anchorTable_->setItem(row, AnchorValidityColumn, validityItem);
             applyInlineCellState(row, AnchorAliasesColumn, key);
             applyInlineCellState(row, AnchorTagsColumn, key);
         }
     }
-    bool restored = false;
+    QItemSelection retainedSelection;
+    int retainedCurrentRow = -1;
+    int firstSelectedRow = -1;
     for (int row = 0; row < anchorTable_->rowCount(); ++row) {
         const auto *item = anchorTable_->item(row, AnchorNameColumn);
         const QString key = item->data(ResourceIdRole).toString() + QLatin1Char('|') + item->data(AnchorIdentityRole).toString();
+        if (key == currentKey && retainedCurrentRow < 0) retainedCurrentRow = row;
         if (selectedIds.contains(key)) {
-            anchorTable_->selectionModel()->select(anchorTable_->model()->index(row, AnchorNameColumn), QItemSelectionModel::Select | QItemSelectionModel::Rows);
-            if (!restored) anchorTable_->setCurrentCell(row, AnchorNameColumn);
-            restored = true;
+            retainedSelection.select(anchorTable_->model()->index(row, 0),
+                                     anchorTable_->model()->index(row, anchorTable_->columnCount() - 1));
+            if (firstSelectedRow < 0) firstSelectedRow = row;
         }
     }
-    if (!restored && anchorTable_->rowCount() > 0) anchorTable_->selectRow(0);
+    anchorTable_->selectionModel()->select(retainedSelection, QItemSelectionModel::ClearAndSelect);
+    if (retainedCurrentRow >= 0 || firstSelectedRow >= 0) {
+        anchorTable_->setCurrentCell(retainedCurrentRow >= 0 ? retainedCurrentRow : firstSelectedRow,
+                                    currentColumn, QItemSelectionModel::NoUpdate);
+    } else if (anchorTable_->rowCount() > 0) {
+        anchorTable_->selectRow(0);
+    } else {
+        anchorTable_->selectionModel()->clearCurrentIndex();
+    }
     populatingAnchorTable_ = false;
     anchorTable_->verticalHeader()->setDefaultSectionSize(qMax(34, anchorTable_->fontMetrics().height() + 16));
+    anchorTable_->verticalScrollBar()->setValue(verticalScroll);
+    anchorTable_->horizontalScrollBar()->setValue(horizontalScroll);
     anchorTable_->setUpdatesEnabled(true);
     populateInspector();
     updateActionButtons();
@@ -1992,6 +2204,7 @@ void AnchorLibraryWindow::populateInspector()
         }
     } else {
         ++locatorPreviewRequestGeneration_;
+        cancelPdfLocatorPreview();
         locatorPreview_->clearPreview();
     }
 }
@@ -2096,9 +2309,10 @@ bool AnchorLibraryWindow::showingTrash() const
     return scope == AnchorLibraryScope::Trash || scope == AnchorLibraryScope::RecentlyDeleted;
 }
 
-bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
+bool AnchorLibraryWindow::fileMatchesFilter(const FileViewData &view) const
 {
-    const QList<AnchorLibraryAnchor> anchors = scopedAnchors(file);
+    const AnchorLibraryFile &file = *view.file;
+    const QList<AnchorLibraryAnchor> &anchors = view.anchors;
     const auto scope = static_cast<AnchorLibraryScope>(scopeCombo_->currentData().toInt());
     if (!showingTrash() && file.resource.deleted) return false;
     const bool hasFileMarker = hasAnchorLibraryUserMarker(file.resource, file.usage);
@@ -2110,10 +2324,10 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
         });
         if (!file.resource.tags.isEmpty() || hasAnchorTag) return false;
     }
-    if (scope == AnchorLibraryScope::Missing && localTargetExists(file.resource)) return false;
+    if (scope == AnchorLibraryScope::Missing && view.targetExists()) return false;
     if (scope == AnchorLibraryScope::Duplicates && resourceIdsForFile(file).size() < 2) return false;
-    if (scope == AnchorLibraryScope::InvalidLocator && !fileHasInvalidLocator(file)) return false;
-    const QDateTime modified = lastMarkedAt(file.resource, anchors);
+    if (scope == AnchorLibraryScope::InvalidLocator && !fileHasInvalidLocator(view)) return false;
+    const QDateTime &modified = view.markedAt();
     if ((scope == AnchorLibraryScope::RecentlyModified || scope == AnchorLibraryScope::RecentlyDeleted)
         && (!modified.isValid() || modified < QDateTime::currentDateTimeUtc().addDays(-30))) return false;
 
@@ -2142,14 +2356,14 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
     const auto usage = static_cast<UsageFilter>(usageFilterCombo_->currentData().toInt());
     if (usage == UsageFilter::Pinned && !isPinned(file)) return false;
     if (usage == UsageFilter::RecentlyOpened) {
-        const QDateTime opened = lastOpenedAt(file);
+        const QDateTime &opened = view.openedAt();
         if (!opened.isValid() || opened < QDateTime::currentDateTimeUtc().addDays(-30)) return false;
     }
-    if (usage == UsageFilter::NeverOpened && totalOpenCount(file) > 0) return false;
+    if (usage == UsageFilter::NeverOpened && view.openCount() > 0) return false;
 
     const QString needle = filterEdit_->text().trimmed();
     if (needle.isEmpty()) return true;
-    if (containsText(fileDisplayName(file), needle)
+    if (containsText(view.name(), needle)
         || containsText(file.resource.location, needle)
         || containsText(file.resource.aliases.join(QLatin1Char('\n')), needle)
         || containsText(file.resource.tags.join(QLatin1Char('\n')), needle)) return true;
@@ -2164,13 +2378,19 @@ bool AnchorLibraryWindow::fileMatchesFilter(const AnchorLibraryFile &file) const
     return false;
 }
 
-bool AnchorLibraryWindow::fileHasInvalidLocator(const AnchorLibraryFile &file) const
+bool AnchorLibraryWindow::fileHasInvalidLocator(const FileViewData &view) const
 {
-    if (!options_.managementService) return false;
-    for (const AnchorLibraryAnchor &entry : scopedAnchors(file)) {
-        if (!options_.managementService->validateAnchor(file.resource, entry.anchor).valid) return true;
+    if (view.invalidLocator.has_value()) return *view.invalidLocator;
+    view.invalidLocator = false;
+    if (options_.managementService) {
+        for (const AnchorLibraryAnchor &entry : view.anchors) {
+            if (!options_.managementService->validateAnchor(view.file->resource, entry.anchor).valid) {
+                view.invalidLocator = true;
+                break;
+            }
+        }
     }
-    return false;
+    return *view.invalidLocator;
 }
 
 bool AnchorLibraryWindow::confirmOperation(const QString &title, const QString &message)
@@ -3100,57 +3320,68 @@ void AnchorLibraryWindow::scheduleRepositoryRefresh()
     });
 }
 
-QList<const AnchorLibraryFile *> AnchorLibraryWindow::sortedVisibleFiles() const
+QList<AnchorLibraryWindow::FileViewData> AnchorLibraryWindow::sortedVisibleFiles() const
 {
-    QList<const AnchorLibraryFile *> visible;
-    for (const AnchorLibraryFile &file : files_) if (fileMatchesFilter(file)) visible.append(&file);
+    QList<FileViewData> visible;
+    const bool sortTags = std::any_of(fileSortKeys_.cbegin(), fileSortKeys_.cend(), [](const SortKey &key) {
+        return key.column == FileTagsColumn;
+    });
+    for (const AnchorLibraryFile &file : files_) {
+        FileViewData view(&file, scopedAnchors(file));
+        if (!fileMatchesFilter(view)) continue;
+        view.prepareForDisplay(sortTags);
+        visible.append(std::move(view));
+    }
     auto textCompare = [](const QString &left, const QString &right) { return left.compare(right, Qt::CaseInsensitive); };
-    std::stable_sort(visible.begin(), visible.end(), [&](const AnchorLibraryFile *left, const AnchorLibraryFile *right) {
+    std::stable_sort(visible.begin(), visible.end(), [&](const FileViewData &left, const FileViewData &right) {
         for (const SortKey &key : fileSortKeys_) {
             int comparison = 0;
             switch (key.column) {
-            case FileNameColumn: comparison = textCompare(fileDisplayName(*left), fileDisplayName(*right)); break;
-            case FileAliasesColumn: comparison = textCompare(left->resource.aliases.join(QLatin1Char(',')), right->resource.aliases.join(QLatin1Char(','))); break;
-            case FileLocationColumn: comparison = textCompare(left->resource.location, right->resource.location); break;
-            case FileTypeColumn: comparison = textCompare(resourceKindLabel(left->resource.kind), resourceKindLabel(right->resource.kind)); break;
-            case FileAnchorCountColumn: comparison = scopedAnchors(*left).size() - scopedAnchors(*right).size(); break;
-            case FileTagsColumn: comparison = textCompare(left->resource.tags.join(QLatin1Char(',')), right->resource.tags.join(QLatin1Char(','))); break;
-            case FileLastMarkedColumn: comparison = lastMarkedAt(left->resource, scopedAnchors(*left)) < lastMarkedAt(right->resource, scopedAnchors(*right)) ? -1 : (lastMarkedAt(left->resource, scopedAnchors(*left)) > lastMarkedAt(right->resource, scopedAnchors(*right)) ? 1 : 0); break;
-            case FileStatusColumn: comparison = static_cast<int>(localTargetExists(left->resource)) - static_cast<int>(localTargetExists(right->resource)); break;
-            case FileOpenCountColumn: comparison = totalOpenCount(*left) - totalOpenCount(*right); break;
-            case FileLastOpenedColumn: comparison = lastOpenedAt(*left) < lastOpenedAt(*right) ? -1 : (lastOpenedAt(*left) > lastOpenedAt(*right) ? 1 : 0); break;
+            case FileNameColumn: comparison = textCompare(left.name(), right.name()); break;
+            case FileAliasesColumn: comparison = textCompare(left.aliases, right.aliases); break;
+            case FileLocationColumn: comparison = textCompare(left.file->resource.location, right.file->resource.location); break;
+            case FileTypeColumn: comparison = textCompare(left.type, right.type); break;
+            case FileAnchorCountColumn: comparison = left.anchors.size() - right.anchors.size(); break;
+            case FileTagsColumn: comparison = textCompare(left.tags, right.tags); break;
+            case FileLastMarkedColumn: comparison = left.markedAt() < right.markedAt() ? -1 : (left.markedAt() > right.markedAt() ? 1 : 0); break;
+            case FileStatusColumn: comparison = static_cast<int>(left.targetExists()) - static_cast<int>(right.targetExists()); break;
+            case FileOpenCountColumn: comparison = left.openCount() - right.openCount(); break;
+            case FileLastOpenedColumn: comparison = left.openedAt() < right.openedAt() ? -1 : (left.openedAt() > right.openedAt() ? 1 : 0); break;
             default: break;
             }
             if (comparison != 0) return key.order == Qt::AscendingOrder ? comparison < 0 : comparison > 0;
         }
-        return fileGroupingKey(left->resource) < fileGroupingKey(right->resource);
+        return left.key < right.key;
     });
     return visible;
 }
 
-QList<AnchorLibraryAnchor> AnchorLibraryWindow::sortedAnchors(const QList<AnchorLibraryAnchor> &anchors) const
+QList<AnchorLibraryWindow::AnchorViewData> AnchorLibraryWindow::sortedAnchors(const QList<AnchorLibraryAnchor> &anchors) const
 {
-    QList<AnchorLibraryAnchor> sorted = anchors;
+    QList<AnchorViewData> sorted;
+    sorted.reserve(anchors.size());
+    const bool sortTags = std::any_of(anchorSortKeys_.cbegin(), anchorSortKeys_.cend(), [](const SortKey &key) {
+        return key.column == AnchorTagsColumn;
+    });
+    for (const AnchorLibraryAnchor &entry : anchors) sorted.append(AnchorViewData(entry, sortTags));
     auto textCompare = [](const QString &left, const QString &right) { return left.compare(right, Qt::CaseInsensitive); };
-    std::stable_sort(sorted.begin(), sorted.end(), [&](const AnchorLibraryAnchor &left, const AnchorLibraryAnchor &right) {
+    std::stable_sort(sorted.begin(), sorted.end(), [&](const AnchorViewData &left, const AnchorViewData &right) {
         for (const SortKey &key : anchorSortKeys_) {
             int comparison = 0;
-            const QDateTime leftUpdated = left.anchor.updatedAt.isValid() ? left.anchor.updatedAt : left.anchor.createdAt;
-            const QDateTime rightUpdated = right.anchor.updatedAt.isValid() ? right.anchor.updatedAt : right.anchor.createdAt;
             switch (key.column) {
-            case 0: comparison = textCompare(anchorDisplayName(left.anchor), anchorDisplayName(right.anchor)); break;
-            case 1: comparison = textCompare(left.anchor.aliases.join(QLatin1Char(',')), right.anchor.aliases.join(QLatin1Char(','))); break;
-            case 2: comparison = textCompare(left.anchor.tags.join(QLatin1Char(',')), right.anchor.tags.join(QLatin1Char(','))); break;
-            case AnchorTypeColumn: comparison = textCompare(locatorTypeLabel(left.anchor.locatorType), locatorTypeLabel(right.anchor.locatorType)); break;
-            case 4: comparison = leftUpdated < rightUpdated ? -1 : (leftUpdated > rightUpdated ? 1 : 0); break;
-            case 5: comparison = left.usage.openCount - right.usage.openCount; break;
-            case 6: comparison = left.usage.lastOpenedAt < right.usage.lastOpenedAt ? -1 : (left.usage.lastOpenedAt > right.usage.lastOpenedAt ? 1 : 0); break;
-            case 7: comparison = textCompare(left.anchor.locatorType, right.anchor.locatorType); break;
+            case AnchorNameColumn: comparison = textCompare(left.name, right.name); break;
+            case AnchorAliasesColumn: comparison = textCompare(left.aliases, right.aliases); break;
+            case AnchorTagsColumn: comparison = textCompare(left.tags, right.tags); break;
+            case AnchorTypeColumn: comparison = textCompare(left.type, right.type); break;
+            case AnchorUpdatedColumn: comparison = left.updated < right.updated ? -1 : (left.updated > right.updated ? 1 : 0); break;
+            case AnchorOpenCountColumn: comparison = left.entry.usage.openCount - right.entry.usage.openCount; break;
+            case AnchorLastOpenedColumn: comparison = left.entry.usage.lastOpenedAt < right.entry.usage.lastOpenedAt ? -1 : (left.entry.usage.lastOpenedAt > right.entry.usage.lastOpenedAt ? 1 : 0); break;
+            case AnchorValidityColumn: comparison = textCompare(left.entry.anchor.locatorType, right.entry.anchor.locatorType); break;
             default: break;
             }
             if (comparison != 0) return key.order == Qt::AscendingOrder ? comparison < 0 : comparison > 0;
         }
-        return anchorIdentityKey(left.anchor) < anchorIdentityKey(right.anchor);
+        return left.identity < right.identity;
     });
     return sorted;
 }
