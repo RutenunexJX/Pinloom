@@ -96,6 +96,13 @@ struct PinloomHostBridgeCallbacks {
     CreateSourceAnchorHandler createSourceAnchor;
 };
 
+class ILibraryRepository;
+
+std::optional<PinloomEntry> createPinloomSourceAnchor(
+    ILibraryRepository &repository,
+    const PinloomSourceAnchorRequest &request,
+    QString *status = nullptr);
+
 QString defaultPinloomHostBridgeServerName();
 PinloomHostIdentity pinloomHostIdentityForEntry(const PinloomEntry &entry);
 QUrl pinloomHostUri(const PinloomHostIdentity &identity);

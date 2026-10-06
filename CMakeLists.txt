@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.12
+    VERSION 0.4.13
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -16,6 +16,9 @@ set(CMAKE_AUTORCC ON)
 
 find_package(Qt6 REQUIRED COMPONENTS Concurrent Core Gui Network Sql Widgets Test ZlibPrivate)
 find_package(SuiteApp 1 CONFIG QUIET)
+set(PINLOOM_BUILD_SUITEAPP_ENABLED ${SuiteApp_FOUND} CACHE INTERNAL "Configured SuiteApp capability" FORCE)
+set(PINLOOM_BUILD_SUITEAPP_VERSION "${SuiteApp_VERSION}" CACHE INTERNAL "Configured SuiteApp SDK version" FORCE)
+message(STATUS "Pinloom SuiteApp: ${PINLOOM_BUILD_SUITEAPP_ENABLED} (${PINLOOM_BUILD_SUITEAPP_VERSION})")
 set(PINLOOM_UI_BACKEND "ELA" CACHE STRING "Supported control backend: ELA")
 set_property(CACHE PINLOOM_UI_BACKEND PROPERTY STRINGS ELA)
 string(TOUPPER "${PINLOOM_UI_BACKEND}" PINLOOM_UI_BACKEND)
@@ -323,7 +326,7 @@ enable_testing()
 cmake_path(GET CMAKE_CXX_COMPILER PARENT_PATH PINLOOM_CXX_RUNTIME_DIR)
 
 function(pinloom_add_test target)
-    add_test(NAME ${target} COMMAND ${target})
+    add_test(NAME ${target} COMMAND ${target} ${ARGN})
 
     if(WIN32 AND CMAKE_VERSION VERSION_GREATER_EQUAL 3.22)
         set(_pinloom_test_runtime_environment
@@ -545,4 +548,12 @@ if(SuiteApp_FOUND)
     target_link_libraries(pinloom_suiteapp_integration_test
         PRIVATE pinloom_widgets SuiteApp::suiteapp Qt6::Test)
     pinloom_add_test(pinloom_suiteapp_integration_test)
+    add_executable(pinloom_suiteapp_ipc_test tests/suiteapp_ipc_test.cpp)
+    target_link_libraries(pinloom_suiteapp_ipc_test
+        PRIVATE pinloom_widgets SuiteApp::suiteapp Qt6::Test)
+    target_compile_definitions(pinloom_suiteapp_ipc_test PRIVATE
+        PINLOOM_TEST_RUNTIME="$<TARGET_FILE:SuiteApp::suite-runtime>")
+    pinloom_add_test(pinloom_suiteapp_ipc_test
+        -o "${CMAKE_CURRENT_BINARY_DIR}/suiteapp-ipc.log,txt")
+    set_tests_properties(pinloom_suiteapp_ipc_test PROPERTIES TIMEOUT 60)
 endif()

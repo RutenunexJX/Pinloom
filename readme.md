@@ -1,6 +1,8 @@
 # Pinloom
 
-Current version: `0.4.12`; database Schema: `16`.
+Current version: `0.4.13`; database Schema: `16`.
+
+Release 0.4.13 enables SuiteApp SDK 1.0.1 and preserves source-anchor contents through SQLite point reads, updates, deletion, restoration and reopening. Runtime registration failure retains independent operation.
 
 Release 0.4.12 reuses library table cells, anchor display values and search usage
 snapshots, and skips Clip match work that cannot improve the current result.

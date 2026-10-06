@@ -1,6 +1,7 @@
 #include "pinloom/widgets/PinloomHostBridge.h"
 
 #include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/LibraryRepository.h"
 
 #include <QCoreApplication>
 #include <QDateTime>
@@ -11,6 +12,7 @@
 #include <QLocalSocket>
 #include <QTimer>
 #include <QUrlQuery>
+#include <QUuid>
 
 #include <algorithm>
 #include <utility>
@@ -210,6 +212,90 @@ bool PinloomHostPreviewDescriptor::isValid() const
     return uri.isEmpty()
         && filePath.trimmed().isEmpty()
         && !error.trimmed().isEmpty();
+}
+
+std::optional<PinloomEntry> createPinloomSourceAnchor(
+    ILibraryRepository &repository,
+    const PinloomSourceAnchorRequest &request,
+    QString *status)
+{
+    const QDateTime now = QDateTime::currentDateTimeUtc();
+    const QString resourceId =
+        QUuid::createUuid().toString(QUuid::WithoutBraces);
+    const QString anchorId =
+        QUuid::createUuid().toString(QUuid::WithoutBraces);
+    QString title = request.title;
+    if (title.trimmed().isEmpty()) {
+        title = QFileInfo(request.absoluteFilePath).fileName()
+            + QStringLiteral(":%1").arg(request.startLine);
+    }
+    const QString sourceLabel = request.relativeFilePath.trimmed().isEmpty()
+        ? QFileInfo(request.absoluteFilePath).fileName()
+        : request.relativeFilePath;
+    const QString resourceTitle = QStringLiteral("Source %1:%2:%3")
+                                      .arg(sourceLabel)
+                                      .arg(request.startLine)
+                                      .arg(request.startColumn);
+
+    QJsonObject locator{
+        {QStringLiteral("type"), QStringLiteral("zeroslack.source")},
+        {QStringLiteral("workspaceRoot"), request.workspaceRoot},
+        {QStringLiteral("relativeFilePath"), request.relativeFilePath},
+        {QStringLiteral("line"), request.startLine},
+        {QStringLiteral("column"), request.startColumn},
+        {QStringLiteral("endLine"), request.endLine},
+        {QStringLiteral("endColumn"), request.endColumn},
+        {QStringLiteral("selectedTextHash"), request.selectedTextHash},
+        {QStringLiteral("prefixContext"), request.prefixContext},
+        {QStringLiteral("suffixContext"), request.suffixContext},
+    };
+    if (!request.moduleName.isEmpty()) {
+        locator.insert(QStringLiteral("moduleName"), request.moduleName);
+    }
+
+    Pinloom::Anchor anchor;
+    anchor.id = anchorId;
+    anchor.name = title;
+    anchor.targetApp = QStringLiteral("ZeroSlack");
+    anchor.targetFile = request.absoluteFilePath;
+    anchor.targetUri = QUrl::fromLocalFile(
+        request.absoluteFilePath).toString(QUrl::FullyEncoded);
+    anchor.locatorType = QStringLiteral("zeroslack.source");
+    anchor.locatorJson = QString::fromUtf8(
+        QJsonDocument(locator).toJson(QJsonDocument::Compact));
+    anchor.tags = {QStringLiteral("zeroslack"),
+                   QStringLiteral("source-anchor")};
+    anchor.createdAt = now;
+    anchor.updatedAt = now;
+
+    Pinloom::Resource resource;
+    resource.id = resourceId;
+    resource.kind = Pinloom::ResourceKind::TextSnippet;
+    resource.title = resourceTitle;
+    resource.location = request.absoluteFilePath;
+    resource.tags = anchor.tags;
+    if (!request.moduleName.isEmpty())
+        resource.tags.append(request.moduleName);
+    resource.anchors = {anchor};
+    resource.content = request.content;
+    resource.updatedAt = now;
+    if (!repository.upsertResource(resource)) {
+        if (status) {
+            *status = repository.lastError().trimmed().isEmpty()
+                ? QStringLiteral("Pinloom could not save the source anchor")
+                : repository.lastError();
+        }
+        return std::nullopt;
+    }
+
+    Pinloom::PinloomOpenTarget target;
+    target.resourceId = resource.id;
+    target.resourceKind = resource.kind;
+    target.title = resource.title;
+    target.location = resource.location;
+    target.anchor = anchor;
+    if (status) *status = QStringLiteral("Source anchor created");
+    return Pinloom::entryFromOpenTarget(target);
 }
 
 QString defaultPinloomHostBridgeServerName()

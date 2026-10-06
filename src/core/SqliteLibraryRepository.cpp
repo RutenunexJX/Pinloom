@@ -927,7 +927,20 @@ bool SqliteLibraryRepository::upsertResource(const Resource &resource)
 
 std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id) const
 {
-    return findResource(id, nullptr);
+    std::optional<Resource> resource = findResource(id, nullptr);
+    if (!resource.has_value()) return std::nullopt;
+
+    // Point reads supply complete objects to previews and read-modify-write
+    // operations. Search retains its existing metadata-only hydration path.
+    QSqlQuery content(database_);
+    content.prepare(QStringLiteral("SELECT content FROM resource_fts WHERE resource_id = ?"));
+    content.addBindValue(id);
+    if (!content.exec()) {
+        setLastError(content.lastError().text());
+        return std::nullopt;
+    }
+    if (content.next()) resource->content = content.value(0).toString();
+    return resource;
 }
 
 std::optional<Resource> SqliteLibraryRepository::findResource(const QString &id,

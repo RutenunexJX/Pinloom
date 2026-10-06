@@ -32,6 +32,7 @@ private slots:
     void initializesIdempotently();
     void assignsStableAnchorIdsIndependentOfOrderStorage();
     void persistsAndSearchesResourceMetadata();
+    void preservesContentAcrossPointReadsAndLifecycleChanges();
     void persistsAndSearchesAnchorLocatorFields();
     void persistsAndSearchesInboxFiles();
     void persistsLibraryRootsAndProtectsSyncRoot();
@@ -309,6 +310,51 @@ void SqliteRepositoryTest::persistsAndSearchesResourceMetadata()
         testAnchor(QStringLiteral("marker: neutral_beacon"), QStringLiteral("marker"), 3)};
     QVERIFY2(repository.upsertResource(snippet), qPrintable(repository.lastError()));
 
+}
+
+void SqliteRepositoryTest::preservesContentAcrossPointReadsAndLifecycleChanges()
+{
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString path = dir.filePath(QStringLiteral("content.sqlite3"));
+    Resource resource;
+    resource.id = QStringLiteral("source-content");
+    resource.kind = ResourceKind::TextSnippet;
+    resource.title = QStringLiteral("Source body");
+    resource.location = QStringLiteral("fixture.sv");
+    resource.content = QStringLiteral("assign ready = valid;\n// preserved source text");
+    resource.anchors = {testAnchor(QStringLiteral("Source anchor"),
+                                  QStringLiteral("zeroslack.source"), 1)};
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY(repository.open(path));
+        QVERIFY(repository.initialize());
+        QVERIFY(repository.upsertResource(resource));
+        const auto saved = repository.findResource(resource.id);
+        QVERIFY(saved.has_value());
+        QCOMPARE(saved->content, resource.content);
+        const Anchor anchor = saved->anchors.first();
+        QVERIFY(repository.softDeleteAnchor(resource.id, anchor));
+        QVERIFY(repository.restoreAnchor(resource.id, anchor));
+        QVERIFY(repository.softDeleteResource(resource.id));
+        QVERIFY(repository.restoreResource(resource.id));
+        const auto restored = repository.findResource(resource.id);
+        QVERIFY(restored.has_value());
+        QCOMPARE(restored->content, resource.content);
+        Resource edited = *restored;
+        edited.tags = {QStringLiteral("updated")};
+        QVERIFY(repository.upsertResource(edited));
+    }
+    SqliteLibraryRepository reopened;
+    QVERIFY(reopened.open(path));
+    QVERIFY(reopened.initialize());
+    const auto saved = reopened.findResource(resource.id);
+    QVERIFY(saved.has_value());
+    QCOMPARE(saved->content, resource.content);
+    QCOMPARE(saved->tags, QStringList{QStringLiteral("updated")});
+    const auto matches = reopened.search(SearchQuery{QStringLiteral("preserved")});
+    QCOMPARE(matches.size(), 1);
+    QCOMPARE(matches.first().resource.content, resource.content);
 }
 
 void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()

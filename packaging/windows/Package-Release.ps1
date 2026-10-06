@@ -43,6 +43,13 @@ if (-not (Test-Path -LiteralPath $sourcePdfProbe -PathType Leaf)) {
     throw 'Missing pinloom_pdf_probe.exe; build the PDF capture helper before packaging.'
 }
 $cache = Get-Content -LiteralPath (Join-Path $BuildDirectory "CMakeCache.txt")
+if (-not ($cache -match '^PINLOOM_BUILD_SUITEAPP_ENABLED:INTERNAL=')) {
+    throw 'Missing SuiteApp capability metadata; reconfigure the selected build before packaging.'
+}
+$suiteEnabled = [bool]($cache -match '^PINLOOM_BUILD_SUITEAPP_ENABLED:INTERNAL=(1|ON|TRUE)$')
+$suiteVersionEntry = $cache | Where-Object { $_ -match '^PINLOOM_BUILD_SUITEAPP_VERSION:INTERNAL=' } | Select-Object -First 1
+$suiteVersion = if ($suiteEnabled -and $suiteVersionEntry) { $suiteVersionEntry.Substring($suiteVersionEntry.IndexOf('=') + 1) } else { '' }
+$artifactKind = if ($AllowDirty) { 'development' } else { 'release' }
 $backendEntry = $cache | Where-Object { $_ -match '^PINLOOM_UI_BACKEND:STRING=(.+)$' } | Select-Object -First 1
 $controlBackend = if ($backendEntry) { $backendEntry.Substring($backendEntry.IndexOf('=') + 1).ToUpperInvariant() } else { '' }
 if ($controlBackend -ne 'ELA') { throw 'Only the ELA control backend is supported.' }
@@ -180,7 +187,9 @@ $packageReadme = @(
     "Pinloom v$PackageVersion",
     "",
     "Build profile: Release",
+    "Artifact kind: $artifactKind",
     "Default UI: $controlBackend",
+    "SuiteApp SDK enabled: $suiteEnabled $suiteVersion",
     "Qt: 6.10.2",
     "Compiler: MinGW 13.1.0",
     "Source revision: $buildState",
@@ -243,6 +252,13 @@ $metadataPath = Join-Path $outputRootPath 'release-metadata.json'
     tags = @(& git -C $repositoryRoot tag --points-at HEAD)
     origin = ((& git -C $repositoryRoot remote get-url origin) -join '').Trim()
     clean = -not $dirty
+    artifactKind = $artifactKind
+    suiteApp = [ordered]@{
+        enabled = $suiteEnabled
+        sdkVersion = $suiteVersion
+        runtimeBundled = $false
+        runtimeEnvironmentVariable = 'SUITEAPP_RUNTIME_EXECUTABLE'
+    }
     configuration = 'Release'
     qtVersion = '6.10.2'
     compiler = $compiler

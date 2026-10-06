@@ -9,6 +9,7 @@
 
 namespace SuiteApp {
 class Provider;
+struct RuntimeStartOptions;
 }
 
 namespace Pinloom {
@@ -21,6 +22,8 @@ public:
     ~PinloomSuiteIntegration() override;
 
     bool start(QString* failureReason = nullptr);
+    bool start(const SuiteApp::RuntimeStartOptions& options,
+               QString* failureReason = nullptr);
     bool isRegistered() const;
 
     static QJsonObject appDescriptor(const QString& version,
