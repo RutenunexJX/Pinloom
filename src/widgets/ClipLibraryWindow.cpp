@@ -1,5 +1,6 @@
 #include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/ClipLibraryWindow.h"
+#include <QJsonArray>
 #include "pinloom/clip/ClipSearch.h"
 #include "pinloom/widgets/PinloomVisualTheme.h"
 
@@ -419,6 +420,24 @@ ClipLibraryScope ClipLibraryWindow::scope() const
 {
     return static_cast<ClipLibraryScope>(scopeCombo_->currentData().toInt());
 }
+
+bool ClipLibraryWindow::hasPendingEdits() const
+{
+    return !pendingEdits_.isEmpty() || !table_->findChildren<QLineEdit *>().isEmpty();
+}
+
+QJsonObject ClipLibraryWindow::commandViewState() const
+{
+    QJsonArray items;
+    for (int row = 0; row < qMin(200, table_->rowCount()); ++row) {
+        const auto *item = table_->item(row, 0);
+        if (item) items.append(QJsonObject{{"clipId", item->data(ClipIdRole).toString()}, {"name", item->text()}});
+    }
+    return {{"visible", isVisible()}, {"pendingEdits", hasPendingEdits()}, {"query", searchText()},
+            {"count", table_->rowCount()}, {"items", items}, {"scope", int(scope())}};
+}
+
+bool ClipLibraryWindow::selectIdentity(const QString &clipId) { return reselectClip(clipId); }
 
 int ClipLibraryWindow::visibleClipCount() const
 {

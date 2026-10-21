@@ -12,6 +12,7 @@ public:
     explicit TextPreviewDialog(QString filePath, int targetLine, QWidget *parent = nullptr);
 
     bool load();
+    bool targetLineLocated() const;
 
 private:
     void highlightTargetLine();

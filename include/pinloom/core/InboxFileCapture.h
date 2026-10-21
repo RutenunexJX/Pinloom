@@ -48,6 +48,8 @@ bool isInboxResource(const Resource &resource);
 QString defaultInboxFileName(const QString &filePath);
 QString managedInboxFilePath(const QString &filePath, const QString &managedLibraryDirectory);
 QString inboxFileSaveRequestError(const InboxFileSaveRequest &request);
+Resource preparedInboxResource(const std::optional<Resource> &existing,
+                               const InboxFileSaveRequest &request, const QString &storedPath);
 InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFileSaveRequest &request);
 
 } // namespace Pinloom

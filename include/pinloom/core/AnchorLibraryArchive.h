@@ -1,10 +1,17 @@
 #pragma once
 
 #include "pinloom/core/AnchorLibraryManagement.h"
+#include <QJsonObject>
 
 namespace Pinloom {
 
 class SqliteLibraryRepository;
+
+// The archive and public command API share the persisted model representation.
+QJsonObject anchorArchiveJson(const Anchor &anchor);
+Anchor anchorFromArchiveJson(const QJsonObject &object);
+QJsonObject resourceArchiveJson(const Resource &resource);
+std::optional<Resource> resourceFromArchiveJson(const QJsonValue &value, QString *error);
 
 enum class AnchorLibraryImportMode {
     Merge,

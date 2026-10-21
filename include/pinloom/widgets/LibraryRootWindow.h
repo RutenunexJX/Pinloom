@@ -30,6 +30,7 @@ public:
     explicit LibraryRootWindow(LibraryRootWindowOptions options, QWidget *parent = nullptr);
 
     void refresh();
+    bool hasPendingEdits() const;
     int rootCount() const;
     QString selectedPath() const;
     QString statusText() const;

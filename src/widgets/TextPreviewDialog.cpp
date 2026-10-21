@@ -75,4 +75,10 @@ void TextPreviewDialog::highlightTargetLine()
     editor_->setExtraSelections({selection});
 }
 
+bool TextPreviewDialog::targetLineLocated() const
+{
+    return targetLine_ > 0 && editor_->textCursor().blockNumber() == targetLine_ - 1
+        && editor_->document()->findBlockByNumber(targetLine_ - 1).isValid();
+}
+
 } // namespace Pinloom

@@ -71,6 +71,9 @@ public:
     ~AnchorLibraryWindow() override;
 
     void refreshLibrary();
+    bool hasPendingEdits() const;
+    QJsonObject commandViewState() const;
+    bool selectIdentity(const QString &resourceId, const QString &anchorId = {});
     void setFilterText(const QString &text);
     QString filterText() const;
     int visibleFileCount() const;
@@ -95,6 +98,7 @@ public:
     bool permanentlyDeleteAllAnchorsForSelectedFiles();
     bool savePendingInlineEdits();
     void showTrash();
+    void showActive();
     bool isTrashVisible() const;
     bool updateSelectedAnchorTags(const QStringList &tags, bool remove);
     bool updateSelectedFileTags(const QStringList &tags, bool remove);

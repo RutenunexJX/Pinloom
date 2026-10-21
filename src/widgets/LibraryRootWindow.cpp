@@ -280,6 +280,11 @@ void LibraryRootWindow::refresh()
     }
 }
 
+bool LibraryRootWindow::hasPendingEdits() const
+{
+    return nameEdit_->isModified() || aliasesEdit_->isModified() || tagsEdit_->isModified();
+}
+
 int LibraryRootWindow::rootCount() const
 {
     return rootTable_ ? rootTable_->rowCount() : 0;

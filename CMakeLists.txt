@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.13
+    VERSION 0.4.14
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -159,6 +159,8 @@ if(WIN32)
 endif()
 
 add_library(pinloom_clip_core STATIC
+    include/pinloom/application/AppSettings.h
+    src/application/AppSettings.cpp
     include/pinloom/clip/ClipboardCaptureService.h
     include/pinloom/clip/ClipAction.h
     include/pinloom/clip/ClipHotkeyService.h
@@ -203,6 +205,17 @@ if(WIN32)
             user32
     )
 endif()
+
+add_library(pinloom_application STATIC
+    include/pinloom/application/CommandService.h
+    include/pinloom/application/CommandTransport.h
+    src/application/CommandService.cpp
+    src/application/CommandTransport.cpp
+)
+target_include_directories(pinloom_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(pinloom_application PUBLIC pinloom_core pinloom_clip_core Qt6::Network)
+add_executable(pinloom_cli src/app/cli.cpp)
+target_link_libraries(pinloom_cli PRIVATE pinloom_application)
 
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/CommandFloatingController.h
@@ -305,7 +318,7 @@ add_executable(pinloom_app WIN32
 
 add_executable(pinloom_pdf_probe src/app/PdfDdeProbe.cpp)
 target_link_libraries(pinloom_pdf_probe PRIVATE pinloom_core Qt6::Core)
-add_dependencies(pinloom_app pinloom_pdf_probe)
+add_dependencies(pinloom_app pinloom_pdf_probe pinloom_cli)
 
 if(WIN32)
     enable_language(RC)
@@ -315,6 +328,7 @@ endif()
 target_link_libraries(pinloom_app
     PRIVATE
         pinloom_widgets
+        pinloom_application
         Qt6::Widgets
 )
 if(SuiteApp_FOUND)
@@ -343,6 +357,11 @@ function(pinloom_add_test target)
         )
     endif()
 endfunction()
+
+add_executable(pinloom_cli_contract_test tests/cli_contract_test.cpp)
+target_link_libraries(pinloom_cli_contract_test PRIVATE pinloom_application Qt6::Test)
+add_dependencies(pinloom_cli_contract_test pinloom_cli)
+pinloom_add_test(pinloom_cli_contract_test)
 
 add_executable(pinloom_ui_performance_test tests/ui_performance_test.cpp)
 target_link_libraries(pinloom_ui_performance_test PRIVATE pinloom_widgets Qt6::Test)

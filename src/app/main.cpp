@@ -1,4 +1,6 @@
 #include "pinloom/widgets/PinloomUiControls.h"
+#include "pinloom/application/CommandService.h"
+#include "pinloom/application/CommandTransport.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
 #include "pinloom/core/AppDataDirectory.h"
 #include "pinloom/core/AnchorCapture.h"
@@ -61,6 +63,7 @@
 #include <QInputDialog>
 #include <QIcon>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QJsonObject>
 #include <QLineEdit>
 #include <QMessageBox>
@@ -131,6 +134,16 @@ int main(int argc, char *argv[])
         return 0;
     }
     const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
+    const bool noGlobalHooks = startupArguments.contains(QStringLiteral("--no-global-hooks"));
+    const int libraryArgument = startupArguments.indexOf(QStringLiteral("--library"));
+    const bool explicitLibrary = libraryArgument >= 0;
+    if (explicitLibrary && (libraryArgument + 1 >= startupArguments.size()
+        || startupArguments[libraryArgument + 1].trimmed().isEmpty())) {
+        qCritical() << "--library requires a data directory";
+        return 2;
+    }
+    const QString requestedLibrary = explicitLibrary
+        ? Pinloom::canonicalLibraryPath(startupArguments[libraryArgument + 1]) : QString();
     QString startupDeepLink;
     for (const QString &argument : startupArguments.mid(1)) {
         const QUrl candidate(argument, QUrl::StrictMode);
@@ -143,6 +156,7 @@ int main(int argc, char *argv[])
 
     Pinloom::PinloomSingleInstanceOptions instanceOptions;
     instanceOptions.serverName = Pinloom::defaultPinloomSingleInstanceServerName();
+    if (explicitLibrary) instanceOptions.serverName = Pinloom::libraryCommandEndpoint(requestedLibrary) + "-instance";
     instanceOptions.activationTimeoutMs = 300;
     instanceOptions.activationMessage = !startupDeepLink.isEmpty()
         ? startupDeepLink
@@ -164,9 +178,18 @@ int main(int argc, char *argv[])
     if (defaultAppDataPath.isEmpty()) {
         defaultAppDataPath = QDir::home().filePath(QStringLiteral(".pinloom"));
     }
-    QSettings appSettingsStore;
-    const Pinloom::AppDataDirectoryResult dataDirectoryResult =
-        Pinloom::prepareAppDataDirectory(appSettingsStore, defaultAppDataPath);
+    QSettings nativeSettings;
+    const bool useProfileSettings = explicitLibrary
+        && (QFileInfo::exists(QDir(requestedLibrary).filePath("profile.ini"))
+            || Pinloom::libraryCommandEndpoint(requestedLibrary) != Pinloom::libraryCommandEndpoint(
+                Pinloom::configuredAppDataDirectory(nativeSettings, defaultAppDataPath)));
+    std::unique_ptr<QSettings> profileSettings;
+    if (useProfileSettings) profileSettings = std::make_unique<QSettings>(
+        QDir(requestedLibrary).filePath("profile.ini"), QSettings::IniFormat);
+    QSettings &appSettingsStore = profileSettings ? *profileSettings : nativeSettings;
+    const Pinloom::AppDataDirectoryResult dataDirectoryResult = explicitLibrary
+        ? Pinloom::AppDataDirectoryResult{requestedLibrary, false, true, {}}
+        : Pinloom::prepareAppDataDirectory(appSettingsStore, defaultAppDataPath);
     const QString appDataPath = dataDirectoryResult.directory;
     if (appDataPath.trimmed().isEmpty()) {
         Pinloom::Ui::critical(nullptr,
@@ -179,6 +202,11 @@ int main(int argc, char *argv[])
     if (!QDir().mkpath(appDataPath)) {
         Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom"), QStringLiteral("Unable to create app data directory."));
         return 1;
+    }
+    Pinloom::LibrarySessionLock librarySessionLock(appDataPath);
+    if (!librarySessionLock.tryLock()) {
+        qCritical() << "The selected library is already owned by another Pinloom process";
+        return 5;
     }
     if (!dataDirectoryResult.error.trimmed().isEmpty()) {
         Pinloom::Ui::warning(nullptr,
@@ -194,7 +222,7 @@ int main(int argc, char *argv[])
     Pinloom::PinloomAppSettings runtimeSettings =
         Pinloom::loadPinloomAppSettings(appSettingsStore, appDataPath);
     if (!hasAutomaticClipboardCaptureDecision) {
-        if (!startHidden) {
+        if (!startHidden && !noGlobalHooks) {
             const QMessageBox::StandardButton choice = Pinloom::Ui::question(
                 nullptr,
                 QStringLiteral("Pinloom Clipboard History"),
@@ -2587,8 +2615,10 @@ int main(int argc, char *argv[])
 #ifdef PINLOOM_HAS_SUITEAPP
     Pinloom::PinloomHostBridgeCallbacks suiteCallbacks = hostCallbacks;
 #endif
+    Pinloom::PinloomHostBridgeOptions hostBridgeOptions;
+    if (explicitLibrary) hostBridgeOptions.serverName = Pinloom::libraryCommandEndpoint(appDataPath) + "-host";
     auto hostBridge = std::make_unique<Pinloom::PinloomHostBridgeServer>(
-        Pinloom::PinloomHostBridgeOptions{}, std::move(hostCallbacks), &app);
+        hostBridgeOptions, std::move(hostCallbacks), &app);
     if (!hostBridge->start()) {
         window.setRecentError(QStringLiteral("Pinloom host bridge unavailable"),
                               hostBridge->lastError());
@@ -2597,7 +2627,7 @@ int main(int argc, char *argv[])
     Pinloom::PinloomSuiteIntegration suiteIntegration(
         std::move(suiteCallbacks), &app);
     QString suiteIntegrationError;
-    if (!suiteIntegration.start(&suiteIntegrationError)) {
+    if (!explicitLibrary && !suiteIntegration.start(&suiteIntegrationError)) {
         const QString error = QStringLiteral("Suite App registration failed: %1")
                                   .arg(suiteIntegrationError);
         qWarning().noquote() << error;
@@ -2627,6 +2657,91 @@ int main(int argc, char *argv[])
 
     auto *commandPanel = new Pinloom::PinloomCommandPanel(commandOptions, &window);
     window.setCentralWidget(commandPanel);
+    std::unique_ptr<Pinloom::CommandService> commandService;
+    std::unique_ptr<Pinloom::CommandServer> commandServer;
+    if (clipHost && clipHost->sqliteRepository() && persistentClipService) {
+        Pinloom::CommandSessionCallbacks callbacks;
+        callbacks.writeBlockReason = [&]() -> QString {
+            if (QApplication::activeModalWidget()) return QStringLiteral("A modal dialog is active; complete or cancel it first");
+            if (anchorLibraryWindow && anchorLibraryWindow->hasPendingEdits())
+                return QStringLiteral("Anchor Library has pending or active inline edits");
+            if (clipLibraryWindow && clipLibraryWindow->hasPendingEdits())
+                return QStringLiteral("Clip Library has pending or active inline edits");
+            if (libraryRootWindow && libraryRootWindow->hasPendingEdits())
+                return QStringLiteral("Root Library has unsaved metadata edits");
+            if (!commandPanel->pendingInboxFiles().isEmpty()) return QStringLiteral("Inbox selection is pending in the command panel");
+            return {};
+        };
+        callbacks.refreshViews = [&] {
+            if (anchorLibraryWindow) anchorLibraryWindow->refreshLibrary();
+            if (clipLibraryWindow) clipLibraryWindow->refresh();
+            if (libraryRootWindow) libraryRootWindow->refresh();
+            QMetaObject::invokeMethod(commandPanel, "refreshResults", Qt::DirectConnection);
+        };
+        callbacks.view = [&](const QJsonObject &params, bool open) -> QJsonObject {
+            bool selected = true;
+            if (open) {
+                const auto view = params["view"].toString();
+                QString status;
+                if (view == "anchors" || view == "anchors_trash") {
+                    commandOptions.anchorLibraryHandler(&status);
+                    if (view == "anchors_trash") anchorLibraryWindow->showTrash();
+                    else anchorLibraryWindow->showActive();
+                    anchorLibraryWindow->setFilterText(params["query"].toString());
+                    if (params.contains("resourceId")) selected = anchorLibraryWindow->selectIdentity(
+                        params["resourceId"].toString(), params["anchorId"].toString());
+                } else if (view == "clips" || view == "history" || view == "trash") {
+                    commandOptions.clipLibraryHandler(&status);
+                    clipLibraryWindow->setScope(view == "history" ? Pinloom::ClipLibraryScope::History
+                        : view == "trash" ? Pinloom::ClipLibraryScope::Trash : Pinloom::ClipLibraryScope::Saved);
+                    clipLibraryWindow->setSearchText(params["query"].toString());
+                    if (params.contains("clipId")) selected = clipLibraryWindow->selectIdentity(params["clipId"].toString());
+                } else if (view == "roots") commandOptions.libraryRootHandler(&status);
+                else {
+                    commandPanel->setCommandText(params["query"].toString());
+                    Pinloom::showCommandPanelForHotkey(window, *commandPanel);
+                }
+            }
+            QJsonObject result{{"selectionFound", selected}};
+            if (anchorLibraryWindow) result.insert("anchors", anchorLibraryWindow->commandViewState());
+            if (clipLibraryWindow) result.insert("clips", clipLibraryWindow->commandViewState());
+            if (libraryRootWindow) result.insert("roots", QJsonObject{{"visible", libraryRootWindow->isVisible()},
+                {"count", libraryRootWindow->rootCount()}, {"pendingEdits", libraryRootWindow->hasPendingEdits()}});
+            QJsonArray hits;
+            for (int index = 0; index < qMin(200, commandPanel->resultCount()); ++index) {
+                const auto target = commandPanel->openTargetAt(index);
+                hits.append(QJsonObject{{"resourceId", target.resourceId}, {"clipId", target.clipId},
+                    {"anchorId", target.anchor ? target.anchor->id : QString()}, {"title", target.title}});
+            }
+            result.insert("command", QJsonObject{{"visible", window.isVisible()}, {"query", commandPanel->commandText()},
+                {"count", commandPanel->resultCount()}, {"items", hits}});
+            return result;
+        };
+        callbacks.open = [&](const QString &resourceId, const QString &anchorId) -> QJsonObject {
+            Pinloom::PinloomHostIdentity identity; identity.resourceId = resourceId; identity.anchorId = anchorId;
+            const auto document = resolveHostDocument(identity);
+            if (!document) return {{"state", "failed"}, {"message", "Entry could not be resolved"}};
+            const bool opened = openService.open(Pinloom::openTargetFromEntry(document->entry), &window, true);
+            return {{"state", !opened ? "failed" : openService.hasPendingPdfOpen() ? "running" : "open_requested"},
+                    {"positionVerified", false}, {"message", openService.statusText()}};
+        };
+        callbacks.cancelOpen = [&](const QString &resourceId, const QString &anchorId) {
+            return openService.cancelOpen(resourceId, anchorId);
+        };
+        callbacks.close = [&] { app.quit(); };
+        commandService = std::make_unique<Pinloom::CommandService>(repository, *clipHost->sqliteRepository(),
+            *persistentClipService, appDataPath, std::move(callbacks), &app);
+        QObject::connect(&openService, &Pinloom::PinloomOpenService::navigationCompleted, commandService.get(),
+            [&](const QString &resourceId, const QString &anchorId, const QString &state, bool verified, const QString &message) {
+                commandService->reportOpenResult(resourceId, anchorId,
+                    {{"state", state}, {"positionVerified", verified}, {"message", message}});
+            });
+        commandServer = std::make_unique<Pinloom::CommandServer>(*commandService, &app);
+        if (!commandServer->listen(appDataPath)) {
+            qCritical().noquote() << "Public command server unavailable:" << commandServer->errorString();
+            return 5;
+        }
+    }
     auto *floatingController = new Pinloom::CommandFloatingController(window, *commandPanel);
     QObject::connect(floatingController, &Pinloom::CommandFloatingController::captureStarted,
                      &window, [&floatingCaptureActive, rememberForegroundTarget]() {
@@ -2722,7 +2837,7 @@ int main(int argc, char *argv[])
                          [&dispatchWindowCommand]() {
                              dispatchWindowCommand(Pinloom::PinloomCommandId::Diagnostics);
                          });
-        if (!clipHost->start()) {
+        if (!noGlobalHooks && !clipHost->start()) {
             window.setRecentError(QStringLiteral("Pinloom Clip could not start"), clipHost->lastError());
             Pinloom::Ui::warning(&window,
                                  QStringLiteral("Pinloom Clip"),
@@ -2965,7 +3080,7 @@ int main(int argc, char *argv[])
         Pinloom::showCommandPanelForHotkey(window, *commandPanel);
     }
 
-    if (!mainPanelHotkeyService.start()) {
+    if (!noGlobalHooks && !mainPanelHotkeyService.start()) {
         const QString error = QStringLiteral("Pinloom main hotkey %1 could not be registered:\n%2\n\n"
                                              "Shift+Space may be reserved by another application.")
                                   .arg(mainPanelHotkeyService.displayText(), mainPanelHotkeyService.lastError());
@@ -2977,7 +3092,7 @@ int main(int argc, char *argv[])
         refreshResidentStatus();
     }
 
-    if (!hyperHotkeyService.start()) {
+    if (!noGlobalHooks && !hyperHotkeyService.start()) {
         const QString error = QStringLiteral("Pinloom %1 could not start:\n%2")
                                   .arg(hyperHotkeyService.displayText(), hyperHotkeyService.lastError());
         qWarning().noquote() << error;

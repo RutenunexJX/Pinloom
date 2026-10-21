@@ -4,6 +4,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QJsonObject>
 #include "pinloom/widgets/PinloomUiControls.h"
 #include <functional>
 #include <optional>
@@ -60,6 +61,9 @@ public:
     explicit ClipLibraryWindow(ClipLibraryWindowOptions options = {}, QWidget *parent = nullptr);
 
     void refresh();
+    bool hasPendingEdits() const;
+    QJsonObject commandViewState() const;
+    bool selectIdentity(const QString &clipId);
     void setSearchText(const QString &text);
     QString searchText() const;
     void setScope(ClipLibraryScope scope);

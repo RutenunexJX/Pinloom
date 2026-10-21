@@ -248,6 +248,14 @@ Resource mergeImportedResource(const Resource &current, const Resource &imported
 
 } // namespace
 
+QJsonObject anchorArchiveJson(const Anchor &anchor) { return anchorToJson(anchor); }
+Anchor anchorFromArchiveJson(const QJsonObject &object) { return anchorFromJson(object); }
+QJsonObject resourceArchiveJson(const Resource &resource) { return resourceToJson(resource); }
+std::optional<Resource> resourceFromArchiveJson(const QJsonValue &value, QString *error)
+{
+    return resourceFromJson(value, error);
+}
+
 AnchorLibraryArchiveService::AnchorLibraryArchiveService(ILibraryRepository &repository,
                                                          QString safetyBackupDirectory)
     : repository_(repository)
@@ -426,7 +434,8 @@ QList<Resource> AnchorLibraryArchiveService::allResources() const
     for (const SearchResult &result : repository_.search(query)) {
         if (!seen.contains(result.resource.id)) {
             seen.insert(result.resource.id);
-            resources.append(result.resource);
+            const auto resource = repository_.findResource(result.resource.id);
+            if (resource) resources.append(*resource);
         }
     }
     std::sort(resources.begin(), resources.end(), [](const Resource &left, const Resource &right) {

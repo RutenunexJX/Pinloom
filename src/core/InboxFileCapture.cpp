@@ -216,6 +216,23 @@ QString inboxFileSaveRequestError(const InboxFileSaveRequest &request)
     return {};
 }
 
+Resource preparedInboxResource(const std::optional<Resource> &existing,
+                               const InboxFileSaveRequest &request, const QString &storedPath)
+{
+    Resource resource = existing.value_or(Resource{});
+    resource.id = inboxResourceIdForPath(storedPath);
+    resource.kind = resourceKindForPath(QFileInfo(storedPath));
+    resource.location = storedPath;
+    if (!request.name.trimmed().isEmpty()) resource.title = request.name;
+    else if (resource.title.trimmed().isEmpty()) resource.title = defaultInboxFileName(storedPath);
+    appendRequestedIdentityValues(resource.aliases, request.aliases);
+    for (const QString &tag : cleanedValues(request.tags, true)) appendUniqueValue(resource.tags, tag);
+    resource.content.clear();
+    if (!request.registerAsLibraryRoot) resource.explicitlyRetained = true;
+    resource.updatedAt = QDateTime::currentDateTimeUtc();
+    return resource;
+}
+
 InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFileSaveRequest &request)
 {
     InboxFileSaveResult result;
@@ -264,32 +281,12 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
     }
 
     const std::optional<Resource> existing = repository.findResource(resourceId);
-    Resource resource = existing.value_or(Resource{});
-    resource.id = resourceId;
-    resource.kind = resourceKindForPath(QFileInfo(storedPath));
-    resource.location = storedPath;
+    const Resource resource = preparedInboxResource(existing, request, storedPath);
 
-    const QString requestedName = request.name;
-    if (!requestedName.trimmed().isEmpty()) {
-        resource.title = requestedName;
-    } else if (resource.title.trimmed().isEmpty()) {
-        resource.title = defaultInboxFileName(storedPath);
-    }
-
-    appendRequestedIdentityValues(resource.aliases, request.aliases);
-
-    const QStringList tags = cleanedValues(request.tags, true);
-    for (const QString &tag : tags) {
-        appendUniqueValue(resource.tags, tag);
-    }
-
-    resource.content.clear();
-    if (!request.registerAsLibraryRoot) {
-        resource.explicitlyRetained = true;
-    }
-    resource.updatedAt = QDateTime::currentDateTimeUtc();
-
-    if (!repository.upsertResource(resource)) {
+    LibraryBatchMutation mutation;
+    mutation.upserts = {resource};
+    if (request.pinned) mutation.resourcePinUpdates = {{resource.id, true}};
+    if (!repository.applyBatch(mutation)) {
         if (copiedFile) {
             QFile::remove(storedPath);
         } else if (movedFile) {
@@ -299,9 +296,6 @@ InboxFileSaveResult saveInboxFile(ILibraryRepository &repository, const InboxFil
             ? QStringLiteral("Unable to save Inbox file")
             : repository.lastError();
         return result;
-    }
-    if (request.pinned) {
-        repository.setResourcePinned(resource.id, true);
     }
 
     if (request.registerAsLibraryRoot) {

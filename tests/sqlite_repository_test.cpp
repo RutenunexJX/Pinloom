@@ -355,6 +355,16 @@ void SqliteRepositoryTest::preservesContentAcrossPointReadsAndLifecycleChanges()
     const auto matches = reopened.search(SearchQuery{QStringLiteral("preserved")});
     QCOMPARE(matches.size(), 1);
     QCOMPARE(matches.first().resource.content, resource.content);
+    AnchorLibraryManagementService management(reopened);
+    QVERIFY(management.renameTag(QStringLiteral("updated"), QStringLiteral("classified")).success);
+    QCOMPARE(reopened.findResource(resource.id)->content, resource.content);
+    const QString archivePath = dir.filePath(QStringLiteral("body-roundtrip.json"));
+    QVERIFY(AnchorLibraryArchiveService(reopened).exportJson(archivePath).success);
+    SqliteLibraryRepository imported;
+    QVERIFY(imported.open(dir.filePath(QStringLiteral("imported.sqlite3"))));
+    QVERIFY(imported.initialize());
+    QVERIFY(AnchorLibraryArchiveService(imported).importJson(archivePath, AnchorLibraryImportMode::Replace).success);
+    QCOMPARE(imported.findResource(resource.id)->content, resource.content);
 }
 
 void SqliteRepositoryTest::persistsAndSearchesAnchorLocatorFields()

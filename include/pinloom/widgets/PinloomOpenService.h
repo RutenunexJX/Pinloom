@@ -40,12 +40,17 @@ public:
                        PinloomOpenServiceOptions options,
                        QObject *parent = nullptr);
 
-    bool open(const PinloomOpenTarget &target, QWidget *dialogParent = nullptr);
+    bool open(const PinloomOpenTarget &target, QWidget *dialogParent = nullptr,
+              bool asynchronousPreview = false);
+    bool hasPendingPdfOpen() const { return activePdfOpenRequestId_ != 0; }
+    bool cancelOpen(const QString &resourceId, const QString &anchorId);
     QString statusText() const;
     bool hasPdfOriginalFallback() const;
     bool openPdfOriginalFallback();
 
 signals:
+    void navigationCompleted(const QString &resourceId, const QString &anchorId,
+                             const QString &state, bool positionVerified, const QString &message);
     void statusChanged(const QString &status);
     void pdfOriginalFallbackAvailable(const QString &sourceFilePath,
                                       int page,

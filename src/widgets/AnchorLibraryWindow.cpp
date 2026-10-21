@@ -1,5 +1,6 @@
 #include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/AnchorLibraryWindow.h"
+#include <QJsonArray>
 #include "AnchorLibraryUi.h"
 
 #include "pinloom/core/AnchorLibraryPolicy.h"
@@ -1172,6 +1173,52 @@ void AnchorLibraryWindow::refreshLibrary()
     if (options_.repository) loadedRepositoryRevision_ = options_.repository->changeRevision();
 }
 
+bool AnchorLibraryWindow::hasPendingEdits() const
+{
+    return !pendingFileInlineEdits_.isEmpty() || !pendingInlineEdits_.isEmpty()
+        || !fileTable_->findChildren<QLineEdit *>().isEmpty()
+        || !anchorTable_->findChildren<QLineEdit *>().isEmpty();
+}
+
+QJsonObject AnchorLibraryWindow::commandViewState() const
+{
+    QJsonArray files, anchors;
+    for (int row = 0; row < qMin(200, fileTable_->rowCount()); ++row) {
+        const auto *item = fileTable_->item(row, 0);
+        const auto *file = item ? fileForKey(item->data(FileKeyRole).toString()) : nullptr;
+        if (file) files.append(QJsonObject{{"resourceId", file->resource.id}, {"title", item->text()}});
+    }
+    for (int row = 0; row < qMin(200, anchorTable_->rowCount()); ++row) {
+        const auto *item = anchorTable_->item(row, 0);
+        if (item) anchors.append(QJsonObject{{"resourceId", item->data(ResourceIdRole).toString()},
+            {"identity", item->data(AnchorIdentityRole).toString()}, {"name", item->text()}});
+    }
+    return {{"visible", isVisible()}, {"pendingEdits", hasPendingEdits()}, {"query", filterText()},
+            {"fileCount", fileTable_->rowCount()}, {"anchorCount", anchorTable_->rowCount()},
+            {"files", files}, {"anchors", anchors}, {"trash", isTrashVisible()}};
+}
+
+bool AnchorLibraryWindow::selectIdentity(const QString &resourceId, const QString &anchorId)
+{
+    for (int row = 0; row < fileTable_->rowCount(); ++row) {
+        const auto *item = fileTable_->item(row, 0);
+        const auto *file = item ? fileForKey(item->data(FileKeyRole).toString()) : nullptr;
+        if (!file) continue;
+        bool contains = file->resource.id == resourceId;
+        for (const auto &anchor : file->anchors) contains |= anchor.resourceId == resourceId;
+        if (!contains || !selectFileAt(row)) continue;
+        if (anchorId.isEmpty()) return true;
+        Anchor identity; identity.id = anchorId;
+        for (int anchorRow = 0; anchorRow < anchorTable_->rowCount(); ++anchorRow) {
+            const auto *name = anchorTable_->item(anchorRow, 0);
+            if (name && name->data(ResourceIdRole).toString() == resourceId
+                && name->data(AnchorIdentityRole).toString() == anchorIdentityKey(identity))
+                return selectAnchorAt(anchorRow);
+        }
+    }
+    return false;
+}
+
 void AnchorLibraryWindow::setFilterText(const QString &text) { filterEdit_->setText(text); }
 QString AnchorLibraryWindow::filterText() const { return filterEdit_->text(); }
 int AnchorLibraryWindow::visibleFileCount() const { return fileTable_->rowCount(); }
@@ -1198,6 +1245,12 @@ int AnchorLibraryWindow::selectedAnchorCount() const { return selectedAnchors().
 void AnchorLibraryWindow::showTrash()
 {
     const int index = scopeCombo_->findData(static_cast<int>(AnchorLibraryScope::Trash));
+    if (index >= 0) scopeCombo_->setCurrentIndex(index);
+}
+
+void AnchorLibraryWindow::showActive()
+{
+    const int index = scopeCombo_->findData(static_cast<int>(AnchorLibraryScope::All));
     if (index >= 0) scopeCombo_->setCurrentIndex(index);
 }
 

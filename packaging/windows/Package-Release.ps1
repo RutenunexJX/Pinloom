@@ -39,6 +39,10 @@ if (([string]::IsNullOrWhiteSpace($PackageName)) -or
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
 $sourcePdfProbe = Join-Path $BuildDirectory "pinloom_pdf_probe.exe"
+$sourceCli = Join-Path $BuildDirectory "pinloom_cli.exe"
+if (-not (Test-Path -LiteralPath $sourceCli -PathType Leaf)) {
+    throw 'Missing pinloom_cli.exe; build the public command interface before packaging.'
+}
 if (-not (Test-Path -LiteralPath $sourcePdfProbe -PathType Leaf)) {
     throw 'Missing pinloom_pdf_probe.exe; build the PDF capture helper before packaging.'
 }
@@ -147,11 +151,15 @@ foreach ($name in @('LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
 }
 $publicDocs = Join-Path $packageDirectory 'docs'
 New-Item -ItemType Directory -Path $publicDocs | Out-Null
-foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md')) {
+foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md', 'CLI.md')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs/$name") -Destination $publicDocs
 }
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 Copy-Item -LiteralPath $sourcePdfProbe -Destination $packageDirectory
+Copy-Item -LiteralPath $sourceCli -Destination $packageDirectory
+foreach ($name in @('cli_process.ps1', 'cli_workflow.ps1', 'cli_session_routing.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "tests/$name") -Destination $publicDocs
+}
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 if ($usesEla) {
@@ -207,6 +215,10 @@ $packageReadme | Set-Content -LiteralPath (Join-Path $packageDirectory "README.t
 $requiredFiles = @(
     "pinloom_app.exe",
     "pinloom_pdf_probe.exe",
+    "pinloom_cli.exe",
+    "docs\cli_process.ps1",
+    "docs\cli_workflow.ps1",
+    "docs\cli_session_routing.ps1",
     "qt.conf",
     "Qt6Core.dll",
     "Qt6Gui.dll",

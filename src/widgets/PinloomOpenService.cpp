@@ -53,8 +53,13 @@ PinloomOpenService::PinloomOpenService(ILibraryRepository &repository,
 }
 
 bool PinloomOpenService::open(const PinloomOpenTarget &target,
-                              QWidget *dialogParent)
+                              QWidget *dialogParent, bool asynchronousPreview)
 {
+    if (activePdfOpenTarget_) {
+        emit navigationCompleted(activePdfOpenTarget_->resourceId,
+            activePdfOpenTarget_->anchor ? activePdfOpenTarget_->anchor->id : QString(),
+            QStringLiteral("cancelled"), false, QStringLiteral("Superseded by another open request"));
+    }
     activePdfOpenRequestId_ = 0;
     activePdfOpenTarget_.reset();
     if (options_.pdfViewerAdapter) options_.pdfViewerAdapter->cancelPending();
@@ -111,14 +116,26 @@ bool PinloomOpenService::open(const PinloomOpenTarget &target,
         ? anchorLocatorLine(target.anchor.value())
         : -1;
     if (anchorLine > 0) {
-        TextPreviewDialog preview(target.location, anchorLine, dialogParent);
-        if (!preview.load()) {
+        auto *preview = new TextPreviewDialog(target.location, anchorLine, dialogParent);
+        if (!preview->load()) {
+            delete preview;
             setStatus(QStringLiteral("Unable to preview %1")
                           .arg(target.location));
             return false;
         }
         recordOpen(target);
-        preview.exec();
+        const bool located = preview->targetLineLocated();
+        const QString state = located ? QStringLiteral("located") : QStringLiteral("failed");
+        const QString message = located ? QStringLiteral("Text preview positioned at the requested line")
+                                        : QStringLiteral("Requested line is outside the document");
+        emit navigationCompleted(target.resourceId, target.anchor->id, state, located, message);
+        if (asynchronousPreview) {
+            preview->setAttribute(Qt::WA_DeleteOnClose);
+            preview->show();
+        } else {
+            preview->exec();
+            delete preview;
+        }
         setStatus(QStringLiteral("Opened text target"));
         return true;
     }
@@ -317,6 +334,12 @@ void PinloomOpenService::handlePdfViewerOpen(
     if (result.requestId != activePdfOpenRequestId_) return;
     activePdfOpenRequestId_ = 0;
     activePdfOpenTarget_.reset();
+    // The existing adapter acknowledges navigation, but does not report a read-back
+    // observation of the final external page/rectangle.
+    emit navigationCompleted(target.resourceId, target.anchor ? target.anchor->id : QString(),
+        result.succeeded() ? QStringLiteral("open_requested")
+                           : result.canceled() ? QStringLiteral("cancelled") : QStringLiteral("failed"),
+        false, result.message + (result.diagnostics.isEmpty() ? QString() : QStringLiteral(": ") + result.diagnostics));
     if (result.succeeded()) {
         recordOpen(target);
         setStatus(result.message.trimmed().isEmpty()
@@ -368,6 +391,17 @@ bool PinloomOpenService::hasPdfOriginalFallback() const
     return pdfOriginalFallbackTarget_.has_value()
         && options_.pdfViewerAdapter
         && options_.pdfViewerAdapter->hasOriginalFallback();
+}
+
+bool PinloomOpenService::cancelOpen(const QString &resourceId, const QString &anchorId)
+{
+    if (!activePdfOpenTarget_ || activePdfOpenTarget_->resourceId != resourceId
+        || !activePdfOpenTarget_->anchor || activePdfOpenTarget_->anchor->id != anchorId) return false;
+    if (options_.pdfViewerAdapter) options_.pdfViewerAdapter->cancelPending();
+    emit navigationCompleted(resourceId, anchorId, QStringLiteral("cancelled"), false,
+                             QStringLiteral("PDF request cancelled"));
+    activePdfOpenTarget_.reset(); activePdfOpenRequestId_ = 0;
+    return true;
 }
 
 bool PinloomOpenService::openPdfOriginalFallback()

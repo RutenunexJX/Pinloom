@@ -91,6 +91,10 @@ class AnchorLibraryManagementService {
 public:
     explicit AnchorLibraryManagementService(ILibraryRepository &repository);
 
+    AnchorLibraryOperationResult updateAnchor(const AnchorReference &reference,
+                                               const std::optional<AnchorMetadataUpdate> &metadata,
+                                               const std::optional<AnchorLocatorUpdate> &locator);
+
     AnchorLibraryOperationResult updateAnchorMetadata(const AnchorReference &reference,
                                                        const AnchorMetadataUpdate &update);
     AnchorLibraryOperationResult updateAnchorLocator(const AnchorReference &reference,

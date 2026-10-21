@@ -290,72 +290,54 @@ AnchorLibraryManagementService::AnchorLibraryManagementService(ILibraryRepositor
 }
 
 AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchorMetadata(
-    const AnchorReference &reference,
-    const AnchorMetadataUpdate &update)
+    const AnchorReference &reference, const AnchorMetadataUpdate &update)
 {
-    const QString name = update.name;
-    if (reference.resourceId.trimmed().isEmpty() || name.trimmed().isEmpty()) {
-        return failedResult(QStringLiteral("Anchor name is required"));
-    }
-    std::optional<ResourceBatch> batch = loadResourceBatch(repository_, {reference.resourceId});
-    if (!batch.has_value()) {
-        return failedResult(QStringLiteral("Anchor resource was not found"));
-    }
-    Anchor *anchor = findAnchor(batch->updates.first(), reference.anchor);
-    if (!anchor) {
-        return failedResult(QStringLiteral("Anchor was not found"));
-    }
-
-    anchor->name = name;
-    anchor->aliases = retainedIdentityValues(update.aliases);
-    anchor->tags = cleanedValues(update.tags);
-    anchor->pinned = update.pinned;
-    anchor->updatedAt = QDateTime::currentDateTimeUtc();
-    batch->updates.first().updatedAt = anchor->updatedAt;
-    return applyManagedMutation({batch->updates},
-                                {batch->originals},
-                                1,
-                                QStringLiteral("Updated anchor: %1").arg(name));
+    return updateAnchor(reference, update, std::nullopt);
 }
 
 AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchorLocator(
-    const AnchorReference &reference,
-    const AnchorLocatorUpdate &update)
+    const AnchorReference &reference, const AnchorLocatorUpdate &update)
 {
-    const QString locatorType = update.locatorType.trimmed().toLower();
-    const QString locatorJson = update.locatorJson.trimmed();
-    if (reference.resourceId.trimmed().isEmpty() || locatorType.isEmpty() || locatorJson.isEmpty()) {
-        return failedResult(QStringLiteral("Locator type and JSON are required"));
-    }
-    QJsonParseError parseError;
-    const QJsonDocument locatorDocument = QJsonDocument::fromJson(locatorJson.toUtf8(), &parseError);
-    if (parseError.error != QJsonParseError::NoError || !locatorDocument.isObject()) {
-        return failedResult(QStringLiteral("Locator JSON is invalid"));
-    }
-
-    std::optional<ResourceBatch> batch = loadResourceBatch(repository_, {reference.resourceId});
-    if (!batch.has_value()) {
-        return failedResult(QStringLiteral("Anchor resource was not found"));
-    }
-    Anchor *anchor = findAnchor(batch->updates.first(), reference.anchor);
-    if (!anchor) {
-        return failedResult(QStringLiteral("Anchor was not found"));
-    }
-    anchor->targetApp = update.targetApp.trimmed();
-    anchor->targetFile = update.targetFile.trimmed().isEmpty()
-        ? QString()
-        : normalizedPath(update.targetFile);
-    anchor->targetUri = update.targetUri.trimmed();
-    anchor->locatorType = locatorType;
-    anchor->locatorJson = QString::fromUtf8(locatorDocument.toJson(QJsonDocument::Compact));
-    anchor->updatedAt = QDateTime::currentDateTimeUtc();
-    batch->updates.first().updatedAt = anchor->updatedAt;
-    return applyManagedMutation({batch->updates},
-                                {batch->originals},
-                                1,
-                                QStringLiteral("Updated anchor locator"));
+    return updateAnchor(reference, std::nullopt, update);
 }
 
+AnchorLibraryOperationResult AnchorLibraryManagementService::updateAnchor(
+    const AnchorReference &reference,
+    const std::optional<AnchorMetadataUpdate> &metadata,
+    const std::optional<AnchorLocatorUpdate> &locator)
+{
+    if (metadata && metadata->name.trimmed().isEmpty()) {
+        return failedResult(QStringLiteral("Anchor name is required"));
+    }
+    auto batch = loadResourceBatch(repository_, {reference.resourceId});
+    if (!batch) return failedResult(QStringLiteral("Anchor resource was not found"));
+    Anchor *anchor = findAnchor(batch->updates.first(), reference.anchor);
+    if (!anchor) return failedResult(QStringLiteral("Anchor was not found"));
+    if (metadata) {
+        anchor->name = metadata->name;
+        anchor->aliases = retainedIdentityValues(metadata->aliases);
+        anchor->tags = cleanedValues(metadata->tags);
+        anchor->pinned = metadata->pinned;
+    }
+    if (locator) {
+        QJsonParseError error;
+        const auto document = QJsonDocument::fromJson(locator->locatorJson.toUtf8(), &error);
+        if (locator->locatorType.trimmed().isEmpty() || error.error != QJsonParseError::NoError
+            || !document.isObject()) {
+            return failedResult(QStringLiteral("Locator type and valid JSON object are required"));
+        }
+        anchor->targetApp = locator->targetApp.trimmed();
+        anchor->targetFile = locator->targetFile.trimmed().isEmpty()
+            ? QString() : normalizedPath(locator->targetFile);
+        anchor->targetUri = locator->targetUri.trimmed();
+        anchor->locatorType = locator->locatorType.trimmed().toLower();
+        anchor->locatorJson = QString::fromUtf8(document.toJson(QJsonDocument::Compact));
+    }
+    anchor->updatedAt = QDateTime::currentDateTimeUtc();
+    batch->updates.first().updatedAt = anchor->updatedAt;
+    return applyManagedMutation({batch->updates}, {batch->originals}, 1,
+                                QStringLiteral("Updated anchor: %1").arg(anchor->name));
+}
 AnchorLibraryOperationResult AnchorLibraryManagementService::updateResourceMetadata(
     const QStringList &resourceIds,
     const ResourceMetadataUpdate &update)
@@ -1073,7 +1055,7 @@ AnchorValidationResult AnchorLibraryManagementService::validateAnchor(const Reso
         semanticError = buildPowerPointJumpCommand(anchor, resource.location).error;
     } else if (isVisioLocatorType(type)) {
         semanticError = buildVisioJumpCommand(anchor, resource.location).error;
-    } else if (type == QLatin1String("file.line")) {
+    } else if (type == QLatin1String("file.line") || type == QLatin1String("zeroslack.source")) {
         if (anchorLocatorLine(anchor) <= 0) {
             semanticError = QStringLiteral("File line is missing");
         }
@@ -1311,7 +1293,8 @@ QList<Resource> AnchorLibraryManagementService::allResources(bool includeDeleted
             continue;
         }
         seen.insert(result.resource.id);
-        resources.append(result.resource);
+        const auto resource = repository_.findResource(result.resource.id);
+        if (resource) resources.append(*resource);
     }
     return resources;
 }
