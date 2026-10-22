@@ -6,6 +6,7 @@ param(
     [string]$QtLicenseFile = "",
     [string]$PackageVersion = "",
     [string]$PackageName = "Pinloom",
+    [Parameter(Mandatory = $true)][string]$ReaderDirectory,
     [switch]$ReplaceExisting,
     [switch]$AllowDirty
 )
@@ -36,6 +37,29 @@ if (([string]::IsNullOrWhiteSpace($PackageName)) -or
     ($PackageName -ne [System.IO.Path]::GetFileName($PackageName))) {
     throw "PackageName must be a simple directory name"
 }
+
+# Pin the reader source and verify the complete paired payload before staging.
+$readerPin = Get-Content -Raw -LiteralPath (Join-Path $repositoryRoot 'integrations/sumatra/source.json') | ConvertFrom-Json
+$readerMetadata = Get-Content -Raw -LiteralPath (Join-Path $ReaderDirectory 'reader-manifest.json') | ConvertFrom-Json
+if ($readerMetadata.sourceRevision -ne $readerPin.sourceRevision -or
+    $readerMetadata.protocol -ne $readerPin.protocol -or
+    $readerMetadata.pairedPinloomVersion -ne $PackageVersion -or
+    $readerMetadata.upstreamVersion -ne $readerPin.upstreamVersion -or
+    $readerMetadata.upstreamRevision -ne $readerPin.upstreamRevision -or
+    $readerMetadata.customVersion -ne $readerPin.customVersion) {
+    throw 'Reader provenance does not match the pinned source and Pinloom version.'
+}
+foreach ($entry in $readerMetadata.files.PSObject.Properties) {
+    $relative = $entry.Name
+    if ([IO.Path]::IsPathRooted($relative) -or $relative -match '(^|[\\/])\.\.([\\/]|$)' -or $relative.Contains(':')) { throw 'Invalid reader payload path.' }
+    $file = Join-Path $ReaderDirectory $relative
+    if ((Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash.ToLowerInvariant() -ne $entry.Value) { throw "Reader payload hash mismatch: $relative" }
+}
+foreach ($name in @('SumatraPDF.exe', 'source/SumatraPDF-source.zip', 'source/pinloom-customization.patch', 'source/Compile-Reader.ps1', 'licenses/COPYING', 'licenses/mupdf/COPYING')) {
+    if (-not $readerMetadata.files.PSObject.Properties[$name]) { throw "Missing managed reader payload: $name" }
+}
+$actualReaderFiles = @(Get-ChildItem -LiteralPath $ReaderDirectory -File -Recurse)
+if ($actualReaderFiles.Count -ne @($readerMetadata.files.PSObject.Properties).Count + 1) { throw 'Unrecorded reader payload file.' }
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
 $sourcePdfProbe = Join-Path $BuildDirectory "pinloom_pdf_probe.exe"
@@ -151,7 +175,7 @@ foreach ($name in @('LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
 }
 $publicDocs = Join-Path $packageDirectory 'docs'
 New-Item -ItemType Directory -Path $publicDocs | Out-Null
-foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md', 'CLI.md')) {
+foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md', 'CLI.md', 'SUMATRA-MAINTENANCE.md')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs/$name") -Destination $publicDocs
 }
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
@@ -160,6 +184,8 @@ Copy-Item -LiteralPath $sourceCli -Destination $packageDirectory
 foreach ($name in @('cli_process.ps1', 'cli_workflow.ps1', 'cli_session_routing.ps1')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "tests/$name") -Destination $publicDocs
 }
+
+Copy-Item -LiteralPath $ReaderDirectory -Destination (Join-Path $packageDirectory 'reader') -Recurse
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 if ($usesEla) {
@@ -204,6 +230,10 @@ $packageReadme = @(
     "Package staging root: $packageDirectory",
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
+    "For PDF capture, open reader/SumatraPDF.exe and use its Capture toolbar button.",
+    "The reader finds ../pinloom_cli.exe automatically. Keep the paired package together.",
+    "Native PDF anchors automatically reopen in this bundled reader.",
+    "Reader updates are distributed only with Pinloom; see docs/SUMATRA-MAINTENANCE.md.",
     "Licensing: see LICENSE, NOTICE, THIRD-PARTY-NOTICES.md and licenses/.",
     "Pinloom is a resident application; Shift+Space opens its command window.",
     "Only the Ela UI is supported; leave PINLOOM_UI_STYLE unset or set it to ela.",
@@ -275,6 +305,7 @@ $metadataPath = Join-Path $outputRootPath 'release-metadata.json'
     qtVersion = '6.10.2'
     compiler = $compiler
     backend = $controlBackend
+    nativePdfReader = $readerMetadata
     databaseSchema = 16
     packageDirectory = $packageDirectory
     fileCount = $packageFiles.Count
@@ -285,7 +316,7 @@ $metadataPath = Join-Path $outputRootPath 'release-metadata.json'
     elaSharedPatch29Sha256 = 'c292256d9d23cc391b2a185b88d7335f79410ef08e491f727916829c627a88f8'
     elaSharedPatch30Sha256 = 'e69b815ba035831e2a84484acb0c46f957c83f346fff230a8c2b3034d4a44046'
     elaPinloomPatch = '13-pinloom-combo-popup-padding.patch'
-} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
+} | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $metadataPath -Encoding UTF8
 $hashFiles = @($packageFiles) + @(Get-Item -LiteralPath $metadataPath)
 $hashFiles | Sort-Object FullName | ForEach-Object {
     $relative = [IO.Path]::GetRelativePath($outputRootPath, $_.FullName).Replace('\', '/')

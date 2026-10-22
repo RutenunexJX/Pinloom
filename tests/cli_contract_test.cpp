@@ -40,6 +40,26 @@ class CliContractTest : public QObject {
         return doc.object()["result"].toObject();
     }
 private slots:
+    void discoversNativeCaptureAndResolvesExplicitLibrary()
+    {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("selected-library");
+        const auto resolved = call(path, "session.resolve");
+        QCOMPARE(resolved["captureProtocol"].toString(), "pinloom-pdf-capture/v1");
+        QCOMPARE(resolved["library"].toString(), canonicalLibraryPath(path));
+        QVERIFY(!QFileInfo::exists(path));
+        const auto capabilities = call(path, "capabilities");
+        bool found = false;
+        for (const auto &value : capabilities["methods"].toArray()) {
+            const auto method = value.toObject();
+            if (method["method"] == "capture.pdf") {
+                QVERIFY(method["writes"].toBool()); QVERIFY(method["requiresGui"].toBool()); found = true;
+            }
+        }
+        QVERIFY(found);
+        call(path, "library.init");
+        call(path, "capture.status", {{"captureId", "00000000-0000-0000-0000-000000000001"}}, 3);
+    }
     void configuredObsidianArchiveUsesSharedPersistence()
     {
         QTemporaryDir temp;

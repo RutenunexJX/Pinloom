@@ -1,10 +1,16 @@
 #include "pinloom/core/AnchorCaptureDraft.h"
 
 #include <QDateTime>
+#include <QDir>
+#include <QCryptographicHash>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
+#include <QJsonObject>
 #include <QJsonParseError>
 #include <QUuid>
+#include <QSet>
+#include <algorithm>
 
 namespace Pinloom {
 
@@ -46,6 +52,31 @@ ResourceKind resourceKindForDraft(const AnchorCaptureDraft &draft)
         return ResourceKind::Pdf;
     }
     return ResourceKind::File;
+}
+
+QList<Resource> captureResources(ILibraryRepository &repository)
+{
+    SearchQuery query; query.includeDeleted = true; query.limit = 0;
+    QSet<QString> seen;
+    QList<Resource> resources;
+    for (const auto &hit : repository.search(query)) {
+        if (seen.contains(hit.resource.id)) continue;
+        seen.insert(hit.resource.id);
+        if (const auto resource = repository.findResource(hit.resource.id)) resources.append(*resource);
+    }
+    std::sort(resources.begin(), resources.end(), [](const auto &a, const auto &b) { return a.id < b.id; });
+    return resources;
+}
+
+QString fileIdentity(const QString &path)
+{
+    const QFileInfo file(path);
+    const auto canonical = file.canonicalFilePath();
+    auto result = QDir::cleanPath(canonical.isEmpty() ? file.absoluteFilePath() : canonical);
+#ifdef Q_OS_WIN
+    result = result.toCaseFolded();
+#endif
+    return result;
 }
 
 } // namespace
@@ -150,14 +181,69 @@ AnchorCaptureCommitService::AnchorCaptureCommitService(
 {
 }
 
+AnchorCaptureCommitResult AnchorCaptureCommitService::findCapture(const QString &captureId) const
+{
+    AnchorCaptureCommitResult result;
+    const QUuid uuid(captureId);
+    if (uuid.isNull()) {
+        result.error = QStringLiteral("Capture ID must be a UUID");
+        result.errorCode = QStringLiteral("invalid_capture");
+        return result;
+    }
+    const auto id = uuid.toString(QUuid::WithoutBraces);
+    for (const auto &resource : captureResources(repository_)) {
+        for (const auto &anchor : resource.anchors) {
+            const auto receipt = QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object()["captureReceipt"].toObject();
+            if (anchor.id == "native-capture:" + id || receipt["id"].toString() == id) {
+                result.resource = resource; result.anchor = anchor; result.replayed = true;
+                return result;
+            }
+        }
+    }
+    result.error = QStringLiteral("Capture ID was not found");
+    result.errorCode = QStringLiteral("not_found");
+    return result;
+}
+
 AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
-    const AnchorCaptureDraft &draft)
+    const AnchorCaptureDraft &draft, const QString &captureId)
 {
     AnchorCaptureCommitResult result;
     QString validationError;
     if (!draft.isValid(&validationError)) {
         result.error = validationError;
+        result.errorCode = QStringLiteral("invalid_capture");
         return result;
+    }
+
+    const auto requestUuid = QUuid(captureId);
+    if (!captureId.isEmpty() && requestUuid.isNull()) {
+        result.error = QStringLiteral("Capture ID must be a UUID");
+        result.errorCode = QStringLiteral("invalid_capture");
+        return result;
+    }
+    const QString stableId = captureId.isEmpty() ? QString()
+        : QStringLiteral("native-capture:%1").arg(requestUuid.toString(QUuid::WithoutBraces));
+    auto locator = QJsonDocument::fromJson(draft.locatorJson.toUtf8()).object();
+    locator.remove(QStringLiteral("captureReceipt"));
+    const QJsonObject request{{"targetApp", draft.targetApp.trimmed()},
+        {"targetFile", draft.targetFile.trimmed()}, {"targetUri", draft.targetUri.trimmed()},
+        {"locatorType", draft.locatorType.trimmed().toLower()}, {"locator", locator},
+        {"name", draft.suggestedName}, {"aliases", QJsonArray::fromStringList(cleanedValues(draft.aliases, false))},
+        {"tags", QJsonArray::fromStringList(cleanedValues(draft.tags, true))}, {"pinned", draft.pinned}};
+    const QString requestHash = QString::fromLatin1(QCryptographicHash::hash(
+        QJsonDocument(request).toJson(QJsonDocument::Compact), QCryptographicHash::Sha256).toHex());
+    if (!stableId.isEmpty()) {
+        auto existing = findCapture(captureId);
+        if (existing.success()) {
+            const auto receipt = QJsonDocument::fromJson(existing.anchor.locatorJson.toUtf8()).object()["captureReceipt"].toObject();
+            if (receipt["requestHash"].toString() == requestHash) return existing;
+            result.error = QStringLiteral("Capture ID already belongs to a different saved request");
+            result.errorCode = QStringLiteral("capture_conflict");
+            return result;
+        }
+        locator.insert(QStringLiteral("captureReceipt"), QJsonObject{
+            {"id", requestUuid.toString(QUuid::WithoutBraces)}, {"requestHash", requestHash}});
     }
 
     const QDateTime now = QDateTime::currentDateTimeUtc();
@@ -171,24 +257,33 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
     resource.title = fileName.isEmpty()
         ? QStringLiteral("Anchor target: %1").arg(draft.suggestedName)
         : fileName;
+    if (!stableId.isEmpty()) {
+        for (const auto &candidate : captureResources(repository_)) {
+            if (!candidate.deleted && fileIdentity(candidate.location) == fileIdentity(draft.targetFile)) {
+                resource = candidate;
+                break;
+            }
+        }
+    }
     resource.updatedAt = now;
 
     Anchor anchor;
-    anchor.id = QStringLiteral("%1#%2")
+    anchor.id = stableId.isEmpty() ? QStringLiteral("%1#%2")
                     .arg(resource.id,
-                         QUuid::createUuid().toString(QUuid::WithoutBraces));
+                         QUuid::createUuid().toString(QUuid::WithoutBraces)) : stableId;
     anchor.name = draft.suggestedName;
     anchor.targetApp = draft.targetApp.trimmed();
     anchor.targetFile = draft.targetFile.trimmed();
     anchor.targetUri = draft.targetUri.trimmed();
     anchor.locatorType = draft.locatorType.trimmed().toLower();
-    anchor.locatorJson = draft.locatorJson.trimmed();
+    anchor.locatorJson = stableId.isEmpty() ? draft.locatorJson.trimmed()
+        : QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
     anchor.aliases = cleanedValues(draft.aliases, false);
     anchor.tags = cleanedValues(draft.tags, true);
     anchor.pinned = draft.pinned;
     anchor.createdAt = now;
     anchor.updatedAt = now;
-    resource.anchors = {anchor};
+    resource.anchors.append(anchor);
 
     if (!repository_.upsertResource(resource)) {
         result.resource = resource;
@@ -196,11 +291,17 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
         result.error = repository_.lastError().trimmed().isEmpty()
             ? QStringLiteral("Unable to save captured Anchor")
             : repository_.lastError();
+        result.errorCode = QStringLiteral("storage_error");
         return result;
     }
 
-    result.resource = resource;
+    // Repositories normalize metadata on write. Return the persisted representation
+    // so an immediate retry/get has the same version and identifiers.
+    result.resource = repository_.findResource(resource.id).value_or(resource);
     result.anchor = anchor;
+    for (const auto &saved : result.resource.anchors) {
+        if (saved.id == anchor.id) { result.anchor = saved; break; }
+    }
     return result;
 }
 

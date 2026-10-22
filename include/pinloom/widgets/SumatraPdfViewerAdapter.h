@@ -52,6 +52,7 @@ struct SumatraPdfViewerAdapterOptions {
     PdfAnchorPresenter *pdfAnchorPresenter = nullptr;
     int presentationGenerationTimeoutMilliseconds = 15000;
     QString presentationCacheDirectory;
+    QString nativeReaderProfileDirectory;
 };
 
 class SumatraPdfViewerAdapter final : public PdfViewerAdapter {

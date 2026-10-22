@@ -73,6 +73,7 @@ struct PdfViewerOpenResult {
     QString message;
     QString diagnostics;
     bool originalFallbackAvailable = false;
+    bool positionVerified = false;
 
     bool succeeded() const;
     bool canceled() const;

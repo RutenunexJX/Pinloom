@@ -1,6 +1,7 @@
 #include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/widgets/NativePdfReader.h"
 
 #include <QCoreApplication>
 #include <QCursor>
@@ -9,6 +10,7 @@
 #include <QEventLoop>
 #include <QFileInfo>
 #include <QFutureWatcher>
+#include <QJsonDocument>
 #include <QPointer>
 #include <QProcess>
 #include <QSharedPointer>
@@ -256,6 +258,7 @@ public:
         int consecutiveMatches = 0;
         QString lastDiagnostics;
         bool finished = false;
+        std::shared_ptr<std::atomic_bool> canceled = std::make_shared<std::atomic_bool>(false);
     };
 
     Private(SumatraPdfViewerAdapter *owner,
@@ -466,6 +469,28 @@ public:
         current = context;
         start.requestId = context->id;
 
+        const auto locator = QJsonDocument::fromJson(request.anchor.locatorJson.toUtf8()).object();
+        if (locator["provenance"].toObject()["adapter"] == "sumatra-pinloom/v1") {
+            reportStatus(context->id, QStringLiteral("正在原始 PDF 中恢复选区"));
+            auto *watcher = new QFutureWatcher<NativePdfReaderResult>(q);
+            const QPointer<SumatraPdfViewerAdapter> guard(q);
+            QObject::connect(watcher, &QFutureWatcher<NativePdfReaderResult>::finished, watcher,
+                [guard, watcher, id = context->id]() {
+                    const auto result = watcher->result();
+                    watcher->deleteLater();
+                    if (!guard) return;
+                    guard->d_->finish(id, result.located ? PdfViewerOperationState::Succeeded : PdfViewerOperationState::Failed,
+                        result.located ? QStringLiteral("已在原始 PDF 中显示选区") : result.error, {}, false, result.located);
+                });
+            const auto command = context->command;
+            const auto profile = options.nativeReaderProfileDirectory;
+            const auto canceled = context->canceled;
+            watcher->setFuture(QtConcurrent::run([command, profile, locator, canceled]() {
+                return openNativePdfReader(command.executablePath, profile, command.filePath, locator, canceled);
+            }));
+            return start;
+        }
+
         if (context->command.highlightRect.isValid()) {
             PdfAnchorPresentationRequest presentation;
             presentation.anchor = request.anchor;
@@ -546,7 +571,10 @@ public:
     {
         if (!current || current->id != id || current->finished) return;
         if (!options.navigationStateProviderRunsInWorker) {
-            handleState(id, navigationState(140));
+            const auto command = current->command;
+            handleState(id, options.navigationStateProvider
+                ? options.navigationStateProvider(140)
+                : requestConfiguredPdfReaderState(command.executablePath, command.filePath, command.page, 140));
             return;
         }
         auto *watcher = new QFutureWatcher<SumatraPdfDdeFileState>(q);
@@ -561,10 +589,11 @@ public:
             guard->d_->handleState(id, state);
         });
         const auto provider = options.navigationStateProvider;
-        watcher->setFuture(QtConcurrent::run([provider]() {
+        const auto command = current->command;
+        watcher->setFuture(QtConcurrent::run([provider, command]() {
             return provider
                 ? provider(140)
-                : requestSumatraPdfDdeFileState(140);
+                : requestConfiguredPdfReaderState(command.executablePath, command.filePath, command.page, 140);
         }));
     }
 
@@ -634,11 +663,12 @@ public:
                 PdfViewerOperationState state,
                 const QString &message,
                 const QString &diagnostics,
-                bool fallbackAvailable)
+                bool fallbackAvailable, bool positionVerified = false)
     {
         if (!current || current->id != id || current->finished) return;
         const auto completed = current;
         completed->finished = true;
+        completed->canceled->store(true);
         current.reset();
         PdfViewerOpenResult result;
         result.requestId = id;
@@ -650,6 +680,7 @@ public:
             : message.trimmed();
         result.diagnostics = diagnostics.trimmed();
         result.originalFallbackAvailable = fallbackAvailable;
+        result.positionVerified = positionVerified;
         if (completed->callbacks.completed) {
             completed->callbacks.completed(result);
         }

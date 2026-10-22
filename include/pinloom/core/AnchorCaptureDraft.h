@@ -33,6 +33,8 @@ struct AnchorCaptureCommitResult {
     Resource resource;
     Anchor anchor;
     QString error;
+    QString errorCode;
+    bool replayed = false;
 
     bool success() const;
 };
@@ -44,7 +46,9 @@ class AnchorCaptureCommitService {
 public:
     explicit AnchorCaptureCommitService(ILibraryRepository &repository);
 
-    AnchorCaptureCommitResult commit(const AnchorCaptureDraft &draft);
+    AnchorCaptureCommitResult commit(const AnchorCaptureDraft &draft,
+                                     const QString &captureId = {});
+    AnchorCaptureCommitResult findCapture(const QString &captureId) const;
 
 private:
     ILibraryRepository &repository_;

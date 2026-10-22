@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.14
+    VERSION 0.4.15
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -207,6 +207,8 @@ if(WIN32)
 endif()
 
 add_library(pinloom_application STATIC
+    include/pinloom/application/NativePdfCapture.h
+    src/application/NativePdfCapture.cpp
     include/pinloom/application/CommandService.h
     include/pinloom/application/CommandTransport.h
     src/application/CommandService.cpp
@@ -268,6 +270,8 @@ add_library(pinloom_widgets STATIC
     src/widgets/PdfAnchorPresenter.cpp
     src/widgets/PdfRegionSelectionOverlay.cpp
     src/widgets/PdfViewerAdapter.cpp
+    include/pinloom/widgets/NativePdfReader.h
+    src/widgets/NativePdfReader.cpp
     src/widgets/ClipResidentRuntime.cpp
     src/widgets/ClipTrayPresenter.cpp
     src/widgets/MainPanelHotkey.cpp
@@ -359,6 +363,9 @@ function(pinloom_add_test target)
 endfunction()
 
 add_executable(pinloom_cli_contract_test tests/cli_contract_test.cpp)
+add_executable(pinloom_native_pdf_capture_test tests/native_pdf_capture_test.cpp)
+target_link_libraries(pinloom_native_pdf_capture_test PRIVATE pinloom_application Qt6::Test)
+pinloom_add_test(pinloom_native_pdf_capture_test)
 target_link_libraries(pinloom_cli_contract_test PRIVATE pinloom_application Qt6::Test)
 add_dependencies(pinloom_cli_contract_test pinloom_cli)
 pinloom_add_test(pinloom_cli_contract_test)

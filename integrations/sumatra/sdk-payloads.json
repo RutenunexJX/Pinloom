@@ -1,0 +1,20 @@
+[
+  {
+    "package": "microsoft.windows.sdk.cpp",
+    "version": "10.0.26100.1742",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp/10.0.26100.1742/microsoft.windows.sdk.cpp.10.0.26100.1742.nupkg",
+    "sha256": "cea18bcdb33096a94e441a8fdf2db138e356b020a1b5f27d6ddfea1bcec48eb2"
+  },
+  {
+    "package": "microsoft.windows.sdk.cpp.x64",
+    "version": "10.0.26100.1742",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.cpp.x64/10.0.26100.1742/microsoft.windows.sdk.cpp.x64.10.0.26100.1742.nupkg",
+    "sha256": "5d6f15177ff6a8bf7d8ac67b4cf204376fa0d6a09c103bb9e7d6250c4ec8a4b1"
+  },
+  {
+    "package": "microsoft.windows.sdk.buildtools",
+    "version": "10.0.26100.1742",
+    "url": "https://api.nuget.org/v3-flatcontainer/microsoft.windows.sdk.buildtools/10.0.26100.1742/microsoft.windows.sdk.buildtools.10.0.26100.1742.nupkg",
+    "sha256": "db432106a12e44fc1055f520b147df183c86963ab79baf81d8a4a9dd867e6606"
+  }
+]

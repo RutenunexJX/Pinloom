@@ -3,6 +3,7 @@
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/AnchorTarget.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFileInfo>
 #include <QJsonArray>
@@ -287,6 +288,12 @@ QString resolveSumatraPdfExecutablePath()
     const QString configured = qEnvironmentVariable("PINLOOM_SUMATRAPDF_PATH").trimmed();
     if (!configured.isEmpty()) {
         return configured;
+    }
+
+    const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(
+        QStringLiteral("reader/SumatraPDF.exe"));
+    if (QFileInfo(bundled).isFile()) {
+        return QDir::toNativeSeparators(bundled);
     }
 
     for (const QString &path : defaultExecutablePaths()) {

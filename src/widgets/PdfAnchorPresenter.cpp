@@ -1,4 +1,5 @@
 #include "pinloom/widgets/PdfAnchorPresenter.h"
+#include "pinloom/widgets/NativePdfReader.h"
 
 #include <QDir>
 #include <QElapsedTimer>
@@ -292,10 +293,10 @@ public:
             if (!guard) return;
             guard->d_->handleVerificationState(id, command, state);
         });
-        watcher->setFuture(QtConcurrent::run([provider]() {
+        watcher->setFuture(QtConcurrent::run([provider, command]() {
             return provider
                 ? provider(140)
-                : requestSumatraPdfDdeFileState(140);
+                : requestConfiguredPdfReaderState(command.executablePath, command.filePath, command.page, 140);
         }));
     }
 

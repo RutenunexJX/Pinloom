@@ -734,6 +734,7 @@ int main(int argc, char *argv[])
     Pinloom::SumatraPdfViewerAdapterOptions pdfViewerOptions;
     pdfViewerOptions.applicationLaunchSettings = applicationLaunchSettings;
     pdfViewerOptions.executablePathProvider = sumatraPdfExecutablePathProvider;
+    pdfViewerOptions.nativeReaderProfileDirectory = QDir(appDataPath).filePath(QStringLiteral("reader-profile"));
     pdfViewerOptions.fileConfirmationHandler =
         [](const QString &documentTitle, QWidget *parent) {
             return QFileDialog::getOpenFileName(

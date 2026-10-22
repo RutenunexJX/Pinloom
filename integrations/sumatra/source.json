@@ -1,0 +1,18 @@
+{
+  "upstream": "https://github.com/sumatrapdfreader/sumatrapdf.git",
+  "upstreamTag": "3.6.1rel",
+  "upstreamVersion": "3.6.1",
+  "upstreamRevision": "16c59fde8b824ab54c56f23aef910a6fdd874ad0",
+  "sourceRevision": "b27f377ad67baa86628503c4e5a4da910c005245",
+  "customVersion": "3.6.1-pinloom.1",
+  "branch": "codex/pinloom-native-capture",
+  "protocol": "pinloom-reader/v1",
+  "pairedPinloomVersion": "0.4.15",
+  "patchSha256": "a50b3b6ea83b102131d00be19533bd65b3067bec606ee73eb905b8448100f0d1",
+  "updatePolicy": "paired-pinloom-package-only",
+  "toolchain": {
+    "msvc": "14.44.35207",
+    "msbuild": "17.14.60.43110",
+    "windowsSdk": "10.0.26100.0"
+  }
+}

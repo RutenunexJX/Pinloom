@@ -10,10 +10,14 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QElapsedTimer>
+#include <QProcess>
 #include <QSettings>
 #include <QStandardPaths>
 #include <QUuid>
+#include <QThread>
 #include <cstdio>
+#include <algorithm>
 
 namespace {
 int output(QJsonObject response)
@@ -42,6 +46,7 @@ int main(int argc, char **argv)
     parser.addOption({"if-version", "Required version precondition for writes", "version"});
     parser.addOption({"dry-run", "Validate and preview without writing"});
     parser.addOption({"require-gui", "Fail if the selected GUI session is not running"});
+    parser.addOption({"start-gui", "Start the selected library's hidden GUI session if needed, without global capture hooks"});
     parser.addOption({"timeout", "GUI response timeout in milliseconds (100..60000)", "milliseconds", "5000"});
     parser.addPositionalArgument("method", "Use capabilities/schema to discover methods and parameters");
     if (!parser.parse(app.arguments())) return output(Pinloom::commandError("invalid_argument", parser.errorText(), 2));
@@ -50,6 +55,15 @@ int main(int argc, char **argv)
         auto result = Pinloom::commandCapabilities();
         result.insert("usage", parser.helpText());
         return output({{"protocol", "pinloom-cli/v1"}, {"ok", true}, {"exitCode", 0}, {"result", result}});
+    }
+    if (arguments.size() == 1 && arguments[0] == "session.resolve") {
+        QSettings settings;
+        const auto configured = Pinloom::configuredAppDataDirectory(settings,
+            QStandardPaths::writableLocation(QStandardPaths::AppDataLocation));
+        const auto selected = parser.value("library").trimmed().isEmpty() ? configured : parser.value("library");
+        return output({{"protocol", "pinloom-cli/v1"}, {"ok", true}, {"exitCode", 0}, {"result", QJsonObject{
+            {"library", Pinloom::canonicalLibraryPath(selected)}, {"captureProtocol", "pinloom-pdf-capture/v1"},
+            {"appPath", QDir(QCoreApplication::applicationDirPath()).filePath("pinloom_app.exe")}}}});
     }
     if (arguments.size() != 1 || parser.value("library").trimmed().isEmpty())
         return output(Pinloom::commandError("invalid_argument", "Exactly one method and --library are required; use --help", 2));
@@ -84,6 +98,25 @@ int main(int argc, char **argv)
         return output(Pinloom::commandError("input_limit", "Request envelope exceeds 1 MiB", 2));
     const auto remote = Pinloom::sendLibraryCommand(path, request, timeout);
     if (remote.connected) return output(remote.response);
+    if (parser.isSet("start-gui")) {
+        const auto executable = QDir(QCoreApplication::applicationDirPath()).filePath("pinloom_app.exe");
+        if (!QFileInfo::exists(executable) || !QProcess::startDetached(executable,
+                {"--library", path, "--hidden", "--no-global-hooks"}))
+            return output(Pinloom::commandError("startup_failed", "Unable to start Pinloom for the selected library", 5));
+        auto probe = request;
+        probe.insert("method", "session.status"); probe.insert("params", QJsonObject{});
+        QElapsedTimer startup; startup.start();
+        while (startup.elapsed() < timeout) {
+            const auto status = Pinloom::sendLibraryCommand(path, probe, std::min(timeout, 500));
+            if (status.connected) {
+                const auto submitted = Pinloom::sendLibraryCommand(path, request, timeout);
+                if (submitted.connected) return output(submitted.response);
+                return output(Pinloom::commandError("connection_lost", "Selected session exited before submission; retry the same capture ID", 5));
+            }
+            QThread::msleep(100);
+        }
+        return output(Pinloom::commandError("startup_timeout", "Selected Pinloom session did not become available; check its library path and permissions", 5));
+    }
     if (parser.isSet("require-gui")) return output(Pinloom::commandError("gui_required", "No GUI session for the selected library", 5));
     const bool init = arguments[0] == "library.init";
     if (!init && (!QFileInfo(QDir(path).filePath("pinloom.sqlite3")).isFile()

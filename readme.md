@@ -1,6 +1,8 @@
 # Pinloom
 
-Current version: `0.4.14`; database Schema: `16`.
+Current version: `0.4.15`; database Schema: `16`.
+
+Release 0.4.15 pairs Pinloom with a custom SumatraPDF reader for native PDF selection, naming, saving and precise reopening. See [reader maintenance](docs/SUMATRA-MAINTENANCE.md).
 
 Release 0.4.13 enables SuiteApp SDK 1.0.1 and preserves source-anchor contents through SQLite point reads, updates, deletion, restoration and reopening. Runtime registration failure retains independent operation.
 

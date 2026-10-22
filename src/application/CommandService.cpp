@@ -1,4 +1,5 @@
 #include "pinloom/application/CommandService.h"
+#include "pinloom/application/NativePdfCapture.h"
 #include "pinloom/core/AnchorLibraryArchive.h"
 #include "pinloom/core/AnchorLocator.h"
 #include "pinloom/core/AnchorTarget.h"
@@ -82,7 +83,12 @@ const QMap<QString, Spec> &specs()
             }
             result.insert(name, {write, gui, properties, required});
         };
-        add("capabilities"); add("schema"); add("session.status"); add("library.init");
+        add("capabilities"); add("schema"); add("session.status"); add("session.resolve"); add("library.init");
+        add("capture.pdf", {{"captureProtocol", choice({"pinloom-pdf-capture/v1"})},
+            {"captureId", s}, {"targetFile", s}, {"documentSize", s}, {"documentModifiedMs", s},
+            {"name", s}, {"tags", a}, {"locator", locatorSchema}},
+            {"captureProtocol", "captureId", "targetFile", "documentSize", "documentModifiedMs", "name", "locator"}, true, true);
+        add("capture.status", {{"captureId", s}}, {"captureId"});
         QJsonObject search{{"query", s}, {"limit", QJsonObject{{"type", "integer"}, {"minimum", 1}, {"maximum", 200}}},
                            {"scope", choice({"active", "trash", "all"})},
                            {"kind", choice({"all", "anchors", "files", "clips"})}, {"tags", a}};
@@ -403,6 +409,31 @@ QJsonObject CommandService::dispatch(const QString &method, const QJsonObject &p
         object.insert("resourceId", resource.id); object.insert("version", resourceVersion(resource)); return object;
     };
     if (method == "capabilities" || method == "schema") return commandCapabilities();
+    if (method == "session.resolve") return {{"library", libraryPath_}, {"captureProtocol", "pinloom-pdf-capture/v1"}};
+    if (method == "capture.status") {
+        const auto captureId = QUuid(p["captureId"].toString());
+        if (captureId.isNull()) fail("invalid_argument", "captureId must be a UUID");
+        const auto found = AnchorCaptureCommitService(library_).findCapture(p["captureId"].toString());
+        if (!found.success()) fail(found.errorCode, found.error, found.errorCode == "not_found" ? 3 : 2);
+        auto result = anchorResult(found.resource, found.anchor);
+        result.insert("state", "saved");
+        return result;
+    }
+    if (method == "capture.pdf") {
+        if (p["ifVersion"] != "absent") fail("invalid_argument", "New capture requires ifVersion='absent'");
+        const auto prepared = nativePdfCaptureDraft(p);
+        if (!prepared.error.isEmpty()) fail(prepared.errorCode, prepared.error,
+            prepared.errorCode.startsWith("target_") ? 4 : 2);
+        std::unique_ptr<PreviewLibrary> preview;
+        if (dry) preview = std::make_unique<PreviewLibrary>(library_, clips_.clips());
+        auto &repository = dry ? static_cast<ILibraryRepository &>(preview->library) : library_;
+        const auto saved = AnchorCaptureCommitService(repository).commit(prepared.draft, p["captureId"].toString());
+        if (!saved.success()) fail(saved.errorCode, saved.error, saved.errorCode == "capture_conflict" ? 4 : 6);
+        auto result = anchorResult(saved.resource, saved.anchor);
+        result.insert("state", dry ? "validated" : "saved");
+        result.insert("replayed", saved.replayed);
+        return result;
+    }
     if (method == "session.status" || method == "library.init") {
         const auto block = callbacks_.writeBlockReason ? callbacks_.writeBlockReason() : QString();
         return {{"version", libraryVersion()}, {"writesBlocked", !block.isEmpty()}, {"blockReason", block},

@@ -334,12 +334,11 @@ void PinloomOpenService::handlePdfViewerOpen(
     if (result.requestId != activePdfOpenRequestId_) return;
     activePdfOpenRequestId_ = 0;
     activePdfOpenTarget_.reset();
-    // The existing adapter acknowledges navigation, but does not report a read-back
-    // observation of the final external page/rectangle.
     emit navigationCompleted(target.resourceId, target.anchor ? target.anchor->id : QString(),
-        result.succeeded() ? QStringLiteral("open_requested")
+        result.succeeded() ? (result.positionVerified ? QStringLiteral("located") : QStringLiteral("open_requested"))
                            : result.canceled() ? QStringLiteral("cancelled") : QStringLiteral("failed"),
-        false, result.message + (result.diagnostics.isEmpty() ? QString() : QStringLiteral(": ") + result.diagnostics));
+        result.succeeded() && result.positionVerified,
+        result.message + (result.diagnostics.isEmpty() ? QString() : QStringLiteral(": ") + result.diagnostics));
     if (result.succeeded()) {
         recordOpen(target);
         setStatus(result.message.trimmed().isEmpty()

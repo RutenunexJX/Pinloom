@@ -1,0 +1,1031 @@
+diff --git a/premake5.files.lua b/premake5.files.lua
+index 9606f53..2757118 100644
+--- a/premake5.files.lua
++++ b/premake5.files.lua
+@@ -756,6 +756,8 @@ function sumatrapdf_files()
+     "SettingsStructs.*",
+     "SimpleBrowserWindow.*",
+     "SumatraPDF.cpp",
++    "PinloomCapture.cpp",
++    "PinloomCapture.h",
+     "SumatraPDF.h",
+     "SumatraPDF.rc",
+     "SumatraStartup.cpp",
+diff --git a/premake5.lua b/premake5.lua
+index 795a215..a654a08 100644
+--- a/premake5.lua
++++ b/premake5.lua
+@@ -821,6 +821,7 @@ workspace "SumatraPDF"
+ 
+   -- a single static executable
+   project "SumatraPDF"
++    buildoptions { "/utf-8" }
+     kind "WindowedApp"
+     language "C++"
+     cppdialect "C++latest"
+@@ -881,6 +882,7 @@ workspace "SumatraPDF"
+ 
+   -- a dll version where most functionality is in libmupdf.dll
+   project "SumatraPDF-dll"
++    buildoptions { "/utf-8" }
+     kind "WindowedApp"
+     language "C++"
+     cppdialect "C++latest"
+diff --git a/scripts/pinloom-build.ps1 b/scripts/pinloom-build.ps1
+new file mode 100644
+index 0000000..eb02ffe
+--- /dev/null
++++ b/scripts/pinloom-build.ps1
+@@ -0,0 +1,40 @@
++param(
++    [string]$ToolsRoot = 'E:\SumatraPDF\Tools',
++    [string]$Configuration = 'Release',
++    [int]$Jobs = 4,
++    [switch]$SkipReferences
++)
++$ErrorActionPreference = 'Stop'
++$sourceRoot = Split-Path -Parent $PSScriptRoot
++$vsRoot = Join-Path $ToolsRoot 'VS2022'
++$compilerRoot = Join-Path $vsRoot 'VC\Tools\MSVC\14.44.35207'
++$sdkRoot = Join-Path $ToolsRoot 'WindowsSDK\c'
++$sdkVersion = '10.0.26100.0'
++foreach ($library in @('um','ucrt')) {
++    $destination = Join-Path $sdkRoot "Lib\$sdkVersion\$library\x64"
++    if (!(Test-Path -LiteralPath $destination)) {
++        New-Item -ItemType Directory -Path $destination -Force | Out-Null
++        Copy-Item -Path (Join-Path $sdkRoot "$library\x64\*") -Destination $destination
++    }
++}
++$env:VSInstallDir = "$vsRoot\"
++$env:VCInstallDir = "$vsRoot\VC\"
++$env:VCTargetsPath = "$vsRoot\MSBuild\Microsoft\VC\v170\"
++$env:VCToolsInstallDir = "$compilerRoot\"
++$env:WindowsSdkDir = "$sdkRoot\"
++$env:WindowsSdkDir_10 = "$sdkRoot\"
++$env:UniversalCRTSdkDir = "$sdkRoot\"
++$env:UniversalCRTSdkDir_10 = "$sdkRoot\"
++$env:WindowsSDK_ExecutablePath_x64 = "$sdkRoot\bin\$sdkVersion\x64\"
++$env:PATH = "$compilerRoot\bin\Hostx64\x64;$env:WindowsSDK_ExecutablePath_x64;$env:PATH"
++$includePath = "$compilerRoot\include%3B$compilerRoot\atlmfc\include%3B$sdkRoot\Include\$sdkVersion\ucrt%3B$sdkRoot\Include\$sdkVersion\shared%3B$sdkRoot\Include\$sdkVersion\um%3B$sdkRoot\Include\$sdkVersion\winrt"
++$libraryPath = "$compilerRoot\lib\x64%3B$compilerRoot\atlmfc\lib\x64%3B$sdkRoot\Lib\$sdkVersion\ucrt\x64%3B$sdkRoot\Lib\$sdkVersion\um\x64"
++Push-Location $sourceRoot
++try {
++    & '.\bin\premake5.exe' vs2022
++    if ($LASTEXITCODE) { exit $LASTEXITCODE }
++    $extra = @()
++    if ($SkipReferences) { $extra += '/p:BuildProjectReferences=false' }
++    & "$vsRoot\MSBuild\Current\Bin\MSBuild.exe" '.\vs2022\SumatraPDF.vcxproj' /nologo /verbosity:minimal "/m:$Jobs" "/p:Configuration=$Configuration" /p:Platform=x64 /p:PlatformToolset=v143 /p:PreferredToolArchitecture=x64 /p:VCToolsVersion=14.44.35207 "/p:WindowsTargetPlatformVersion=$sdkVersion" "/p:UCRTVersion=$sdkVersion" "/p:IncludePath=$includePath" "/p:LibraryPath=$libraryPath" /p:TrackFileAccess=false /nodeReuse:false @extra
++    exit $LASTEXITCODE
++} finally { Pop-Location }
+diff --git a/src/Canvas.cpp b/src/Canvas.cpp
+index f9ebea5..072d727 100644
+--- a/src/Canvas.cpp
++++ b/src/Canvas.cpp
+@@ -48,6 +48,7 @@
+ #include "uia/Provider.h"
+ #include "SearchAndDDE.h"
+ #include "Selection.h"
++#include "PinloomCapture.h"
+ #include "HomePage.h"
+ #include "Tabs.h"
+ #include "Toolbar.h"
+@@ -709,6 +710,13 @@ static void OnMouseLeftButtonDown(MainWindow* win, int x, int y, WPARAM key) {
+     ReportIf(!dm);
+     Point pt{x, y};
+ 
++    if (PinloomCaptureIsArmed(win)) {
++        win->dragStartPending = true;
++        win->dragStart = pt;
++        OnSelectionStart(win, x, y, key);
++        return;
++    }
++
+     WindowTab* tab = win->CurrentTab();
+     Annotation* annot = dm->GetAnnotationAtPos(pt, tab->selectedAnnotation);
+     bool isMoveableAnnot = annot && AnnotationCanBeMoved(annot->type);
+@@ -2049,6 +2057,10 @@ static LRESULT WndProcCanvasFixedPageUI(MainWindow* win, HWND hwnd, UINT msg, WP
+             return CanvasOnMouseHWheel(win, msg, wp, lp);
+ 
+         case WM_SETCURSOR:
++            if (PinloomCaptureIsArmed(win)) {
++                SetCursor(LoadCursorW(nullptr, IDC_CROSS));
++                return TRUE;
++            }
+             if (OnSetCursor(win, hwnd)) {
+                 return TRUE;
+             }
+diff --git a/src/Commands.h b/src/Commands.h
+index fcf09b4..80f5ae1 100644
+--- a/src/Commands.h
++++ b/src/Commands.h
+@@ -98,6 +98,10 @@ enum {
+ // clang-format on
+ // @gen-end cmd-enum
+ 
++// Private integration commands; no accelerator bindings.
++constexpr int CmdPinloomCapture = CmdLast + 30;
++constexpr int CmdPinloomSaveSelection = CmdLast + 31;
++
+ // order of CreateAnnot* must be the same as enum AnnotationType
+ /*
+ TOOD: maybe add commands for those annotations
+diff --git a/src/MainWindow.cpp b/src/MainWindow.cpp
+index ac85223..aafd93c 100644
+--- a/src/MainWindow.cpp
++++ b/src/MainWindow.cpp
+@@ -33,6 +33,7 @@
+ #include "Annotation.h"
+ #include "SumatraPDF.h"
+ #include "MainWindow.h"
++#include "PinloomCapture.h"
+ #include "WindowTab.h"
+ #include "TableOfContents.h"
+ #include "resource.h"
+@@ -108,6 +109,7 @@ void CreateMovePatternLazy(MainWindow* win) {
+ }
+ 
+ MainWindow::~MainWindow() {
++    PinloomCaptureDestroy(this);
+     KillTimer(hwndCanvas, kSmoothScrollTimerID);
+     FinishStressTest(this);
+ 
+diff --git a/src/MainWindow.h b/src/MainWindow.h
+index 311e517..71776b2 100644
+--- a/src/MainWindow.h
++++ b/src/MainWindow.h
+@@ -178,6 +178,7 @@ struct MainWindow {
+     bool showSelection = false;
+     // selection rectangle in screen coordinates (only needed while selecting)
+     Rect selectionRect;
++    struct PinloomCaptureState* pinloomCapture = nullptr;
+     // size of the current rectangular selection in document units
+     SizeF selectionMeasure;
+ 
+diff --git a/src/Menu.cpp b/src/Menu.cpp
+index 54b6f74..d50ec03 100644
+--- a/src/Menu.cpp
++++ b/src/Menu.cpp
+@@ -34,6 +34,7 @@
+ #include "WindowTab.h"
+ #include "resource.h"
+ #include "Commands.h"
++#include "PinloomCapture.h"
+ #include "ExternalViewers.h"
+ #include "Favorites.h"
+ #include "FileThumbnails.h"
+@@ -770,6 +771,7 @@ static MenuDef menuDefCreateAnnotUnderCursor[] = {
+ 
+ //[ ACCESSKEY_GROUP Context Menu (Content)
+ static MenuDef menuDefContext[] = {
++    {"保存到 Pinloom", CmdPinloomSaveSelection},
+     {
+         _TRN("&Copy Selection"),
+         CmdCopySelection,
+@@ -1298,6 +1300,11 @@ again3:
+ 
+ // returns [remove, disable] state of the command
+ std::pair<bool, bool> GetCommandIdState(BuildMenuCtx* ctx, int cmdId) {
++    if (cmdId == CmdPinloomSaveSelection) {
++        const bool available = ctx && ctx->tab && PinloomHasRectangle(ctx->tab->win);
++        return {!available, !available};
++    }
++    if (cmdId == CmdPinloomCapture) return {false, !ctx || !ctx->tab || !PinloomCanCapture(ctx->tab->win)};
+     bool remove = false;
+     bool disable = false;
+     if (!HasPermission(Perm::InternetAccess)) {
+@@ -1881,6 +1888,7 @@ void OnWindowContextMenu(MainWindow* win, int x, int y) {
+ 
+     switch (cmdId) {
+         case CmdCopySelection:
++        case CmdPinloomSaveSelection:
+         case CmdTranslateSelectionWithGoogle:
+         case CmdTranslateSelectionWithDeepL:
+         case CmdSearchSelectionWithGoogle:
+diff --git a/src/PinloomCapture.cpp b/src/PinloomCapture.cpp
+new file mode 100644
+index 0000000..e51f23f
+--- /dev/null
++++ b/src/PinloomCapture.cpp
+@@ -0,0 +1,538 @@
++/* Pinloom native capture integration. License: GPLv3 (see COPYING). */
++#include "utils/BaseUtil.h"
++#include "utils/Dpi.h"
++#include "utils/WinUtil.h"
++#include "utils/FileUtil.h"
++#include "utils/UITask.h"
++#include "utils/ThreadUtil.h"
++#include "utils/JsonParser.h"
++#include "utils/ScopedWin.h"
++#include "wingui/UIModels.h"
++#include "Settings.h"
++#include "DocController.h"
++#include "EngineBase.h"
++#include "Annotation.h"
++extern "C" {
++#include <mupdf/fitz.h>
++#include <mupdf/pdf.h>
++}
++#include "EngineMuPDF.h"
++#include "DisplayModel.h"
++#include "TextSelection.h"
++#include "SumatraPDF.h"
++#include "MainWindow.h"
++#include "WindowTab.h"
++#include "Selection.h"
++#include "Toolbar.h"
++#include "Commands.h"
++#include "Notifications.h"
++#include "PinloomCapture.h"
++#include <commdlg.h>
++#include <shlobj.h>
++#include <string>
++#include <map>
++#include <memory>
++#include <vector>
++#include <algorithm>
++#include <cmath>
++#include <functional>
++
++namespace {
++constexpr ULONG_PTR kBridgeMessage = 0x504c4f4d;
++constexpr LRESULT kBridgeVersion = 0x504c0001;
++constexpr int kReselect = 1101, kConnection = 1102;
++constexpr wchar_t kCardClass[] = L"PinloomCaptureCard";
++
++void CallAndDelete(std::function<void()>* function) {
++    std::unique_ptr<std::function<void()>> owned(function);
++    (*owned)();
++}
++
++std::wstring Wide(const std::string& text) {
++    int length = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), (int)text.size(), nullptr, 0);
++    std::wstring result(length, L'\0');
++    if (length) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), (int)text.size(), result.data(), length);
++    return result;
++}
++std::string Utf8(const std::wstring& text) {
++    int length = WideCharToMultiByte(CP_UTF8, 0, text.data(), (int)text.size(), nullptr, 0, nullptr, nullptr);
++    std::string result(length, '\0');
++    if (length) WideCharToMultiByte(CP_UTF8, 0, text.data(), (int)text.size(), result.data(), length, nullptr, nullptr);
++    return result;
++}
++std::string JsonString(const std::string& value) {
++    std::string result = "\"";
++    for (unsigned char ch : value) {
++        if (ch == '"' || ch == '\\') { result += '\\'; result += ch; }
++        else if (ch < 32) { char escaped[8]; snprintf(escaped, sizeof(escaped), "\\u%04x", ch); result += escaped; }
++        else result += ch;
++    }
++    return result + '"';
++}
++std::wstring WindowText(HWND window) {
++    std::wstring value(GetWindowTextLengthW(window) + 1, L'\0');
++    value.resize(GetWindowTextW(window, value.data(), (int)value.size()));
++    return value;
++}
++std::wstring ExeDirectory() {
++    wchar_t path[32768];
++    DWORD size = GetModuleFileNameW(nullptr, path, dimof(path));
++    std::wstring value(path, size);
++    return value.substr(0, value.find_last_of(L"\\/"));
++}
++std::wstring Config(const wchar_t* key) {
++    wchar_t value[32768];
++    auto ini = ExeDirectory() + L"\\PinloomIntegration.ini";
++    GetPrivateProfileStringW(L"Pinloom", key, L"", value, dimof(value), ini.c_str());
++    return value;
++}
++std::wstring CliPath() {
++    auto configured = Config(L"CliPath");
++    if (!configured.empty()) return configured;
++    for (auto relative : {L"\\pinloom_cli.exe", L"\\..\\pinloom_cli.exe"}) {
++        auto path = ExeDirectory() + relative;
++        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return path;
++    }
++    return {};
++}
++std::string NewId() {
++    GUID id{}; CoCreateGuid(&id);
++    wchar_t value[40]; StringFromGUID2(id, value, dimof(value));
++    return Utf8(value);
++}
++bool FileStamp(const std::string& path, uint64_t& size, uint64_t& modified) {
++    WIN32_FILE_ATTRIBUTE_DATA data{};
++    if (!GetFileAttributesExW(Wide(path).c_str(), GetFileExInfoStandard, &data)) return false;
++    size = (uint64_t(data.nFileSizeHigh) << 32) | data.nFileSizeLow;
++    const uint64_t ticks = (uint64_t(data.ftLastWriteTime.dwHighDateTime) << 32) | data.ftLastWriteTime.dwLowDateTime;
++    modified = (ticks - 116444736000000000ULL) / 10000;
++    return (data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) == 0;
++}
++struct Fields : json::ValueVisitor {
++    std::map<std::string, std::string> values;
++    bool Visit(const char* path, const char* value, json::Type) override { values[path] = value; return true; }
++    std::string get(const char* key) const { auto it = values.find(key); return it == values.end() ? "" : it->second; }
++};
++struct CliResult {
++    DWORD exitCode = 5;
++    std::string output, diagnostic;
++    Fields fields;
++    bool parsed = false;
++    bool ok() const { return exitCode == 0 && parsed && fields.get("/ok") == "true"; }
++};
++std::wstring Quote(const std::wstring& arg) {
++    std::wstring out = L"\"";
++    size_t slashes = 0;
++    for (auto ch : arg) {
++        if (ch == L'\\') { ++slashes; continue; }
++        out.append(ch == L'"' ? slashes * 2 + 1 : slashes, L'\\');
++        out += ch; slashes = 0;
++    }
++    out.append(slashes * 2, L'\\');
++    return out + L'"';
++}
++CliResult RunCli(const std::wstring& exe, const std::vector<std::wstring>& args, const std::string& input = "") {
++    CliResult result;
++    SECURITY_ATTRIBUTES security{sizeof(security), nullptr, TRUE};
++    HANDLE outRead=nullptr, outWrite=nullptr, errRead=nullptr, errWrite=nullptr, inRead=nullptr, inWrite=nullptr;
++    auto close = [&] { for (auto h : {outRead,outWrite,errRead,errWrite,inRead,inWrite}) if (h) CloseHandle(h); };
++    if (!CreatePipe(&outRead,&outWrite,&security,0) || !CreatePipe(&errRead,&errWrite,&security,0)
++        || !CreatePipe(&inRead,&inWrite,&security,0)) { close(); result.diagnostic="无法创建 Pinloom 通信管道"; return result; }
++    SetHandleInformation(outRead,HANDLE_FLAG_INHERIT,0); SetHandleInformation(errRead,HANDLE_FLAG_INHERIT,0);
++    SetHandleInformation(inWrite,HANDLE_FLAG_INHERIT,0);
++    STARTUPINFOW start{}; start.cb=sizeof(start); start.dwFlags=STARTF_USESTDHANDLES|STARTF_USESHOWWINDOW;
++    start.wShowWindow=SW_HIDE; start.hStdInput=inRead; start.hStdOutput=outWrite; start.hStdError=errWrite;
++    PROCESS_INFORMATION process{};
++    auto command = Quote(exe);
++    for (const auto& arg : args) command += L" " + Quote(arg);
++    if (!CreateProcessW(exe.c_str(),command.data(),nullptr,nullptr,TRUE,CREATE_NO_WINDOW,nullptr,nullptr,&start,&process)) {
++        result.diagnostic="无法启动 pinloom_cli.exe，请检查连接设置（Windows " + std::to_string(GetLastError()) + "）";
++        close(); return result;
++    }
++    CloseHandle(outWrite); outWrite=nullptr; CloseHandle(errWrite); errWrite=nullptr;
++    CloseHandle(inRead); inRead=nullptr;
++    DWORD written=0;
++    bool inputOk = input.empty() || (WriteFile(inWrite,input.data(),(DWORD)input.size(),&written,nullptr) && written==input.size());
++    CloseHandle(inWrite); inWrite=nullptr;
++    const auto deadline = GetTickCount64() + 65000;
++    auto drain = [](HANDLE pipe, std::string& target) {
++        DWORD available=0, read=0; char buffer[4096];
++        while (PeekNamedPipe(pipe,nullptr,0,nullptr,&available,nullptr) && available) {
++            if (!ReadFile(pipe,buffer,(DWORD)(std::min)(sizeof(buffer),size_t(available)),&read,nullptr) || !read) break;
++            if (target.size() + read <= 1024 * 1024) target.append(buffer,read);
++        }
++    };
++    while (GetTickCount64() < deadline) {
++        drain(outRead,result.output); drain(errRead,result.diagnostic);
++        if (WaitForSingleObject(process.hProcess,20)==WAIT_OBJECT_0) break;
++    }
++    if (WaitForSingleObject(process.hProcess,0)!=WAIT_OBJECT_0) {
++        // This is only the helper process created above, never the reader or GUI.
++        TerminateProcess(process.hProcess,5);
++        result.diagnostic="保存结果尚未确认。请重试查询同一采集请求。";
++    } else GetExitCodeProcess(process.hProcess,&result.exitCode);
++    drain(outRead,result.output); drain(errRead,result.diagnostic);
++    CloseHandle(process.hThread); CloseHandle(process.hProcess); close();
++    result.parsed=inputOk && json::Parse(result.output.c_str(),&result.fields);
++    return result;
++}
++std::string RectJson(fz_rect box) {
++    char value[256]; snprintf(value,sizeof(value),"[%.9g,%.9g,%.9g,%.9g]",box.x0,box.y0,box.x1,box.y1);
++    return value;
++}
++}
++
++struct PinloomCaptureState {
++    MainWindow* win=nullptr;
++    WindowTab* tab=nullptr;
++    DocController* controller=nullptr;
++    bool armed=false, busy=false, valid=false, uncertain=false;
++    HWND card=nullptr, nameEdit=nullptr, tagsEdit=nullptr, status=nullptr;
++    HFONT font=nullptr;
++    std::wstring name, tags, library;
++    std::string path, id, locator, submitted;
++    uint64_t size=0, modified=0;
++    int page=0;
++    RectF region{};
++};
++
++namespace {
++PinloomCaptureState* State(MainWindow* win) {
++    if (!win->pinloomCapture) { win->pinloomCapture=new PinloomCaptureState(); win->pinloomCapture->win=win; }
++    return win->pinloomCapture;
++}
++bool CurrentTarget(PinloomCaptureState* s) {
++    if (!s->tab || s->win->CurrentTab()!=s->tab || s->tab->ctrl!=s->controller) return false;
++    uint64_t size=0,modified=0;
++    return FileStamp(s->path,size,modified) && size==s->size && modified==s->modified;
++}
++void DraftText(PinloomCaptureState* s) {
++    if (s->card) { s->name=WindowText(s->nameEdit); s->tags=WindowText(s->tagsEdit); }
++}
++void CardStatus(PinloomCaptureState* s, const std::wstring& text) { if (s->card) SetWindowTextW(s->status,text.c_str()); }
++void CardControls(PinloomCaptureState* s) {
++    if (!s->card) return;
++    EnableWindow(s->nameEdit,!s->busy && !s->uncertain); EnableWindow(s->tagsEdit,!s->busy && !s->uncertain);
++    EnableWindow(GetDlgItem(s->card,IDOK),!s->busy && (s->valid || s->uncertain));
++    EnableWindow(GetDlgItem(s->card,kReselect),!s->busy && !s->uncertain);
++    EnableWindow(GetDlgItem(s->card,IDCANCEL),!s->busy);
++    EnableWindow(GetDlgItem(s->card,kConnection),!s->busy);
++    SetWindowTextW(GetDlgItem(s->card,IDOK),s->busy ? L"保存中…" : s->uncertain ? L"查询并重试" : L"保存");
++}
++void HideCard(PinloomCaptureState* s) {
++    DraftText(s);
++    if (s->card) DestroyWindow(s->card);
++    s->card=nullptr;
++    if (s->font) { DeleteObject(s->font); s->font=nullptr; }
++}
++void Finish(PinloomCaptureState* s) {
++    const bool focused=s->card && (GetForegroundWindow()==s->card);
++    HideCard(s); s->armed=false; s->valid=false; s->uncertain=false; s->submitted.clear();
++    if (s->win->CurrentTab()==s->tab) { DeleteOldSelectionInfo(s->win,true); ScheduleRepaint(s->win,0); }
++    s->tab=nullptr; s->controller=nullptr;
++    SetToolbarButtonCheckedState(s->win,CmdPinloomCapture,false);
++    if (focused) { SetForegroundWindow(s->win->hwndFrame); SetFocus(s->win->hwndCanvas); }
++}
++void Invalidate(PinloomCaptureState* s) {
++    s->armed=false; s->valid=false;
++    CardStatus(s,L"文档已切换、关闭或更新。请重新框选；名称和标签草稿已保留。");
++    CardControls(s);
++    SetToolbarButtonCheckedState(s->win,CmdPinloomCapture,s->card!=nullptr);
++}
++void PlaceCard(PinloomCaptureState* s) {
++    if (!s->card) return;
++    RECT canvas{}; GetClientRect(s->win->hwndCanvas,&canvas);
++    MapWindowPoints(s->win->hwndCanvas,nullptr,(POINT*)&canvas,2);
++    MONITORINFO monitor{sizeof(monitor)}; GetMonitorInfoW(MonitorFromWindow(s->win->hwndFrame,MONITOR_DEFAULTTONEAREST),&monitor);
++    RECT bounds=monitor.rcWork;
++    if (canvas.right-canvas.left>=DpiScale(s->card,380) && canvas.bottom-canvas.top>=DpiScale(s->card,300)) IntersectRect(&bounds,&bounds,&canvas);
++    RECT card{}; GetWindowRect(s->card,&card); int width=card.right-card.left,height=card.bottom-card.top;
++    int x=canvas.left+DpiScale(s->card,12),y=canvas.top+DpiScale(s->card,12);
++    if (s->valid && CurrentTarget(s)) {
++        Rect selected=s->win->AsFixed()->CvtToScreen(s->page,s->region);
++        POINT point{selected.x+selected.dx+DpiScale(s->card,10),selected.y};
++        ClientToScreen(s->win->hwndCanvas,&point); x=point.x; y=point.y;
++        if (x+width>bounds.right) x=canvas.left+selected.x-width-DpiScale(s->card,10);
++    }
++    x=(std::max)(int(bounds.left),(std::min)(x,int(bounds.right)-width));
++    y=(std::max)(int(bounds.top),(std::min)(y,int(bounds.bottom)-height));
++    SetWindowPos(s->card,nullptr,x,y,0,0,SWP_NOSIZE|SWP_NOACTIVATE|SWP_NOZORDER);
++}
++void LayoutCard(PinloomCaptureState* s) {
++    auto scale=[&](int n){return DpiScale(s->card,n);};
++    RECT outer{0,0,scale(360),scale(258)}; AdjustWindowRectEx(&outer,WS_POPUP|WS_CAPTION|WS_SYSMENU,FALSE,WS_EX_TOOLWINDOW|WS_EX_CONTROLPARENT);
++    SetWindowPos(s->card,nullptr,0,0,outer.right-outer.left,outer.bottom-outer.top,SWP_NOMOVE|SWP_NOZORDER|SWP_NOACTIVATE);
++    if (s->font) DeleteObject(s->font);
++    s->font=CreateFontW(-MulDiv(10,DpiGetForHwnd(s->card),72),0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,OUT_DEFAULT_PRECIS,CLIP_DEFAULT_PRECIS,CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
++    const int positions[][5]={{1200,12,10,336,34},{1201,12,48,336,20},{1202,12,108,336,20},{1203,12,165,336,40},{IDOK,12,216,86,28},{kReselect,104,216,82,28},{IDCANCEL,192,216,62,28},{kConnection,260,216,88,28},{1204,12,70,336,30},{1205,12,130,336,28}};
++    for (const auto& p:positions) { HWND child=GetDlgItem(s->card,p[0]); MoveWindow(child,scale(p[1]),scale(p[2]),scale(p[3]),scale(p[4]),TRUE); SendMessageW(child,WM_SETFONT,(WPARAM)s->font,TRUE); }
++    PlaceCard(s);
++}
++void ConfigureConnection(PinloomCaptureState* s) {
++    wchar_t file[32768]{};
++    auto existing=CliPath(); wcsncpy_s(file,existing.c_str(),_TRUNCATE);
++    OPENFILENAMEW dialog{sizeof(dialog)}; dialog.hwndOwner=s->card; dialog.lpstrFile=file; dialog.nMaxFile=dimof(file);
++    dialog.lpstrFilter=L"Pinloom CLI (pinloom_cli.exe)\0pinloom_cli.exe\0"; dialog.lpstrTitle=L"选择 Pinloom 的 pinloom_cli.exe";
++    dialog.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
++    if (!GetOpenFileNameW(&dialog)) return;
++    auto ini=ExeDirectory()+L"\\PinloomIntegration.ini";
++    if (!WritePrivateProfileStringW(L"Pinloom",L"CliPath",file,ini.c_str())) { CardStatus(s,L"无法保存连接设置：阅读器目录不可写。"); return; }
++    if (s->uncertain) { CardStatus(s,L"Pinloom 路径已更新。重试将查询原目标资料库。"); return; }
++    int choose=MessageBoxW(s->card,L"使用 Pinloom 已配置的默认资料库？\n选择“否”可指定另一资料库文件夹。",L"Pinloom 资料库",MB_YESNOCANCEL|MB_ICONQUESTION);
++    if (choose==IDYES) { WritePrivateProfileStringW(L"Pinloom",L"LibraryPath",L"",ini.c_str()); s->library.clear(); }
++    else if (choose==IDNO) {
++        BROWSEINFOW browse{}; browse.hwndOwner=s->card; browse.lpszTitle=L"选择 Pinloom 资料库文件夹"; browse.ulFlags=BIF_RETURNONLYFSDIRS|BIF_NEWDIALOGSTYLE;
++        PIDLIST_ABSOLUTE item=SHBrowseForFolderW(&browse);
++        if (item) { wchar_t directory[MAX_PATH]; if (SHGetPathFromIDListW(item,directory)) { s->library=directory; WritePrivateProfileStringW(L"Pinloom",L"LibraryPath",directory,ini.c_str()); } CoTaskMemFree(item); }
++    }
++    CardStatus(s,s->library.empty()?L"连接已更新，将使用 Pinloom 默认资料库。":L"资料库："+s->library);
++}
++std::string TagsJson(const std::wstring& tags) {
++    std::string result="[";
++    std::wstring token;
++    auto emit=[&] { if (!token.empty()) { if (result.size()>1) result+=','; result+=JsonString(Utf8(token)); token.clear(); } };
++    for (wchar_t ch:tags) { if (ch==L',' || ch==L';' || ch==L'，' || ch==L'；' || ch==L'\n') emit(); else token+=ch; }
++    emit(); return result+"]";
++}
++void Submit(PinloomCaptureState* s) {
++    if (s->busy) return;
++    if (!s->uncertain && (!s->valid || !CurrentTarget(s))) { Invalidate(s); return; }
++    DraftText(s);
++    if (s->name.empty()) { CardStatus(s,L"请输入名称。"); SetFocus(s->nameEdit); return; }
++    auto cli=CliPath();
++    if (cli.empty()) { CardStatus(s,L"未找到 Pinloom。请通过“连接设置”选择 pinloom_cli.exe。"); return; }
++    if (!s->uncertain) {
++        s->submitted="{\"captureProtocol\":\"pinloom-pdf-capture/v1\",\"captureId\":"+JsonString(s->id)+",\"ifVersion\":\"absent\",\"targetFile\":"+JsonString(s->path)
++            +",\"documentSize\":"+JsonString(std::to_string(s->size))+",\"documentModifiedMs\":"+JsonString(std::to_string(s->modified))
++            +",\"name\":"+JsonString(Utf8(s->name))+",\"tags\":"+TagsJson(s->tags)+",\"locator\":"+s->locator+"}";
++    }
++    const auto id=s->id, input=s->submitted; const HWND frame=s->win->hwndFrame;
++    auto library=s->library; const bool uncertain=s->uncertain;
++    s->busy=true; CardControls(s); CardStatus(s,L"正在连接 Pinloom 并保存，请稍候…");
++    auto work=new std::function<void()>([cli,library,id,input,frame,uncertain]() mutable {
++        auto response=std::make_shared<CliResult>();
++        if (library.empty()) {
++            *response=RunCli(cli,{L"session.resolve"});
++            if (response->ok() && response->fields.get("/result/captureProtocol")=="pinloom-pdf-capture/v1") library=Wide(response->fields.get("/result/library"));
++            else response->diagnostic="无法确定目标资料库。请检查 Pinloom 版本与连接设置。";
++        }
++        if (!library.empty()) {
++            bool alreadySaved=false;
++            if (uncertain) {
++                *response=RunCli(cli,{L"capture.status",L"--library",library,L"--input",L"-",L"--start-gui",L"--timeout",L"20000"},"{\"captureId\":"+JsonString(id)+"}");
++                alreadySaved=response->ok() && response->fields.get("/result/state")=="saved";
++            }
++            if (!alreadySaved && (!uncertain || response->exitCode==3))
++                *response=RunCli(cli,{L"capture.pdf",L"--library",library,L"--input",L"-",L"--start-gui",L"--timeout",L"20000"},input);
++        }
++        uitask::Post(MkFunc0(CallAndDelete,new std::function<void()>([frame,id,library,response]() {
++            auto win=FindMainWindowByHwnd(frame);
++            if (!win || !win->pinloomCapture || win->pinloomCapture->id!=id) return;
++            auto state=win->pinloomCapture; state->busy=false; state->library=library;
++            if (response->ok() && response->fields.get("/result/state")=="saved") {
++                auto message="已保存到 Pinloom："+response->fields.get("/result/name");
++                Finish(state); ShowTemporaryNotification(win->hwndCanvas,message.c_str(),4500);
++            } else {
++                state->uncertain=response->exitCode==5 || !response->parsed;
++                auto message=response->fields.get("/error/message");
++                if (message.empty()) message=response->diagnostic.empty()?"未收到有效保存回执。请重试。":response->diagnostic;
++                CardStatus(state,Wide(message)); CardControls(state);
++            }
++        })),"PinloomCaptureResult");
++    });
++    HANDLE worker=StartThread(MkFunc0(CallAndDelete,work),"PinloomCaptureSave");
++    if (worker) CloseHandle(worker);
++    else { delete work; s->busy=false; CardControls(s); CardStatus(s,L"无法启动保存任务，请重试。"); }
++}
++void Arm(MainWindow* win, bool keepDraft) {
++    auto s=State(win); HideCard(s);
++    if (!keepDraft) { s->name.clear(); s->tags.clear(); }
++    s->tab=win->CurrentTab(); s->controller=s->tab->ctrl; s->path=s->tab->filePath;
++    s->id=NewId(); s->armed=false; s->valid=false; s->uncertain=false; s->submitted.clear();
++    s->library=Config(L"LibraryPath");
++    if (!FileStamp(s->path,s->size,s->modified)) { ShowWarningNotification(win->hwndCanvas,"PDF 文件已不可用。",5000); return; }
++    s->armed=true; DeleteOldSelectionInfo(win,true); ScheduleRepaint(win,0);
++    SetToolbarButtonCheckedState(win,CmdPinloomCapture,true);
++    ShowTemporaryNotification(win->hwndCanvas,"拖动选择 PDF 区域；再次点击采集按钮可取消。",5000);
++    SetFocus(win->hwndCanvas); SetCursor(LoadCursorW(nullptr,IDC_CROSS));
++}
++LRESULT CALLBACK CardProc(HWND window,UINT message,WPARAM wp,LPARAM lp) {
++    auto s=(PinloomCaptureState*)GetWindowLongPtrW(window,GWLP_USERDATA);
++    if (message==WM_NCCREATE) { s=(PinloomCaptureState*)((CREATESTRUCTW*)lp)->lpCreateParams; SetWindowLongPtrW(window,GWLP_USERDATA,(LONG_PTR)s); }
++    if (!s) return DefWindowProcW(window,message,wp,lp);
++    if (message==WM_COMMAND && HIWORD(wp)==BN_CLICKED) {
++        switch (LOWORD(wp)) {
++            case IDOK: Submit(s); return 0;
++            case IDCANCEL: SendMessageW(window,WM_CLOSE,0,0); return 0;
++            case kReselect: if (!s->busy && !s->uncertain && PinloomCanCapture(s->win)) Arm(s->win,true); return 0;
++            case kConnection: if (!s->busy) ConfigureConnection(s); return 0;
++        }
++    }
++    if (message==WM_CLOSE) {
++        if (s->busy) { CardStatus(s,L"正在等待保存结果，请稍候。"); return 0; }
++        if (s->uncertain && MessageBoxW(window,L"保存结果尚未确认。关闭卡片不会撤回可能已保存的内容。仍要关闭？",L"Pinloom",MB_OKCANCEL|MB_ICONQUESTION)!=IDOK) return 0;
++        Finish(s); return 0;
++    }
++    if (message==WM_TIMER) {
++        if (!s->busy && s->valid && !CurrentTarget(s)) Invalidate(s);
++        PlaceCard(s); return 0;
++    }
++    if (message==WM_DPICHANGED) { LayoutCard(s); return 0; }
++    if (message==WM_CTLCOLORSTATIC) { SetBkColor((HDC)wp,GetSysColor(COLOR_WINDOW)); return (LRESULT)GetSysColorBrush(COLOR_WINDOW); }
++    return DefWindowProcW(window,message,wp,lp);
++}
++void ShowCard(PinloomCaptureState* s) {
++    static bool registered=false;
++    if (!registered) { WNDCLASSW type{}; type.lpfnWndProc=CardProc; type.hInstance=GetModuleHandleW(nullptr); type.hCursor=LoadCursorW(nullptr,IDC_ARROW); type.hbrBackground=GetSysColorBrush(COLOR_WINDOW); type.lpszClassName=kCardClass; registered=RegisterClassW(&type)!=0; }
++    if (!registered) { ShowWarningNotification(s->win->hwndCanvas,"无法创建 Pinloom 保存卡片。",5000); return; }
++    s->card=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_CONTROLPARENT,kCardClass,L"保存到 Pinloom",WS_POPUP|WS_CAPTION|WS_SYSMENU,0,0,400,320,s->win->hwndFrame,nullptr,GetModuleHandleW(nullptr),s);
++    if (!s->card) { ShowWarningNotification(s->win->hwndCanvas,"无法创建 Pinloom 保存卡片。",5000); return; }
++    auto control=[&](const wchar_t* cls,const wchar_t* text,int id,DWORD style=0) {
++        return CreateWindowExW(wcscmp(cls,L"EDIT")==0?WS_EX_CLIENTEDGE:0,cls,text,WS_CHILD|WS_VISIBLE|style,0,0,1,1,s->card,(HMENU)(INT_PTR)id,GetModuleHandleW(nullptr),nullptr);
++    };
++    auto filename=s->path.substr(s->path.find_last_of("\\/")+1);
++    auto info=Wide(filename)+L"  ·  第 "+std::to_wstring(s->page)+L" 页";
++    control(L"STATIC",info.c_str(),1200);
++    control(L"STATIC",L"名称",1201); s->nameEdit=control(L"EDIT",s->name.c_str(),1204,WS_TABSTOP|ES_AUTOHSCROLL);
++    SendMessageW(s->nameEdit,EM_SETLIMITTEXT,256,0);
++    control(L"STATIC",L"标签（可选，用逗号分隔）",1202); s->tagsEdit=control(L"EDIT",s->tags.c_str(),1205,WS_TABSTOP|ES_AUTOHSCROLL);
++    SendMessageW(s->tagsEdit,EM_SETLIMITTEXT,1024,0);
++    s->status=control(L"EDIT",s->library.empty()?L"资料库：Pinloom 默认资料库":(L"资料库："+s->library).c_str(),1203,ES_MULTILINE|ES_READONLY|ES_AUTOVSCROLL|WS_VSCROLL);
++    control(L"BUTTON",L"保存",IDOK,WS_TABSTOP|BS_DEFPUSHBUTTON); control(L"BUTTON",L"重新框选",kReselect,WS_TABSTOP);
++    control(L"BUTTON",L"取消",IDCANCEL,WS_TABSTOP); control(L"BUTTON",L"连接设置",kConnection,WS_TABSTOP);
++    LayoutCard(s); CardControls(s); SetTimer(s->card,1,250,nullptr);
++    ShowWindow(s->card,SW_SHOW); SetForegroundWindow(s->card); SetFocus(s->nameEdit); SendMessageW(s->nameEdit,EM_SETSEL,0,-1);
++    SetToolbarButtonCheckedState(s->win,CmdPinloomCapture,true);
++}
++}
++
++bool PinloomCanCapture(MainWindow* win) {
++    auto dm=win?win->AsFixed():nullptr;
++    auto engine=dm?AsEngineMupdf(dm->GetEngine()):nullptr;
++    return engine && engine->pdfdoc && (!win->pinloomCapture || !win->pinloomCapture->busy);
++}
++bool PinloomHasRectangle(MainWindow* win) {
++    if (!PinloomCanCapture(win)) return false;
++    auto tab=win->CurrentTab();
++    return win->showSelection && tab->selectionIsRectangle && tab->selectionOnPage && tab->selectionOnPage->size()==1;
++}
++bool PinloomCaptureIsArmed(MainWindow* win) {
++    auto s=win?win->pinloomCapture:nullptr;
++    if (!s || !s->armed) return false;
++    if (!CurrentTarget(s)) { Invalidate(s); ShowTemporaryNotification(win->hwndCanvas,"文档已切换，采集已取消。",4000); return false; }
++    return true;
++}
++bool PinloomCaptureIsActive(MainWindow* win) { auto s=win?win->pinloomCapture:nullptr; return s && (PinloomCaptureIsArmed(win) || s->card); }
++void PinloomCaptureToggle(MainWindow* win) {
++    if (!PinloomCanCapture(win)) return;
++    auto s=State(win);
++    if (s->card) { SendMessageW(s->card,WM_CLOSE,0,0); return; }
++    if (s->armed) { Finish(s); return; }
++    Arm(win,false);
++}
++void PinloomCaptureFromSelection(MainWindow* win) {
++    if (!PinloomHasRectangle(win)) { ShowWarningNotification(win->hwndCanvas,"请在一个 PDF 页面内建立矩形选区。",5000); return; }
++    auto s=State(win);
++    if (s->card) { SetForegroundWindow(s->card); return; }
++    if (!s->armed) {
++        s->tab=win->CurrentTab(); s->controller=s->tab->ctrl; s->path=s->tab->filePath;
++        s->id=NewId(); s->name.clear(); s->tags.clear(); s->uncertain=false; s->library=Config(L"LibraryPath");
++        if (!FileStamp(s->path,s->size,s->modified)) { ShowWarningNotification(win->hwndCanvas,"PDF 文件已不可用，请重新打开文档。",5000); return; }
++    }
++    auto selection=s->tab->selectionOnPage->at(0);
++    if (selection.rect.dx<0.5 || selection.rect.dy<0.5) { ShowWarningNotification(win->hwndCanvas,"选区过小，请重新框选。",5000); return; }
++    auto engine=AsEngineMupdf(win->AsFixed()->GetEngine()); auto ctx=engine->Ctx();
++    fz_rect media{},crop{}; int rotation=0; float unit=1;
++    bool geometryOk=true;
++    { ScopedCritSec lock(engine->ctxAccess);
++      fz_try(ctx) {
++        auto page=pdf_lookup_page_obj(ctx,engine->pdfdoc,selection.pageNo-1);
++        media=pdf_to_rect(ctx,pdf_dict_get_inheritable(ctx,page,PDF_NAME(MediaBox)));
++        auto cropObject=pdf_dict_get_inheritable(ctx,page,PDF_NAME(CropBox));
++        crop=cropObject?pdf_to_rect(ctx,cropObject):media; crop=fz_intersect_rect(crop,media);
++        rotation=pdf_to_int(ctx,pdf_dict_get_inheritable(ctx,page,PDF_NAME(Rotate))); rotation=(rotation%360+360)%360;
++        auto userUnit=pdf_dict_get(ctx,page,PDF_NAME(UserUnit)); if (userUnit) unit=pdf_to_real(ctx,userUnit);
++      } fz_catch(ctx) { geometryOk=false; fz_report_error(ctx); }
++    }
++    if (!geometryOk || fz_is_empty_rect(crop) || unit<=0) { ShowWarningNotification(win->hwndCanvas,"无法读取 PDF 页面几何信息，请重新打开该文档。",6000); return; }
++    s->region=selection.rect; s->page=selection.pageNo;
++    s->locator="{\"type\":\"sumatrapdf.rect\",\"version\":3,\"unit\":\"pt\",\"coordinateSpace\":\"page-top-left\",\"page\":"+std::to_string(s->page)
++        +",\"rect\":"+RectJson(ToFzRect(s->region))+",\"mediaBox\":"+RectJson(media)+",\"cropBox\":"+RectJson(crop)
++        +",\"rotation\":"+std::to_string(rotation)+",\"userUnit\":"+std::to_string(unit)+"}";
++    if (s->name.empty()) s->name=Wide(s->path.substr(s->path.find_last_of("\\/")+1))+L" · 第 "+std::to_wstring(s->page)+L" 页";
++    s->armed=false; s->valid=true; ShowCard(s);
++}
++void PinloomCaptureSelectionStopped(MainWindow* win,bool aborted) {
++    if (!PinloomCaptureIsArmed(win)) return;
++    if (aborted || !PinloomHasRectangle(win)) { ShowWarningNotification(win->hwndCanvas,"请选择单页内的有效矩形，跨页选区不能保存。",5000); return; }
++    PinloomCaptureFromSelection(win);
++}
++void PinloomCaptureDocumentClosed(WindowTab* tab) {
++    auto s=tab->win?tab->win->pinloomCapture:nullptr;
++    if (s && s->tab==tab) { s->tab=nullptr; s->controller=nullptr; Invalidate(s); }
++}
++void PinloomCaptureDestroy(MainWindow* win) {
++    auto s=win->pinloomCapture;
++    if (s) { HideCard(s); delete s; win->pinloomCapture=nullptr; }
++}
++bool PinloomCaptureDialogMessage(MSG* message) {
++    for (auto win:gWindows) {
++        auto s=win->pinloomCapture;
++        if (s && s->card && (message->hwnd==s->card || IsChild(s->card,message->hwnd))) {
++            if (message->message==WM_KEYDOWN && message->wParam=='A' && (GetKeyState(VK_CONTROL)&0x8000)
++                && (message->hwnd==s->nameEdit || message->hwnd==s->tagsEdit)) {
++                SendMessageW(message->hwnd,EM_SETSEL,0,-1); return true;
++            }
++            return IsDialogMessageW(s->card,message)!=FALSE;
++        }
++    }
++    return false;
++}
++bool PinloomCaptureCopyData(MainWindow* receiving,const COPYDATASTRUCT* data,LRESULT* result) {
++    if (!data || data->dwData!=kBridgeMessage) return false;
++    *result=0;
++    if (!data->lpData || data->cbData<2 || data->cbData>65536) return true;
++    std::string payload((const char*)data->lpData,data->cbData);
++    Fields fields;
++    if (!json::Parse(payload.c_str(),&fields) || fields.get("/protocol")!="pinloom-reader/v1") return true;
++    if (fields.get("/method")=="capabilities") { *result=kBridgeVersion; return true; }
++    if (fields.get("/method")=="page-state") {
++        auto path=fields.get("/file");
++        auto dm=receiving?receiving->AsFixed():nullptr;
++        auto tab=receiving?receiving->CurrentTab():nullptr;
++        if (dm && tab && !path.empty() && path::IsSame(tab->filePath,path.c_str()))
++            *result=dm->CurrentPageNo();
++        return true;
++    }
++    if (fields.get("/method")!="open") return true;
++    auto path=fields.get("/file"); char* end=nullptr;
++    uint64_t fileSize=0, fileModified=0;
++    if (!FileStamp(path,fileSize,fileModified)
++        || fields.get("/documentSize")!=std::to_string(fileSize)
++        || fields.get("/documentModifiedMs")!=std::to_string(fileModified)) return true;
++    auto pageText=fields.get("/page");
++    long pageNumber=strtol(pageText.c_str(),&end,10);
++    if (pageText.empty() || !end || *end || pageNumber<1 || pageNumber>1000000) return true;
++    int page=(int)pageNumber;
++    float coordinates[4]{};
++    for (int i=0;i<4;++i) {
++        auto key="/rect["+std::to_string(i)+"]"; auto value=fields.get(key.c_str());
++        double number=strtod(value.c_str(),&end);
++        if (value.empty() || !end || *end || !std::isfinite(number) || std::abs(number)>1e9) return true;
++        coordinates[i]=(float)number;
++    }
++    RectF region(coordinates[0],coordinates[1],coordinates[2]-coordinates[0],coordinates[3]-coordinates[1]);
++    if (path.empty() || page<1 || region.IsEmpty()) return true;
++    auto win=FindMainWindowByFile(path.c_str(),false);
++    if (PinloomCaptureIsActive(win?win:receiving)) { *result=2; return true; }
++    if (win) FindMainWindowByFile(path.c_str(),true);
++    if (!win) { LoadArgs args(path.c_str(),receiving); args.activateExisting=true; args.noPlaceWindow=true; win=LoadDocument(&args); }
++    if (!win || !win->AsFixed() || !win->AsFixed()->ValidPageNo(page) || PinloomCaptureIsActive(win)) return true;
++    auto dm=win->AsFixed(); auto engine=AsEngineMupdf(dm->GetEngine());
++    if (!engine || !engine->pdfdoc || region.Intersect(engine->PageMediabox(page))!=region) return true;
++    DeleteOldSelectionInfo(win,true); dm->ScrollTo(page,region,0);
++    auto tab=win->CurrentTab(); tab->selectionOnPage=new Vec<SelectionOnPage>(); tab->selectionOnPage->Append(SelectionOnPage(page,&region));
++    tab->selectionIsRectangle=true; win->showSelection=true; ScheduleRepaint(win,0); win->Focus();
++    *result=1;
++    return true;
++}
+diff --git a/src/PinloomCapture.h b/src/PinloomCapture.h
+new file mode 100644
+index 0000000..2b4eff7
+--- /dev/null
++++ b/src/PinloomCapture.h
+@@ -0,0 +1,18 @@
++/* Pinloom native capture integration. License: GPLv3 (see COPYING). */
++#pragma once
++
++struct MainWindow;
++struct WindowTab;
++struct PinloomCaptureState;
++
++bool PinloomCanCapture(MainWindow*);
++bool PinloomHasRectangle(MainWindow*);
++bool PinloomCaptureIsArmed(MainWindow*);
++bool PinloomCaptureIsActive(MainWindow*);
++void PinloomCaptureToggle(MainWindow*);
++void PinloomCaptureFromSelection(MainWindow*);
++void PinloomCaptureSelectionStopped(MainWindow*, bool aborted);
++void PinloomCaptureDocumentClosed(WindowTab*);
++void PinloomCaptureDestroy(MainWindow*);
++bool PinloomCaptureDialogMessage(MSG*);
++bool PinloomCaptureCopyData(MainWindow*, const COPYDATASTRUCT*, LRESULT*);
+diff --git a/src/Selection.cpp b/src/Selection.cpp
+index 59b6cda..0449205 100644
+--- a/src/Selection.cpp
++++ b/src/Selection.cpp
+@@ -27,6 +27,7 @@
+ #include "MainWindow.h"
+ #include "WindowTab.h"
+ #include "Selection.h"
++#include "PinloomCapture.h"
+ #include "Toolbar.h"
+ #include "Translations.h"
+ #include "uia/Provider.h"
+@@ -104,6 +105,7 @@ void DeleteOldSelectionInfo(MainWindow* win, bool alsoTextSel) {
+ 
+     delete tab->selectionOnPage;
+     tab->selectionOnPage = nullptr;
++    tab->selectionIsRectangle = false;
+     if (alsoTextSel && tab->AsFixed()) {
+         tab->AsFixed()->textSelection->Reset();
+     }
+@@ -385,7 +387,7 @@ void OnSelectionStart(MainWindow* win, int x, int y, WPARAM) {
+     bool isCtrl = IsCtrlPressed();
+ 
+     // Ctrl+drag forces a rectangular selection
+-    if (!isCtrl || isShift) {
++    if ((!isCtrl || isShift) && !PinloomCaptureIsArmed(win)) {
+         DisplayModel* dm = win->AsFixed();
+         int pageNo = dm->GetPageNoByPoint(Point(x, y));
+         if (dm->ValidPageNo(pageNo)) {
+@@ -418,6 +420,8 @@ void OnSelectionStop(MainWindow* win, int x, int y, bool aborted) {
+     } else if (win->mouseAction == MouseAction::Selecting) {
+         win->CurrentTab()->selectionOnPage = SelectionOnPage::FromRectangle(win->AsFixed(), win->selectionRect);
+         win->showSelection = win->CurrentTab()->selectionOnPage != nullptr;
++        win->CurrentTab()->selectionIsRectangle = win->showSelection;
+     }
++    PinloomCaptureSelectionStopped(win, aborted);
+     ScheduleRepaint(win, 0);
+ }
+diff --git a/src/SumatraPDF.cpp b/src/SumatraPDF.cpp
+index a317319..f44c0da 100644
+--- a/src/SumatraPDF.cpp
++++ b/src/SumatraPDF.cpp
+@@ -74,6 +74,7 @@
+ #include "Print.h"
+ #include "SearchAndDDE.h"
+ #include "Selection.h"
++#include "PinloomCapture.h"
+ #include "StressTesting.h"
+ #include "HomePage.h"
+ #include "SumatraDialogs.h"
+@@ -5956,6 +5957,10 @@ static LRESULT FrameOnCommand(MainWindow* win, HWND hwnd, UINT msg, WPARAM wp, L
+             break;
+ 
+         case CmdCopySelection:
++        case CmdPinloomCapture:
++        case CmdPinloomSaveSelection:
++            if (cmdId == CmdPinloomCapture) { PinloomCaptureToggle(win); break; }
++            if (cmdId == CmdPinloomSaveSelection) { PinloomCaptureFromSelection(win); break; }
+             CopySelectionInTabToClipboard(tab);
+             break;
+ 
+@@ -6575,6 +6580,7 @@ LRESULT CALLBACK WndProcSumatraFrame(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
+             return OnDDETerminate(hwnd, wp, lp);
+ 
+         case WM_COPYDATA:
++            { LRESULT result = 0; if (PinloomCaptureCopyData(win, (const COPYDATASTRUCT*)lp, &result)) return result; }
+             return OnCopyData(hwnd, wp, lp);
+ 
+         case WM_TIMER:
+diff --git a/src/SumatraStartup.cpp b/src/SumatraStartup.cpp
+index 015f002..46ef98d 100644
+--- a/src/SumatraStartup.cpp
++++ b/src/SumatraStartup.cpp
+@@ -19,6 +19,7 @@
+ #include "utils/WinUtil.h"
+ 
+ #include "SumatraConfig.h"
++#include "PinloomCapture.h"
+ 
+ #include "wingui/UIModels.h"
+ #include "wingui/Layout.h"
+@@ -513,6 +514,7 @@ static int RunMessageLoop() {
+     MSG msg;
+ 
+     while (GetMessage(&msg, nullptr, 0, 0)) {
++        if (PinloomCaptureDialogMessage(&msg)) continue;
+         if (PreTranslateMessage(msg)) {
+             continue;
+         }
+diff --git a/src/SvgIcons.cpp b/src/SvgIcons.cpp
+index b88313f..8e862f7 100644
+--- a/src/SvgIcons.cpp
++++ b/src/SvgIcons.cpp
+@@ -130,6 +130,8 @@ static const char* gIconRotateRight =
+ </svg>)";
+ 
+ // must match order in enum class TbIcon
++static const char* gIconPinloomCapture =
++    R"(<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" fill="none" stroke-linecap="round"><path d="M8 4H4V8 M16 4H20V8 M4 16V20H8 M20 16V20H16 M10 4H14 M10 20H14 M4 10V14 M20 10V14"/><path d="M9 12H15 M12 9V15"/></svg>)";
+ // clang-format off
+ static const char* gIcons[] = {
+     gIconFileOpen,
+@@ -147,6 +149,7 @@ static const char* gIcons[] = {
+     gIconSave,
+     gIconRotateLeft,
+     gIconRotateRight,
++    gIconPinloomCapture,
+ };
+ // clang-format on
+ 
+diff --git a/src/SvgIcons.h b/src/SvgIcons.h
+index 79b1423..4fe8448 100644
+--- a/src/SvgIcons.h
++++ b/src/SvgIcons.h
+@@ -20,6 +20,7 @@ enum class TbIcon {
+     Save,
+     RotateLeft,
+     RotateRight,
++    PinloomCapture,
+     kMax
+ };
+ 
+diff --git a/src/Toolbar.cpp b/src/Toolbar.cpp
+index 94b156a..f4d0cb6 100644
+--- a/src/Toolbar.cpp
++++ b/src/Toolbar.cpp
+@@ -31,6 +31,7 @@ extern "C" {
+ #include "WindowTab.h"
+ #include "resource.h"
+ #include "Commands.h"
++#include "PinloomCapture.h"
+ #include "AppTools.h"
+ #include "Menu.h"
+ #include "SearchAndDDE.h"
+@@ -78,6 +79,7 @@ static ToolbarButtonInfo gToolbarButtons[] = {
+     {TbIcon::RotateRight, CmdRotateRight, _TRN("Rotate &Right")},
+     {TbIcon::ZoomOut, CmdZoomOut, _TRN("Zoom Out")},
+     {TbIcon::ZoomIn, CmdZoomIn, _TRN("Zoom In")},
++    {TbIcon::PinloomCapture, CmdPinloomCapture, "Pinloom 采集：拖动选择 PDF 区域（仅 PDF）"},
+     {TbIcon::None, CmdFindFirst, nullptr},
+     {TbIcon::SearchPrev, CmdFindPrev, _TRN("Find Previous")},
+     {TbIcon::SearchNext, CmdFindNext, _TRN("Find Next")},
+@@ -188,6 +190,7 @@ static bool IsCmdAvailable(MainWindow* win, int cmdId) {
+ }
+ 
+ static bool IsCmdEnabled(MainWindow* win, int cmdId) {
++    if (cmdId == CmdPinloomCapture) return PinloomCanCapture(win);
+     auto ctx = NewBuildMenuCtx(win->CurrentTab(), Point{0, 0});
+     AutoRun delCtx(DeleteBuildMenuCtx, ctx);
+ 
+@@ -344,6 +347,7 @@ static void UpdateWarningMessageHwnd(MainWindow* win, const char* s) {
+ // TODO: this is called too often
+ // TODO: also set checked state instead of calling SetToolbarButtonCheckedState() all over
+ void ToolbarUpdateStateForWindow(MainWindow* win, bool setButtonsVisibility) {
++    SetToolbarButtonCheckedState(win, CmdPinloomCapture, PinloomCaptureIsActive(win));
+     const char* warningMsg = "";
+     DisplayModel* dm = win->AsFixed();
+     if (dm && EngineHasUnsavedAnnotations(dm->GetEngine())) {
+@@ -611,7 +615,7 @@ void UpdateToolbarFindText(MainWindow* win) {
+     Rect findWndRect = WindowRect(win->hwndFindBg);
+ 
+     RECT r{};
+-    TbGetRectById(win->hwndToolbar, CmdZoomIn, &r);
++    TbGetRectById(win->hwndToolbar, CmdPinloomCapture, &r);
+     int currX = r.right + DpiScale(win->hwndToolbar, 10);
+     int currY = (r.bottom - findWndRect.dy) / 2;
+ 
+diff --git a/src/UpdateCheck.cpp b/src/UpdateCheck.cpp
+index ce9e65a..36ff2ff 100644
+--- a/src/UpdateCheck.cpp
++++ b/src/UpdateCheck.cpp
+@@ -165,7 +165,7 @@ static UpdateInfo* ParseUpdateInfo(const char* d) {
+     return res;
+ }
+ 
+-static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
++[[maybe_unused]] static bool ShouldCheckForUpdate(UpdateCheck updateCheckType) {
+     if (gUpdateCheckInProgress) {
+         logf("CheckForUpdate: skipping because gUpdateCheckInProgress\n");
+         return false;
+@@ -592,7 +592,7 @@ static void UpdateCheckFinish(UpdateCheckAsyncData* data) {
+     }
+ }
+ 
+-static void UpdateCheckAsync(UpdateCheckAsyncData* data) {
++[[maybe_unused]] static void UpdateCheckAsync(UpdateCheckAsyncData* data) {
+     auto updateCheckType = data->updateCheckType;
+     str::Str url;
+     BuildUpdateURL(url, kUpdateInfoURL, updateCheckType);
+@@ -613,33 +613,17 @@ static void UpdateCheckAsync(UpdateCheckAsyncData* data) {
+     uitask::Post(fn, "TaskUpdateCheckFinish");
+ }
+ 
+-// start auto-update check by downloading auto-update information from url
+-// on a background thread and processing the retrieved data on ui thread
+-// if autoCheck is true, this is a check *not* triggered by explicit action
+-// of the user and therefore will show less UI
++// This customized reader is upgraded only through its paired Pinloom package.
+ void StartAsyncUpdateCheck(MainWindow* win, UpdateCheck updateCheckType) {
+-    if (!ShouldCheckForUpdate(updateCheckType)) {
+-        return;
+-    }
+-
+-    if (UpdateCheck::UserInitiated == updateCheckType) {
++    if (UpdateCheck::UserInitiated == updateCheckType && win) {
+         NotificationCreateArgs args;
+         args.hwndParent = win->hwndCanvas;
+-        args.msg = _TRA("Checking for update...");
+-        args.warning = true;
+-        args.timeoutMs = 0;
++        args.msg = "This reader is maintained with Pinloom. Install the matching Pinloom package to update it.";
++        args.warning = false;
++        args.timeoutMs = 10000;
+         args.groupId = kNotifUpdateCheckInProgress;
+         ShowNotification(args);
+     }
+-    GetSystemTimeAsFileTime(&gGlobalPrefs->timeOfLastUpdateCheck);
+-    gUpdateCheckInProgress = true;
+-
+-    // data freed in UpdateCheckFinish()
+-    auto data = new UpdateCheckAsyncData();
+-    data->win = win;
+-    data->updateCheckType = updateCheckType;
+-    auto fn = MkFunc0<UpdateCheckAsyncData>(UpdateCheckAsync, data);
+-    RunAsync(fn, "UpdateCheckAsync");
+ }
+ 
+ // the assumption is that this is a portable version downloaded to temp directory
+diff --git a/src/WindowTab.cpp b/src/WindowTab.cpp
+index eecfdd3..d813ec9 100644
+--- a/src/WindowTab.cpp
++++ b/src/WindowTab.cpp
+@@ -20,6 +20,7 @@
+ #include "MainWindow.h"
+ #include "WindowTab.h"
+ #include "Selection.h"
++#include "PinloomCapture.h"
+ #include "Translations.h"
+ #include "EditAnnotations.h"
+ 
+@@ -40,6 +41,7 @@ bool WindowTab::IsAboutTab() const {
+ }
+ 
+ WindowTab::~WindowTab() {
++    PinloomCaptureDocumentClosed(this);
+     logf("~WindowTab: 0x%p, dm: 0x%p\n", this, AsFixed());
+     CloseAndDeleteEditAnnotationsWindow(this);
+     FileWatcherUnsubscribe(watcher);
+diff --git a/src/WindowTab.h b/src/WindowTab.h
+index 8b5cea5..8712730 100644
+--- a/src/WindowTab.h
++++ b/src/WindowTab.h
+@@ -35,6 +35,7 @@ struct WindowTab {
+     // list of rectangles of the last rectangular, text or image selection
+     // (split by page, in user coordinates)
+     Vec<SelectionOnPage>* selectionOnPage = nullptr;
++    bool selectionIsRectangle = false;
+     // previous View settings, needed when unchecking the Fit Width/Page toolbar buttons
+     float prevZoomVirtual{kInvalidZoom};
+     DisplayMode prevDisplayMode{DisplayMode::Automatic};

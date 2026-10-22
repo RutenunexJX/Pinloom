@@ -35,7 +35,8 @@ Run `schema` for required fields, allowed values, types, and bounds. Unknown par
 
 | Capability | Methods | Main parameters |
 | --- | --- | --- |
-| Discovery and session | `capabilities`, `schema`, `library.init`, `session.status`, `session.close` | Library is always explicit except discovery |
+| Discovery and session | `capabilities`, `schema`, `library.init`, `session.resolve`, `session.status`, `session.close` | Library is explicit except discovery and `session.resolve` |
+| Native PDF capture | `capture.pdf`, `capture.status` | Versioned capture protocol, UUID receipt, source identity and native page-space geometry |
 | Named anchors | `anchor.create`, `anchor.get`, `anchor.update`, `anchor.validate`, `anchor.delete`, `anchor.restore`, `anchor.purge` | `resourceId`, `id`, `name`, `aliases`, `tags`, `pinned`, `targetApp`, `targetFile`, `targetUri`, `locator` |
 | File/resource metadata | `resource.get`, `resource.update`, `resource.delete`, `resource.restore`, `resource.purge` | `id`, `title`, `aliases`, `tags`, `pinned` |
 | Search and trash | `search` | `query`, `kind` (`all`, `anchors`, `files`, `clips`), `scope` (`active`, `trash`, `all`), `tags`, `limit` |
@@ -75,6 +76,20 @@ The CLI first routes to the exact library's GUI. Otherwise it acquires an exclus
 
 Pending inline edits, root metadata edits, Inbox selections, and active modal dialogs block CLI mutations and view changes. `session.status` exposes `writesBlocked` and the reason. Save or cancel edits in the GUI, fetch the current version, then retry. Requests are rejected, not queued for later overwrite. `session.close` also respects this guard. No new hotkeys are introduced.
 
+## Native SumatraPDF capture
+
+`session.resolve` is the only data-session lookup allowed without `--library`. It returns the canonical configured default library, `captureProtocol: pinloom-pdf-capture/v1`, and the sibling GUI executable without opening a database. Supplying `--library` resolves that explicit directory instead.
+
+`capture.pdf` requires a GUI session and shares `AnchorCaptureCommitService` with GUI capture. Its parameters are `captureProtocol`, a UUID `captureId`, absolute `targetFile`, string `documentSize` and `documentModifiedMs` (Unix milliseconds), `name`, optional string-array `tags`, `ifVersion: absent`, and `locator`. The locator must be `sumatrapdf.rect` version 3, `unit: pt`, `coordinateSpace: page-top-left`, with one-based `page`, `rect: [left,top,right,bottom]`, original PDF `mediaBox`/`cropBox`, intrinsic `rotation` (0/90/180/270), and `userUnit`. Rectangles use the rotated, cropped page's top-left origin in physical PDF points; boxes retain PDF document coordinates. Zoom, view rotation and screen DPI are not persisted as selection coordinates.
+
+Use `--start-gui` to connect to the exact selected library or start the sibling `pinloom_app.exe --library ... --hidden --no-global-hooks`. The helper does not show the management window or enable clipboard/global-key hooks. Startup has a bounded timeout; it does not fall back to another library or an offline writer. A connected request is never automatically repeated.
+
+`capture.pdf` returns `state: saved` only after commit; dry-run returns `validated`. Each capture UUID owns one anchor. Captures from the same original PDF reuse its active resource while preserving existing metadata and anchors. Repeating the same normalized request returns its persisted IDs and `replayed: true`; a changed payload under an existing UUID is rejected. After an uncertain transport result, query `capture.status` with the same UUID and library before resubmitting the unchanged request. Pending GUI edits reject saves and preserve the reader's draft. Receipts live with the anchor; explicit permanent deletion removes the receipt.
+
+Native captures reopen the original PDF through the matching custom SumatraPDF executable and `pinloom-reader/v1`. The adapter reports `located`/`positionVerified: true` only after the reader applies the page-space selection and acknowledges it. A changed source, incompatible reader or active capture returns a failure. Reader startup uses a per-library `reader-profile` directory. Configure the custom SumatraPDF executable in Pinloom's existing application settings. Existing locators keep their previous adapter behavior.
+
+Legacy page navigation and annotated-copy previews use the custom reader's read-only `page-state` query when available, matching its executable and active PDF path. The query does not switch tabs. Readers without this bridge retain DDE verification. Legacy success continues to report `open_requested` with `positionVerified: false`; a page match alone does not prove a text search or rectangle display.
+
 ## Navigation evidence
 
 `entry.resolve` works headlessly. `entry.open` requires a GUI and returns a session-scoped operation ID. Poll `operation.get`. Queued operations can be cancelled; active PDF requests can also be cancelled through the existing adapter. Already dispatched external applications cannot be recalled.
@@ -83,7 +98,8 @@ Pending inline edits, root metadata edits, Inbox selections, and active modal di
 | --- | --- | --- |
 | Built-in text preview | `file.line`, `zeroslack.source` | `located` only after the requested document block is loaded and selected; out-of-range lines report failure |
 | File, folder, web | `manual`, `url.fragment`, existing text heading/block targets | `open_requested`; external view position is not observed |
-| SumatraPDF | `pdf.page`, `pdf.region`, `sumatrapdf.page`, `sumatrapdf.rect`, `sumatrapdf.search` | Asynchronous adapter result or failure; successful acknowledgment remains `open_requested`, with `positionVerified: false` |
+| SumatraPDF legacy locators | `pdf.page`, `pdf.region`, `sumatrapdf.page`, `sumatrapdf.rect`, `sumatrapdf.search` | Asynchronous adapter result or failure; successful acknowledgment remains `open_requested`, with `positionVerified: false` |
+| SumatraPDF native capture | `sumatrapdf.rect` with `sumatra-pinloom/v1` provenance | `located`, with `positionVerified: true`, after the matching custom reader acknowledges the selection |
 | Excel | `excel.range`, `excel.name` | Existing adapter launch result; external position unverified |
 | Word | `word.bookmark` | Existing adapter launch result; external position unverified |
 | PowerPoint | `powerpoint.shape` | Existing adapter launch result; external position unverified |
