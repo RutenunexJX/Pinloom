@@ -307,7 +307,7 @@ QJsonObject commandCapabilities()
             {"dryRun", "No mutation. Versions still checked. External file permissions/adapters are not guaranteed by preview."},
             {"openStates", array({"queued", "running", "open_requested", "located", "failed", "cancelled"})},
             {"locatorTypes", array({"manual", "file.line", "zeroslack.source", "url.fragment", "text.heading", "text.block",
-                                      "pdf.page", "pdf.region", "sumatrapdf.page", "sumatrapdf.rect", "sumatrapdf.search",
+                                      "pdf.page", "pdf.region", "sumatrapdf.page", "sumatrapdf.rect", "sumatrapdf.search", "sumatrapdf.text",
                                       "excel.range", "excel.name", "word.bookmark", "powerpoint.shape", "visio.shape"})}};
 }
 QJsonObject clipCommandJson(const Clip &clip)
@@ -409,7 +409,8 @@ QJsonObject CommandService::dispatch(const QString &method, const QJsonObject &p
         object.insert("resourceId", resource.id); object.insert("version", resourceVersion(resource)); return object;
     };
     if (method == "capabilities" || method == "schema") return commandCapabilities();
-    if (method == "session.resolve") return {{"library", libraryPath_}, {"captureProtocol", "pinloom-pdf-capture/v1"}};
+    if (method == "session.resolve") return {{"library", libraryPath_}, {"captureProtocol", "pinloom-pdf-capture/v1"},
+        {"captureFeatures", QJsonArray{"rectangle", "text-anchor"}}};
     if (method == "capture.status") {
         const auto captureId = QUuid(p["captureId"].toString());
         if (captureId.isNull()) fail("invalid_argument", "captureId must be a UUID");

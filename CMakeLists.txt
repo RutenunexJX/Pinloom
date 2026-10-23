@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.16
+    VERSION 0.4.17
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -223,8 +223,6 @@ add_executable(pinloom_capture_benchmark EXCLUDE_FROM_ALL tests/capture_benchmar
 target_link_libraries(pinloom_capture_benchmark PRIVATE pinloom_application)
 
 add_library(pinloom_widgets STATIC
-    include/pinloom/widgets/CommandFloatingController.h
-    src/widgets/CommandFloatingController.cpp
     include/pinloom/widgets/PinloomItemViews.h
     src/widgets/PinloomItemViews.cpp
     include/pinloom/widgets/PinloomUiControls.h

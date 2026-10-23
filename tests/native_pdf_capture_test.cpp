@@ -32,10 +32,143 @@ bool fixture(const QString &path)
     QFile file(path);
     return file.open(QIODevice::WriteOnly) && file.write("%PDF-1.7\n% Synthetic metadata validation fixture\n") > 0;
 }
+QJsonObject textCapture(const QString &path)
+{
+    auto request = capture(path);
+    auto locator = request["locator"].toObject();
+    locator["type"] = "sumatrapdf.text";
+    locator["text"] = QString::fromUtf8("  重复文字\nsecond line  \n跨页😀");
+    locator["selection"] = QJsonObject{{"startPage", 2}, {"endPage", 3},
+        {"startGlyph", 12}, {"endGlyph", 8}};
+    request["locator"] = locator;
+    return request;
+}
 }
 class NativePdfCaptureTest : public QObject {
     Q_OBJECT
 private slots:
+    void preservesNativeTextAndDistinctOccurrences()
+    {
+        QTemporaryDir temp; const auto path = temp.filePath("中文 PDF.pdf"); QVERIFY(fixture(path));
+        auto params = textCapture(path);
+        const auto prepared = nativePdfCaptureDraft(params);
+        QVERIFY2(prepared.error.isEmpty(), qPrintable(prepared.error));
+        const auto locator = params["locator"].toObject();
+        const auto stored = QJsonDocument::fromJson(prepared.draft.locatorJson.toUtf8()).object();
+        QCOMPARE(prepared.draft.locatorType, "sumatrapdf.text");
+        QCOMPARE(stored["text"], locator["text"]);
+        QCOMPARE(stored["selection"], locator["selection"]);
+        QCOMPARE(stored["document"].toObject()["size"], params["documentSize"]);
+        InMemoryLibraryRepository repository;
+        AnchorCaptureCommitService service(repository);
+        const auto id = params["captureId"].toString();
+        const auto saved = service.commit(prepared.draft, id); QVERIFY(saved.success());
+        auto otherLocator = locator;
+        otherLocator["selection"] = QJsonObject{{"startPage", 2}, {"endPage", 3},
+            {"startGlyph", 40}, {"endGlyph", 8}};
+        params["locator"] = otherLocator;
+        const auto other = nativePdfCaptureDraft(params); QVERIFY(other.error.isEmpty());
+        QCOMPARE(service.commit(other.draft, id).errorCode, "capture_conflict");
+        QCOMPARE(service.findCapture(id).anchor.locatorJson, saved.anchor.locatorJson);
+    }
+    void rejectsInvalidNativeTextWithoutTruncating()
+    {
+        QTemporaryDir temp; const auto path = temp.filePath("fixture.pdf"); QVERIFY(fixture(path));
+        const auto original = textCapture(path);
+        for (const auto range : {
+                 QJsonObject{{"startPage", 3}, {"endPage", 2}, {"startGlyph", 1}, {"endGlyph", 4}},
+                 QJsonObject{{"startPage", 2}, {"endPage", 2}, {"startGlyph", 4}, {"endGlyph", 4}},
+                 QJsonObject{{"startPage", 2}, {"endPage", 1002}, {"startGlyph", 1}, {"endGlyph", 4}},
+                 QJsonObject{{"startPage", 2}, {"endPage", 3}, {"startGlyph", -1}, {"endGlyph", 4}},
+                 QJsonObject{{"startPage", 2}, {"endPage", 3}, {"startGlyph", 1.5}, {"endGlyph", 4}},
+                 QJsonObject{{"startPage", 2}, {"endPage", 3}, {"startGlyph", 1}}}) {
+            auto request = original; auto locator = request["locator"].toObject();
+            locator["selection"] = range; request["locator"] = locator;
+            QCOMPARE(nativePdfCaptureDraft(request).errorCode, "invalid_capture");
+        }
+        for (const auto &text : {QString(" \n\t"), QString(65537, 'a'), QString("bad") + QChar::Null}) {
+            auto request = original; auto locator = request["locator"].toObject();
+            locator["text"] = text; request["locator"] = locator;
+            QCOMPARE(nativePdfCaptureDraft(request).errorCode, "invalid_capture");
+        }
+        auto request = original; auto locator = request["locator"].toObject();
+        locator["text"] = QString(65536, 'a'); request["locator"] = locator;
+        const auto maximum = nativePdfCaptureDraft(request); QVERIFY(maximum.error.isEmpty());
+        QCOMPARE(QJsonDocument::fromJson(maximum.draft.locatorJson.toUtf8()).object()["text"], locator["text"]);
+    }
+    void nativeTextMetadataUpdatePreservesReopenFields()
+    {
+        QTemporaryDir temp;
+        const auto path = temp.filePath("中文 fixture.pdf"); QVERIFY(fixture(path));
+        const auto params = textCapture(path);
+        const auto renamed = QString::fromUtf8("修改后的文本锚点");
+        const QJsonArray tags{QString::fromUtf8("跨页"), "reviewed"};
+        QJsonObject expectedLocator;
+        QString resourceId, anchorId;
+        {
+            SqliteLibraryRepository library; SqliteClipRepository clips;
+            const auto identity = temp.filePath("identity.sqlite3");
+            QVERIFY(library.open(temp.filePath("pinloom.sqlite3"), identity)); QVERIFY(library.initialize());
+            QVERIFY(clips.open(temp.filePath("clips.sqlite3"), identity)); QVERIFY(clips.initialize());
+            ObsidianClipStore store; PersistentClipService persistent(clips, store);
+            QString openedResourceId, openedAnchorId;
+            QJsonObject openedLocator;
+            CommandSessionCallbacks callbacks;
+            callbacks.writeBlockReason = [] { return QString(); };
+            callbacks.open = [&](const QString &resource, const QString &anchor) {
+                openedResourceId = resource; openedAnchorId = anchor;
+                const auto target = library.findResource(resource);
+                if (target) for (const auto &item : target->anchors)
+                    if (item.id == anchor) openedLocator = QJsonDocument::fromJson(item.locatorJson.toUtf8()).object();
+                return QJsonObject{{"state", "open_requested"}, {"positionVerified", false}};
+            };
+            CommandService service(library, clips, persistent, temp.path(), callbacks);
+            const auto invoke = [&](const QString &method, const QJsonObject &p) {
+                return service.execute({{"protocol", "pinloom-cli/v1"}, {"library", temp.path()},
+                    {"baseDirectory", temp.path()}, {"method", method}, {"params", p}});
+            };
+            const auto captured = invoke("capture.pdf", params);
+            QVERIFY2(captured["ok"].toBool(), QJsonDocument(captured).toJson().constData());
+            const auto saved = captured["result"].toObject();
+            resourceId = saved["resourceId"].toString(); anchorId = saved["id"].toString();
+            expectedLocator = saved["locator"].toObject();
+            QCOMPARE(expectedLocator["text"], params["locator"].toObject()["text"]);
+            QCOMPARE(expectedLocator["selection"], params["locator"].toObject()["selection"]);
+            const QJsonObject key{{"resourceId", resourceId}, {"id", anchorId}};
+            auto update = key;
+            update["ifVersion"] = saved["version"]; update["name"] = renamed;
+            update["aliases"] = QJsonArray{"renamed passage"}; update["tags"] = tags;
+            const auto edited = invoke("anchor.update", update);
+            QVERIFY2(edited["ok"].toBool(), QJsonDocument(edited).toJson().constData());
+            QCOMPARE(edited["result"].toObject()["locator"].toObject(), expectedLocator);
+            const auto queried = invoke("anchor.get", key);
+            QVERIFY(queried["ok"].toBool());
+            const auto current = queried["result"].toObject();
+            QCOMPARE(current["name"].toString(), renamed); QCOMPARE(current["tags"].toArray(), tags);
+            QCOMPARE(current["locator"].toObject(), expectedLocator);
+            QCOMPARE(current["targetFile"], saved["targetFile"]);
+            const QJsonObject target{{"resourceId", resourceId}, {"anchorId", anchorId}};
+            const auto resolved = invoke("entry.resolve", target);
+            QVERIFY(resolved["ok"].toBool());
+            QVERIFY(resolved["result"].toObject()["validation"].toObject()["valid"].toBool());
+            const auto opened = invoke("entry.open", target);
+            QVERIFY(opened["ok"].toBool());
+            QTRY_COMPARE(openedAnchorId, anchorId);
+            QCOMPARE(openedResourceId, resourceId); QCOMPARE(openedLocator, expectedLocator);
+            const auto operation = invoke("operation.get", {{"id", opened["result"].toObject()["id"]}});
+            QCOMPARE(operation["result"].toObject()["state"].toString(), "open_requested");
+            QVERIFY(!operation["result"].toObject()["positionVerified"].toBool());
+        }
+        SqliteLibraryRepository reopened;
+        QVERIFY(reopened.open(temp.filePath("pinloom.sqlite3"), temp.filePath("identity.sqlite3"))); QVERIFY(reopened.initialize());
+        const auto restored = reopened.findResource(resourceId);
+        QVERIFY(restored.has_value()); QCOMPARE(restored->anchors.size(), 1);
+        const auto &anchor = restored->anchors.first();
+        QCOMPARE(anchor.id, anchorId); QCOMPARE(anchor.name, renamed);
+        QCOMPARE(anchor.aliases, QStringList{"renamed passage"});
+        QCOMPARE(anchor.tags, QStringList({QString::fromUtf8("跨页"), "reviewed"}));
+        QCOMPARE(QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object(), expectedLocator);
+    }
     void projectedLookupPreservesLifecycle_data()
     {
         QTest::addColumn<bool>("sqlite");
@@ -156,10 +289,17 @@ private slots:
         QFile file(path); QVERIFY(file.open(QIODevice::Append)); file.write("changed"); file.close();
         QCOMPARE(nativePdfCaptureDraft(original).errorCode, "target_changed");
     }
+    void durableIdempotencyConflictAndWriteGuard_data()
+    {
+        QTest::addColumn<bool>("textAnchor");
+        QTest::newRow("rectangle") << false;
+        QTest::newRow("native-text") << true;
+    }
     void durableIdempotencyConflictAndWriteGuard()
     {
+        QFETCH(bool, textAnchor);
         QTemporaryDir temp; const auto path = temp.filePath("fixture.pdf"); QVERIFY(fixture(path));
-        auto params = capture(path);
+        auto params = textAnchor ? textCapture(path) : capture(path);
         QString resourceId, anchorId;
         {
             SqliteLibraryRepository library; SqliteClipRepository clips;

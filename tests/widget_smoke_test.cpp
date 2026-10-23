@@ -25,7 +25,6 @@
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
-#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomOpenService.h"
@@ -117,8 +116,6 @@ private slots:
     void mainWindowCloseHidesToTray();
     void mainWindowReportsResidentDiagnosticsAndRecentError();
     void mainPanelHotkeyRegistersAndShowsCommandWindow();
-    void commandFloatsWithoutExpandingOrInterruptingCapture();
-    void floatingToolbarDragsWithoutCapturingAndKeepsPosition();
     void contextMenuDeletesAllGroupedFileAnchorsAndHidesUnmarkedRow();
     void pdfLocatorPreviewCropsRenderedPageToAnchorRegion();
     void pdfLocatorPreviewRendersConfiguredRealPdf();
@@ -182,11 +179,6 @@ private slots:
     void commandPanelPlainQueryUsesUnifiedEntrySearchHandler();
     void entryActionProviderBuildsActionsForUnifiedTypes();
     void commandPanelPlainQueryUsesUnifiedRankingOrder();
-    void commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult();
-    void commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFullPath();
-    void commandPanelAnchorCapturePrefersForegroundPdfFallback();
-    void commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback();
-    void commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath();
     void panelDisplaysAnchorAwareResults();
     void panelDisplaysAndOpensInboxFileEntries();
     void panelSearchEntriesCanIncludeDeletedEntriesForRestore();
@@ -1223,163 +1215,6 @@ void WidgetSmokeTest::contextMenuDeletesAllGroupedFileAnchorsAndHidesUnmarkedRow
     AnchorLibraryWindow reopenedEmpty(options);
     QCOMPARE(reopenedEmpty.visibleFileCount(), 0);
     QVERIFY(QFileInfo::exists(path));
-}
-
-void WidgetSmokeTest::commandFloatsWithoutExpandingOrInterruptingCapture()
-{
-    PinloomMainWindow window;
-    window.setLauncherMode(true);
-    int captures[3]{};
-    bool captureSafe = false;
-    bool expandDuringCapture = false;
-    bool expansionDeferred = false;
-    CommandFloatingController *floating = nullptr;
-    PinloomCommandPanelOptions options;
-    options.rectangleAnchorCaptureHandler = [&](QString *) {
-        ++captures[0];
-        captureSafe = floating->isCapturing() && !window.isVisible()
-            && !floating->floatingWindow()->isVisible();
-        if (expandDuringCapture) {
-            expansionDeferred = !floating->requestExpansion() && !window.isVisible();
-        }
-        return true;
-    };
-    options.textAnchorCaptureHandler = [&](QString *) { ++captures[1]; return true; };
-    options.pdfTextClipCaptureHandler = [&](QString *) { ++captures[2]; return true; };
-    auto *panel = new PinloomCommandPanel(options, &window);
-    window.setCentralWidget(panel);
-    floating = new CommandFloatingController(window, *panel);
-    showCommandPanelForHotkey(window, *panel);
-    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QVERIFY(floating->isFloating());
-    QVERIFY(!window.isVisible());
-    QVERIFY(floating->floatingWindow()->isVisible());
-    auto buttons = floating->floatingWindow()->findChildren<QToolButton *>();
-    QCOMPARE(buttons.size(), 3);
-    for (auto *button : buttons) {
-        QCOMPARE(button->toolButtonStyle(), Qt::ToolButtonIconOnly);
-        QVERIFY(!button->icon().isNull());
-        QVERIFY(!button->accessibleName().isEmpty());
-        button->click();
-        QVERIFY(!window.isVisible());
-        QVERIFY(floating->floatingWindow()->isVisible());
-    }
-    QCOMPARE(captures[0], 1);
-    QVERIFY(captureSafe);
-    QCOMPARE(captures[1], 1);
-    QCOMPARE(captures[2], 1);
-    floating->handleApplicationStateChanged(Qt::ApplicationActive);
-    QVERIFY(floating->isFloating());
-    expandDuringCapture = true;
-    buttons.first()->click();
-    QVERIFY(expansionDeferred);
-    QVERIFY(window.isVisible());
-    QVERIFY(!floating->isFloating());
-    QVERIFY(!floating->floatingWindow()->isVisible());
-    Ui::Dialog modal(&window);
-    modal.setModal(true);
-    modal.show();
-    QCoreApplication::processEvents();
-    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QVERIFY(!floating->isFloating());
-    modal.hide();
-    window.hide();
-    floating->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QVERIFY(!floating->floatingWindow()->isVisible());
-}
-
-void WidgetSmokeTest::floatingToolbarDragsWithoutCapturingAndKeepsPosition()
-{
-    PinloomMainWindow window;
-    window.setLauncherMode(true);
-    int captures = 0;
-    PinloomCommandPanelOptions options;
-    options.rectangleAnchorCaptureHandler = [&](QString *) { ++captures; return true; };
-    options.textAnchorCaptureHandler = options.rectangleAnchorCaptureHandler;
-    options.pdfTextClipCaptureHandler = options.rectangleAnchorCaptureHandler;
-    auto *panel = new PinloomCommandPanel(options, &window);
-    window.setCentralWidget(panel);
-    auto *controller = new CommandFloatingController(window, *panel);
-    showCommandPanelForHotkey(window, *panel);
-    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QPointer<QWidget> floating = controller->floatingWindow();
-    QVERIFY(floating->testAttribute(Qt::WA_TranslucentBackground));
-    QCOMPARE(floating->inherits("ElaScrollPageArea"), Ui::usesEla());
-    const auto pixels = floating->grab().toImage();
-    for (const auto corner : {QPoint(0, 0), QPoint(pixels.width() - 1, 0),
-                              QPoint(0, pixels.height() - 1), pixels.rect().bottomRight()}) {
-        QCOMPARE(pixels.pixelColor(corner).alpha(), 0);
-    }
-    QVERIFY(pixels.pixelColor(pixels.rect().center()).alpha() > 0);
-
-    const QRect bounds = floating->screen()->availableGeometry();
-    floating->move(bounds.topLeft() + QPoint(64, 64));
-    const auto mouse = [](QWidget *receiver, QEvent::Type type, const QPoint &global,
-                          Qt::MouseButton button, Qt::MouseButtons buttons) {
-        QMouseEvent event(type, QPointF(receiver->mapFromGlobal(global)), QPointF(global),
-                          button, buttons, Qt::NoModifier);
-        QCoreApplication::sendEvent(receiver, &event);
-    };
-    const QPoint delta(QApplication::startDragDistance() + 18, 15);
-    const auto drag = [&](QWidget *receiver, const QPoint &local, const QPoint &offset) {
-        const QPoint start = receiver->mapToGlobal(local);
-        mouse(receiver, QEvent::MouseButtonPress, start, Qt::LeftButton, Qt::LeftButton);
-        mouse(receiver, QEvent::MouseMove, start + offset, Qt::NoButton, Qt::LeftButton);
-        mouse(receiver, QEvent::MouseButtonRelease, start + offset, Qt::LeftButton, Qt::NoButton);
-    };
-    const auto buttons = floating->findChildren<QToolButton *>();
-    QCOMPARE(buttons.size(), 3);
-    QPoint previous = floating->pos();
-    drag(floating, QPoint(3, floating->height() / 2), delta);
-    QCOMPARE(floating->pos(), previous + delta);
-    for (auto *button : buttons) {
-        previous = floating->pos();
-        drag(button, button->rect().center(), delta);
-        QCOMPARE(floating->pos(), previous + delta);
-        QVERIFY(!button->isDown());
-    }
-    QCOMPARE(captures, 0);
-    QVERIFY(!window.isVisible());
-    QVERIFY(controller->isFloating());
-    QCOMPARE(floating->cursor().shape(), Qt::OpenHandCursor);
-    QVERIFY(floating->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
-
-    previous = floating->pos();
-    const QPoint jitter(qMax(0, qMin(1, QApplication::startDragDistance() - 1)), 0);
-    drag(buttons.first(), buttons.first()->rect().center(), jitter);
-    QCOMPARE(captures, 1);
-    QCOMPARE(floating->pos(), previous);
-    for (int i = 1; i < buttons.size(); ++i) QTest::mouseClick(buttons[i], Qt::LeftButton);
-    QCOMPARE(captures, 3);
-
-    const QPoint rightPress = floating->mapToGlobal(QPoint(3, 20));
-    mouse(floating, QEvent::MouseButtonPress, rightPress, Qt::RightButton, Qt::RightButton);
-    mouse(floating, QEvent::MouseMove, rightPress + delta, Qt::NoButton, Qt::RightButton);
-    mouse(floating, QEvent::MouseButtonRelease, rightPress + delta, Qt::RightButton, Qt::NoButton);
-    QCOMPARE(floating->pos(), previous);
-    drag(floating, QPoint(3, 20), QPoint(-10000, -10000));
-    QCOMPARE(floating->pos(), bounds.topLeft());
-    drag(floating, QPoint(3, 20), QPoint(10000, 10000));
-    QCOMPARE(floating->pos(), bounds.bottomRight() - QPoint(floating->width() - 1, floating->height() - 1));
-    QVERIFY(bounds.contains(floating->geometry()));
-
-    previous = floating->pos();
-    showCommandPanelForHotkey(window, *panel);
-    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QCOMPARE(floating->pos(), previous);
-    auto *button = buttons.first();
-    const QPoint press = button->mapToGlobal(button->rect().center());
-    mouse(button, QEvent::MouseButtonPress, press, Qt::LeftButton, Qt::LeftButton);
-    mouse(button, QEvent::MouseMove, press - delta, Qt::NoButton, Qt::LeftButton);
-    showCommandPanelForHotkey(window, *panel);
-    QVERIFY(!button->isDown());
-    controller->handleApplicationStateChanged(Qt::ApplicationInactive);
-    QTest::mouseClick(button, Qt::LeftButton);
-    QCOMPARE(captures, 4);
-
-    mouse(button, QEvent::MouseButtonPress, button->mapToGlobal(button->rect().center()), Qt::LeftButton, Qt::LeftButton);
-    delete controller;
-    QVERIFY(floating.isNull());
 }
 
 void WidgetSmokeTest::mainPanelHotkeyRegistersAndShowsCommandWindow()
@@ -3956,14 +3791,13 @@ void WidgetSmokeTest::commandPanelClipRootCommandShowsCandidates()
     panel.setCommandText(QStringLiteral("c"));
 
     QCOMPARE(clipSearchCalls, 0);
-    QCOMPARE(results->count(), 4);
+    QCOMPARE(results->count(), 3);
     QCOMPARE(results->item(0)->text(), QStringLiteral("Clip Search"));
     QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("clip;search <query>")));
     QCOMPARE(results->item(1)->text(), QStringLiteral("New Saved Clip"));
     QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("clip;new")));
     QCOMPARE(results->item(2)->text(), QStringLiteral("Clip Library"));
     QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("clip;library")));
-    QVERIFY(results->item(3)->toolTip().contains(QStringLiteral("clip;pdf-text")));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 
     QTest::keyClick(commandEdit, Qt::Key_Return);
@@ -4831,137 +4665,26 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
 
 void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 {
-    int captureCount = 0;
-    int rectangleCaptureCount = 0;
-    int textCaptureCount = 0;
-    int pdfTextClipCaptureCount = 0;
-    QStringList statusNotifications;
+    int captures = 0;
     PinloomCommandPanelOptions options;
-    options.statusChangedHandler = [&](const QString &statusText) {
-        statusNotifications.append(statusText);
-    };
     options.anchorCaptureHandler = [&](QString *status) {
-        ++captureCount;
-        if (status) {
-            *status = QStringLiteral("Captured via test handler");
-        }
+        ++captures;
+        if (status) *status = QStringLiteral("Captured generic anchor");
         return true;
     };
-    options.rectangleAnchorCaptureHandler = [&](QString *status) {
-        ++rectangleCaptureCount;
-        if (status) {
-            *status = QStringLiteral("Captured rectangle via quick action");
-        }
-        return true;
-    };
-    options.textAnchorCaptureHandler = [&](QString *status) {
-        ++textCaptureCount;
-        if (status) {
-            *status = QStringLiteral("Captured text via quick action");
-        }
-        return true;
-    };
-    options.pdfTextClipCaptureHandler = [&](QString *status) {
-        ++pdfTextClipCaptureCount;
-        if (status) {
-            *status = QStringLiteral("Captured PDF text Clip via quick action");
-        }
-        return true;
-    };
-
     PinloomCommandPanel panel(options);
-    auto *commandEdit = panel.findChild<QLineEdit *>(QStringLiteral("commandSearchEdit"));
-    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
-    QVERIFY(commandEdit);
-    QVERIFY(results);
-    auto *quickRow = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
-    auto *rectangleButton = panel.findChild<QToolButton *>(
-        QStringLiteral("commandRectangleAnchorButton"));
-    auto *textButton = panel.findChild<QToolButton *>(
-        QStringLiteral("commandTextAnchorButton"));
-    auto *pdfTextClipButton = panel.findChild<QToolButton *>(
-        QStringLiteral("commandPdfTextClipButton"));
-    QVERIFY(quickRow);
-    QVERIFY(rectangleButton);
-    QVERIFY(textButton);
-    QVERIFY(pdfTextClipButton);
-    QVERIFY(quickRow->isVisibleTo(&panel));
-    QVERIFY(rectangleButton->isEnabled());
-    QVERIFY(textButton->isEnabled());
-    QVERIFY(pdfTextClipButton->isEnabled());
-    QCOMPARE(rectangleButton->accessibleName(),
-             QStringLiteral("PDF Rectangle Anchor"));
-    QCOMPARE(textButton->accessibleName(), QStringLiteral("PDF Text Anchor"));
-    QCOMPARE(pdfTextClipButton->accessibleName(), QStringLiteral("PDF Text Clip"));
-    QVERIFY(panel.preferredWindowHeight() > 62);
-
-    QTest::mouseClick(rectangleButton, Qt::LeftButton);
-    QCOMPARE(rectangleCaptureCount, 1);
-    QCOMPARE(panel.statusText(), QStringLiteral("Captured rectangle via quick action"));
-    QTest::mouseClick(textButton, Qt::LeftButton);
-    QCOMPARE(textCaptureCount, 1);
-    QCOMPARE(panel.statusText(), QStringLiteral("Captured text via quick action"));
-    QTest::mouseClick(pdfTextClipButton, Qt::LeftButton);
-    QCOMPARE(pdfTextClipCaptureCount, 1);
-    QCOMPARE(panel.statusText(),
-             QStringLiteral("Captured PDF text Clip via quick action"));
-
-    panel.show();
-    QVERIFY(QTest::qWaitForWindowExposed(&panel));
-    commandEdit->setFocus();
-    QTRY_VERIFY(commandEdit->hasFocus());
-    QTest::keyClick(commandEdit, Qt::Key_Tab);
-    QTRY_VERIFY(rectangleButton->hasFocus());
-    QTest::keyClick(rectangleButton, Qt::Key_Space);
-    QCOMPARE(rectangleCaptureCount, 2);
-    QTest::keyClick(rectangleButton, Qt::Key_Tab, Qt::ShiftModifier);
-    QTRY_VERIFY(commandEdit->hasFocus());
-
+    for (const auto *name : {"commandRectangleAnchorButton", "commandTextAnchorButton", "commandPdfTextClipButton", "commandQuickActionRow"})
+        QVERIFY(!panel.findChild<QWidget *>(QString::fromLatin1(name)));
     panel.setCommandText(QStringLiteral("anchor;new"));
-    commandEdit->setCursorPosition(3);
-    QTest::keyClick(commandEdit, Qt::Key_Right);
-    QCOMPARE(commandEdit->cursorPosition(), 4);
-    QVERIFY(!panel.isShowingResultActions());
-    QTest::keyClick(commandEdit, Qt::Key_Left);
-    QCOMPARE(commandEdit->cursorPosition(), 3);
-
-    panel.setCommandText(QStringLiteral("k"));
-
-    QCOMPARE(results->count(), 4);
-    QCOMPARE(results->item(0)->text(), QStringLiteral("New Anchor / Capture Anchor"));
-    QVERIFY(results->item(0)->toolTip().contains(QStringLiteral("anchor;new")));
-    QVERIFY(results->item(1)->toolTip().contains(QStringLiteral("anchor;rectangle")));
-    QVERIFY(results->item(2)->toolTip().contains(QStringLiteral("anchor;text")));
-    QCOMPARE(results->item(3)->text(), QStringLiteral("Anchor Library"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Anchor commands"));
-
-    QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(panel.commandText(), QStringLiteral("anchor;new"));
-    QCOMPARE(results->count(), 1);
-    QCOMPARE(panel.statusText(), QStringLiteral("Capture anchor current app context pending"));
-
-    QTest::keyClick(commandEdit, Qt::Key_Return);
-    QCOMPARE(captureCount, 1);
-    QCOMPARE(panel.commandText(), QStringLiteral("anchor;new"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Captured via test handler"));
-    QCOMPARE(statusNotifications.last(), panel.statusText());
-
-    panel.setCommandText(QStringLiteral("clip;pdf-text"));
     QVERIFY(panel.activateCurrentCommandItem());
-    QCOMPARE(pdfTextClipCaptureCount, 2);
-
-    PinloomCommandPanelOptions noContextOptions;
-    noContextOptions.anchorCaptureHandler = [](QString *status) {
-        if (status) {
-            *status = QStringLiteral("Open or select a PDF before capturing an anchor");
-        }
-        return false;
-    };
-    PinloomCommandPanel noContextPanel(noContextOptions);
-    noContextPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(!noContextPanel.activateCurrentCommandItem());
-    QCOMPARE(noContextPanel.statusText(), QStringLiteral("Open or select a PDF before capturing an anchor"));
+    QCOMPARE(captures, 1);
+    QCOMPARE(panel.statusText(), QStringLiteral("Captured generic anchor"));
+    auto *results = panel.findChild<Pinloom::Ui::List *>(QStringLiteral("commandResultList"));
+    QVERIFY(results);
+    panel.setCommandText(QStringLiteral("anchor"));
+    QCOMPARE(results->count(), 2);
+    QCOMPARE(results->item(0)->text(), QStringLiteral("New Anchor / Capture Anchor"));
+    QCOMPARE(results->item(1)->text(), QStringLiteral("Anchor Library"));
 }
 
 void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
@@ -4990,11 +4713,9 @@ void WidgetSmokeTest::commandPanelAnchorLibraryUsesOrderedSubsequenceCommands()
     for (const QString &abbreviation : rootAbbreviations) {
         panel.setCommandText(abbreviation);
         QCOMPARE(panel.theme(), PinloomCommandTheme::Anchor);
-        QCOMPARE(results->count(), 4);
+        QCOMPARE(results->count(), 2);
         QVERIFY(results->item(0)->text().contains(QStringLiteral("New Anchor")));
-        QVERIFY(results->item(1)->text().contains(QStringLiteral("Rectangle Anchor")));
-        QVERIFY(results->item(2)->text().contains(QStringLiteral("Text Anchor")));
-        QVERIFY(results->item(3)->text().contains(QStringLiteral("Anchor Library")));
+        QVERIFY(results->item(1)->text().contains(QStringLiteral("Anchor Library")));
     }
 
     const QStringList structuredAbbreviations{
@@ -5286,15 +5007,14 @@ void WidgetSmokeTest::commandPanelThemesAndCompactLayout()
     auto *quickActions = panel.findChild<QWidget *>(QStringLiteral("commandQuickActionRow"));
     QVERIFY(results);
     QVERIFY(status);
-    QVERIFY(quickActions);
+    QVERIFY(!quickActions);
 
     QCOMPARE(panel.theme(), PinloomCommandTheme::Neutral);
     QVERIFY(panel.isCompact());
     QVERIFY(results->isHidden());
     QVERIFY(status->isHidden());
-    QVERIFY(quickActions->isVisibleTo(&panel));
-    QVERIFY(panel.preferredWindowHeight() >= 88);
-    QVERIFY(panel.preferredWindowHeight() <= 120);
+    QVERIFY(panel.preferredWindowHeight() >= 62);
+    QVERIFY(panel.preferredWindowHeight() <= 88);
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-neutral.png")));
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-anchor.png")));
     QVERIFY(QFile::exists(QStringLiteral(":/pinloom/themes/command-clip.png")));
@@ -5410,7 +5130,7 @@ void WidgetSmokeTest::commandPanelPlainQueryShowsUnifiedMixedResults()
 
     QCOMPARE(unifiedQueries, QStringList{QStringLiteral("launch")});
     QCOMPARE(clipCommandSearchCalls, 0);
-    QCOMPARE(results->count(), 4);
+    QCOMPARE(results->count(), 3);
     QCOMPARE(results->item(0)->text(), QStringLiteral("Clip Search"));
     QCOMPARE(panel.statusText(), QStringLiteral("Clip commands"));
 }
@@ -6374,322 +6094,6 @@ void WidgetSmokeTest::commandPanelPlainQueryUsesUnifiedRankingOrder()
     QCOMPARE(commandPanel.openTargetAt(2).resourceId, alias.id);
     QCOMPARE(commandPanel.openTargetAt(3).resourceId, tagged.id);
     QCOMPARE(commandPanel.openTargetAt(4).resourceId, pathOnly.id);
-}
-
-void WidgetSmokeTest::commandPanelAnchorCaptureCreatesForegroundPdfAnchorWithoutSelectedResult()
-{
-    InMemoryLibraryRepository repository;
-
-    ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("E:/docs/live-foreground.pdf - SumatraPDF");
-    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
-
-    int foregroundRequestCount = 0;
-    ManualPdfAnchorCreationRequest capturedSuggested;
-    PinloomPanelOptions panelOptions;
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++foregroundRequestCount;
-        const SumatraPdfForegroundCaptureResult capture =
-            captureSumatraPdfForegroundContext(repository, foregroundContext, SumatraPdfViewState{});
-        if (status) {
-            *status = capture.status;
-        }
-        if (!capture.success()) {
-            return std::nullopt;
-        }
-        return capture.request;
-    };
-    panelOptions.pdfAnchorCaptureRequestProvider =
-        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
-        capturedSuggested = suggested;
-        ManualPdfAnchorCreationRequest request = suggested;
-        request.name = QStringLiteral("Live foreground anchor");
-        request.aliases = {QStringLiteral("live foreground alias")};
-        request.tags = {QStringLiteral("#foreground-tag")};
-        request.pinned = true;
-        return request;
-    };
-
-    PinloomPanel panel(repository, panelOptions);
-    QCOMPARE(panel.resultCount(), 0);
-
-    PinloomCommandPanelOptions commandOptions;
-    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel.statusText();
-        }
-        return captured;
-    };
-    PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(commandPanel.activateCurrentCommandItem());
-
-    QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/live-foreground.pdf"));
-    QCOMPARE(capturedSuggested.locatorType, QStringLiteral("sumatrapdf.page"));
-    QVERIFY(!capturedSuggested.rect.isValid());
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-fallback"));
-    QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"Live foreground anchor\" (foreground SumatraPDF fallback)"));
-
-    const QList<SearchResult> byName = repository.search(SearchQuery{QStringLiteral("Live foreground anchor")});
-    QCOMPARE(byName.size(), 1);
-    QVERIFY(byName.first().matchedAnchor.has_value());
-    QCOMPARE(byName.first().matchedAnchor->targetApp, QStringLiteral("SumatraPDF"));
-    QCOMPARE(byName.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/live-foreground.pdf"));
-    QCOMPARE(byName.first().matchedAnchor->locatorType, QStringLiteral("sumatrapdf.page"));
-    QVERIFY(byName.first().matchedAnchor->pinned);
-
-    const QList<SearchResult> byAlias = repository.search(SearchQuery{QStringLiteral("live foreground alias")});
-    QCOMPARE(byAlias.size(), 1);
-    const QList<SearchResult> byTag = repository.search(SearchQuery{QStringLiteral("#foreground-tag")});
-    QCOMPARE(byTag.size(), 1);
-}
-
-void WidgetSmokeTest::commandPanelAnchorCaptureUsesUniqueTitleFallbackWithoutFullPath()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource resource;
-    resource.id = QStringLiteral("hb0823");
-    resource.kind = ResourceKind::Pdf;
-    resource.title = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI");
-    resource.location = QStringLiteral("E:/docs/HB0823_MIV_RV32IMA_L1_AXI.pdf");
-    QVERIFY(repository.upsertResource(resource));
-
-    ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("HB0823_MIV_RV32IMA_L1_AXI - SumatraPDF");
-    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
-
-    SumatraPdfViewState viewState;
-    viewState.currentPage = 26;
-    viewState.totalPages = 31;
-    viewState.zoom = 300.0;
-    viewState.source = QStringLiteral("test-toolbar");
-
-    int foregroundRequestCount = 0;
-    ManualPdfAnchorCreationRequest capturedSuggested;
-    PinloomPanelOptions panelOptions;
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++foregroundRequestCount;
-        const SumatraPdfForegroundCaptureResult capture =
-            captureSumatraPdfForegroundContext(repository, foregroundContext, viewState);
-        if (status) {
-            *status = capture.status;
-        }
-        if (!capture.success()) {
-            return std::nullopt;
-        }
-        return capture.request;
-    };
-    panelOptions.pdfAnchorCaptureRequestProvider =
-        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
-        capturedSuggested = suggested;
-        ManualPdfAnchorCreationRequest request = suggested;
-        request.name = QStringLiteral("HB0823 selected text");
-        request.aliases = {QStringLiteral("hb0823 note")};
-        return request;
-    };
-
-    PinloomPanel panel(repository, panelOptions);
-    PinloomCommandPanelOptions commandOptions;
-    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel.statusText();
-        }
-        return captured;
-    };
-    PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(commandPanel.activateCurrentCommandItem());
-
-    QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(capturedSuggested.file, resource.location);
-    QCOMPARE(capturedSuggested.page, 26);
-    QCOMPARE(capturedSuggested.zoom, 300.0);
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-viewstate"));
-    QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"HB0823 selected text\" (foreground SumatraPDF page/zoom)"));
-
-    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("hb0823 note")});
-    QCOMPARE(results.size(), 1);
-    QVERIFY(results.first().matchedAnchor.has_value());
-    QCOMPARE(results.first().matchedAnchor->targetFile, resource.location);
-    const QJsonObject locator = QJsonDocument::fromJson(
-        results.first().matchedAnchor->locatorJson.toUtf8()).object();
-    QCOMPARE(locator.value(QStringLiteral("version")).toInt(), 3);
-    QCOMPARE(locator.value(QStringLiteral("page")).toInt(), 26);
-    QVERIFY(!locator.contains(QStringLiteral("zoom")));
-    QCOMPARE(locator.value(QStringLiteral("source")).toString(),
-             QStringLiteral("foreground-sumatrapdf-viewstate"));
-}
-
-void WidgetSmokeTest::commandPanelAnchorCapturePrefersForegroundPdfFallback()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource selectedResource;
-    selectedResource.id = QStringLiteral("selected-pdf");
-    selectedResource.kind = ResourceKind::Pdf;
-    selectedResource.title = QStringLiteral("Selected PDF");
-    selectedResource.location = QStringLiteral("E:/docs/selected.pdf");
-    QVERIFY(repository.upsertResource(selectedResource));
-
-    int foregroundRequestCount = 0;
-    ManualPdfAnchorCreationRequest capturedSuggested;
-    PinloomPanelOptions panelOptions;
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++foregroundRequestCount;
-        if (status) {
-            *status = QStringLiteral("foreground provider ready");
-        }
-        ManualPdfAnchorCreationRequest request;
-        request.name = QStringLiteral("Foreground command anchor");
-        request.file = QStringLiteral("E:/docs/foreground.pdf");
-        request.locatorType = QStringLiteral("sumatrapdf.page");
-        request.page = 1;
-        request.source = QStringLiteral("foreground-sumatrapdf-fallback");
-        request.targetApp = QStringLiteral("SumatraPDF");
-        return request;
-    };
-    panelOptions.pdfAnchorCaptureRequestProvider =
-        [&](const ManualPdfAnchorCreationRequest &suggested) -> std::optional<ManualPdfAnchorCreationRequest> {
-        capturedSuggested = suggested;
-        ManualPdfAnchorCreationRequest request = suggested;
-        request.name = QStringLiteral("Accepted foreground command anchor");
-        request.aliases = {QStringLiteral("foreground command alias")};
-        return request;
-    };
-
-    PinloomPanel panel(repository, panelOptions);
-    panel.setSearchText(QStringLiteral("Selected PDF"));
-    QVERIFY(panel.selectFirstResult());
-
-    PinloomCommandPanelOptions commandOptions;
-    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel.statusText();
-        }
-        return captured;
-    };
-    PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(commandPanel.activateCurrentCommandItem());
-
-    QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(capturedSuggested.file, QStringLiteral("E:/docs/foreground.pdf"));
-    QCOMPARE(capturedSuggested.source, QStringLiteral("foreground-sumatrapdf-fallback"));
-    QCOMPARE(commandPanel.statusText(),
-             QStringLiteral("Captured PDF anchor \"Accepted foreground command anchor\" (foreground SumatraPDF fallback)"));
-    QCOMPARE(panel.statusText(), commandPanel.statusText());
-
-    const QList<SearchResult> results = repository.search(SearchQuery{QStringLiteral("foreground command alias")});
-    QCOMPARE(results.size(), 1);
-    QVERIFY(results.first().matchedAnchor.has_value());
-    QCOMPARE(results.first().matchedAnchor->targetFile, QStringLiteral("E:/docs/foreground.pdf"));
-    QVERIFY(results.first().matchedAnchor->locatorJson.contains(
-        QStringLiteral("\"source\":\"foreground-sumatrapdf-fallback\"")));
-}
-
-void WidgetSmokeTest::commandPanelAnchorCaptureReportsNonPdfForegroundWithoutSelectedFallback()
-{
-    InMemoryLibraryRepository repository;
-
-    Resource selectedResource;
-    selectedResource.id = QStringLiteral("selected-pdf");
-    selectedResource.kind = ResourceKind::Pdf;
-    selectedResource.title = QStringLiteral("Selected PDF");
-    selectedResource.location = QStringLiteral("E:/docs/selected.pdf");
-    QVERIFY(repository.upsertResource(selectedResource));
-
-    int foregroundRequestCount = 0;
-    PinloomPanelOptions panelOptions;
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++foregroundRequestCount;
-        if (status) {
-            *status = QStringLiteral("Open or focus a SumatraPDF PDF before anchor;new");
-        }
-        return std::nullopt;
-    };
-
-    PinloomPanel panel(repository, panelOptions);
-    panel.setSearchText(QStringLiteral("Selected PDF"));
-    QVERIFY(panel.selectFirstResult());
-
-    PinloomCommandPanelOptions commandOptions;
-    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel.statusText();
-        }
-        return captured;
-    };
-    PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(!commandPanel.activateCurrentCommandItem());
-
-    QCOMPARE(foregroundRequestCount, 1);
-    QCOMPARE(commandPanel.statusText(), QStringLiteral("Open or focus a SumatraPDF PDF before anchor;new"));
-    QCOMPARE(panel.statusText(), commandPanel.statusText());
-    const std::optional<Resource> selected = repository.findResource(selectedResource.id);
-    QVERIFY(selected.has_value());
-    QVERIFY(selected->anchors.isEmpty());
-}
-
-void WidgetSmokeTest::commandPanelAnchorCaptureReportsForegroundPdfWithoutFilePath()
-{
-    InMemoryLibraryRepository repository;
-
-    ForegroundAppWindowContext foregroundContext;
-    foregroundContext.windowTitle = QStringLiteral("clock - SumatraPDF");
-    foregroundContext.processName = QStringLiteral("SumatraPDF.exe");
-
-    int foregroundRequestCount = 0;
-    PinloomPanelOptions panelOptions;
-    panelOptions.foregroundPdfAnchorCaptureRequestProvider =
-        [&](QString *status) -> std::optional<ManualPdfAnchorCreationRequest> {
-        ++foregroundRequestCount;
-        const SumatraPdfForegroundCaptureResult capture =
-            captureSumatraPdfForegroundContext(repository, foregroundContext, SumatraPdfViewState{});
-        if (status) {
-            *status = capture.status;
-        }
-        if (!capture.success()) {
-            return std::nullopt;
-        }
-        return capture.request;
-    };
-
-    PinloomPanel panel(repository, panelOptions);
-
-    PinloomCommandPanelOptions commandOptions;
-    commandOptions.anchorCaptureHandler = [&panel](QString *status) {
-        const bool captured = panel.captureForegroundPdfAnchor();
-        if (status) {
-            *status = panel.statusText();
-        }
-        return captured;
-    };
-    PinloomCommandPanel commandPanel(commandOptions);
-    commandPanel.setCommandText(QStringLiteral("anchor;new"));
-
-    QVERIFY(!commandPanel.activateCurrentCommandItem());
-
-    QCOMPARE(foregroundRequestCount, 1);
-    QVERIFY(commandPanel.statusText().contains(QStringLiteral("Confirm the PDF file")));
-    QVERIFY(commandPanel.statusText().contains(QStringLiteral("no indexed PDF matched")));
-    QVERIFY(repository.search(SearchQuery{}).isEmpty());
 }
 
 void WidgetSmokeTest::panelDisplaysAnchorAwareResults()

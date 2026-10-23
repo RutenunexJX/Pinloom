@@ -47,8 +47,18 @@ private slots:
         const auto resolved = call(path, "session.resolve");
         QCOMPARE(resolved["captureProtocol"].toString(), "pinloom-pdf-capture/v1");
         QCOMPARE(resolved["library"].toString(), canonicalLibraryPath(path));
+        const auto captureFeatures = resolved["captureFeatures"].toArray();
+        QVERIFY(captureFeatures.contains(QStringLiteral("rectangle")));
+        QVERIFY(captureFeatures.contains(QStringLiteral("text-anchor")));
         QVERIFY(!QFileInfo::exists(path));
         const auto capabilities = call(path, "capabilities");
+        QCOMPARE(call(path, "schema"), capabilities);
+        const auto locatorTypes = capabilities["locatorTypes"].toArray();
+        for (const auto type : {"manual", "file.line", "zeroslack.source", "url.fragment", "text.heading", "text.block",
+                               "pdf.page", "pdf.region", "sumatrapdf.page", "sumatrapdf.rect", "sumatrapdf.search",
+                               "sumatrapdf.text", "excel.range", "excel.name", "word.bookmark", "powerpoint.shape", "visio.shape"})
+            QVERIFY2(locatorTypes.contains(QString::fromLatin1(type)), type);
+        QVERIFY(!QFileInfo::exists(path));
         bool found = false;
         for (const auto &value : capabilities["methods"].toArray()) {
             const auto method = value.toObject();

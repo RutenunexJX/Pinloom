@@ -116,7 +116,6 @@ public:
     bool editSelectedAnchor(const QString &name, const QStringList &aliases, const QStringList &tags);
     bool requestDeleteSelectedAnchor();
     bool setSelectedAnchorPinned(bool pinned);
-    bool captureForegroundPdfAnchor();
     bool addManualAnchorToSelectedResource(const QString &target, int line = -1);
     bool addManualAnchorToResource(const QString &resourceId, const QString &target, int line = -1);
     bool setSelectedResourcePinned(bool pinned);

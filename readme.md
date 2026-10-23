@@ -1,6 +1,8 @@
 # Pinloom
 
-Current version: `0.4.16`; database Schema: `16`.
+Current version: `0.4.17`; database Schema: `16`.
+
+Release 0.4.17 moves PDF text anchors into the paired SumatraPDF 3.6.1-pinloom.2 reader, removes duplicate PDF capture entries and PDF Text Clip, and adds automatic CLI discovery with remembered fallback settings. The public CLI capability list includes native text anchors. Generic Clip and Hyper+S are unchanged.
 
 Release 0.4.16 uses narrow library queries for capture status and saving, preserving complete anchor contents, duplicate receipts and conflict checks. The paired SumatraPDF remains 3.6.1-pinloom.1.
 
@@ -220,14 +222,9 @@ fixed `Pinloom` directory so shortcuts can continue to target
 ```
 
 Pinloom starts as a resident app with one global shortcut: `Shift+Space` summons
-the Command Window and focuses one search/command input. When another application
-takes foreground, the Command Window collapses to a non-activating floating
-toolbar with three Capture icons. Hover/focus does not expand it; `Shift+Space`
-restores the full bar, after any active floating capture/confirmation finishes.
-Drag the toolbar background or any icon to reposition it. A drag does not run
-capture; a normal click still does. Its position is retained for the current
-session and constrained to the screen's available area. Ela builds use an
-Ela rounded surface with transparent outer corners and Ela tool buttons.
+the Command Window and focuses one search/command input. PDF capture is available
+in the paired SumatraPDF reader. The command window no longer has a PDF capture
+button row or a floating PDF capture toolbar.
 The version remains in the title bar, not beside Navigate. Type an ordinary query
 to search unified results across Anchors, Saved Clips, Inbox files, and regular
 file/resource results. Unified results show an icon and name, a short location
@@ -315,9 +312,6 @@ Deleting an Obsidian-backed Clip writes `pinloom_state: "deleted"` before
 moving the SQLite row to Trash. Restoring writes `saved`. Permanent removal
 keeps the Markdown file, marks it `forgotten`, and removes only Pinloom's local
 index row, so a later vault scan cannot recreate the Clip.
-Use `clip;pdf-text`, or the `PDF Text Clip` button below the command input, to
-save the selected text from the remembered SumatraPDF document through the
-same metadata confirmation and Saved Clip persistence path as `F24+S`.
 
 Type `anchor` or an ordered abbreviation such as `an` to see anchor commands. Use
 `anchor;library` to open the Anchor Library, which lists every file
@@ -404,39 +398,32 @@ multi-computer Saved Clips, synchronize the configured Obsidian Markdown vault
 and let each computer keep its own local SQLite index. Anchor replication is
 not implemented.
 
-The recommended SumatraPDF flow is: open or
-focus the target PDF in SumatraPDF, press `Shift+Space`, type `anchor;new`,
-drag a rectangle inside one PDF page, enter the anchor name plus optional
-aliases/tags/pinned state, then save. Right-click or press `Esc` while dragging
-mode is active to cancel. Capture also has a bounded timeout and reports
-cross-page, coordinate sampling, and timeout failures explicitly. The dialog
-shows the full PDF path, page, rectangle, runtime zoom, and capture source.
-During a drag, target checks run outside the UI event loop. DDE requests run in
-the bounded `pinloom_pdf_probe.exe` helper, which must remain beside the main
-executable. A hung probe is terminated without terminating the reader; Escape
-and selection painting remain responsive. `--package-check` verifies the helper
-without opening user data or contacting a PDF reader.
-Opening the anchor returns to the stored page and rectangle. Version 3 locators
+Opening a native PDF anchor restores the stored rectangle or exact text range
+in the paired SumatraPDF reader and requires its explicit positioning receipt.
+Version 3 locators
 store document identity, page-space coordinates, media/crop boxes, rotation,
 user unit, and adapter provenance with `coordinateSpace: page-top-left`; they
 persist neither desktop pixels nor live zoom. Existing locators, including
 legacy zoom/rectangle spellings, remain readable and are not rewritten in the
 background. A successful edit or recapture writes the current version.
-Rectangle
-jumps generate a temporary annotated PDF copy and launch it only after the
+Legacy rectangle jumps generate a temporary annotated PDF copy and launch it only after the
 expected preview file and page are verified. The original PDF is not modified,
 and the annotation remains attached to PDF content when the viewer scrolls,
 zooms, or moves. Generation and navigation are asynchronous and bounded;
-superseded or canceled requests cannot launch stale previews. SumatraPDF 3.7
-or newer is required for the DDE requests used by capture.
+superseded or canceled requests cannot launch stale previews. These legacy
+preview and recapture paths retain their existing renderer/DDE requirements.
 
-The command window keeps `PDF Rectangle Anchor`, `PDF Text Anchor`, and
-`PDF Text Clip` actions directly below the `Shift+Space` input. Text Anchor
-captures selected SumatraPDF text as a page-hinted `sumatrapdf.search` locator.
-The same operations are available as `anchor;rectangle`, `anchor;text`, and
-`clip;pdf-text`. `anchor;new` also dispatches to the
-remembered Word, Visio, or Excel window: Word uses bookmarks, Visio uses a shape
-UniqueID, and Excel uses an exact defined name or absolute worksheet range.
+PDF anchors are captured in the paired reader. Use its Capture toolbar button
+for a rectangle, or select native PDF text and choose `Save Text Anchor to Pinloom`
+from the context menu. The adjacent card supports name, tags, Save, Reselect and
+Cancel. Text anchors preserve the complete extracted text and native character
+range; reopening verifies that range before confirming positioning. A selectable
+text layer is required. The PDF-specific Text Clip operation has been removed;
+generic Clip capture and `F24+S` keep their existing behavior.
+
+`anchor;new` dispatches to the remembered Word, Visio, or Excel window: Word uses
+bookmarks, Visio uses a shape UniqueID, and Excel uses an exact defined name or
+absolute worksheet range. For PDF documents it directs capture to the paired reader.
 Any required document mutation is shown in the shared confirmation dialog and
 is performed only after explicit authorization.
 
@@ -541,9 +528,10 @@ Word bookmark creation/saving, Visio UniqueID creation and optional Excel define
 explicit authorization when they mutate a native document. Unsupported, unsaved or protected targets fail
 with a reason instead of producing a generic locator. Excel prefers a matching defined name or exact A1 range.
 
-PDF capture goes through `PdfViewerAdapter`; identity, page-space coordinates, rotation and crop metadata are
-authoritative. The annotated-copy presenter supplies stable highlights. Window geometry is an observation,
-not persisted Anchor identity, and superseded/canceled capture cannot open a stale preview.
+New PDF capture uses the paired reader's native selection and `capture.pdf` contract.
+Document identity, page-space geometry and native text ranges are authoritative.
+`PdfViewerAdapter` retains legacy positioning and recapture; its annotated-copy
+presenter requires the existing preview renderer. Desktop geometry is not persisted Anchor identity.
 
 Semantic light/dark colors, focus, selection, status and density are shared across command, library,
 settings and confirmation surfaces. State is expressed with text as well as color; native-app launch and

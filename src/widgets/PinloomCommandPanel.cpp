@@ -1,6 +1,5 @@
 #include "pinloom/widgets/PinloomUiControls.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
-#include "pinloom/widgets/CommandFloatingController.h"
 
 #include "pinloom/core/Version.h"
 #include "pinloom/clip/ClipAction.h"
@@ -1072,24 +1071,10 @@ void PinloomCommandPanel::configureOwnedCommandDispatcher()
                       options_.clipLibraryHandler,
                       tr("Opened Clip Library"),
                       tr("Unable to open Clip Library"));
-    addBooleanHandler(CommandAction::ClipPdfText,
-                      options_.pdfTextClipCaptureHandler,
-                      tr("Captured PDF text Clip"),
-                      tr("PDF Text Clip is unavailable for the remembered target"));
     addBooleanHandler(CommandAction::AnchorNew,
                       options_.anchorCaptureHandler,
                       tr("Captured anchor"),
                       tr("No anchor context available"));
-    addBooleanHandler(CommandAction::AnchorPdfRectangle,
-                      options_.rectangleAnchorCaptureHandler
-                          ? options_.rectangleAnchorCaptureHandler
-                          : options_.anchorCaptureHandler,
-                      tr("Captured PDF rectangle Anchor"),
-                      tr("PDF Rectangle Anchor is unavailable for the remembered target"));
-    addBooleanHandler(CommandAction::AnchorPdfText,
-                      options_.textAnchorCaptureHandler,
-                      tr("Captured PDF text Anchor"),
-                      tr("PDF Text Anchor is unavailable for the remembered target"));
     addBooleanHandler(CommandAction::AnchorLibrary,
                       options_.anchorLibraryHandler,
                       tr("Opened Anchor Library"),
@@ -1147,53 +1132,6 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     clipLibraryButton_->setFixedSize(visualMetrics.primaryControlHeight,
                                      visualMetrics.primaryControlHeight);
     clipLibraryButton_->setVisible(false);
-
-    quickActionRow_ = new QWidget(this);
-    quickActionRow_->setObjectName(QStringLiteral("commandQuickActionRow"));
-    auto *quickLayout = new QHBoxLayout(quickActionRow_);
-    quickLayout->setContentsMargins(0, 0, 0, 0);
-    quickLayout->setSpacing(8);
-    auto *quickLabel = Pinloom::Ui::label(tr("Capture"), quickActionRow_);
-    quickLabel->setObjectName(QStringLiteral("commandQuickActionLabel"));
-    quickLabel->setProperty("pinloomTextRole", QStringLiteral("metadata"));
-    quickLayout->addWidget(quickLabel);
-
-    rectangleAnchorButton_ = Pinloom::Ui::toolButton(quickActionRow_);
-    rectangleAnchorButton_->setObjectName(QStringLiteral("commandRectangleAnchorButton"));
-    rectangleAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
-    rectangleAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
-    rectangleAnchorButton_->setText(tr("PDF Rectangle Anchor"));
-    rectangleAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    rectangleAnchorButton_->setToolTip(tr("Capture a rectangle in the remembered SumatraPDF document"));
-    rectangleAnchorButton_->setAccessibleName(tr("PDF Rectangle Anchor"));
-    rectangleAnchorButton_->setEnabled(commandDispatcher_
-        && commandDispatcher_->hasHandler(CommandAction::AnchorPdfRectangle));
-    quickLayout->addWidget(rectangleAnchorButton_);
-
-    textAnchorButton_ = Pinloom::Ui::toolButton(quickActionRow_);
-    textAnchorButton_->setObjectName(QStringLiteral("commandTextAnchorButton"));
-    textAnchorButton_->setProperty("pinloomControl", QStringLiteral("compact"));
-    textAnchorButton_->setMinimumHeight(visualMetrics.compactControlHeight);
-    textAnchorButton_->setText(tr("PDF Text Anchor"));
-    textAnchorButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    textAnchorButton_->setToolTip(tr("Capture selected text in the remembered SumatraPDF document"));
-    textAnchorButton_->setAccessibleName(tr("PDF Text Anchor"));
-    textAnchorButton_->setEnabled(commandDispatcher_
-        && commandDispatcher_->hasHandler(CommandAction::AnchorPdfText));
-    quickLayout->addWidget(textAnchorButton_);
-
-    pdfTextClipButton_ = Pinloom::Ui::toolButton(quickActionRow_);
-    pdfTextClipButton_->setObjectName(QStringLiteral("commandPdfTextClipButton"));
-    pdfTextClipButton_->setProperty("pinloomControl", QStringLiteral("compact"));
-    pdfTextClipButton_->setMinimumHeight(visualMetrics.compactControlHeight);
-    pdfTextClipButton_->setText(tr("PDF Text Clip"));
-    pdfTextClipButton_->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    pdfTextClipButton_->setToolTip(tr("Save selected text from the remembered SumatraPDF document as a Clip"));
-    pdfTextClipButton_->setAccessibleName(tr("PDF Text Clip"));
-    pdfTextClipButton_->setEnabled(commandDispatcher_
-        && commandDispatcher_->hasHandler(CommandAction::ClipPdfText));
-    quickLayout->addWidget(pdfTextClipButton_);
-    quickLayout->addStretch(1);
 
     resultList_ = new Pinloom::Ui::List(this);
     resultList_->setObjectName(QStringLiteral("commandResultList"));
@@ -1260,7 +1198,6 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     inputRow->addWidget(navigation);
     inputRow->addWidget(clipLibraryButton_);
     layout->addLayout(inputRow);
-    layout->addWidget(quickActionRow_);
     layout->addWidget(resultList_, 1);
     layout->addWidget(footer_);
 
@@ -1270,28 +1207,13 @@ PinloomCommandPanel::PinloomCommandPanel(PinloomCommandPanelOptions options, QWi
     connect(commandEdit_, &QLineEdit::textChanged, this, &PinloomCommandPanel::refreshResults);
     connect(commandEdit_, &QLineEdit::returnPressed, this, &PinloomCommandPanel::activateCurrentCommandItem);
     connect(clipLibraryButton_, &QToolButton::clicked, this, &PinloomCommandPanel::openClipLibrary);
-    connect(rectangleAnchorButton_,
-            &QToolButton::clicked,
-            this,
-            &PinloomCommandPanel::triggerRectangleAnchorCapture);
-    connect(textAnchorButton_,
-            &QToolButton::clicked,
-            this,
-            &PinloomCommandPanel::triggerTextAnchorCapture);
-    connect(pdfTextClipButton_,
-            &QToolButton::clicked,
-            this,
-            &PinloomCommandPanel::triggerPdfTextClipCapture);
     connect(resultList_, &Pinloom::Ui::List::itemActivated, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &Pinloom::Ui::List::itemDoubleClicked, this, &PinloomCommandPanel::activateResultItem);
     connect(resultList_, &Pinloom::Ui::List::currentItemChanged, this, [this] {
         updateKeyboardHint();
     });
 
-    QWidget::setTabOrder(commandEdit_, rectangleAnchorButton_);
-    QWidget::setTabOrder(rectangleAnchorButton_, textAnchorButton_);
-    QWidget::setTabOrder(textAnchorButton_, pdfTextClipButton_);
-    QWidget::setTabOrder(pdfTextClipButton_, resultList_);
+    QWidget::setTabOrder(commandEdit_, resultList_);
 
     setTheme(PinloomCommandTheme::Neutral);
     refreshResults();
@@ -1816,22 +1738,11 @@ void PinloomCommandPanel::refreshResults()
                             definition.title,
                             definition.verb,
                             definition.detail);
-    } else if (command.commandNamespace == CommandNamespace::Clip
-               && command.action == CommandAction::ClipPdfText) {
-        const PinloomCommandDefinition definition =
-            PinloomCommandRegistry::definition(command.action).value();
-        appendCommandResult(CommandRowAction::RegisteredCommand,
-                            definition.canonical,
-                            definition.title,
-                            definition.verb,
-                            definition.detail);
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::None) {
         appendNamespaceCommands(CommandNamespace::Anchor);
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && (command.action == CommandAction::AnchorNew
-                   || command.action == CommandAction::AnchorPdfRectangle
-                   || command.action == CommandAction::AnchorPdfText
                    || command.action == CommandAction::AnchorLibrary)) {
         const PinloomCommandDefinition definition =
             PinloomCommandRegistry::definition(command.action).value();
@@ -1918,21 +1829,12 @@ void PinloomCommandPanel::refreshResults()
     } else if (command.commandNamespace == CommandNamespace::Clip
                && command.action == CommandAction::ClipLibrary) {
         updateStatus(tr("Open Clip Library pending"));
-    } else if (command.commandNamespace == CommandNamespace::Clip
-               && command.action == CommandAction::ClipPdfText) {
-        updateStatus(tr("Capture selected PDF text as Clip pending"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::None) {
         updateStatus(tr("Anchor commands"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorNew) {
         updateStatus(tr("Capture anchor current app context pending"));
-    } else if (command.commandNamespace == CommandNamespace::Anchor
-               && command.action == CommandAction::AnchorPdfRectangle) {
-        updateStatus(tr("Capture PDF rectangle Anchor pending"));
-    } else if (command.commandNamespace == CommandNamespace::Anchor
-               && command.action == CommandAction::AnchorPdfText) {
-        updateStatus(tr("Capture PDF text Anchor pending"));
     } else if (command.commandNamespace == CommandNamespace::Anchor
                && command.action == CommandAction::AnchorLibrary) {
         updateStatus(tr("Open Anchor Library pending"));
@@ -2012,7 +1914,6 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
     theme_ = theme;
     appliedThemeKey_ = themeKey;
     const PinloomVisualTokens tokens = pinloomVisualTokens(scheme);
-    const QString accent = themeAccent(theme_, scheme).name(QColor::HexRgb);
     const QString panel = tokens.panel.name(QColor::HexRgb);
     const QString alternate = tokens.alternateSurface.name(QColor::HexRgb);
     const QString border = tokens.border.name(QColor::HexRgb);
@@ -2025,76 +1926,56 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
     const QString selectionText = tokens.selectionText.name(QColor::HexRgb);
     const QString selection = tokens.selection.name(QColor::HexRgb);
     setStyleSheet(Ui::scopedStyleSheet(QStringLiteral(
-        "QWidget#pinloomCommandPanel { color: %2; }"
+        "QWidget#pinloomCommandPanel { color: %1; }"
         "QLineEdit#commandSearchEdit {"
-        "  background-color: %3;"
-        "  border: 1px solid %4;"
+        "  background-color: %2;"
+        "  border: 1px solid %3;"
         "  border-radius: 8px;"
-        "  color: %2;"
+        "  color: %1;"
         "  font-size: 14px;"
         "  padding: 4px 12px;"
-        "  selection-background-color: %12;"
-        "  selection-color: %5;"
+        "  selection-background-color: %11;"
+        "  selection-color: %4;"
         "}"
-        "QLineEdit#commandSearchEdit:focus { border: 2px solid %6; }"
+        "QLineEdit#commandSearchEdit:focus { border: 2px solid %5; }"
         "QToolButton#commandClipLibraryButton {"
-        "  background-color: %3;"
-        "  border: 1px solid %4;"
+        "  background-color: %2;"
+        "  border: 1px solid %3;"
         "  border-radius: 8px;"
         "  padding: 4px;"
         "}"
-        "QToolButton#commandClipLibraryButton:hover { background-color: %7; }"
-        "QWidget#commandQuickActionRow { background: transparent; }"
-        "QLabel#commandQuickActionLabel { color: %8; font-size: 11px; padding: 0 4px; }"
-        "QToolButton#commandRectangleAnchorButton, QToolButton#commandTextAnchorButton,"
-        "QToolButton#commandPdfTextClipButton {"
-        "  background-color: %3;"
-        "  border: 1px solid %4;"
-        "  border-radius: 6px;"
-        "  color: %2;"
-        "  min-height: 28px;"
-        "  padding: 0 8px;"
-        "}"
-        "QToolButton#commandRectangleAnchorButton:hover, QToolButton#commandTextAnchorButton:hover,"
-        "QToolButton#commandPdfTextClipButton:hover {"
-        "  background-color: %7; border-color: %1; color: %1;"
-        "}"
-        "QToolButton#commandRectangleAnchorButton:focus, QToolButton#commandTextAnchorButton:focus,"
-        "QToolButton#commandPdfTextClipButton:focus {"
-        "  border: 2px solid %6;"
-        "}"
-        "QToolButton:disabled { color: %9; background-color: %10; border-color: %4; }"
+        "QToolButton#commandClipLibraryButton:hover { background-color: %6; }"
+        "QToolButton:disabled { color: %8; background-color: %9; border-color: %3; }"
         "QLabel#commandVersionLabel {"
-        "  color: %8;"
+        "  color: %7;"
         "  font-size: 11px;"
         "  padding: 0 2px;"
         "}"
         "QListView#commandResultList {"
-        "  background-color: %3;"
-        "  alternate-background-color: %11;"
+        "  background-color: %2;"
+        "  alternate-background-color: %10;"
         "  border: none;"
         "  border-radius: 0;"
-        "  color: %2;"
+        "  color: %1;"
         "  outline: 0;"
         "}"
         "QListView#commandResultList::item {"
-        "  border-bottom: 1px solid %4;"
+        "  border-bottom: 1px solid %3;"
         "  padding: 8px;"
         "}"
-        "QListView#commandResultList::item:hover { background-color: %7; }"
+        "QListView#commandResultList::item:hover { background-color: %6; }"
         "QListView#commandResultList::item:selected {"
-        "  background-color: %12;"
-        "  color: %5;"
+        "  background-color: %11;"
+        "  color: %4;"
         "}"
         "QWidget#commandFooter { background: transparent; }"
         "QLabel#commandStatusLabel, QLabel#commandKeyboardHint {"
         "  background: transparent;"
         "  border: none;"
-        "  color: %8;"
+        "  color: %7;"
         "  padding: 0;"
         "}"
-    ).arg(accent,
-          text,
+    ).arg(text,
           panel,
           border,
           selectionText,
@@ -2111,8 +1992,6 @@ void PinloomCommandPanel::setTheme(PinloomCommandTheme theme)
 void PinloomCommandPanel::updatePresentation()
 {
     const bool nextCompact = resultList_->count() == 0 && !clipPickerMode_;
-    const bool showQuickActions = !clipPickerMode_;
-    quickActionRow_->setVisible(showQuickActions);
     resultList_->setVisible(!nextCompact);
     footer_->setVisible(!nextCompact);
     statusLabel_->setVisible(!nextCompact);
@@ -2120,9 +1999,6 @@ void PinloomCommandPanel::updatePresentation()
     auto *boxLayout = static_cast<QVBoxLayout *>(layout());
     const QMargins margins = boxLayout->contentsMargins();
     int nextHeight = margins.top() + commandEdit_->height() + margins.bottom();
-    if (showQuickActions) {
-        nextHeight += boxLayout->spacing() + quickActionRow_->sizeHint().height();
-    }
     if (!nextCompact) {
         const int statusHeight = std::max(28, statusLabel_->fontMetrics().height() + 8);
         footer_->setFixedHeight(statusHeight);
@@ -2518,21 +2394,6 @@ bool PinloomCommandPanel::saveClipFromItem(const Pinloom::Ui::ListItem *item)
     return true;
 }
 
-bool PinloomCommandPanel::triggerRectangleAnchorCapture()
-{
-    return dispatchCommand(CommandAction::AnchorPdfRectangle);
-}
-
-bool PinloomCommandPanel::triggerTextAnchorCapture()
-{
-    return dispatchCommand(CommandAction::AnchorPdfText);
-}
-
-bool PinloomCommandPanel::triggerPdfTextClipCapture()
-{
-    return dispatchCommand(CommandAction::ClipPdfText);
-}
-
 bool PinloomCommandPanel::openClipLibrary()
 {
     return dispatchCommand(CommandAction::ClipLibrary);
@@ -2542,9 +2403,7 @@ bool PinloomCommandPanel::dispatchCommand(CommandAction id)
 {
     if (id == CommandAction::ClipLibrary) {
         emit clipLibraryRequested();
-    } else if (id == CommandAction::AnchorNew
-               || id == CommandAction::AnchorPdfRectangle
-               || id == CommandAction::AnchorPdfText) {
+    } else if (id == CommandAction::AnchorNew) {
         emit anchorCaptureRequested();
     } else if (id == CommandAction::RootLibrary) {
         emit libraryRootRequested();
@@ -2839,9 +2698,6 @@ bool PinloomCommandPanel::handleInboxDrop(QEvent *event)
 
 void showCommandPanelForHotkey(QWidget &commandWindow, PinloomCommandPanel &panel)
 {
-    if (auto *controller = commandWindow.findChild<CommandFloatingController *>()) {
-        if (!controller->requestExpansion()) return;
-    }
     const auto margins = commandWindow.contentsMargins();
     const int hostHeight = panel.preferredWindowHeight() + margins.top() + margins.bottom();
     commandWindow.setFixedHeight(hostHeight);

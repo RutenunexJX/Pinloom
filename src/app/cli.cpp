@@ -10,6 +10,7 @@
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
+#include <QJsonArray>
 #include <QElapsedTimer>
 #include <QProcess>
 #include <QSettings>
@@ -63,6 +64,7 @@ int main(int argc, char **argv)
         const auto selected = parser.value("library").trimmed().isEmpty() ? configured : parser.value("library");
         return output({{"protocol", "pinloom-cli/v1"}, {"ok", true}, {"exitCode", 0}, {"result", QJsonObject{
             {"library", Pinloom::canonicalLibraryPath(selected)}, {"captureProtocol", "pinloom-pdf-capture/v1"},
+            {"captureFeatures", QJsonArray{"rectangle", "text-anchor"}},
             {"appPath", QDir(QCoreApplication::applicationDirPath()).filePath("pinloom_app.exe")}}}});
     }
     if (arguments.size() != 1 || parser.value("library").trimmed().isEmpty())

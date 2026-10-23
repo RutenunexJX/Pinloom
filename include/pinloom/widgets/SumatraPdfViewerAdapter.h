@@ -35,10 +35,6 @@ struct SumatraPdfViewerAdapterOptions {
     std::function<SumatraPdfDdeMousePosition(const QPoint &globalPosition,
                                              int timeoutMilliseconds)>
         mousePositionProvider;
-    std::function<ForegroundTextTarget()> textTargetProvider;
-    std::function<TextSelectionCaptureResult(
-        const ForegroundAppWindowContext &,
-        const ForegroundTextTarget &)> textSelectionProvider;
     std::function<PdfPageGeometryResult(const QString &sourceFilePath,
                                         int pageNumber)>
         pageGeometryProvider;
@@ -67,8 +63,6 @@ public:
     bool supportsContext(const ForegroundAppWindowContext &context) const override;
     bool supportsAnchor(const Anchor &anchor) const override;
     PdfViewerCaptureResult captureRectangle(
-        const PdfViewerCaptureRequest &request) override;
-    PdfViewerCaptureResult captureText(
         const PdfViewerCaptureRequest &request) override;
     PdfViewerOpenStartResult open(
         const PdfViewerOpenRequest &request,

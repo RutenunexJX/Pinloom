@@ -16,9 +16,6 @@ The primary entry point is `Shift+Space`:
   insertion.
 - `clip;new` lists temporary history items that can be promoted to Saved Clips.
 - `clip;library` opens Saved, History, and Trash management.
-- `clip;pdf-text` captures the selected text from the SumatraPDF target that
-  was remembered before the Command Window opened. The same operation is
-  available as the `PDF Text Clip` button below the input.
 - The tray `Show Clipboard` action opens the direct Clip Picker.
 - Dropping plain text on the Command Window opens the same Saved Clip metadata
   flow, including name and tag selection.

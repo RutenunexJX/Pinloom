@@ -1,5 +1,9 @@
 # Pinloom 0.4.8: Ela interactions and release verification
 
+Historical release record. The later PDF capture integration removes the three
+PDF command actions and floating capture toolbar; see SUMATRA-MAINTENANCE.md
+for the current reader workflow.
+
 ## Scope and component responsibilities
 
 Only the ELA build and runtime UI are supported. Qt 6.10.2 EXACT/MinGW 13.1.0

@@ -1323,22 +1323,6 @@ bool PinloomPanel::capturePdfAnchorFromSuggestedRequest(
     return true;
 }
 
-bool PinloomPanel::captureForegroundPdfAnchor()
-{
-    QString foregroundPdfStatus;
-    std::optional<ManualPdfAnchorCreationRequest> foregroundPdfRequest;
-    if (options_.foregroundPdfAnchorCaptureRequestProvider) {
-        foregroundPdfRequest = options_.foregroundPdfAnchorCaptureRequestProvider(&foregroundPdfStatus);
-    }
-
-    return capturePdfAnchorFromSuggestedRequest(
-        foregroundPdfRequest,
-        foregroundPdfStatus.trimmed().isEmpty()
-            ? tr("Open or focus a SumatraPDF PDF before anchor;new")
-            : foregroundPdfStatus.trimmed(),
-        false);
-}
-
 bool PinloomPanel::captureCurrentAppPosition()
 {
     QString foregroundPdfStatus;

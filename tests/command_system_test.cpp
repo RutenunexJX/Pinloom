@@ -31,17 +31,13 @@ void CommandSystemTest::registryHasStableUniqueRowsAndCompatibleInputAliases()
         }
     }
 
-    PinloomParsedCommand parsed = PinloomCommandRegistry::parse(
-        QStringLiteral("anchor:rect"));
-    QCOMPARE(parsed.action, PinloomCommandId::AnchorPdfRectangle);
-    QCOMPARE(parsed.commandNamespace, PinloomCommandNamespace::Anchor);
-
-    parsed = PinloomCommandRegistry::parse(QStringLiteral("k;te"));
-    QCOMPARE(parsed.action, PinloomCommandId::AnchorPdfText);
-
-    parsed = PinloomCommandRegistry::parse(QStringLiteral("clip;text"));
-    QCOMPARE(parsed.action, PinloomCommandId::ClipPdfText);
-
+    for (const auto &definition : PinloomCommandRegistry::definitions()) {
+        QVERIFY(definition.canonical != QStringLiteral("anchor;rectangle"));
+        QVERIFY(definition.canonical != QStringLiteral("anchor;text"));
+        QVERIFY(definition.canonical != QStringLiteral("clip;pdf-text"));
+        QVERIFY(!definition.aliases.contains(QStringLiteral("clip;text")));
+    }
+    PinloomParsedCommand parsed;
     parsed = PinloomCommandRegistry::parse(QStringLiteral("search phase noise"));
     QCOMPARE(parsed.action, PinloomCommandId::OpenSearch);
     QCOMPARE(parsed.query, QStringLiteral("phase noise"));

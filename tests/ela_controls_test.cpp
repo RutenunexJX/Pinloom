@@ -10,7 +10,6 @@
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/ManualPdfAnchorDialog.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
-#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomSettingsDialog.h"
 
@@ -745,52 +744,16 @@ private slots:
         QVERIFY(preview->findChild<QLabel *>("anchorLocatorExpandedPreviewImage")->inherits("ElaText"));
         preview->close();
     }
-    void floatingCaptureGeometryAndAccessibility() {
+    void commandPanelOmitsPdfCaptureActions() {
         PinloomMainWindow host;
         host.setLauncherMode(true);
-        PinloomCommandPanelOptions options;
-        options.rectangleAnchorCaptureHandler = [](QString *) { return true; };
-        options.textAnchorCaptureHandler = [](QString *) { return true; };
-        options.pdfTextClipCaptureHandler = [](QString *) { return true; };
-        auto *panel = new PinloomCommandPanel(options, &host);
+        auto *panel = new PinloomCommandPanel({}, &host);
         host.setCentralWidget(panel);
-        CommandFloatingController controller(host, *panel);
         showCommandPanelForHotkey(host, *panel);
+        for (const auto *name : {"commandRectangleAnchorButton", "commandTextAnchorButton", "commandPdfTextClipButton", "commandQuickActionRow"})
+            QVERIFY(!panel->findChild<QWidget *>(QString::fromLatin1(name)));
         QVERIFY(!panel->findChild<QLabel *>(QStringLiteral("commandVersionLabel")));
-        snapshot(host, "command-no-right-version");
-        controller.handleApplicationStateChanged(Qt::ApplicationInactive);
-        auto *floating = controller.floatingWindow();
-        QVERIFY(floating->isVisible());
-        QVERIFY(floating->inherits("ElaScrollPageArea"));
-        QVERIFY(floating->testAttribute(Qt::WA_TranslucentBackground));
-        QVERIFY(floating->testAttribute(Qt::WA_ShowWithoutActivating));
-        QVERIFY(floating->windowFlags().testFlag(Qt::WindowDoesNotAcceptFocus));
-        const auto buttons = floating->findChildren<QToolButton *>();
-        QCOMPARE(buttons.size(), 3);
-        for (auto *button : buttons) {
-            QVERIFY(button->inherits("ElaToolButton"));
-            QVERIFY(floating->rect().contains(button->geometry()));
-            QCOMPARE(button->toolButtonStyle(), Qt::ToolButtonIconOnly);
-            QVERIFY(!button->icon().isNull());
-            auto *accessible = QAccessible::queryAccessibleInterface(button);
-            QVERIFY(accessible);
-            QCOMPARE(accessible->text(QAccessible::Name), button->accessibleName());
-        }
-        QVERIFY(floating->width() <= 3 * pinloomVisualMetrics().primaryControlHeight + 24);
-        const auto pixels = floating->grab().toImage();
-        for (const auto corner : {QPoint(0, 0), QPoint(pixels.width() - 1, 0),
-                                  QPoint(0, pixels.height() - 1), pixels.rect().bottomRight()})
-            QCOMPARE(pixels.pixelColor(corner).alpha(), 0);
-        QCOMPARE(pixels.pixelColor(pixels.rect().center()).alpha(), 255);
-        snapshot(*floating, "floating-capture");
-        const auto oppositeScheme = scheme_ == PinloomVisualScheme::Light
-            ? PinloomVisualScheme::Dark : PinloomVisualScheme::Light;
-        applyPinloomVisualTheme(*qApp, oppositeScheme);
-        QCOMPARE(floating->grab().toImage().pixelColor(0, 0).alpha(), 0);
-        applyPinloomVisualTheme(*qApp, scheme_);
-        showCommandPanelForHotkey(host, *panel);
-        QVERIFY(host.isVisible());
-        QVERIFY(!floating->isVisible());
+        snapshot(host, "command-without-pdf-capture-actions");
     }
     void navigationParentTeardownWithVisiblePopup() {
         for (int repeat = 0; repeat < 8; ++repeat) {

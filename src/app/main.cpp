@@ -33,7 +33,6 @@
 #include "pinloom/widgets/LibraryRootWindow.h"
 #include "pinloom/widgets/MainPanelHotkey.h"
 #include "pinloom/widgets/PinloomCommandPanel.h"
-#include "pinloom/widgets/CommandFloatingController.h"
 #include "pinloom/widgets/PinloomMainWindow.h"
 #include "pinloom/widgets/PinloomEntrySearchService.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
@@ -721,7 +720,6 @@ int main(int argc, char *argv[])
     };
 
     Pinloom::ForegroundAppWindowContext lastForegroundContext;
-    bool floatingCaptureActive = false;
     Pinloom::ForegroundTextTarget lastForegroundTextTarget;
     const auto rememberForegroundTarget = [&lastForegroundContext, &lastForegroundTextTarget]() {
         const auto context = Pinloom::currentForegroundAppWindowContext();
@@ -798,55 +796,6 @@ int main(int argc, char *argv[])
         return true;
     };
 
-    const auto pdfViewerCaptureRequest =
-        [&lastForegroundContext,
-         &lastForegroundTextTarget,
-         &floatingCaptureActive,
-         &commandWindowForForegroundCapture]() {
-        Pinloom::PdfViewerCaptureRequest request;
-        const bool useRememberedTarget = commandWindowForForegroundCapture
-            && (commandWindowForForegroundCapture->isVisible() || floatingCaptureActive)
-            && lastForegroundContext.isValid();
-        if (useRememberedTarget) {
-            request.context = lastForegroundContext;
-            request.textTarget = lastForegroundTextTarget;
-        }
-        request.parent = commandWindowForForegroundCapture;
-        return request;
-    };
-    const auto foregroundPdfAnchorCaptureRequestProvider =
-        [&pdfViewerAdapter,
-         &pdfViewerCaptureRequest,
-         &commandWindowForForegroundCapture](QString *status)
-        -> std::optional<Pinloom::ManualPdfAnchorCreationRequest> {
-        const Pinloom::PdfViewerCaptureRequest captureRequest =
-            pdfViewerCaptureRequest();
-        const bool restoreCommandWindow = commandWindowForForegroundCapture
-            && commandWindowForForegroundCapture->isVisible();
-        if (restoreCommandWindow) {
-            commandWindowForForegroundCapture->hide();
-            QApplication::processEvents();
-        }
-        const Pinloom::PdfViewerCaptureResult result =
-            pdfViewerAdapter.captureRectangle(captureRequest);
-        if (restoreCommandWindow) {
-            commandWindowForForegroundCapture->show();
-            commandWindowForForegroundCapture->raise();
-            commandWindowForForegroundCapture->activateWindow();
-        }
-        if (status) {
-            *status = result.message;
-            if (!result.diagnostics.trimmed().isEmpty()
-                && result.diagnostics.trimmed() != result.message.trimmed()) {
-                status->append(QStringLiteral(": ")
-                                   + result.diagnostics.trimmed());
-            }
-        }
-        return result.succeeded()
-            ? std::optional<Pinloom::ManualPdfAnchorCreationRequest>(
-                  result.anchorRequest)
-            : std::nullopt;
-    };
     Pinloom::PinloomEntrySearchService entrySearchService(repository, clipSearchHandler);
     Pinloom::PinloomOpenServiceOptions openServiceOptions;
     openServiceOptions.clipInsertionHandler = clipInsertionHandler;
@@ -875,95 +824,11 @@ int main(int argc, char *argv[])
                                  status);
                          }
                      });
-    const auto captureForegroundPdfAnchor =
-        [&foregroundPdfAnchorCaptureRequestProvider,
-         &confirmAndCommitAnchorDraft](QString *status) {
-        QString providerStatus;
-        const std::optional<Pinloom::ManualPdfAnchorCreationRequest> request =
-            foregroundPdfAnchorCaptureRequestProvider(&providerStatus);
-        if (!request.has_value()) {
-            if (status) {
-                *status = providerStatus.trimmed().isEmpty()
-                    ? QStringLiteral("Open or focus a SumatraPDF PDF before capturing an anchor")
-                    : providerStatus.trimmed();
-            }
-            return false;
-        }
-        return confirmAndCommitAnchorDraft(
-            Pinloom::anchorCaptureDraftFromPdfRequest(request.value()),
-            status);
-    };
-
-    const auto captureForegroundPdfTextAnchor =
-        [&pdfViewerAdapter,
-         &pdfViewerCaptureRequest,
-         &confirmAndCommitAnchorDraft](QString *status) {
-        const Pinloom::PdfViewerCaptureResult captured =
-            pdfViewerAdapter.captureText(pdfViewerCaptureRequest());
-        if (!captured.succeeded()) {
-            if (status) {
-                *status = captured.message;
-                if (!captured.diagnostics.trimmed().isEmpty()
-                    && captured.diagnostics.trimmed()
-                           != captured.message.trimmed()) {
-                    status->append(QStringLiteral(": ")
-                                       + captured.diagnostics.trimmed());
-                }
-            }
-            return false;
-        }
-        return confirmAndCommitAnchorDraft(
-            Pinloom::anchorCaptureDraftFromPdfRequest(
-                captured.anchorRequest),
-            status);
-    };
-
-    const auto captureForegroundPdfTextClip =
-        [&pdfViewerAdapter,
-         &pdfViewerCaptureRequest,
-         &commandWindowForForegroundCapture,
-         &availableClipTags,
-         &automaticClipName,
-         &archiveSelectedText](QString *status) {
-        Pinloom::PdfViewerCaptureRequest request = pdfViewerCaptureRequest();
-        request.requirePageGeometry = false;
-        const Pinloom::PdfViewerCaptureResult captured =
-            pdfViewerAdapter.captureText(request);
-        if (!captured.succeeded()) {
-            if (status) {
-                *status = captured.message;
-                if (!captured.diagnostics.trimmed().isEmpty()
-                    && captured.diagnostics.trimmed()
-                           != captured.message.trimmed()) {
-                    status->append(QStringLiteral(": ")
-                                       + captured.diagnostics.trimmed());
-                }
-            }
-            return false;
-        }
-
-        Pinloom::ClipCaptureDialog dialog(
-            captured.textSelection.text,
-            automaticClipName(captured.textSelection.text),
-            availableClipTags(),
-            commandWindowForForegroundCapture);
-        if (dialog.exec() != QDialog::Accepted) {
-            if (status) {
-                *status = QStringLiteral("PDF Text Clip capture canceled");
-            }
-            return false;
-        }
-        return archiveSelectedText(captured.textSelection,
-                                   dialog.metadata(),
-                                   status);
-    };
-
     const auto captureRememberedApplicationAnchor =
         [&lastForegroundContext,
          &commandWindowForForegroundCapture,
          &nativeAnchorCaptureAdapter,
          &pdfViewerAdapter,
-         &captureForegroundPdfAnchor,
          &confirmAndCommitAnchorDraft](QString *status) {
         const Pinloom::ForegroundAppWindowContext context =
             commandWindowForForegroundCapture
@@ -972,7 +837,8 @@ int main(int argc, char *argv[])
             ? lastForegroundContext
             : Pinloom::currentForegroundAppWindowContext();
         if (pdfViewerAdapter.supportsContext(context)) {
-            return captureForegroundPdfAnchor(status);
+            if (status) *status = QStringLiteral("Capture PDF anchors in the paired SumatraPDF reader");
+            return false;
         }
         const Pinloom::NativeAnchorCaptureResult captured =
             nativeAnchorCaptureAdapter.captureForProcess(context.processName);
@@ -1349,9 +1215,6 @@ int main(int argc, char *argv[])
         return true;
     };
     commandOptions.anchorCaptureHandler = captureRememberedApplicationAnchor;
-    commandOptions.rectangleAnchorCaptureHandler = captureForegroundPdfAnchor;
-    commandOptions.textAnchorCaptureHandler = captureForegroundPdfTextAnchor;
-    commandOptions.pdfTextClipCaptureHandler = captureForegroundPdfTextClip;
     commandOptions.anchorLibraryHandler = [&anchorLibraryWindow,
                                            &anchorLibraryOptions,
                                            &window](QString *status) {
@@ -1462,22 +1325,10 @@ int main(int argc, char *argv[])
                            commandOptions.clipLibraryHandler,
                            QStringLiteral("Opened Clip Library"),
                            QStringLiteral("Unable to open Clip Library"));
-    registerBooleanCommand(Pinloom::PinloomCommandId::ClipPdfText,
-                           commandOptions.pdfTextClipCaptureHandler,
-                           QStringLiteral("Captured PDF text Clip"),
-                           QStringLiteral("PDF Text Clip is unavailable for the remembered target"));
     registerBooleanCommand(Pinloom::PinloomCommandId::AnchorNew,
                            commandOptions.anchorCaptureHandler,
                            QStringLiteral("Captured Anchor"),
                            QStringLiteral("No Anchor context is available"));
-    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorPdfRectangle,
-                           commandOptions.rectangleAnchorCaptureHandler,
-                           QStringLiteral("Captured PDF rectangle Anchor"),
-                           QStringLiteral("PDF Rectangle Anchor is unavailable for the remembered target"));
-    registerBooleanCommand(Pinloom::PinloomCommandId::AnchorPdfText,
-                           commandOptions.textAnchorCaptureHandler,
-                           QStringLiteral("Captured PDF text Anchor"),
-                           QStringLiteral("PDF Text Anchor is unavailable for the remembered target"));
     registerBooleanCommand(Pinloom::PinloomCommandId::AnchorLibrary,
                            commandOptions.anchorLibraryHandler,
                            QStringLiteral("Opened Anchor Library"),
@@ -2743,14 +2594,6 @@ int main(int argc, char *argv[])
             return 5;
         }
     }
-    auto *floatingController = new Pinloom::CommandFloatingController(window, *commandPanel);
-    QObject::connect(floatingController, &Pinloom::CommandFloatingController::captureStarted,
-                     &window, [&floatingCaptureActive, rememberForegroundTarget]() {
-                         rememberForegroundTarget();
-                         floatingCaptureActive = true;
-                     });
-    QObject::connect(floatingController, &Pinloom::CommandFloatingController::captureFinished,
-                     &window, [&floatingCaptureActive]() { floatingCaptureActive = false; });
 
     const auto handleInstanceActivation =
         [&window,
@@ -2962,15 +2805,10 @@ int main(int argc, char *argv[])
     Pinloom::MainPanelHotkeyController mainPanelHotkeyController(mainPanelHotkeyService,
                                                                  [&window,
                                                                   commandPanel,
-                                                                  floatingController,
                                                                   &clipQuickPicker,
                                                                   &activeClipInsertionWindow,
                                                                   rememberForegroundTarget,
                                                                   &pendingClipInsertionTarget]() {
-                                                                     if (floatingController->isCapturing()) {
-                                                                         floatingController->requestExpansion();
-                                                                         return;
-                                                                     }
                                                                      rememberForegroundTarget();
                                                                      clipQuickPicker.dismiss();
                                                                      activeClipInsertionWindow = &window;

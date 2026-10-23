@@ -1,7 +1,7 @@
 #pragma once
 
 #include "pinloom/core/ManualPdfAnchorCreation.h"
-#include "pinloom/core/TextSelectionCapture.h"
+#include "pinloom/core/ForegroundApplicationContext.h"
 
 #include <QObject>
 
@@ -39,17 +39,14 @@ struct PdfViewerObservation {
 
 struct PdfViewerCaptureRequest {
     ForegroundAppWindowContext context;
-    ForegroundTextTarget textTarget;
     QWidget *parent = nullptr;
     int timeoutMilliseconds = 30000;
-    bool requirePageGeometry = true;
 };
 
 struct PdfViewerCaptureResult {
     PdfViewerOperationState state = PdfViewerOperationState::Failed;
     PdfViewerObservation observation;
     ManualPdfAnchorCreationRequest anchorRequest;
-    TextSelectionCaptureResult textSelection;
     QString message;
     QString diagnostics;
 
@@ -101,8 +98,6 @@ public:
     virtual bool supportsContext(const ForegroundAppWindowContext &context) const = 0;
     virtual bool supportsAnchor(const Anchor &anchor) const = 0;
     virtual PdfViewerCaptureResult captureRectangle(
-        const PdfViewerCaptureRequest &request) = 0;
-    virtual PdfViewerCaptureResult captureText(
         const PdfViewerCaptureRequest &request) = 0;
     virtual PdfViewerOpenStartResult open(
         const PdfViewerOpenRequest &request,

@@ -263,6 +263,7 @@ bool isSumatraPdfLocatorType(const QString &locatorType)
 {
     const QString type = locatorType.trimmed().toLower();
     return type == QLatin1String("sumatrapdf.rect")
+        || type == QLatin1String("sumatrapdf.text")
         || type == QLatin1String("sumatrapdf.page")
         || type == QLatin1String("sumatrapdf.search")
         || type == QLatin1String("pdf.region")
@@ -346,6 +347,12 @@ SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,
     const QString locatorType = effectiveLocatorType(anchor, locator);
     if (!isSumatraPdfLocatorType(locatorType)) {
         result.error = QStringLiteral("SumatraPDF locator type is unsupported");
+        return result;
+    }
+    if (locatorType == QLatin1String("sumatrapdf.text")
+        && (locator["provenance"].toObject()["adapter"] != "sumatra-pinloom/v1"
+            || locator["text"].toString().trimmed().isEmpty() || !locator["selection"].isObject())) {
+        result.error = QStringLiteral("Native PDF text anchors require a verified reader selection");
         return result;
     }
 

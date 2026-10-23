@@ -40,13 +40,14 @@ NativePdfCaptureDraftResult nativePdfCaptureDraft(const QJsonObject &p)
     if (!pdf.open(QIODevice::ReadOnly) || !pdf.read(1024).contains("%PDF-"))
         return rejected(QStringLiteral("The selected file is not a readable PDF"), "target_unavailable");
     const auto locator = p["locator"].toObject();
+    const bool textAnchor = locator["type"] == "sumatrapdf.text";
     const auto region = rect(locator["rect"]);
     const auto media = rect(locator["mediaBox"]);
     const auto crop = rect(locator["cropBox"]);
     const auto pageValue = locator["page"].toDouble();
     const auto rotationValue = locator["rotation"].toDouble(-1);
     const auto unit = locator["userUnit"].toDouble(-1);
-    if (locator["type"] != "sumatrapdf.rect" || locator["coordinateSpace"] != "page-top-left"
+    if ((!textAnchor && locator["type"] != "sumatrapdf.rect") || locator["coordinateSpace"] != "page-top-left"
         || locator["unit"] != "pt" || locator["version"].toInt() != 3
         || pageValue < 1 || pageValue > 1000000 || pageValue != std::floor(pageValue)
         || !region.isValid() || !media.isValid() || !crop.isValid()
@@ -61,6 +62,25 @@ NativePdfCaptureDraftResult nativePdfCaptureDraft(const QJsonObject &p)
     if (region.left < -0.01 || region.top < -0.01 || region.right > width + 0.01 || region.bottom > height + 0.01
         || region.right - region.left < 0.5 || region.bottom - region.top < 0.5)
         return rejected(QStringLiteral("Select a visible region of at least 0.5 PDF points within one page"));
+    if (textAnchor) {
+        const auto selection = locator["selection"].toObject();
+        const auto integer = [&](const char *key, int minimum, int maximum) {
+            const auto value = selection[key];
+            const double number = value.toDouble(-1);
+            return value.isDouble() && std::isfinite(number) && number == std::floor(number)
+                && number >= minimum && number <= maximum;
+        };
+        if (!integer("startPage", 1, 1000000) || !integer("endPage", 1, 1000000)
+            || !integer("startGlyph", 0, 100000000) || !integer("endGlyph", 0, 100000000))
+            return rejected(QStringLiteral("Invalid native text selection boundaries"));
+        const int startPage = selection["startPage"].toInt(), endPage = selection["endPage"].toInt();
+        if (endPage < startPage || endPage - startPage > 999 || pageValue < startPage || pageValue > endPage
+            || (startPage == endPage && selection["endGlyph"].toInt() <= selection["startGlyph"].toInt()))
+            return rejected(QStringLiteral("The text selection must be ordered and span at most 1000 pages"));
+        const auto text = locator["text"].toString();
+        if (text.trimmed().isEmpty() || text.toUtf8().size() > 65536 || text.contains(QChar::Null))
+            return rejected(QStringLiteral("Selected text must be nonempty and at most 64 KiB UTF-8; select a smaller passage"));
+    }
     const auto name = p["name"].toString().trimmed();
     if (name.isEmpty() || name.size() > 256)
         return rejected(QStringLiteral("Enter a name of 1 to 256 characters"));
@@ -77,6 +97,12 @@ NativePdfCaptureDraftResult nativePdfCaptureDraft(const QJsonObject &p)
     for (const auto &tag : p["tags"].toArray()) request.tags.append(tag.toString());
     auto draft = anchorCaptureDraftFromPdfRequest(request);
     auto storedLocator = QJsonDocument::fromJson(draft.locatorJson.toUtf8()).object();
+    if (textAnchor) {
+        draft.locatorType = QStringLiteral("sumatrapdf.text");
+        storedLocator.insert("type", draft.locatorType);
+        storedLocator.insert("text", locator["text"]);
+        storedLocator.insert("selection", locator["selection"]);
+    }
     storedLocator.insert("document", QJsonObject{{"identity", request.file},
         {"size", QString::number(size)}, {"modifiedMilliseconds", QString::number(modified)}});
     draft.locatorJson = QString::fromUtf8(QJsonDocument(storedLocator).toJson(QJsonDocument::Compact));

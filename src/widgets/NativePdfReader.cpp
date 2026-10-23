@@ -71,7 +71,7 @@ SumatraPdfDdeFileState requestConfiguredPdfReaderState(
     EnumWindows(collectReader, reinterpret_cast<LPARAM>(&readers));
     bool supported = false;
     SumatraPdfDdeFileState state;
-    state.error = QStringLiteral("定制版阅读器尚未显示目标 PDF");
+    state.error = QStringLiteral("The paired reader has not displayed the requested PDF");
     for (HWND reader : readers.windows) {
         DWORD_PTR answer = 0;
         if (!send(reader, probe, &answer, qBound(1, timeoutMilliseconds, 1000))
@@ -105,18 +105,20 @@ NativePdfReaderResult openNativePdfReader(
     const QFileInfo source(file);
     const auto document = locator["document"].toObject();
     if (!source.isFile() || !source.isReadable())
-        return {false, QStringLiteral("原始 PDF 不存在或不可读")};
+        return {false, QStringLiteral("The original PDF is missing or unreadable")};
     if (source.size() != document["size"].toString().toLongLong()
         || source.lastModified().toMSecsSinceEpoch() != document["modifiedMilliseconds"].toString().toLongLong())
-        return {false, QStringLiteral("原始 PDF 已变化，原选区不能直接套用于新文档；请重新采集")};
+        return {false, QStringLiteral("The original PDF changed; capture the selection again")};
     if (!QFileInfo(executable).isFile())
-        return {false, QStringLiteral("请在 Pinloom 设置中选择支持原生采集的定制版 SumatraPDF")};
+        return {false, QStringLiteral("Select the paired SumatraPDF in Pinloom Settings")};
 #ifdef Q_OS_WIN
+    const bool textAnchor = locator["type"] == "sumatrapdf.text";
     const auto probe = QJsonDocument(QJsonObject{{"protocol", "pinloom-reader/v1"},
-        {"method", "capabilities"}}).toJson(QJsonDocument::Compact);
+        {"method", textAnchor ? "text-capabilities" : "capabilities"}}).toJson(QJsonDocument::Compact);
     const auto request = QJsonDocument(QJsonObject{{"protocol", "pinloom-reader/v1"},
-        {"method", "open"}, {"file", QDir::toNativeSeparators(source.canonicalFilePath())},
+        {"method", textAnchor ? "open-text" : "open"}, {"file", QDir::toNativeSeparators(source.canonicalFilePath())},
         {"page", locator["page"]}, {"rect", locator["rect"]},
+        {"selection", locator["selection"]}, {"text", locator["text"]},
         {"documentSize", document["size"]}, {"documentModifiedMs", document["modifiedMilliseconds"]}}
     ).toJson(QJsonDocument::Compact);
     QElapsedTimer timer;
@@ -130,37 +132,37 @@ NativePdfReaderResult openNativePdfReader(
             DWORD_PTR answer = 0;
             if (canceled->load()) return {};
             if (!send(reader, probe, &answer, 500)) continue;
-            if (answer != 0x504c0001)
-                return {false, QStringLiteral("当前 SumatraPDF 不支持原生区域定位，请选择本次定制版阅读器")};
+            if (answer != (textAnchor ? 0x504c0002 : 0x504c0001))
+                return {false, QStringLiteral("This reader does not support the requested native selection; use the paired SumatraPDF")};
             DWORD pid = 0;
             GetWindowThreadProcessId(reader, &pid);
             AllowSetForegroundWindow(pid);
             if (canceled->load()) return {};
             if (!send(reader, request, &answer, 5000))
-                return {false, QStringLiteral("阅读器未确认原始 PDF 定位，请检查阅读器后重试")};
+                return {false, QStringLiteral("The reader did not confirm PDF positioning; check the reader and retry")};
             if (answer == 1) return {true, {}};
             if (answer == 2) {
-                rejection = QStringLiteral("阅读器正在采集，请先保存或取消当前采集");
+                rejection = QStringLiteral("The reader has an active capture; save or cancel it before opening another anchor");
                 continue;
             }
-            rejection = QStringLiteral("阅读器拒绝定位：文档、页码或选区已失效");
+            rejection = QStringLiteral("The reader rejected positioning: the document, page, text, or selection no longer matches");
         }
         if (!rejection.isEmpty()) return {false, rejection};
         if (!launched && readers.windows.isEmpty()) {
             if (profileDirectory.isEmpty() || !QDir().mkpath(profileDirectory))
-                return {false, QStringLiteral("无法创建阅读器的隔离配置目录")};
+                return {false, QStringLiteral("Cannot create the reader profile directory")};
             if (canceled->load()) return {};
             if (!QProcess::startDetached(executable, {"-appdata", profileDirectory, "-new-window", file}))
-                return {false, QStringLiteral("无法启动定制版 SumatraPDF")};
+                return {false, QStringLiteral("Cannot start the paired SumatraPDF")};
             launched = true;
         }
         QThread::msleep(75);
     }
-    return {false, canceled->load() ? QString() : QStringLiteral("等待定制版 SumatraPDF 响应超时")};
+    return {false, canceled->load() ? QString() : QStringLiteral("Timed out waiting for the paired SumatraPDF")};
 #else
     Q_UNUSED(profileDirectory)
     Q_UNUSED(canceled)
-    return {false, QStringLiteral("原生 SumatraPDF 定位需要 Windows")};
+    return {false, QStringLiteral("Native SumatraPDF positioning requires Windows")};
 #endif
 }
 }

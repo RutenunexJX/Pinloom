@@ -116,10 +116,6 @@ public:
         const PdfViewerCaptureRequest &) override {
         return {};
     }
-    PdfViewerCaptureResult captureText(
-        const PdfViewerCaptureRequest &) override {
-        return {};
-    }
     PdfViewerOpenStartResult open(
         const PdfViewerOpenRequest &request,
         PdfViewerOpenCallbacks valueCallbacks) override {
@@ -182,7 +178,6 @@ class PdfViewerAdapterTest final : public QObject {
 private slots:
     void capturesRectangleWithViewerOwnedCoordinatesAndGeometry();
     void rejectsCanceledTimedOutCrossPageAndChangedSessions();
-    void capturesSelectedTextThroughAdapter();
     void opensAndVerifiesPageWithoutBlockingCaller();
     void newerOpenSupersedesOlderRequest();
     void hungNavigationTimesOutWithoutBlockingGui();
@@ -375,40 +370,6 @@ void PdfViewerAdapterTest::rejectsCanceledTimedOutCrossPageAndChangedSessions()
         QVERIFY(result.message.contains(QStringLiteral("closed"),
                                         Qt::CaseInsensitive));
     }
-}
-
-void PdfViewerAdapterTest::capturesSelectedTextThroughAdapter()
-{
-    InMemoryLibraryRepository repository;
-    SumatraPdfViewerAdapterOptions options = captureOptions();
-    options.textSelectionProvider = [](const ForegroundAppWindowContext &context,
-                                       const ForegroundTextTarget &target) {
-        TextSelectionCaptureResult result;
-        result.state = TextSelectionState::TextSelected;
-        result.text = QStringLiteral("  selected   PDF text  ");
-        result.context = context;
-        result.target = target;
-        result.source = QStringLiteral("test-selection");
-        return result;
-    };
-    SumatraPdfViewerAdapter adapter(repository, options);
-    PdfViewerCaptureRequest request;
-    request.context = pdfContext();
-    request.textTarget.windowHandle = 701;
-    request.textTarget.focusHandle = 703;
-
-    const PdfViewerCaptureResult result = adapter.captureText(request);
-
-    QVERIFY2(result.succeeded(), qPrintable(result.message));
-    QCOMPARE(result.anchorRequest.locatorType,
-             QStringLiteral("sumatrapdf.search"));
-    QCOMPARE(result.anchorRequest.searchText,
-             QStringLiteral("selected PDF text"));
-    QCOMPARE(result.anchorRequest.source,
-             QStringLiteral("sumatrapdf-adapter-selection"));
-    QCOMPARE(result.anchorRequest.rotation, 90);
-    QCOMPARE(result.textSelection.source,
-             QStringLiteral("sumatrapdf-adapter-selection"));
 }
 
 void PdfViewerAdapterTest::opensAndVerifiesPageWithoutBlockingCaller()

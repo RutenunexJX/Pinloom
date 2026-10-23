@@ -289,12 +289,6 @@ public:
         if (!options.mousePositionProvider) {
             options.mousePositionProvider = defaultMousePositionAt;
         }
-        if (!options.textTargetProvider) {
-            options.textTargetProvider = captureForegroundTextTarget;
-        }
-        if (!options.textSelectionProvider) {
-            options.textSelectionProvider = captureTextSelectionFromTarget;
-        }
         if (!options.pageGeometryProvider) {
             options.pageGeometryProvider = inspectPdfPageGeometry;
         }
@@ -471,7 +465,7 @@ public:
 
         const auto locator = QJsonDocument::fromJson(request.anchor.locatorJson.toUtf8()).object();
         if (locator["provenance"].toObject()["adapter"] == "sumatra-pinloom/v1") {
-            reportStatus(context->id, QStringLiteral("正在原始 PDF 中恢复选区"));
+            reportStatus(context->id, QStringLiteral("Restoring the selection in the original PDF"));
             auto *watcher = new QFutureWatcher<NativePdfReaderResult>(q);
             const QPointer<SumatraPdfViewerAdapter> guard(q);
             QObject::connect(watcher, &QFutureWatcher<NativePdfReaderResult>::finished, watcher,
@@ -480,7 +474,7 @@ public:
                     watcher->deleteLater();
                     if (!guard) return;
                     guard->d_->finish(id, result.located ? PdfViewerOperationState::Succeeded : PdfViewerOperationState::Failed,
-                        result.located ? QStringLiteral("已在原始 PDF 中显示选区") : result.error, {}, false, result.located);
+                        result.located ? QStringLiteral("Selection restored in the original PDF") : result.error, {}, false, result.located);
                 });
             const auto command = context->command;
             const auto profile = options.nativeReaderProfileDirectory;
@@ -833,59 +827,6 @@ PdfViewerCaptureResult SumatraPdfViewerAdapter::captureRectangle(
     result.state = PdfViewerOperationState::Succeeded;
     result.message = QStringLiteral("Captured PDF region on page %1")
                          .arg(region.page);
-    return result;
-}
-
-PdfViewerCaptureResult SumatraPdfViewerAdapter::captureText(
-    const PdfViewerCaptureRequest &request)
-{
-    PdfViewerCaptureResult result = d_->resolveCapture(request);
-    if (!result.succeeded()) return result;
-    if (result.observation.windowHandle == 0
-        || !d_->options.windowExistsProvider(result.observation.windowHandle)) {
-        result.state = PdfViewerOperationState::Canceled;
-        result.message = QStringLiteral("PDF viewer closed before text capture");
-        return result;
-    }
-    QString sessionFailure = d_->validateCaptureSession(result.observation);
-    if (!sessionFailure.isEmpty()) {
-        result.state = PdfViewerOperationState::Canceled;
-        result.message = sessionFailure;
-        return result;
-    }
-    const ForegroundAppWindowContext context = result.observation.context;
-    const ForegroundTextTarget target = request.textTarget.isValid()
-        ? request.textTarget
-        : d_->options.textTargetProvider();
-    result.textSelection = d_->options.textSelectionProvider(context, target);
-    if (!result.textSelection.hasSelectedText()) {
-        result.state = PdfViewerOperationState::Failed;
-        result.message = result.textSelection.diagnostics.trimmed().isEmpty()
-            ? QStringLiteral("Select PDF text before capture")
-            : result.textSelection.diagnostics.trimmed();
-        result.diagnostics = result.textSelection.diagnostics;
-        return result;
-    }
-    sessionFailure = d_->validateCaptureSession(result.observation);
-    if (!sessionFailure.isEmpty()) {
-        result.state = PdfViewerOperationState::Canceled;
-        result.message = sessionFailure;
-        return result;
-    }
-    result.textSelection.source =
-        QStringLiteral("sumatrapdf-adapter-selection");
-    result.anchorRequest.locatorType = QStringLiteral("sumatrapdf.search");
-    result.anchorRequest.searchText =
-        result.textSelection.text.simplified();
-    result.anchorRequest.name = result.anchorRequest.searchText.left(64);
-    result.anchorRequest.source = result.textSelection.source;
-    result.observation.provenance = result.anchorRequest.source;
-    if (request.requirePageGeometry
-        && !d_->attachPageGeometry(&result)) {
-        return result;
-    }
-    result.state = PdfViewerOperationState::Succeeded;
-    result.message = QStringLiteral("Captured selected PDF text");
     return result;
 }
 

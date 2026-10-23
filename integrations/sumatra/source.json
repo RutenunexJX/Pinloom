@@ -3,16 +3,24 @@
   "upstreamTag": "3.6.1rel",
   "upstreamVersion": "3.6.1",
   "upstreamRevision": "16c59fde8b824ab54c56f23aef910a6fdd874ad0",
-  "sourceRevision": "b27f377ad67baa86628503c4e5a4da910c005245",
-  "customVersion": "3.6.1-pinloom.1",
+  "sourceRevision": "b793525a841a9dc4a47598060f39510c2ee140bd",
+  "customVersion": "3.6.1-pinloom.2",
   "branch": "codex/pinloom-native-capture",
   "protocol": "pinloom-reader/v1",
-  "pairedPinloomVersion": "0.4.16",
-  "patchSha256": "a50b3b6ea83b102131d00be19533bd65b3067bec606ee73eb905b8448100f0d1",
+  "pairedPinloomVersion": "0.4.17",
+  "patchSha256": "dc5baff6886da51b315418e8d28b3bd29cff168f982c49f73d17488ad9cae36c",
   "updatePolicy": "paired-pinloom-package-only",
   "toolchain": {
     "msvc": "14.44.35207",
     "msbuild": "17.14.60.43110",
     "windowsSdk": "10.0.26100.0"
-  }
+  },
+  "status": "release",
+  "sourceRevisionRole": "release-commit",
+  "captureFeatures": [
+    "rectangle",
+    "text-anchor"
+  ],
+  "textBridgeVersion": "0x504c0002",
+  "acceptedTask": "20261023-pinloom-pdf-capture"
 }
