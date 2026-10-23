@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.15
+    VERSION 0.4.16
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -218,6 +218,9 @@ target_include_directories(pinloom_application PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(pinloom_application PUBLIC pinloom_core pinloom_clip_core Qt6::Network)
 add_executable(pinloom_cli src/app/cli.cpp)
 target_link_libraries(pinloom_cli PRIVATE pinloom_application)
+
+add_executable(pinloom_capture_benchmark EXCLUDE_FROM_ALL tests/capture_benchmark.cpp)
+target_link_libraries(pinloom_capture_benchmark PRIVATE pinloom_application)
 
 add_library(pinloom_widgets STATIC
     include/pinloom/widgets/CommandFloatingController.h

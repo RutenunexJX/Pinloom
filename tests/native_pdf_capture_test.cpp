@@ -1,6 +1,7 @@
 #include "pinloom/application/CommandService.h"
 #include "pinloom/application/NativePdfCapture.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
+#include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/clip/ObsidianClipStore.h"
 #include <QDateTime>
 #include <QFile>
@@ -10,6 +11,7 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QUuid>
+#include <memory>
 
 using namespace Pinloom;
 namespace {
@@ -34,6 +36,83 @@ bool fixture(const QString &path)
 class NativePdfCaptureTest : public QObject {
     Q_OBJECT
 private slots:
+    void projectedLookupPreservesLifecycle_data()
+    {
+        QTest::addColumn<bool>("sqlite");
+        QTest::newRow("sqlite-projections") << true;
+        QTest::newRow("default-repository-projections") << false;
+    }
+    void projectedLookupPreservesLifecycle()
+    {
+        QFETCH(bool, sqlite);
+        QTemporaryDir temp;
+        const auto path = temp.filePath("fixture.pdf"); QVERIFY(fixture(path));
+        std::unique_ptr<ILibraryRepository> repository;
+        if (sqlite) {
+            auto database = std::make_unique<SqliteLibraryRepository>();
+            QVERIFY(database->open(temp.filePath("library.sqlite3"), temp.filePath("identity.sqlite3")));
+            QVERIFY(database->initialize());
+            repository = std::move(database);
+        } else repository = std::make_unique<InMemoryLibraryRepository>();
+        auto params = capture(path);
+        const auto prepared = nativePdfCaptureDraft(params); QVERIFY(prepared.error.isEmpty());
+        const auto id = params["captureId"].toString();
+        AnchorCaptureCommitService service(*repository);
+        const auto created = service.commit(prepared.draft, id); QVERIFY2(created.success(), qPrintable(created.error));
+        auto resource = created.resource;
+        resource.content = "Searchable content must survive capture and receipt reads";
+        resource.aliases = {"Existing metadata alias"};
+        resource.tags = {"Existing resource tag"};
+        resource.explicitlyRetained = true;
+        resource.location = temp.path() + "/./fixture.pdf";
+        QVERIFY(repository->upsertResource(resource));
+        auto found = service.findCapture(id);
+        QVERIFY(found.success()); QCOMPARE(found.resource.content, resource.content);
+        QCOMPARE(found.resource.aliases, resource.aliases);
+
+        // Imported receipts need not use native IDs; preserve the old resource-ID
+        // tie break, anchor order, and JSON decoding (including escaped UUIDs).
+        auto imported = resource;
+        imported.id = "000-imported-receipt";
+        imported.title = "Imported receipt";
+        imported.aliases.clear();
+        auto first = created.anchor;
+        first.id = "imported-first"; first.name = "Imported first";
+        const auto normalizedId = QUuid(id).toString(QUuid::WithoutBraces);
+        QString escapedId = QString("\\u%1").arg(int(normalizedId[0].unicode()), 4, 16, QLatin1Char('0')) + normalizedId.mid(1);
+        first.locatorJson.replace(normalizedId, escapedId);
+        auto second = first; second.id = "imported-second"; second.name = "Imported second";
+        imported.anchors = {first, second};
+        QVERIFY2(repository->upsertResource(imported), qPrintable(repository->lastError()));
+        found = service.findCapture(id);
+        QVERIFY(found.success()); QCOMPARE(found.resource.id, imported.id); QCOMPARE(found.anchor.id, first.id);
+        QVERIFY(repository->softDeleteResource(imported.id));
+        found = service.findCapture(id);
+        QVERIFY(found.success()); QVERIFY(found.resource.deleted); QCOMPARE(found.anchor.id, first.id);
+        QVERIFY(repository->restoreResource(imported.id));
+        LibraryBatchMutation purge; purge.permanentlyDeleteResourceIds = {imported.id};
+        QVERIFY(repository->applyBatch(purge));
+        QCOMPARE(service.findCapture(id).resource.id, resource.id);
+        QVERIFY(repository->softDeleteAnchor(resource.id, created.anchor));
+        found = service.findCapture(id); QVERIFY(found.success()); QVERIFY(found.anchor.deleted);
+        QVERIFY(repository->restoreAnchor(resource.id, found.anchor));
+        QVERIFY(!service.findCapture(id).anchor.deleted);
+
+        auto nextDraft = prepared.draft; nextDraft.suggestedName = "Same file after metadata edits";
+        const auto next = service.commit(nextDraft, QUuid::createUuid().toString());
+        QVERIFY2(next.success(), qPrintable(next.error)); QCOMPARE(next.resource.id, resource.id);
+        QCOMPARE(next.resource.content, resource.content); QCOMPARE(next.resource.tags, resource.tags);
+        QCOMPARE(next.resource.aliases, resource.aliases); QCOMPARE(next.resource.anchors.size(), 2);
+        QVERIFY(repository->softDeleteResource(resource.id));
+        nextDraft.suggestedName = "Same file after resource deletion";
+        const auto fresh = service.commit(nextDraft, QUuid::createUuid().toString());
+        QVERIFY2(fresh.success(), qPrintable(fresh.error)); QVERIFY(fresh.resource.id != resource.id);
+        QVERIFY(service.findCapture(id).resource.deleted);
+        QVERIFY(repository->clearResources());
+        QCOMPARE(service.findCapture(id).errorCode, "not_found");
+        QVERIFY(repository->resourceLocations().isEmpty());
+        QVERIFY(repository->anchorLocators().isEmpty());
+    }
     void acceptsIntrinsicGeometry_data()
     {
         QTest::addColumn<int>("rotation");

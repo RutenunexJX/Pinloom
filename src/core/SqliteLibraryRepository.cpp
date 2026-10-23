@@ -970,6 +970,42 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query) co
     return search(query, nullptr);
 }
 
+QList<LibraryResourceLocation> SqliteLibraryRepository::resourceLocations() const
+{
+    QList<LibraryResourceLocation> result;
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return result;
+    }
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("SELECT id, location, deleted FROM resources"))) {
+        setLastError(query.lastError().text());
+        return result;
+    }
+    while (query.next())
+        result.append({query.value(0).toString(), query.value(1).toString(), query.value(2).toBool()});
+    return result;
+}
+
+QList<LibraryAnchorLocator> SqliteLibraryRepository::anchorLocators() const
+{
+    QList<LibraryAnchorLocator> result;
+    if (!isOpen()) {
+        setLastError(QStringLiteral("Database is not open"));
+        return result;
+    }
+    QSqlQuery query(database_);
+    if (!query.exec(QStringLiteral("SELECT a.resource_id, a.id, a.locator_json FROM anchors a "
+                                   "JOIN resources r ON r.id = a.resource_id "
+                                   "ORDER BY a.resource_id, a.anchor_order"))) {
+        setLastError(query.lastError().text());
+        return result;
+    }
+    while (query.next())
+        result.append({query.value(0).toString(), query.value(1).toString().trimmed(), query.value(2).toString()});
+    return result;
+}
+
 QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
                                                    SqliteSearchReadCounts *readCounts) const
 {

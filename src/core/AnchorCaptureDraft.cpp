@@ -9,7 +9,6 @@
 #include <QJsonObject>
 #include <QJsonParseError>
 #include <QUuid>
-#include <QSet>
 #include <algorithm>
 
 namespace Pinloom {
@@ -52,20 +51,6 @@ ResourceKind resourceKindForDraft(const AnchorCaptureDraft &draft)
         return ResourceKind::Pdf;
     }
     return ResourceKind::File;
-}
-
-QList<Resource> captureResources(ILibraryRepository &repository)
-{
-    SearchQuery query; query.includeDeleted = true; query.limit = 0;
-    QSet<QString> seen;
-    QList<Resource> resources;
-    for (const auto &hit : repository.search(query)) {
-        if (seen.contains(hit.resource.id)) continue;
-        seen.insert(hit.resource.id);
-        if (const auto resource = repository.findResource(hit.resource.id)) resources.append(*resource);
-    }
-    std::sort(resources.begin(), resources.end(), [](const auto &a, const auto &b) { return a.id < b.id; });
-    return resources;
 }
 
 QString fileIdentity(const QString &path)
@@ -191,13 +176,22 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::findCapture(const QString 
         return result;
     }
     const auto id = uuid.toString(QUuid::WithoutBraces);
-    for (const auto &resource : captureResources(repository_)) {
-        for (const auto &anchor : resource.anchors) {
-            const auto receipt = QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object()["captureReceipt"].toObject();
-            if (anchor.id == "native-capture:" + id || receipt["id"].toString() == id) {
-                result.resource = resource; result.anchor = anchor; result.replayed = true;
-                return result;
-            }
+    const auto matches = [&](const QString &anchorId, const QString &json) {
+        return anchorId == "native-capture:" + id
+            || QJsonDocument::fromJson(json.toUtf8()).object()["captureReceipt"].toObject()["id"].toString() == id;
+    };
+    auto candidates = repository_.anchorLocators();
+    std::stable_sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) {
+        return a.resourceId < b.resourceId;
+    });
+    for (const auto &candidate : candidates) {
+        if (!matches(candidate.anchorId, candidate.locatorJson)) continue;
+        const auto resource = repository_.findResource(candidate.resourceId);
+        if (!resource) continue;
+        for (const auto &anchor : resource->anchors) {
+            if (!matches(anchor.id, anchor.locatorJson)) continue;
+            result.resource = *resource; result.anchor = anchor; result.replayed = true;
+            return result;
         }
     }
     result.error = QStringLiteral("Capture ID was not found");
@@ -258,10 +252,15 @@ AnchorCaptureCommitResult AnchorCaptureCommitService::commit(
         ? QStringLiteral("Anchor target: %1").arg(draft.suggestedName)
         : fileName;
     if (!stableId.isEmpty()) {
-        for (const auto &candidate : captureResources(repository_)) {
-            if (!candidate.deleted && fileIdentity(candidate.location) == fileIdentity(draft.targetFile)) {
-                resource = candidate;
-                break;
+        auto candidates = repository_.resourceLocations();
+        std::sort(candidates.begin(), candidates.end(), [](const auto &a, const auto &b) { return a.resourceId < b.resourceId; });
+        const auto targetIdentity = fileIdentity(draft.targetFile);
+        for (const auto &candidate : candidates) {
+            if (!candidate.deleted && fileIdentity(candidate.location) == targetIdentity) {
+                if (const auto complete = repository_.findResource(candidate.resourceId)) {
+                    resource = *complete;
+                    break;
+                }
             }
         }
     }

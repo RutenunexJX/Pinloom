@@ -1,6 +1,8 @@
 # Pinloom
 
-Current version: `0.4.15`; database Schema: `16`.
+Current version: `0.4.16`; database Schema: `16`.
+
+Release 0.4.16 uses narrow library queries for capture status and saving, preserving complete anchor contents, duplicate receipts and conflict checks. The paired SumatraPDF remains 3.6.1-pinloom.1.
 
 Release 0.4.15 pairs Pinloom with a custom SumatraPDF reader for native PDF selection, naming, saving and precise reopening. See [reader maintenance](docs/SUMATRA-MAINTENANCE.md).
 

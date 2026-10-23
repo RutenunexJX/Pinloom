@@ -1,6 +1,6 @@
 # Paired SumatraPDF maintenance
 
-Pinloom 0.4.15 is distributed with SumatraPDF 3.6.1, customization `pinloom.1`.
+Pinloom 0.4.16 is distributed with SumatraPDF 3.6.1, customization `pinloom.1`.
 The exact upstream and customized commits are pinned in `integrations/sumatra/source.json`.
 The standalone reader source remains on `codex/pinloom-native-capture` in the independent SumatraPDF checkout.
 The Pinloom repository stores the customization patch and build inputs; `reader/source/SumatraPDF-source.zip` in the release contains the complete corresponding reader source and vendored dependencies.

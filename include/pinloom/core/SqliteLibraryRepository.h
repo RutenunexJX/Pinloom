@@ -33,6 +33,8 @@ public:
     std::optional<Resource> findResource(const QString &id) const override;
     QList<SearchResult> search(const SearchQuery &query) const override;
     QList<SearchResult> search(const SearchQuery &query, SqliteSearchReadCounts *readCounts) const;
+    QList<LibraryResourceLocation> resourceLocations() const override;
+    QList<LibraryAnchorLocator> anchorLocators() const override;
     bool softDeleteResource(const QString &resourceId) override;
     bool restoreResource(const QString &resourceId) override;
     bool softDeleteAnchor(const QString &resourceId, const Anchor &anchor) override;

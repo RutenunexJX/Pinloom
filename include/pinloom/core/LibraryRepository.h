@@ -40,6 +40,18 @@ struct LibraryChange {
 
 using LibraryChangeListener = std::function<void(const LibraryChange &change)>;
 
+struct LibraryResourceLocation {
+    QString resourceId;
+    QString location;
+    bool deleted = false;
+};
+
+struct LibraryAnchorLocator {
+    QString resourceId;
+    QString anchorId;
+    QString locatorJson;
+};
+
 class ILibraryRepository {
 public:
     virtual ~ILibraryRepository() = default;
@@ -47,6 +59,10 @@ public:
     virtual bool upsertResource(const Resource &resource) = 0;
     virtual std::optional<Resource> findResource(const QString &id) const = 0;
     virtual QList<SearchResult> search(const SearchQuery &query) const = 0;
+    // Unranked projections include deleted entries. Anchor order within each
+    // resource is preserved; callers load full objects only after matching.
+    virtual QList<LibraryResourceLocation> resourceLocations() const;
+    virtual QList<LibraryAnchorLocator> anchorLocators() const;
     virtual bool softDeleteResource(const QString &resourceId) = 0;
     virtual bool restoreResource(const QString &resourceId) = 0;
     virtual bool softDeleteAnchor(const QString &resourceId, const Anchor &anchor) = 0;
