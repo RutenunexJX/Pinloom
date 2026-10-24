@@ -105,7 +105,34 @@ private slots:
     void hostOpenUsesSharedPdfAnchorPresenter();
     void createsValidatedSourceAnchor();
     void hostSourceAnchorWriteReturnsGlobalIdentityConflict();
+    void asynchronousOpenReportsAcknowledgementAndFailure();
 };
+
+void HostBridgeTest::asynchronousOpenReportsAcknowledgementAndFailure()
+{
+    PinloomHostBridgeCallbacks callbacks;
+    bool rejected = false;
+    callbacks.openAsync = [&rejected](const PinloomHostIdentity &, PinloomHostBridgeCallbacks::OpenCompletion completed) {
+        QTimer::singleShot(50, [completed, &rejected] {
+            completed(!rejected, !rejected, rejected ? QStringLiteral("The original PDF changed; capture the selection again")
+                                                    : QStringLiteral("Selection restored in the original PDF"));
+        });
+    };
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-host-open-ack-%1").arg(QCoreApplication::applicationPid());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY(server.start());
+    const auto open = request(QStringLiteral("open"), {{QStringLiteral("identity"),
+        QJsonObject{{QStringLiteral("anchorId"), QStringLiteral("anchor-a")}}}});
+    auto response = exchange(options.serverName, open);
+    QVERIFY(response["ok"].toBool());
+    QVERIFY(response["result"].toObject()["positionVerified"].toBool());
+    QCOMPARE(response["result"].toObject()["state"].toString(), QStringLiteral("located"));
+    rejected = true;
+    response = exchange(options.serverName, open);
+    QVERIFY(!response["ok"].toBool());
+    QCOMPARE(response["error"].toObject()["code"].toString(), QStringLiteral("open_failed"));
+}
 
 void HostBridgeTest::stableDeepLinksRoundTripAndRejectMalformedIds()
 {

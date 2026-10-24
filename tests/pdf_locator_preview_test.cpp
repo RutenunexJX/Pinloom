@@ -1,6 +1,7 @@
 #include "pinloom/widgets/AnchorLibraryWindow.h"
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
+#include "pinloom/widgets/PinloomHostBridge.h"
 
 #include <QApplication>
 #include <QColor>
@@ -12,6 +13,10 @@
 #include <QFileInfo>
 #include <QImage>
 #include <QLockFile>
+#include <QLocalSocket>
+#include <QJsonDocument>
+#include <QJsonArray>
+#include <QDateTime>
 #include <QScopeGuard>
 #include <QTemporaryDir>
 #include <QTest>
@@ -150,7 +155,167 @@ private slots:
     void rendererCancellationStopsWorkWithoutPublishingCache();
     void rendererReportsTimeoutAndProcessFailure_data();
     void rendererReportsTimeoutAndProcessFailure();
+    void hostCoalescesCancelsAndStaysResponsive();
+    void hostRejectsChangedAnchorAndBoundsQueue();
+    void pairedRuntimeGeometryAndFreshness();
 };
+
+static void connectPreview(QLocalSocket &socket, const QString &server, int page)
+{
+    socket.connectToServer(server);
+    socket.waitForConnected(500);
+    const QJsonObject request{{"protocol", "pinloom-host/v1"}, {"requestId", QString::number(page)},
+        {"method", "resolve"}, {"params", QJsonObject{{"identity", QJsonObject{{"resourceId", "preview-file"},
+        {"anchorId", QStringLiteral("preview-anchor-%1").arg(page)}}}}}};
+    socket.write(QJsonDocument(request).toJson(QJsonDocument::Compact) + '\n');
+    socket.flush();
+}
+
+static PinloomHostBridgeCallbacks previewCallbacks(PreviewFixture &fixture)
+{
+    for (auto &anchor : fixture.resource.anchors) {
+        anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+        auto json = QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object();
+        json.insert(QStringLiteral("rect"), QJsonArray{0,0,20,20});
+        anchor.locatorJson = QString::fromUtf8(QJsonDocument(json).toJson(QJsonDocument::Compact));
+    }
+    PinloomHostBridgeCallbacks callbacks;
+    callbacks.resolve = [&fixture](const PinloomHostIdentity &identity) -> std::optional<PinloomHostDocument> {
+        for (const auto &anchor : fixture.resource.anchors)
+            if (anchor.id == identity.anchorId)
+                return pinloomHostDocumentForResource(fixture.resource, anchor, {}, fixture.renderOptions, true);
+        return {};
+    };
+    return callbacks;
+}
+
+void PdfLocatorPreviewTest::hostCoalescesCancelsAndStaysResponsive()
+{
+    PreviewFixture fixture;
+    QVERIFY(fixture.initialize(3));
+    auto callbacks = previewCallbacks(fixture);
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-preview-async-%1").arg(QCoreApplication::applicationPid());
+    auto server = std::make_unique<PinloomHostBridgeServer>(options, callbacks);
+    QVERIFY(server->start());
+    QLocalSocket a, b;
+    connectPreview(a, options.serverName, 1);
+    connectPreview(b, options.serverName, 1);
+    QTRY_COMPARE(fixture.started(1), 1);
+    QTest::qWait(100);
+    QCOMPARE(fixture.started(), 1);
+    QLocalSocket ping;
+    ping.connectToServer(options.serverName); QVERIFY(ping.waitForConnected(500));
+    ping.write("{\"protocol\":\"pinloom-host/v1\",\"method\":\"capabilities\"}\n"); ping.flush();
+    QTRY_VERIFY(ping.bytesAvailable() > 0);
+    QVERIFY(QJsonDocument::fromJson(ping.readAll()).object()["ok"].toBool());
+    a.abort();
+    QTest::qWait(100);
+    QCOMPARE(fixture.started(), 1);
+    QVERIFY(fixture.release(1));
+    QTRY_VERIFY(b.bytesAvailable() > 0);
+    const auto ready = QJsonDocument::fromJson(b.readAll()).object()["result"].toObject()["preview"].toObject();
+    QCOMPARE(ready["state"].toString(), QStringLiteral("ready"));
+    QVERIFY(!ready["sourceVersion"].toString().isEmpty());
+    QLocalSocket c;
+    connectPreview(c, options.serverName, 2);
+    QTRY_COMPARE(fixture.started(2), 1);
+    c.abort();
+    QTRY_VERIFY(fixture.rendererIdle());
+    QCOMPARE(fixture.count(QStringLiteral("finished-2-*")), 0);
+    QLocalSocket d;
+    connectPreview(d, options.serverName, 3);
+    QTRY_COMPARE(fixture.started(3), 1);
+    server.reset();
+    QTRY_VERIFY(fixture.rendererIdle());
+    QCOMPARE(fixture.count(QStringLiteral("finished-3-*")), 0);
+}
+
+void PdfLocatorPreviewTest::hostRejectsChangedAnchorAndBoundsQueue()
+{
+    PreviewFixture fixture;
+    QVERIFY(fixture.initialize(6));
+    auto callbacks = previewCallbacks(fixture);
+    PinloomHostBridgeOptions options;
+    options.serverName = QStringLiteral("pinloom-preview-bounds-%1").arg(QCoreApplication::applicationPid());
+    PinloomHostBridgeServer server(options, callbacks);
+    QVERIFY(server.start());
+    QLocalSocket sockets[6];
+    connectPreview(sockets[0], options.serverName, 1);
+    QTRY_COMPARE(fixture.started(1), 1);
+    for (int i = 1; i < 6; ++i) connectPreview(sockets[i], options.serverName, i + 1);
+    QTRY_VERIFY(sockets[5].bytesAvailable() > 0);
+    const auto busy = QJsonDocument::fromJson(sockets[5].readAll()).object()["result"].toObject()["preview"].toObject();
+    QCOMPARE(busy["state"].toString(), QStringLiteral("unavailable"));
+    QVERIFY(busy["error"].toString().contains(QStringLiteral("busy")));
+    fixture.resource.anchors[0].locatorJson = QStringLiteral("{\"page\":1,\"rect\":[2,2,22,22]}");
+    for (int i = 1; i < 5; ++i) sockets[i].abort();
+    QVERIFY(fixture.release(1));
+    QTRY_VERIFY(sockets[0].bytesAvailable() > 0);
+    const auto changed = QJsonDocument::fromJson(sockets[0].readAll()).object()["result"].toObject()["preview"].toObject();
+    QCOMPARE(changed["state"].toString(), QStringLiteral("unavailable"));
+    QVERIFY(changed["filePath"].toString().isEmpty());
+    QTRY_VERIFY(fixture.rendererIdle());
+    QCOMPARE(fixture.started(), 1);
+}
+
+void PdfLocatorPreviewTest::pairedRuntimeGeometryAndFreshness()
+{
+    const QString fixturePath = qEnvironmentVariable("PINLOOM_GEOMETRY_FIXTURE");
+    if (fixturePath.isEmpty()) QSKIP("Set PINLOOM_GEOMETRY_FIXTURE for real paired runtime validation");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString pdf = directory.filePath(QStringLiteral("geometry.pdf"));
+    QVERIFY(QFile::copy(QDir(fixturePath).filePath(QStringLiteral("geometry.pdf")), pdf));
+    QFile cases(QDir(fixturePath).filePath(QStringLiteral("cases.json")));
+    QVERIFY(cases.open(QIODevice::ReadOnly));
+    const auto geometries = QJsonDocument::fromJson(cases.readAll()).array();
+    QVERIFY(geometries.size() >= 6);
+    Resource resource;
+    resource.kind = ResourceKind::Pdf; resource.location = pdf;
+    Anchor anchor;
+    anchor.targetFile = pdf; anchor.locatorType = QStringLiteral("sumatrapdf.rect");
+    PdfLocatorPreviewRenderOptions options;
+    options.rendererExecutablePath = qEnvironmentVariable("PINLOOM_REAL_PREVIEW_RUNTIME");
+    options.cacheDirectory = directory.filePath(QStringLiteral("cache"));
+    options.contextPaddingPoints = 0; options.drawSelectionBorder = false;
+    const QFileInfo info(pdf);
+    for (const auto &value : geometries) {
+        auto locator = value.toObject();
+        locator.insert("type", "sumatrapdf.rect"); locator.insert("version", 3);
+        locator.insert("unit", "pt"); locator.insert("coordinateSpace", "page-top-left");
+        locator.insert("document", QJsonObject{{"size", QString::number(info.size())},
+            {"modifiedMilliseconds", QString::number(info.lastModified().toMSecsSinceEpoch())}});
+        anchor.locatorJson = QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+        QElapsedTimer elapsed; elapsed.start();
+        const auto cold = renderPdfLocatorPreview(resource, anchor, options);
+        const auto coldMs = elapsed.elapsed();
+        QVERIFY2(cold.success(), qPrintable(cold.error)); QVERIFY(cold.cropped); QVERIFY(!cold.fromCache);
+        const QColor color = cold.image.pixelColor(cold.image.width()/2, cold.image.height()/2);
+        QVERIFY2(color.green() > 130 && color.green() > color.red() + 60 && color.green() > color.blue() + 40, qPrintable(color.name()));
+        elapsed.restart();
+        const auto hot = renderPdfLocatorPreview(resource, anchor, options);
+        QVERIFY2(hot.success(), qPrintable(hot.error)); QVERIFY(hot.fromCache);
+        qInfo() << "REAL_PREVIEW" << locator["page"].toInt() << cold.image.size() << "coldMs" << coldMs << "hotMs" << elapsed.elapsed();
+        const QString evidence = qEnvironmentVariable("PINLOOM_PREVIEW_EVIDENCE");
+        if (!evidence.isEmpty()) { QDir().mkpath(evidence); QVERIFY(cold.image.save(QDir(evidence).filePath(QStringLiteral("region-%1.png").arg(cold.page)))); }
+        // A changed locator must not reuse an image, even if the PDF is unchanged.
+        locator.insert("rotation", (locator["rotation"].toInt() + 90) % 360);
+        Anchor bad = anchor; bad.locatorJson = QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+        const auto invalid = renderPdfLocatorPreview(resource, bad, options);
+        QVERIFY(!invalid.success()); QVERIFY(invalid.error.contains(QStringLiteral("geometry changed")));
+    }
+    const QString cache = pdfLocatorPreviewCacheFilePath(resource, anchor, options);
+    QVERIFY(writeFile(cache, "broken png"));
+    const auto repaired = renderPdfLocatorPreview(resource, anchor, options);
+    QVERIFY(repaired.success()); QVERIFY(!repaired.fromCache);
+    QFile changed(pdf); QVERIFY(changed.open(QIODevice::Append)); changed.write("\n% changed\n"); changed.close();
+    const auto stale = renderPdfLocatorPreview(resource, anchor, options);
+    QVERIFY(!stale.success()); QVERIFY(stale.image.isNull()); QVERIFY(stale.error.contains(QStringLiteral("changed since capture")));
+    QVERIFY(QFile::remove(pdf));
+    const auto missing = renderPdfLocatorPreview(resource, anchor, options);
+    QVERIFY(!missing.success()); QVERIFY(missing.image.isNull()); QVERIFY(missing.error.contains(QStringLiteral("missing")));
+}
 
 void PdfLocatorPreviewTest::duplicateRequestReusesRenderAndExpands()
 {

@@ -4,12 +4,14 @@
 #include "pinloom/core/SumatraPdfCommand.h"
 
 #include <QCryptographicHash>
+#include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QImageWriter>
+#include <QImageReader>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -30,6 +32,8 @@ struct PdfLocatorGeometry {
     int page = -1;
     QRectF rectangle;
     QString error;
+    QJsonObject locator;
+    bool native = false;
 };
 
 PdfLocatorGeometry parsePdfLocatorGeometry(const Anchor &anchor)
@@ -43,6 +47,8 @@ PdfLocatorGeometry parsePdfLocatorGeometry(const Anchor &anchor)
     }
 
     const QJsonObject object = document.object();
+    geometry.locator = object;
+    geometry.native = object.value(QStringLiteral("version")).toInt() == 3;
     geometry.page = object.value(QStringLiteral("page")).toInt(-1);
     if (geometry.page <= 0) {
         geometry.error = QStringLiteral("PDF locator page is missing");
@@ -56,13 +62,95 @@ PdfLocatorGeometry parsePdfLocatorGeometry(const Anchor &anchor)
         const double top = values.at(1).toDouble();
         const double right = values.at(2).toDouble();
         const double bottom = values.at(3).toDouble();
-        if (std::isfinite(left) && std::isfinite(top)
+        if (std::all_of(values.begin(), values.end(), [](const QJsonValue &value) { return value.isDouble(); })
+            && std::isfinite(left) && std::isfinite(top)
             && std::isfinite(right) && std::isfinite(bottom)
             && right > left && bottom > top) {
             geometry.rectangle = QRectF(QPointF(left, top), QPointF(right, bottom));
         }
     }
+    if (anchor.locatorType.compare(QStringLiteral("sumatrapdf.rect"), Qt::CaseInsensitive) == 0
+        && !geometry.rectangle.isValid()) geometry.error = QStringLiteral("PDF selection rectangle is invalid");
+    if (geometry.native && (object.value(QStringLiteral("coordinateSpace")) != QLatin1String("page-top-left")
+                            || object.value(QStringLiteral("unit")) != QLatin1String("pt")))
+        geometry.error = QStringLiteral("PDF selection coordinate space is unsupported");
     return geometry;
+}
+
+QString sourceSignature(const QString &path)
+{
+    const QFileInfo info(path);
+    return info.isFile() ? info.canonicalFilePath() + QLatin1Char('|') + QString::number(info.size())
+        + QLatin1Char('|') + QString::number(info.lastModified().toMSecsSinceEpoch()) : QString();
+}
+
+QString validateNativeSource(const PdfLocatorGeometry &geometry, const QString &path)
+{
+    if (!geometry.native) return {};
+    const auto document = geometry.locator.value(QStringLiteral("document")).toObject();
+    bool sizeOk = false, timeOk = false;
+    const auto size = document.value(QStringLiteral("size")).toString().toLongLong(&sizeOk);
+    const auto modified = document.value(QStringLiteral("modifiedMilliseconds")).toString().toLongLong(&timeOk);
+    if (!sizeOk || !timeOk) return QStringLiteral("PDF selection document version is missing; recapture the selection");
+    const QFileInfo file(path);
+    if (file.size() != size || file.lastModified().toMSecsSinceEpoch() != modified)
+        return QStringLiteral("PDF changed since capture; recapture the selection");
+    return {};
+}
+
+bool validImageSize(const QSize &size)
+{
+    return size.width() > 0 && size.height() > 0 && size.width() <= 16384 && size.height() <= 16384
+        && qint64(size.width()) * size.height() <= 32LL * 1024 * 1024;
+}
+
+QImage readBoundedImage(const QString &path)
+{
+    if (QFileInfo(path).size() > 64LL * 1024 * 1024) return {};
+    QImageReader reader(path, "png");
+    if (!validImageSize(reader.size())) return {};
+    return reader.read();
+}
+
+QString validateRenderedGeometry(const PdfLocatorGeometry &geometry, const QString &outputPath,
+                                const QSize &imageSize, int dpi)
+{
+    QFile metadata(outputPath + QStringLiteral(".json"));
+    if (!metadata.exists() && !geometry.native) return {}; // Legacy external renderer compatibility.
+    if (!metadata.open(QIODevice::ReadOnly) || metadata.size() > 16384)
+        return QStringLiteral("PDF preview runtime cannot verify selection geometry");
+    const auto actual = QJsonDocument::fromJson(metadata.readAll()).object();
+    if (actual.value(QStringLiteral("protocol")) != QLatin1String("pinloom-pdf-preview/v1")
+        || actual.value(QStringLiteral("page")).toInt() != geometry.page
+        || actual.value(QStringLiteral("dpi")).toInt() != dpi)
+        return QStringLiteral("PDF preview runtime returned incompatible geometry");
+    const auto bounds = actual.value(QStringLiteral("pageBounds")).toArray();
+    if (bounds.size() != 4 || std::abs(bounds[0].toDouble()) > 0.01 || std::abs(bounds[1].toDouble()) > 0.01
+        || std::abs(imageSize.width() - bounds[2].toDouble() * dpi / 72.0) > 1.01
+        || std::abs(imageSize.height() - bounds[3].toDouble() * dpi / 72.0) > 1.01)
+        return QStringLiteral("PDF preview page bounds are unsupported");
+    if (geometry.native) {
+        for (const auto *key : {"mediaBox", "cropBox"}) {
+            const auto stored = geometry.locator.value(QLatin1String(key)).toArray();
+            const auto rendered = actual.value(QLatin1String(key)).toArray();
+            if (stored.size() != 4 || rendered.size() != 4) return QStringLiteral("PDF selection geometry is missing");
+            for (int i = 0; i < 4; ++i) {
+                if (!stored[i].isDouble() || std::abs(stored[i].toDouble() - rendered[i].toDouble()) > 0.01)
+                    return QStringLiteral("PDF page geometry changed; recapture the selection");
+            }
+        }
+        for (const auto *key : {"rotation", "userUnit"}) {
+            const auto stored = geometry.locator.value(QLatin1String(key));
+            if (!stored.isDouble() || std::abs(stored.toDouble() - actual.value(QLatin1String(key)).toDouble(-1)) > 0.0001)
+                return QStringLiteral("PDF page geometry changed; recapture the selection");
+        }
+    }
+    if (geometry.rectangle.isValid()
+        && (geometry.rectangle.left() < -0.01 || geometry.rectangle.top() < -0.01
+            || geometry.rectangle.right() > bounds[2].toDouble() + 0.01
+            || geometry.rectangle.bottom() > bounds[3].toDouble() + 0.01))
+        return QStringLiteral("PDF selection is outside the current page");
+    return {};
 }
 
 QString localPdfPath(const Resource &resource, const Anchor &anchor)
@@ -107,7 +195,10 @@ QString previewCachePath(const QString &cacheDirectory,
     if (cacheDirectory.isEmpty()) return {};
     const QFileInfo file(pdfPath);
     QJsonObject key;
-    key.insert(QStringLiteral("version"), 1);
+    key.insert(QStringLiteral("version"), 2);
+    const QString renderer = options.rendererExecutablePath.trimmed().isEmpty()
+        ? resolvePdfLocatorPreviewRendererPath() : options.rendererExecutablePath;
+    key.insert(QStringLiteral("renderer"), renderer + sourceSignature(renderer));
     key.insert(QStringLiteral("path"), QDir::fromNativeSeparators(file.canonicalFilePath().isEmpty()
                                                                       ? file.absoluteFilePath()
                                                                       : file.canonicalFilePath()));
@@ -126,7 +217,7 @@ QString previewCachePath(const QString &cacheDirectory,
 QImage readPreviewCache(const QString &cachePath)
 {
     if (cachePath.isEmpty()) return {};
-    QImage image(cachePath);
+    QImage image = readBoundedImage(cachePath);
     if (image.isNull()) {
         QFile::remove(cachePath);
         return {};
@@ -180,17 +271,19 @@ bool PdfLocatorPreviewRenderResult::success() const
 QString resolvePdfLocatorPreviewRendererPath(const QString &sumatraPdfExecutablePath)
 {
     QStringList candidates;
+    const QDir package(QCoreApplication::applicationDirPath());
+    candidates.append(package.filePath(QStringLiteral("reader/PinloomPdfPreview.exe")));
+    candidates.append(package.filePath(QStringLiteral("PinloomPdfPreview.exe")));
     const QString configured = qEnvironmentVariable("PINLOOM_SUMATRAPDF_TOOL_PATH").trimmed();
     if (!configured.isEmpty()) candidates.append(configured);
 
     QString sumatraPath = sumatraPdfExecutablePath.trimmed();
     if (sumatraPath.isEmpty()) sumatraPath = resolveSumatraPdfExecutablePath();
     if (!sumatraPath.isEmpty()) {
+        candidates.append(QFileInfo(sumatraPath).dir().filePath(QStringLiteral("PinloomPdfPreview.exe")));
         candidates.append(QFileInfo(sumatraPath).dir().filePath(QStringLiteral("sumatrapdf-tool.exe")));
     }
 
-    const QString discovered = QStandardPaths::findExecutable(QStringLiteral("sumatrapdf-tool.exe"));
-    if (!discovered.isEmpty()) candidates.append(discovered);
     for (const QString &candidate : candidates) {
         const QFileInfo info(candidate);
         if (info.exists() && info.isFile()) return QDir::toNativeSeparators(info.absoluteFilePath());
@@ -301,10 +394,25 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         result.error = QStringLiteral("PDF preview file is missing");
         return result;
     }
+    const QString initialSignature = sourceSignature(pdfPath);
+    QFile source(pdfPath);
+    if (!source.open(QIODevice::ReadOnly)) {
+        result.error = QStringLiteral("PDF cannot be read; check file permissions");
+        return result;
+    }
+    source.close();
+    result.error = validateNativeSource(geometry, pdfPath);
+    if (!result.error.isEmpty()) return result;
+    result.sourceVersion = pdfLocatorPreviewRequestKey(resource, anchor, options);
     const QString cachePath = pdfLocatorPreviewCacheFilePath(resource, anchor, options);
     result.image = readPreviewCache(cachePath);
     if (isCancelled()) return result;
     if (!result.image.isNull()) {
+        if (sourceSignature(pdfPath) != initialSignature) {
+            result.image = {};
+            result.error = QStringLiteral("PDF changed while loading the preview; retry");
+            return result;
+        }
         result.cacheFilePath = QFileInfo(cachePath).absoluteFilePath();
         result.cropped = geometry.rectangle.isValid();
         result.fromCache = true;
@@ -314,7 +422,7 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         ? resolvePdfLocatorPreviewRendererPath()
         : options.rendererExecutablePath.trimmed();
     if (rendererPath.isEmpty() || !QFileInfo::exists(rendererPath)) {
-        result.error = QStringLiteral("SumatraPDF 3.7 preview renderer was not found");
+        result.error = QStringLiteral("PDF preview runtime is missing; restore the paired Pinloom package");
         return result;
     }
     const int resolutionDpi = std::clamp(options.resolutionDpi, 72, 300);
@@ -394,10 +502,16 @@ PdfLocatorPreviewRenderResult renderPdfLocatorPreview(
         result.error = QStringLiteral("PDF preview renderer produced no image");
         return result;
     }
-    const QImage pageImage(images.first().absoluteFilePath());
+    const QImage pageImage = readBoundedImage(images.first().absoluteFilePath());
     if (isCancelled()) return result;
     if (pageImage.isNull()) {
         result.error = QStringLiteral("Unable to read the rendered PDF page");
+        return result;
+    }
+    result.error = validateRenderedGeometry(geometry, images.first().absoluteFilePath(), pageImage.size(), resolutionDpi);
+    if (!result.error.isEmpty()) return result;
+    if (sourceSignature(pdfPath) != initialSignature) {
+        result.error = QStringLiteral("PDF changed while rendering; retry the preview");
         return result;
     }
     if (geometry.rectangle.isValid()) {

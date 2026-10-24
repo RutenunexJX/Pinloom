@@ -1,6 +1,8 @@
 # Pinloom
 
-Current version: `0.4.17`; database Schema: `16`.
+Current version: `0.4.18`; database Schema: `16`.
+
+Release 0.4.18 supplies bounded PDF selection previews to ZeroSlack, including a packaged MuPDF renderer, cache validation, cancellation and exact native-reader reopening. The paired SumatraPDF remains 3.6.1-pinloom.2; generic Clip and Hyper+S are unchanged.
 
 Release 0.4.17 moves PDF text anchors into the paired SumatraPDF 3.6.1-pinloom.2 reader, removes duplicate PDF capture entries and PDF Text Clip, and adds automatic CLI discovery with remembered fallback settings. The public CLI capability list includes native text anchors. Generic Clip and Hyper+S are unchanged.
 

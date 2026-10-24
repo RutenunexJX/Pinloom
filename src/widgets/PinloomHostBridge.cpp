@@ -6,6 +6,9 @@
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QFileInfo>
+#include <QFutureWatcher>
+#include <QPointer>
+#include <QtConcurrent/QtConcurrentRun>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLocalServer>
@@ -495,6 +498,7 @@ QJsonObject pinloomHostPreviewToJson(
     if (!preview.error.trimmed().isEmpty()) {
         result.insert(QStringLiteral("error"), preview.error.trimmed());
     }
+    if (!preview.sourceVersion.isEmpty()) result.insert(QStringLiteral("sourceVersion"), preview.sourceVersion);
 
     if (QJsonDocument(result).toJson(QJsonDocument::Compact).size()
         <= kPinloomHostPreviewDescriptorMaxBytes) {
@@ -530,11 +534,37 @@ QJsonObject pinloomHostDocumentToJson(const PinloomHostDocument &document)
     return result;
 }
 
+static void applyPdfPreview(PinloomHostDocument &document, const PdfLocatorPreviewRenderResult &rendered)
+{
+    PinloomHostPreviewDescriptor preview;
+    preview.page = rendered.page > 0 ? rendered.page : document.details.value(QStringLiteral("page")).toInt();
+    preview.cropped = rendered.cropped;
+    preview.sourceVersion = rendered.sourceVersion;
+    preview.altText = previewAltText(document.entry.name, document.details.value(QStringLiteral("fileName")).toString(), preview.page);
+    const QFileInfo cacheFile(rendered.cacheFilePath);
+    if (rendered.success() && !rendered.cacheFilePath.isEmpty() && cacheFile.isFile()) {
+        preview.state = QStringLiteral("ready");
+        preview.mimeType = QStringLiteral("image/png");
+        preview.filePath = cacheFile.absoluteFilePath();
+        preview.uri = QUrl::fromLocalFile(preview.filePath);
+        preview.byteSize = cacheFile.size();
+        preview.pixelWidth = rendered.image.width();
+        preview.pixelHeight = rendered.image.height();
+    } else {
+        preview.state = QStringLiteral("unavailable");
+        preview.cropped = false;
+        preview.error = rendered.error.trimmed().isEmpty()
+            ? QStringLiteral("PDF preview cache file is unavailable; retry") : rendered.error.trimmed();
+    }
+    document.preview = preview;
+}
+
 PinloomHostDocument pinloomHostDocumentForResource(
     const Resource &resource,
     const std::optional<Anchor> &anchor,
     const std::optional<ResourceUsage> &usage,
-    const PdfLocatorPreviewRenderOptions &previewOptions)
+    const PdfLocatorPreviewRenderOptions &previewOptions,
+    bool deferPreview)
 {
     PinloomOpenTarget target;
     target.resourceId = resource.id;
@@ -602,34 +632,99 @@ PinloomHostDocument pinloomHostDocumentForResource(
         return document;
     }
 
-    const PdfLocatorPreviewRenderResult rendered =
-        renderPdfLocatorPreview(resource, *anchor, previewOptions);
-    PinloomHostPreviewDescriptor preview;
-    preview.page = rendered.page > 0 ? rendered.page : page;
-    preview.cropped = rendered.cropped;
-    preview.altText = previewAltText(entry.name, fileName, preview.page);
-    const QFileInfo cacheFile(rendered.cacheFilePath);
-    if (rendered.success()
-        && !rendered.cacheFilePath.trimmed().isEmpty()
-        && cacheFile.exists()
-        && cacheFile.isFile()) {
-        preview.state = QStringLiteral("ready");
-        preview.mimeType = QStringLiteral("image/png");
-        preview.filePath = cacheFile.absoluteFilePath();
-        preview.uri = QUrl::fromLocalFile(preview.filePath);
-        preview.byteSize = cacheFile.size();
-        preview.pixelWidth = rendered.image.width();
-        preview.pixelHeight = rendered.image.height();
-    } else {
-        preview.state = QStringLiteral("unavailable");
-        preview.cropped = false;
-        preview.error = rendered.error.trimmed().isEmpty()
-            ? QStringLiteral("PDF preview cache file is unavailable")
-            : rendered.error.trimmed();
-    }
-    document.preview = preview;
+    if (deferPreview) document.deferredPreview = PinloomHostPdfPreviewInput{resource, *anchor, previewOptions};
+    else applyPdfPreview(document, renderPdfLocatorPreview(resource, *anchor, previewOptions));
     return document;
 }
+
+struct PinloomHostBridgeServer::PreviewQueue {
+    struct Subscriber {
+        QPointer<QLocalSocket> socket;
+        QJsonObject request;
+        PinloomHostDocument document;
+    };
+    struct Job {
+        QString key;
+        PinloomHostPdfPreviewInput input;
+        QList<Subscriber> subscribers;
+        PdfLocatorPreviewCancellation cancelled = std::make_shared<std::atomic_bool>(false);
+    };
+    PinloomHostBridgeServer *owner;
+    std::shared_ptr<Job> active;
+    QList<std::shared_ptr<Job>> pending;
+
+    explicit PreviewQueue(PinloomHostBridgeServer *server) : owner(server) {}
+    ~PreviewQueue() { if (active) active->cancelled->store(true); }
+
+    void disconnected(QLocalSocket *socket) {
+        const auto remove = [socket](const std::shared_ptr<Job> &job) {
+            job->subscribers.removeIf([socket](const Subscriber &s) { return !s.socket || s.socket == socket; });
+            if (job->subscribers.isEmpty()) job->cancelled->store(true);
+        };
+        if (active) remove(active);
+        for (const auto &job : pending) remove(job);
+        pending.removeIf([](const auto &job) { return job->cancelled->load(); });
+    }
+
+    void enqueue(QLocalSocket *socket, const QJsonObject &request, PinloomHostDocument document) {
+        const auto input = *document.deferredPreview;
+        const auto key = pdfLocatorPreviewRequestKey(input.resource, input.anchor, input.options);
+        const Subscriber subscriber{socket, request, std::move(document)};
+        if (active && active->key == key && !active->cancelled->load()) {
+            active->subscribers.append(subscriber);
+            return;
+        }
+        for (const auto &job : pending) {
+            if (job->key == key) { job->subscribers.append(subscriber); return; }
+        }
+        if (pending.size() >= 4) {
+            auto busy = subscriber.document;
+            PdfLocatorPreviewRenderResult result;
+            result.error = QStringLiteral("PDF preview is busy; retry shortly");
+            applyPdfPreview(busy, result);
+            owner->finishSocket(socket, successResponse(request, pinloomHostDocumentToJson(busy)));
+            return;
+        }
+        auto job = std::make_shared<Job>();
+        job->key = key; job->input = input; job->subscribers.append(subscriber);
+        if (active) pending.append(job); else launch(job);
+    }
+
+    void launch(const std::shared_ptr<Job> &job) {
+        active = job;
+        auto *watcher = new QFutureWatcher<PdfLocatorPreviewRenderResult>(owner);
+        QObject::connect(watcher, &QFutureWatcher<PdfLocatorPreviewRenderResult>::finished, owner, [this, watcher, job] {
+            const auto rendered = watcher->result();
+            watcher->deleteLater();
+            active.reset();
+            // finishSocket disconnects synchronously on some platforms; iterate a snapshot.
+            const auto subscribers = job->subscribers;
+            for (auto subscriber : subscribers) {
+                if (!subscriber.socket || subscriber.socket->state() != QLocalSocket::ConnectedState) continue;
+                const auto identity = pinloomHostIdentityFromJson(subscriber.request.value(QStringLiteral("params")).toObject().value(QStringLiteral("identity")).toObject());
+                const auto current = identity && owner->callbacks_.resolve ? owner->callbacks_.resolve(*identity) : std::nullopt;
+                auto result = rendered;
+                bool unchanged = current && !current->entry.deleted && current->deferredPreview.has_value();
+                if (unchanged) {
+                    const auto &input = *current->deferredPreview;
+                    unchanged = pdfLocatorPreviewRequestKey(input.resource, input.anchor, input.options) == job->key;
+                }
+                if (!unchanged) {
+                    result.image = {}; result.cacheFilePath.clear();
+                    result.error = QStringLiteral("PDF selection changed while rendering; retry");
+                } else subscriber.document = *current;
+                applyPdfPreview(subscriber.document, result);
+                owner->finishSocket(subscriber.socket, successResponse(subscriber.request, pinloomHostDocumentToJson(subscriber.document)));
+            }
+            if (!pending.isEmpty()) launch(pending.takeFirst());
+        });
+        const auto input = job->input;
+        const auto cancelled = job->cancelled;
+        watcher->setFuture(QtConcurrent::run([input, cancelled] {
+            return renderPdfLocatorPreview(input.resource, input.anchor, input.options, cancelled);
+        }));
+    }
+};
 
 PinloomHostBridgeServer::PinloomHostBridgeServer(
     PinloomHostBridgeOptions options,
@@ -639,6 +734,7 @@ PinloomHostBridgeServer::PinloomHostBridgeServer(
     , options_(normalizedOptions(std::move(options)))
     , callbacks_(std::move(callbacks))
     , server_(new QLocalServer(this))
+    , previewQueue_(std::make_unique<PreviewQueue>(this))
 {
     server_->setSocketOptions(QLocalServer::UserAccessOption);
     connect(server_, &QLocalServer::newConnection,
@@ -701,7 +797,7 @@ void PinloomHostBridgeServer::handlePendingConnections()
         connect(socket, &QLocalSocket::readyRead, this,
                 [this, socket]() { consumeSocket(socket, false); });
         connect(socket, &QLocalSocket::disconnected, this,
-                [this, socket]() { consumeSocket(socket, true); });
+                [this, socket]() { previewQueue_->disconnected(socket); socket->deleteLater(); });
         QTimer::singleShot(options_.requestTimeoutMs, socket,
                            [this, socket]() { consumeSocket(socket, true); });
     }
@@ -742,11 +838,38 @@ void PinloomHostBridgeServer::consumeSocket(QLocalSocket *socket,
                                    QStringLiteral("Request is not a JSON object")));
         return;
     }
-    finishSocket(socket, processRequest(document.object()));
+    const auto envelope = document.object();
+    if (envelope.value(QStringLiteral("protocol")) == QLatin1String(kPinloomHostProtocol)
+        && envelope.value(QStringLiteral("method")) == QLatin1String("open") && callbacks_.openAsync) {
+        const auto identity = pinloomHostIdentityFromJson(envelope.value(QStringLiteral("params")).toObject().value(QStringLiteral("identity")).toObject());
+        if (identity) {
+            if (opening_) {
+                finishSocket(socket, errorResponse(envelope, QStringLiteral("busy"), QStringLiteral("PDF navigation is in progress; retry shortly")));
+                return;
+            }
+            opening_ = true;
+            const QPointer<PinloomHostBridgeServer> guard(this);
+            const QPointer<QLocalSocket> connection(socket);
+            callbacks_.openAsync(*identity, [guard, connection, envelope](bool opened, bool verified, const QString &status) {
+                if (!guard) return;
+                guard->opening_ = false;
+                if (!connection || connection->state() != QLocalSocket::ConnectedState) return;
+                guard->finishSocket(connection, opened ? successResponse(envelope, QJsonObject{
+                    {QStringLiteral("message"), status}, {QStringLiteral("positionVerified"), verified},
+                    {QStringLiteral("state"), verified ? QStringLiteral("located") : QStringLiteral("open_requested")}})
+                    : errorResponse(envelope, QStringLiteral("open_failed"), status));
+            });
+            return;
+        }
+    }
+    PinloomHostDocument deferred;
+    const auto response = processRequest(document.object(), &deferred);
+    if (deferred.deferredPreview) previewQueue_->enqueue(socket, document.object(), std::move(deferred));
+    else finishSocket(socket, response);
 }
 
 QJsonObject PinloomHostBridgeServer::processRequest(
-    const QJsonObject &request) const
+    const QJsonObject &request, PinloomHostDocument *deferredDocument) const
 {
     if (request.value(QStringLiteral("protocol")).toString()
         != QString::fromLatin1(kPinloomHostProtocol)) {
@@ -843,6 +966,10 @@ QJsonObject PinloomHostBridgeServer::processRequest(
                 request,
                 QStringLiteral("deleted"),
                 QStringLiteral("Pinloom entry is deleted; restore it before opening"));
+        }
+        if (deferredDocument && document->deferredPreview) {
+            *deferredDocument = *document;
+            return {};
         }
         return successResponse(request, pinloomHostDocumentToJson(*document));
     }

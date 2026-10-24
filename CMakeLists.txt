@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.17
+    VERSION 0.4.18
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -493,7 +493,7 @@ pinloom_add_test(pinloom_widget_smoke_test)
 
 add_executable(pinloom_pdf_locator_preview_test tests/pdf_locator_preview_test.cpp)
 target_link_libraries(pinloom_pdf_locator_preview_test
-    PRIVATE pinloom_widgets Qt6::Test Qt6::Concurrent)
+    PRIVATE pinloom_widgets Qt6::Test Qt6::Concurrent Qt6::Network)
 pinloom_add_test(pinloom_pdf_locator_preview_test)
 
 add_test(NAME pinloom_package_smoke_test COMMAND pinloom_app --package-check)

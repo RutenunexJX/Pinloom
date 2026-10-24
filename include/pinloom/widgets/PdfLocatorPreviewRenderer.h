@@ -27,6 +27,7 @@ struct PdfLocatorPreviewRenderResult {
     QImage image;
     QString cacheFilePath;
     QString error;
+    QString sourceVersion;
     int page = -1;
     QRectF locatorRectangle;
     bool cropped = false;

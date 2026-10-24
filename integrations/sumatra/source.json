@@ -7,7 +7,7 @@
   "customVersion": "3.6.1-pinloom.2",
   "branch": "codex/pinloom-native-capture",
   "protocol": "pinloom-reader/v1",
-  "pairedPinloomVersion": "0.4.17",
+  "pairedPinloomVersion": "0.4.18",
   "patchSha256": "dc5baff6886da51b315418e8d28b3bd29cff168f982c49f73d17488ad9cae36c",
   "updatePolicy": "paired-pinloom-package-only",
   "toolchain": {

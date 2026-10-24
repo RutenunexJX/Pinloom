@@ -1324,11 +1324,13 @@ void WidgetSmokeTest::pdfLocatorPreviewRendersConfiguredRealPdf()
     QVERIFY(result.image.height() >= 80);
 
     PdfLocatorPreviewRenderOptions cachedOptions = options;
-    cachedOptions.rendererExecutablePath = previewCache.filePath(QStringLiteral("missing-renderer.exe"));
     const PdfLocatorPreviewRenderResult cached = renderPdfLocatorPreview(resource, anchor, cachedOptions);
     QVERIFY2(cached.success(), qPrintable(cached.error));
     QVERIFY(cached.fromCache);
     QCOMPARE(cached.image.size(), result.image.size());
+    cachedOptions.rendererExecutablePath = previewCache.filePath(QStringLiteral("missing-renderer.exe"));
+    const auto missingRuntime = renderPdfLocatorPreview(resource, anchor, cachedOptions);
+    QVERIFY(!missingRuntime.success());
 
     const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR").trimmed();
     if (!snapshotDirectory.isEmpty()) {

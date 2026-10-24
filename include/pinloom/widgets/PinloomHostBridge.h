@@ -41,8 +41,15 @@ struct PinloomHostPreviewDescriptor {
     bool cropped = false;
     QString altText;
     QString error;
+    QString sourceVersion;
 
     bool isValid() const;
+};
+
+struct PinloomHostPdfPreviewInput {
+    Resource resource;
+    Anchor anchor;
+    PdfLocatorPreviewRenderOptions options;
 };
 
 struct PinloomHostDocument {
@@ -51,6 +58,7 @@ struct PinloomHostDocument {
     QString contentType = QStringLiteral("text/plain");
     QVariantMap details;
     std::optional<PinloomHostPreviewDescriptor> preview;
+    std::optional<PinloomHostPdfPreviewInput> deferredPreview;
 };
 
 struct PinloomSourceAnchorRequest {
@@ -86,6 +94,8 @@ struct PinloomHostBridgeCallbacks {
             const PinloomHostIdentity &)>;
     using OpenHandler =
         std::function<bool(const PinloomHostIdentity &, QString *)>;
+    using OpenCompletion = std::function<void(bool, bool, const QString &)>;
+    using OpenAsyncHandler = std::function<void(const PinloomHostIdentity &, OpenCompletion)>;
     using CreateSourceAnchorHandler =
         std::function<std::optional<PinloomEntry>(
             const PinloomSourceAnchorRequest &, QString *)>;
@@ -93,6 +103,7 @@ struct PinloomHostBridgeCallbacks {
     SearchHandler search;
     ResolveHandler resolve;
     OpenHandler open;
+    OpenAsyncHandler openAsync;
     CreateSourceAnchorHandler createSourceAnchor;
 };
 
@@ -121,7 +132,8 @@ PinloomHostDocument pinloomHostDocumentForResource(
     const Resource &resource,
     const std::optional<Anchor> &anchor = std::nullopt,
     const std::optional<ResourceUsage> &usage = std::nullopt,
-    const PdfLocatorPreviewRenderOptions &previewOptions = {});
+    const PdfLocatorPreviewRenderOptions &previewOptions = {},
+    bool deferPreview = false);
 
 class PinloomHostBridgeServer final : public QObject {
     Q_OBJECT
@@ -141,13 +153,16 @@ public:
 private:
     void handlePendingConnections();
     void consumeSocket(QLocalSocket *socket, bool allowIncompletePayload);
-    QJsonObject processRequest(const QJsonObject &request) const;
+    QJsonObject processRequest(const QJsonObject &request, PinloomHostDocument *deferredDocument = nullptr) const;
     void finishSocket(QLocalSocket *socket, const QJsonObject &response);
 
     PinloomHostBridgeOptions options_;
     PinloomHostBridgeCallbacks callbacks_;
     QLocalServer *server_ = nullptr;
     QString lastError_;
+    struct PreviewQueue;
+    std::unique_ptr<PreviewQueue> previewQueue_;
+    bool opening_ = false;
 };
 
 } // namespace Pinloom

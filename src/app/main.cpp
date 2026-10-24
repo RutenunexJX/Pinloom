@@ -2275,7 +2275,7 @@ int main(int argc, char *argv[])
 
     const auto resolveHostDocument =
         [&repository, &findClip, &runtimeSettings](
-            const Pinloom::PinloomHostIdentity &identity)
+            const Pinloom::PinloomHostIdentity &identity, bool deferPreview = true)
             -> std::optional<Pinloom::PinloomHostDocument> {
         if (!identity.clipId.trimmed().isEmpty()) {
             const std::optional<Pinloom::Clip> clip =
@@ -2359,7 +2359,7 @@ int main(int argc, char *argv[])
             anchor.has_value()
                 ? std::optional<Pinloom::ResourceUsage>{}
                 : repository.resourceUsage(resource->id),
-            previewOptions);
+            previewOptions, deferPreview);
     };
 
     const auto resolveAndOpenHostIdentity =
@@ -2457,8 +2457,38 @@ int main(int argc, char *argv[])
             options.limit = limit;
             return entrySearchService.search(query, options);
         };
-    hostCallbacks.resolve = resolveHostDocument;
+    hostCallbacks.resolve = [resolveHostDocument](const Pinloom::PinloomHostIdentity &identity) {
+        return resolveHostDocument(identity);
+    };
     hostCallbacks.open = openHostIdentity;
+    hostCallbacks.openAsync = [resolveHostDocument, openHostIdentity, &openService, &app](
+        const Pinloom::PinloomHostIdentity &identity, Pinloom::PinloomHostBridgeCallbacks::OpenCompletion completed) {
+        const auto document = resolveHostDocument(identity);
+        const auto target = document ? Pinloom::openTargetFromEntry(document->entry) : Pinloom::PinloomOpenTarget{};
+        const bool nativePdf = target.anchor && target.anchor->locatorType == QStringLiteral("sumatrapdf.rect")
+            && QJsonDocument::fromJson(target.anchor->locatorJson.toUtf8()).object().value(QStringLiteral("version")).toInt() == 3;
+        if (!nativePdf || !document || document->entry.deleted) {
+            QString status;
+            const bool opened = openHostIdentity(identity, &status);
+            completed(opened, false, status);
+            return;
+        }
+        auto *context = new QObject(&app);
+        const auto done = std::make_shared<bool>(false);
+        const auto finish = [context, done, completed](bool opened, bool verified, const QString &message) {
+            if (std::exchange(*done, true)) return;
+            context->deleteLater();
+            completed(opened, verified, message);
+        };
+        QObject::connect(&openService, &Pinloom::PinloomOpenService::navigationCompleted, context,
+            [finish, target](const QString &resourceId, const QString &anchorId, const QString &state, bool verified, const QString &message) {
+                if (resourceId == target.resourceId && anchorId == target.anchor->id)
+                    finish(state == QStringLiteral("located") && verified, verified, message);
+            });
+        QTimer::singleShot(20000, context, [finish] { finish(false, false, QStringLiteral("The reader did not confirm PDF positioning; retry")); });
+        QString status;
+        if (!openHostIdentity(identity, &status)) finish(false, false, status);
+    };
     hostCallbacks.createSourceAnchor =
         [&repository](const Pinloom::PinloomSourceAnchorRequest &request,
                       QString *status) {
@@ -2466,6 +2496,9 @@ int main(int argc, char *argv[])
     };
 #ifdef PINLOOM_HAS_SUITEAPP
     Pinloom::PinloomHostBridgeCallbacks suiteCallbacks = hostCallbacks;
+    suiteCallbacks.resolve = [resolveHostDocument](const Pinloom::PinloomHostIdentity &identity) {
+        return resolveHostDocument(identity, false);
+    };
 #endif
     Pinloom::PinloomHostBridgeOptions hostBridgeOptions;
     if (explicitLibrary) hostBridgeOptions.serverName = Pinloom::libraryCommandEndpoint(appDataPath) + "-host";

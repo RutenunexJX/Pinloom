@@ -7,6 +7,7 @@ param(
     [string]$PackageVersion = "",
     [string]$PackageName = "Pinloom",
     [Parameter(Mandatory = $true)][string]$ReaderDirectory,
+    [Parameter(Mandatory = $true)][string]$PreviewRuntimeDirectory,
     [switch]$ReplaceExisting,
     [switch]$AllowDirty
 )
@@ -60,6 +61,11 @@ foreach ($name in @('SumatraPDF.exe', 'source/SumatraPDF-source.zip', 'source/pi
 }
 $actualReaderFiles = @(Get-ChildItem -LiteralPath $ReaderDirectory -File -Recurse)
 if ($actualReaderFiles.Count -ne @($readerMetadata.files.PSObject.Properties).Count + 1) { throw 'Unrecorded reader payload file.' }
+$previewExecutable = Join-Path $PreviewRuntimeDirectory 'PinloomPdfPreview.exe'
+if (!(Test-Path -LiteralPath $previewExecutable -PathType Leaf)) { throw 'Build the paired PDF preview runtime with integrations/sumatra/Compile-Preview.ps1.' }
+$previewMetadata = (& $previewExecutable --capabilities) | ConvertFrom-Json
+if ($LASTEXITCODE -or $previewMetadata.protocol -ne 'pinloom-pdf-preview/v1' -or $previewMetadata.sourceRevision -ne $readerPin.sourceRevision) { throw 'PDF preview runtime does not match the paired reader source.' }
+$previewMetadata | Add-Member -NotePropertyName sha256 -NotePropertyValue (Get-FileHash -LiteralPath $previewExecutable -Algorithm SHA256).Hash.ToLowerInvariant()
 
 $sourceExecutable = Join-Path $BuildDirectory "pinloom_app.exe"
 $sourcePdfProbe = Join-Path $BuildDirectory "pinloom_pdf_probe.exe"
@@ -186,6 +192,11 @@ foreach ($name in @('cli_process.ps1', 'cli_workflow.ps1', 'cli_session_routing.
 }
 
 Copy-Item -LiteralPath $ReaderDirectory -Destination (Join-Path $packageDirectory 'reader') -Recurse
+Copy-Item -LiteralPath $previewExecutable -Destination (Join-Path $packageDirectory 'reader/PinloomPdfPreview.exe')
+foreach ($name in @('PinloomPdfPreview.cpp', 'Compile-Preview.ps1')) {
+    Copy-Item -LiteralPath (Join-Path $repositoryRoot "integrations/sumatra/$name") -Destination (Join-Path $packageDirectory "reader/source/$name")
+}
+$previewMetadata | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $packageDirectory 'reader/preview-runtime.json') -Encoding UTF8
 
 $destinationExecutable = Join-Path $packageDirectory "pinloom_app.exe"
 if ($usesEla) {
@@ -306,6 +317,7 @@ $metadataPath = Join-Path $outputRootPath 'release-metadata.json'
     compiler = $compiler
     backend = $controlBackend
     nativePdfReader = $readerMetadata
+    pdfPreviewRuntime = $previewMetadata
     databaseSchema = 16
     packageDirectory = $packageDirectory
     fileCount = $packageFiles.Count
