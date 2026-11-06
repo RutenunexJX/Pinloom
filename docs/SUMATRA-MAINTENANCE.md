@@ -1,6 +1,6 @@
 # Paired SumatraPDF maintenance
 
-Pinloom 0.4.18 is distributed with SumatraPDF 3.6.1, customization `pinloom.2`.
+Pinloom 0.4.19 is distributed with SumatraPDF 3.6.1, customization `pinloom.2`.
 `integrations/sumatra/source.json` pins the upstream revision, exact customized
 release commit and complete customization patch hash. The corresponding source
 archive and build inputs accompany each paired package.

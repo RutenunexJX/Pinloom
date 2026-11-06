@@ -29,6 +29,7 @@ struct SumatraPdfCommandResult {
 
 bool isSumatraPdfLocatorType(const QString &locatorType);
 bool isSumatraPdfAnchor(const Anchor &anchor);
+QString pairedSumatraPdfExecutablePath();
 QString resolveSumatraPdfExecutablePath();
 QString resolveSumatraPdfExecutablePath(const ApplicationLaunchSettings &settings);
 SumatraPdfCommandResult buildSumatraPdfCommand(const Anchor &anchor,

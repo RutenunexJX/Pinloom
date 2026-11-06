@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.18
+    VERSION 0.4.19
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -102,6 +102,8 @@ add_library(pinloom_core STATIC
     src/core/AnchorCapture.cpp
     src/core/AnchorCaptureDraft.cpp
     src/core/AppDataDirectory.cpp
+    src/core/PinloomStartup.cpp
+    src/core/PinloomFileAssociations.cpp
     src/core/AnchorLibraryArchive.cpp
     src/core/AnchorLibraryManagement.cpp
     src/core/AnchorLocator.cpp
@@ -153,6 +155,7 @@ if(WIN32)
     target_link_libraries(pinloom_core
         PRIVATE
             user32
+            shell32
             ole32
             oleaut32
     )
@@ -364,6 +367,9 @@ function(pinloom_add_test target)
 endfunction()
 
 add_executable(pinloom_cli_contract_test tests/cli_contract_test.cpp)
+add_executable(pinloom_startup_test tests/startup_test.cpp)
+target_link_libraries(pinloom_startup_test PRIVATE pinloom_widgets Qt6::Test)
+pinloom_add_test(pinloom_startup_test)
 add_executable(pinloom_native_pdf_capture_test tests/native_pdf_capture_test.cpp)
 target_link_libraries(pinloom_native_pdf_capture_test PRIVATE pinloom_application Qt6::Test)
 pinloom_add_test(pinloom_native_pdf_capture_test)

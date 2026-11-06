@@ -181,12 +181,15 @@ foreach ($name in @('LICENSE', 'NOTICE', 'THIRD-PARTY-NOTICES.md')) {
 }
 $publicDocs = Join-Path $packageDirectory 'docs'
 New-Item -ItemType Directory -Path $publicDocs | Out-Null
-foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md', 'CLI.md', 'SUMATRA-MAINTENANCE.md')) {
+foreach ($name in @('ASSET-PROVENANCE.md', 'PUBLIC-RELEASE-REVIEW.md', 'CLI.md', 'SUMATRA-MAINTENANCE.md', 'FILE-OPEN.md')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "docs/$name") -Destination $publicDocs
 }
 Copy-Item -LiteralPath $sourceExecutable -Destination $packageDirectory
 Copy-Item -LiteralPath $sourcePdfProbe -Destination $packageDirectory
 Copy-Item -LiteralPath $sourceCli -Destination $packageDirectory
+foreach ($name in @('Register File Associations.cmd', 'Unregister File Associations.cmd')) {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot $name) -Destination $packageDirectory
+}
 foreach ($name in @('cli_process.ps1', 'cli_workflow.ps1', 'cli_session_routing.ps1')) {
     Copy-Item -LiteralPath (Join-Path $repositoryRoot "tests/$name") -Destination $publicDocs
 }
@@ -241,6 +244,9 @@ $packageReadme = @(
     "Package staging root: $packageDirectory",
     "",
     "Run pinloom_app.exe. Keep every DLL and plugin directory beside it.",
+    "To read a PDF, open it with pinloom_app.exe. The paired reader opens directly.",
+    "Run Register File Associations.cmd to add Pinloom to Windows Open with.",
+    "Choose Pinloom as your default PDF app in Windows. See docs/FILE-OPEN.md.",
     "For PDF capture, open reader/SumatraPDF.exe and use its Capture toolbar button.",
     "The reader finds ../pinloom_cli.exe automatically. Keep the paired package together.",
     "Native PDF anchors automatically reopen in this bundled reader.",
@@ -257,6 +263,9 @@ $requiredFiles = @(
     "pinloom_app.exe",
     "pinloom_pdf_probe.exe",
     "pinloom_cli.exe",
+    "Register File Associations.cmd",
+    "Unregister File Associations.cmd",
+    "docs\FILE-OPEN.md",
     "docs\cli_process.ps1",
     "docs\cli_workflow.ps1",
     "docs\cli_session_routing.ps1",

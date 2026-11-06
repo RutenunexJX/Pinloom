@@ -1,9 +1,12 @@
 #include "pinloom/widgets/NativePdfReader.h"
+#include "pinloom/core/PinloomStartup.h"
+#include "pinloom/core/SumatraPdfCommand.h"
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFileInfo>
+#include <QFile>
 #include <QJsonDocument>
 #include <QProcess>
 #include <QThread>
@@ -54,6 +57,105 @@ bool send(HWND window, const QByteArray &json, DWORD_PTR *result, UINT timeout)
     return SendMessageTimeoutW(window, WM_COPYDATA, 0, reinterpret_cast<LPARAM>(&message),
         SMTO_ABORTIFHUNG | SMTO_BLOCK, timeout, result) != 0;
 }
+
+QString initializeReaderConnection(const QString &profile, const QString &executable,
+                                   const QString &library, bool explicitLibrary)
+{
+    // Use the reader's existing per-key fallback and Unicode INI format.
+    const auto user = QDir::toNativeSeparators(QDir(profile).filePath("PinloomIntegration.user.ini")).toStdWString();
+    const auto legacy = QDir::toNativeSeparators(QFileInfo(executable).dir().filePath("PinloomIntegration.ini")).toStdWString();
+    wchar_t value[32768]{};
+    for (const auto &path : {user, legacy}) {
+        GetPrivateProfileStringW(L"Pinloom", L"LibraryPath", L"{missing}", value, 32768, path.c_str());
+        if (wcscmp(value, L"{missing}") != 0) return {};
+    }
+    if (GetFileAttributesW(user.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        HANDLE file = CreateFileW(user.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (file == INVALID_HANDLE_VALUE)
+            return QStringLiteral("Cannot create the reader connection settings.");
+        const WORD bom = 0xfeff;
+        DWORD written = 0;
+        const bool ok = WriteFile(file, &bom, sizeof(bom), &written, nullptr) && written == sizeof(bom);
+        CloseHandle(file);
+        if (!ok) return QStringLiteral("Cannot initialize the reader connection settings.");
+    }
+    const auto binding = (explicitLibrary ? QDir::toNativeSeparators(library) : QString()).toStdWString();
+    if (!WritePrivateProfileStringW(L"Pinloom", L"LibraryPath", binding.c_str(), user.c_str()))
+        return QStringLiteral("Cannot save the reader library connection.");
+    WritePrivateProfileStringW(nullptr, nullptr, nullptr, user.c_str());
+    GetPrivateProfileStringW(L"Pinloom", L"LibraryPath", L"{missing}", value, 32768, user.c_str());
+    return binding == value ? QString() : QStringLiteral("Cannot verify the reader library connection.");
+}
+#endif
+}
+
+QString nativePdfReaderProfilePath(const QString &libraryDirectory)
+{
+    return QDir(libraryDirectory).filePath(QStringLiteral("reader-profile"));
+}
+
+QString validateNativePdfFiles(const QStringList &files)
+{
+    if (files.isEmpty()) return QStringLiteral("Specify at least one PDF file.");
+    for (const auto &path : files) {
+        if (!pinloomReaderFileExtensions().contains(QFileInfo(path).suffix(), Qt::CaseInsensitive))
+            return QStringLiteral("Unsupported file format: %1\nPinloom file opening currently supports PDF (.pdf).").arg(path);
+        if (!QFileInfo(path).isFile()) return QStringLiteral("The PDF file does not exist: %1").arg(path);
+        QFile source(path);
+        if (!source.open(QIODevice::ReadOnly)) return QStringLiteral("The PDF file cannot be read: %1").arg(path);
+    }
+    return {};
+}
+
+NativePdfReaderResult openNativePdfFiles(const QStringList &files, const QString &libraryDirectory, bool explicitLibrary)
+{
+    const QString validation = validateNativePdfFiles(files);
+    if (!validation.isEmpty()) return {false, validation};
+    const QString executable = pairedSumatraPdfExecutablePath();
+    if (!QFileInfo(executable).isFile())
+        return {false, QStringLiteral("The paired reader is missing: %1\nRestore the complete Pinloom package.").arg(executable)};
+    if (libraryDirectory.isEmpty()) return {false, QStringLiteral("Cannot resolve the Pinloom library directory.")};
+#ifdef Q_OS_WIN
+    const QString profile = nativePdfReaderProfilePath(libraryDirectory);
+    if (!QDir().mkpath(profile)) return {false, QStringLiteral("Cannot create the reader profile directory: %1").arg(profile)};
+    const QString connectionError = initializeReaderConnection(profile, executable, libraryDirectory, explicitLibrary);
+    if (!connectionError.isEmpty()) return {false, connectionError};
+    const QByteArray probe = QJsonDocument(QJsonObject{{"protocol", "pinloom-reader/v1"},
+        {"method", "capabilities"}}).toJson(QJsonDocument::Compact);
+    for (const auto &file : files) {
+        // Absolute paths cannot be interpreted as reader switches. Let Sumatra reuse its
+        // executable + profile instance; -reuse-instance would target unrelated readers.
+        if (!QProcess::startDetached(executable,
+                {"-appdata", QDir::toNativeSeparators(profile), QDir::toNativeSeparators(QFileInfo(file).absoluteFilePath())},
+                QFileInfo(executable).absolutePath()))
+            return {false, QStringLiteral("Cannot start the paired reader: %1").arg(executable)};
+        const QByteArray request = QJsonDocument(QJsonObject{{"protocol", "pinloom-reader/v1"},
+            {"method", "page-state"}, {"file", QDir::toNativeSeparators(file)}}).toJson(QJsonDocument::Compact);
+        QElapsedTimer timer;
+        timer.start();
+        bool displayed = false;
+        while (timer.elapsed() < 15000 && !displayed) {
+            ReaderWindows readers{canonicalPath(executable), {}};
+            EnumWindows(collectReader, reinterpret_cast<LPARAM>(&readers));
+            for (HWND reader : readers.windows) {
+                DWORD_PTR answer = 0;
+                if (!IsWindowVisible(reader) || !send(reader, probe, &answer, 300) || answer != 0x504c0001) continue;
+                if (send(reader, request, &answer, 500) && answer >= 1 && answer <= 1000000) {
+                    displayed = true;
+                    break;
+                }
+            }
+            // Sumatra's successful existing-instance forwarder can exit with 1.
+            // Only the reader's acknowledgement establishes that the file opened.
+            if (!displayed) QThread::msleep(50);
+        }
+        if (!displayed)
+            return {false, QStringLiteral("The paired reader did not display this PDF: %1\nCheck the reader for a password or file error, then retry.").arg(file)};
+    }
+    return {true, {}};
+#else
+    Q_UNUSED(explicitLibrary)
+    return {false, QStringLiteral("Pinloom file opening requires Windows.")};
 #endif
 }
 
@@ -99,8 +201,7 @@ NativePdfReaderResult openNativePdfReader(
     const std::shared_ptr<std::atomic_bool> &canceled)
 {
     // Native locators require the paired protocol, even when a legacy external reader is configured.
-    const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(
-        QStringLiteral("reader/SumatraPDF.exe"));
+    const QString bundled = pairedSumatraPdfExecutablePath();
     const QString executable = QFileInfo(bundled).isFile() ? bundled : configuredExecutable;
     const QFileInfo source(file);
     const auto document = locator["document"].toObject();

@@ -21,6 +21,8 @@
 #include "pinloom/core/NativeAnchorCapture.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfDdeClient.h"
+#include "pinloom/core/PinloomStartup.h"
+#include "pinloom/core/PinloomFileAssociations.h"
 #include "pinloom/core/TextSelectionCapture.h"
 #include "pinloom/core/Version.h"
 #include "pinloom/widgets/ClipResidentHost.h"
@@ -45,6 +47,7 @@
 #include "pinloom/widgets/PinloomVisualTheme.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 #include "pinloom/widgets/SumatraPdfViewerAdapter.h"
+#include "pinloom/widgets/NativePdfReader.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -86,7 +89,11 @@
 
 int main(int argc, char *argv[])
 {
-    QApplication app(argc, argv);
+    const auto startup = Pinloom::parsePinloomStartup(Pinloom::pinloomProcessArguments(argc, argv), QDir::currentPath());
+    // Qt must never consume file names as platform/style/plugin switches.
+    int guiArgc = 1;
+    char *guiArgv[] = {argv[0], nullptr};
+    QApplication app(guiArgc, guiArgv);
     QApplication::setApplicationName(QStringLiteral("Pinloom"));
     QApplication::setOrganizationName(QStringLiteral("Pinloom"));
     QApplication::setApplicationVersion(Pinloom::pinloomVersion());
@@ -100,8 +107,52 @@ int main(int argc, char *argv[])
                          Pinloom::applySystemPinloomVisualTheme(app);
                      });
 
-    const QStringList startupArguments = QCoreApplication::arguments();
-    if (startupArguments.contains(QStringLiteral("--package-check"))) {
+    if (!startup.error.isEmpty()) {
+        Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom"), startup.error);
+        return 2;
+    }
+    if (startup.action == Pinloom::PinloomStartupAction::RegisterFiles
+        || startup.action == Pinloom::PinloomStartupAction::UnregisterFiles) {
+#ifdef Q_OS_WIN
+        const bool registering = startup.action == Pinloom::PinloomStartupAction::RegisterFiles;
+        QSettings registry(QStringLiteral("HKEY_CURRENT_USER"), QSettings::NativeFormat);
+        QString error;
+        if (registering && !QFileInfo(Pinloom::pairedSumatraPdfExecutablePath()).isFile())
+            error = QStringLiteral("The paired reader is missing. Restore the complete Pinloom package before registering file associations.");
+        else error = registering
+            ? Pinloom::registerPinloomFileAssociations(registry, QCoreApplication::applicationFilePath())
+            : Pinloom::unregisterPinloomFileAssociations(registry, QCoreApplication::applicationFilePath());
+        if (!error.isEmpty()) {
+            Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom File Associations"), error);
+            return 2;
+        }
+        Pinloom::notifyPinloomFileAssociationsChanged();
+        QMessageBox::information(nullptr, QStringLiteral("Pinloom File Associations"),
+            registering
+                ? QStringLiteral("Pinloom is registered for PDF files.\nIn Windows, right-click a PDF, choose Open with > Choose another app, and select Pinloom.\nUse Windows' default app choice if you want PDFs to always open with Pinloom.\nRun this registration again after moving the complete package.")
+                : QStringLiteral("This package's Pinloom file associations have been removed.\nIf Pinloom was your default PDF app, choose a replacement in Windows Settings > Apps > Default apps."));
+        return 0;
+#else
+        Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom"), QStringLiteral("File association registration requires Windows."));
+        return 2;
+#endif
+    }
+    if (startup.action == Pinloom::PinloomStartupAction::OpenFiles) {
+        QString library = startup.library;
+        if (library.isEmpty()) {
+            QSettings settings;
+            QString fallback = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+            if (fallback.isEmpty()) fallback = QDir::home().filePath(QStringLiteral(".pinloom"));
+            library = Pinloom::configuredAppDataDirectory(settings, fallback);
+        } else library = Pinloom::canonicalLibraryPath(library);
+        const auto opened = Pinloom::openNativePdfFiles(startup.files, library, !startup.library.isEmpty());
+        if (!opened.located) {
+            Pinloom::Ui::critical(nullptr, QStringLiteral("Pinloom File Open"), opened.error);
+            return 2;
+        }
+        return 0;
+    }
+    if (startup.action == Pinloom::PinloomStartupAction::PackageCheck) {
         // Must precede settings, single-instance IPC, user data and native hooks.
         bool databaseReady = false;
         const QString connectionName = QStringLiteral("package-check");
@@ -132,26 +183,12 @@ int main(int argc, char *argv[])
             .arg(Pinloom::pinloomVersion(), Pinloom::Ui::usesEla() ? QStringLiteral("ELA") : QStringLiteral("CLASSIC"));
         return 0;
     }
-    const bool startHidden = startupArguments.contains(QStringLiteral("--hidden"), Qt::CaseInsensitive);
-    const bool noGlobalHooks = startupArguments.contains(QStringLiteral("--no-global-hooks"));
-    const int libraryArgument = startupArguments.indexOf(QStringLiteral("--library"));
-    const bool explicitLibrary = libraryArgument >= 0;
-    if (explicitLibrary && (libraryArgument + 1 >= startupArguments.size()
-        || startupArguments[libraryArgument + 1].trimmed().isEmpty())) {
-        qCritical() << "--library requires a data directory";
-        return 2;
-    }
+    const bool startHidden = startup.hidden;
+    const bool noGlobalHooks = startup.noGlobalHooks;
+    const bool explicitLibrary = !startup.library.isEmpty();
     const QString requestedLibrary = explicitLibrary
-        ? Pinloom::canonicalLibraryPath(startupArguments[libraryArgument + 1]) : QString();
-    QString startupDeepLink;
-    for (const QString &argument : startupArguments.mid(1)) {
-        const QUrl candidate(argument, QUrl::StrictMode);
-        if (candidate.scheme().compare(QStringLiteral("pinloom"),
-                                       Qt::CaseInsensitive) == 0) {
-            startupDeepLink = argument;
-            break;
-        }
-    }
+        ? Pinloom::canonicalLibraryPath(startup.library) : QString();
+    const QString startupDeepLink = startup.deepLink;
 
     Pinloom::PinloomSingleInstanceOptions instanceOptions;
     instanceOptions.serverName = Pinloom::defaultPinloomSingleInstanceServerName();
@@ -732,7 +769,7 @@ int main(int argc, char *argv[])
     Pinloom::SumatraPdfViewerAdapterOptions pdfViewerOptions;
     pdfViewerOptions.applicationLaunchSettings = applicationLaunchSettings;
     pdfViewerOptions.executablePathProvider = sumatraPdfExecutablePathProvider;
-    pdfViewerOptions.nativeReaderProfileDirectory = QDir(appDataPath).filePath(QStringLiteral("reader-profile"));
+    pdfViewerOptions.nativeReaderProfileDirectory = Pinloom::nativePdfReaderProfilePath(appDataPath);
     pdfViewerOptions.fileConfirmationHandler =
         [](const QString &documentTitle, QWidget *parent) {
             return QFileDialog::getOpenFileName(

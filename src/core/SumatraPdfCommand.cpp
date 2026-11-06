@@ -284,6 +284,11 @@ bool isSumatraPdfAnchor(const Anchor &anchor)
         || app == QLatin1String("sumatrapdf");
 }
 
+QString pairedSumatraPdfExecutablePath()
+{
+    return QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("reader/SumatraPDF.exe"));
+}
+
 QString resolveSumatraPdfExecutablePath()
 {
     const QString configured = qEnvironmentVariable("PINLOOM_SUMATRAPDF_PATH").trimmed();
@@ -291,8 +296,7 @@ QString resolveSumatraPdfExecutablePath()
         return configured;
     }
 
-    const QString bundled = QDir(QCoreApplication::applicationDirPath()).filePath(
-        QStringLiteral("reader/SumatraPDF.exe"));
+    const QString bundled = pairedSumatraPdfExecutablePath();
     if (QFileInfo(bundled).isFile()) {
         return QDir::toNativeSeparators(bundled);
     }
