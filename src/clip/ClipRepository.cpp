@@ -1,4 +1,5 @@
 #include "pinloom/clip/ClipRepository.h"
+#include "ClipSearchCandidates.h"
 
 #include <QCryptographicHash>
 #include <QDir>
@@ -1128,7 +1129,7 @@ QList<Clip> SqliteClipRepository::searchCandidates(const ClipCandidateQuery &can
         }
     }
 
-    if (!candidate.emptyQuery) {
+    if (!candidate.emptyQuery && (candidate.identityOnly || candidate.tagOnly)) {
         sql += QStringLiteral(" ORDER BY ");
         if (candidate.identityOnly && !candidate.text.isEmpty()) {
             sql += QStringLiteral(
@@ -1155,29 +1156,6 @@ QList<Clip> SqliteClipRepository::searchCandidates(const ClipCandidateQuery &can
                 "ELSE 2 END, ");
             bindings.append(candidate.text);
             bindings.append(candidate.text);
-        } else if (!candidate.text.isEmpty()) {
-            sql += QStringLiteral(
-                "CASE "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'name' AND i.identity_key = ?) THEN 0 "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'alias' AND i.identity_key = ?) THEN 1 "
-                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
-                "AND t.tag_key = ?) THEN 2 "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) = 1) THEN 3 "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'alias' AND instr(i.identity_key, ?) = 1) THEN 4 "
-                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
-                "AND instr(t.tag_key, ?) = 1) THEN 5 "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'name' AND instr(i.identity_key, ?) > 0) THEN 6 "
-                "WHEN EXISTS (SELECT 1 FROM clip_identities i WHERE i.clip_id = c.id "
-                "AND i.identity_kind = 'alias' AND instr(i.identity_key, ?) > 0) THEN 7 "
-                "WHEN EXISTS (SELECT 1 FROM clip_tags t WHERE t.clip_id = c.id "
-                "AND instr(t.tag_key, ?) > 0) THEN 8 "
-                "ELSE 9 END, ");
-            for (int index = 0; index < 9; ++index) bindings.append(candidate.text);
         }
         sql += QStringLiteral(
             "c.pinned DESC, COALESCE(c.used_at, '') DESC, "
@@ -1189,6 +1167,7 @@ QList<Clip> SqliteClipRepository::searchCandidates(const ClipCandidateQuery &can
     }
 
     QSqlQuery query(database_);
+    query.setForwardOnly(true);
     query.prepare(sql);
     for (const QVariant &binding : bindings) {
         query.addBindValue(binding);
@@ -1199,8 +1178,17 @@ QList<Clip> SqliteClipRepository::searchCandidates(const ClipCandidateQuery &can
     }
 
     QList<Clip> results;
-    while (query.next()) {
-        results.append(hydrateClip(query));
+    if (!candidate.emptyQuery && !candidate.identityOnly && !candidate.tagOnly) {
+        results = selectAllFieldClipCandidates(candidate.text, candidate.limit, [this, &query]() -> std::optional<Clip> {
+            if (query.next()) return hydrateClip(query);
+            return std::nullopt;
+        });
+    } else {
+        while (query.next()) results.append(hydrateClip(query));
+    }
+    if (query.lastError().isValid()) {
+        setLastError(query.lastError().text());
+        return {};
     }
     lastError_.clear();
     return results;

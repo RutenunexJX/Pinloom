@@ -1,7 +1,9 @@
 #include "pinloom/clip/ClipSearch.h"
+#include "ClipSearchCandidates.h"
 
 #include <algorithm>
 #include <utility>
+#include <vector>
 
 namespace Pinloom {
 
@@ -244,6 +246,43 @@ bool candidatesLessThan(const Candidate &left, const Candidate &right)
 }
 
 } // namespace
+
+QList<Clip> selectAllFieldClipCandidates(const QString &query,
+                                       int limit,
+                                       const std::function<std::optional<Clip>()> &nextClip)
+{
+    if (limit == 0) return {};
+    struct RankedClip {
+        Clip clip;
+        Candidate candidate;
+    };
+    const auto better = [](const RankedClip &left, const RankedClip &right) {
+        return candidatesLessThan(left.candidate, right.candidate);
+    };
+    const QString normalizedQuery = normalizedSearchText(query);
+    std::vector<RankedClip> best;
+    while (std::optional<Clip> clip = nextClip()) {
+        if (clip->kind != ClipKind::Text) continue;
+        const FieldMatch match = bestMatchForClip(*clip, normalizedQuery, false);
+        if (!match.matched) continue;
+        Candidate candidate{resultForClip(*clip, match, match.priority), match.priority};
+        RankedClip ranked{std::move(*clip), std::move(candidate)};
+        if (limit < 0 || best.size() < static_cast<size_t>(limit)) {
+            best.push_back(std::move(ranked));
+            std::push_heap(best.begin(), best.end(), better);
+        } else if (better(ranked, best.front())) {
+            // With the final search comparator, the heap root is the worst retained row.
+            std::pop_heap(best.begin(), best.end(), better);
+            best.back() = std::move(ranked);
+            std::push_heap(best.begin(), best.end(), better);
+        }
+    }
+    std::sort_heap(best.begin(), best.end(), better);
+    QList<Clip> results;
+    results.reserve(static_cast<qsizetype>(best.size()));
+    for (RankedClip &ranked : best) results.append(std::move(ranked.clip));
+    return results;
+}
 
 bool ClipIdentityQuery::isEmpty() const
 {

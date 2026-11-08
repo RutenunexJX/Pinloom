@@ -377,6 +377,8 @@ private slots:
     void clipIdentitySearchUsesTagSemicolonAndNameAliasOnly();
     void sqliteIndexedSearchMatchesReferenceSearch();
     void sqliteBoundedSearchKeepsBestIdentityMatch();
+    void sqliteBoundedSearchMatchesCrossFieldReference_data();
+    void sqliteBoundedSearchMatchesCrossFieldReference();
     void rejectsDuplicateSavedClipNamesAndAliases();
     void wbTagResolvesDefaultBrowserUrl();
     void clipSearchUsesPinnedAndRecentForStableOrdering();
@@ -1304,6 +1306,113 @@ void ClipTest::sqliteIndexedSearchMatchesReferenceSearch()
     QVERIFY(parsed.hasTagQualifier);
     QCOMPARE(parsed.requiredTag, QStringLiteral("xx"));
     QCOMPARE(parsed.nameOrAlias, QStringLiteral("launch"));
+}
+
+void ClipTest::sqliteBoundedSearchMatchesCrossFieldReference_data()
+{
+    QTest::addColumn<int>("limit");
+    QTest::addColumn<int>("noiseCount");
+    QTest::addColumn<QString>("query");
+    QTest::newRow("preview-default-200") << 20 << 220 << QStringLiteral("needle");
+    QTest::newRow("text-default-200") << 20 << 220 << QString(100, QLatin1Char('n'));
+    QTest::newRow("preview-dynamic-320") << 80 << 360 << QStringLiteral("needle");
+    QTest::newRow("text-dynamic-320") << 80 << 360 << QString(100, QLatin1Char('n'));
+}
+
+void ClipTest::sqliteBoundedSearchMatchesCrossFieldReference()
+{
+    QFETCH(int, limit);
+    QFETCH(int, noiseCount);
+    QFETCH(QString, query);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    SqliteClipRepository repository;
+    QVERIFY(repository.open(dir.filePath(QStringLiteral("cross-field.sqlite3"))));
+    QVERIFY(repository.initialize());
+    const QDateTime base = QDateTime::fromString(QStringLiteral("2026-01-01T00:00:00Z"), Qt::ISODate);
+    const auto seed = [&](const QString &id, const QString &name, const QString &text,
+                          const QStringList &aliases = {}, const QStringList &tags = {},
+                          bool pinned = false, int used = -1, int updated = 0, int created = 0) {
+        Clip clip;
+        clip.id = id;
+        clip.state = ClipState::Saved;
+        clip.name = name;
+        clip.text = text;
+        clip.aliases = aliases;
+        clip.tags = tags;
+        clip.tags.append(QStringLiteral("scope"));
+        clip.pinned = pinned;
+        clip.usedAt = used >= 0 ? base.addSecs(used) : QDateTime{};
+        clip.updatedAt = base.addSecs(updated);
+        clip.createdAt = base.addSecs(created);
+        return repository.importSavedClip(clip);
+    };
+    for (int index = 0; index < noiseCount; ++index) {
+        const QString suffix = QString::number(index);
+        QVERIFY2(seed(QStringLiteral("noise-") + suffix,
+                      QStringLiteral("before ") + query + QStringLiteral(" after ") + suffix,
+                      QStringLiteral("neutral payload ") + suffix,
+                      {}, {QStringLiteral("before-") + query + QLatin1Char('-') + suffix},
+                      true, index, index, index), qPrintable(repository.lastError()));
+    }
+    QVERIFY(seed("name-exact", query, "name payload"));
+    QVERIFY(seed("tag-exact", "Tag exact", "tag payload", {}, {query}));
+    QVERIFY(seed("name-prefix", query + " name", "prefix payload"));
+    QVERIFY(seed("alias-prefix", "Alias prefix", "alias payload", {query + " alias"}));
+    QVERIFY(seed("tag-prefix", "Tag prefix", "tag prefix payload", {}, {query + "-tag"}));
+    QVERIFY(seed("alias-exact", "Alias exact", "other alias payload", {"alias exact " + query}));
+    const QString body = QStringLiteral(" \n  ") + query.toUpper() + QStringLiteral(" content ");
+    QVERIFY(seed("content-pinned", "Content pinned", body + "pinned", {}, {}, true));
+    QVERIFY(seed("content-used", "Content used", body + "used", {}, {}, false, 10));
+    QVERIFY(seed("content-updated", "Content updated", body + "updated", {}, {}, false, -1, 10));
+    QVERIFY(seed("content-created", "Content created", body + "created", {}, {}, false, -1, 0, 10));
+    QVERIFY(seed("content-a", "Content a", body + "a"));
+    QVERIFY(seed("content-b", "Content b", body + "b"));
+
+    const QList<Clip> persisted = repository.clips();
+    const auto ids = [](const QList<ClipSearchResult> &results) {
+        QStringList values;
+        for (const auto &result : results) values.append(result.clipId);
+        return values;
+    };
+    ClipSearchOptions unlimited;
+    unlimited.limit = -1;
+    const auto reference = searchClips(persisted, query, unlimited);
+    QVERIFY(reference.size() > std::max(200, limit * 4));
+    const QStringList leadingIds{"name-exact", "tag-exact", "name-prefix", "alias-prefix", "tag-prefix",
+                                 "content-pinned", "content-used", "content-updated", "content-created",
+                                 "content-a", "content-b"};
+    QCOMPARE(ids(reference).mid(0, leadingIds.size()), leadingIds);
+    QCOMPARE(reference[5].matchedField, query.size() > 80 ? QStringLiteral("text") : QStringLiteral("preview"));
+
+    ClipSearchService service(repository);
+    ClipSearchOptions options;
+    options.limit = limit;
+    const auto actual = service.search(query, options);
+    QCOMPARE(ids(actual), ids(reference).mid(0, limit));
+    for (int index = 0; index < actual.size(); ++index) {
+        QCOMPARE(actual[index].matchedField, reference[index].matchedField);
+        QCOMPARE(actual[index].score, reference[index].score);
+        QCOMPARE(actual[index].rank, index + 1);
+    }
+    ClipCandidateQuery candidates;
+    candidates.text = query;
+    candidates.limit = std::max(200, limit * 4);
+    const auto selected = repository.searchCandidates(candidates);
+    QCOMPARE(selected.size(), candidates.limit);
+    QCOMPARE(ids(searchClips(selected, query, unlimited)), ids(reference).mid(0, candidates.limit));
+
+    // The same persisted population also exercises the independent entry modes.
+    for (const QString &other : {QLatin1Char('#') + query, QStringLiteral("alias exact ") + query}) {
+        QCOMPARE(ids(service.search(other, options)), ids(searchClips(persisted, other, options)));
+    }
+    options.mode = ClipSearchMode::Identity;
+    for (const QString &identity : {query, QStringLiteral("scope;") + query, QStringLiteral("scope;")}) {
+        QCOMPARE(ids(service.search(identity, options)), ids(searchClips(persisted, identity, options)));
+    }
+    QCOMPARE(ids(service.search(query, unlimited)), ids(reference));
+    options.limit = 0;
+    QVERIFY(service.search(query, options).isEmpty());
 }
 
 void ClipTest::sqliteBoundedSearchKeepsBestIdentityMatch()
