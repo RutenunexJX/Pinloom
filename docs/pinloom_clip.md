@@ -52,6 +52,15 @@ The active components are:
 - `ClipInsertionService`: loads the latest Clip text, writes it to the
   clipboard, restores the previous foreground target, invokes paste, and can
   restore the prior clipboard value after the target processes the paste.
+  Consecutive insertions share the original text until restoration completes.
+  A failed later write does not cancel a pending restore. External clipboard
+  writes (including the same text) cancel ownership; the restore never replaces
+  that newer value. Windows checks the clipboard revision and writes under one
+  native clipboard lock. Pending owned text is restored on service teardown;
+  failed deferred restores report `ClipboardRestoreFailed` and retain the
+  original for a subsequent insertion or teardown attempt.
+  The resident capture service also checks the insertion service's last owned
+  revision, so queued Windows notifications do not recapture its own writes.
 - `ObsidianClipStore` and `ObsidianClipSyncService`: write and synchronize one
   managed Markdown file per Saved Clip when an Obsidian Vault is configured.
 - `HyperHotkeyService`: recognizes the contextual archive-or-insert chord on

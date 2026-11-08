@@ -5,7 +5,18 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QTimer>
+#include <cstring>
 #include <utility>
+
+#ifdef Q_OS_WIN
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace Pinloom {
 
@@ -68,23 +79,49 @@ bool ClipboardTextAccessor::isAvailable() const
     return true;
 }
 
-QtClipboardTextAccessor::QtClipboardTextAccessor(QObject *parent)
-    : ClipboardTextAccessor(parent)
+ClipboardTextWriteResult ClipboardTextAccessor::setTextIfUnchanged(const QString &text,
+                                                                  quint64 expectedRevision)
 {
-    if (qobject_cast<QGuiApplication *>(QCoreApplication::instance())) {
-        clipboard_ = QGuiApplication::clipboard();
-    }
+    if (revision() != expectedRevision) return {ClipboardTextWriteResult::Changed};
+    if (!setText(text)) return {};
+    return {ClipboardTextWriteResult::Written, revision()};
 }
+
+QtClipboardTextAccessor::QtClipboardTextAccessor(QObject *parent)
+    : QtClipboardTextAccessor(qobject_cast<QGuiApplication *>(QCoreApplication::instance())
+                                  ? QGuiApplication::clipboard() : nullptr,
+                              parent)
+{}
 
 QtClipboardTextAccessor::QtClipboardTextAccessor(QClipboard *clipboard, QObject *parent)
     : ClipboardTextAccessor(parent)
     , clipboard_(clipboard)
 {
+    if (clipboard_) {
+        connect(clipboard_, &QClipboard::dataChanged, this, [this]() { ++revision_; });
+    }
+}
+
+QtClipboardTextAccessor::~QtClipboardTextAccessor()
+{
+#ifdef Q_OS_WIN
+    if (nativeClipboardOwner_) DestroyWindow(reinterpret_cast<HWND>(nativeClipboardOwner_));
+#endif
 }
 
 QString QtClipboardTextAccessor::text() const
 {
     return clipboard_ ? clipboard_->text(QClipboard::Clipboard) : QString();
+}
+
+quint64 QtClipboardTextAccessor::revision() const
+{
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QLatin1String("windows")) {
+        return GetClipboardSequenceNumber();
+    }
+#endif
+    return revision_;
 }
 
 bool QtClipboardTextAccessor::setText(const QString &text)
@@ -95,6 +132,53 @@ bool QtClipboardTextAccessor::setText(const QString &text)
 
     clipboard_->setText(text, QClipboard::Clipboard);
     return true;
+}
+
+ClipboardTextWriteResult QtClipboardTextAccessor::setTextIfUnchanged(const QString &text,
+                                                                    quint64 expectedRevision)
+{
+    if (!clipboard_) return {};
+#ifdef Q_OS_WIN
+    if (QGuiApplication::platformName() == QLatin1String("windows")) {
+        // Hold the Windows clipboard lock across the revision check and text write.
+        // A text comparison alone misses same-text copies and changes away and back.
+        const SIZE_T bytes = (static_cast<SIZE_T>(text.size()) + 1) * sizeof(wchar_t);
+        HGLOBAL data = GlobalAlloc(GMEM_MOVEABLE, bytes);
+        if (!data) return {};
+        void *buffer = GlobalLock(data);
+        if (!buffer) {
+            GlobalFree(data);
+            return {};
+        }
+        std::memcpy(buffer, text.utf16(), bytes);
+        GlobalUnlock(data);
+        if (!nativeClipboardOwner_) {
+            nativeClipboardOwner_ = reinterpret_cast<quintptr>(CreateWindowExW(
+                0, L"STATIC", L"", 0, 0, 0, 0, 0, HWND_MESSAGE, nullptr,
+                GetModuleHandleW(nullptr), nullptr));
+        }
+        HWND owner = reinterpret_cast<HWND>(nativeClipboardOwner_);
+        ClipboardTextWriteResult result;
+        if (owner && OpenClipboard(owner)) {
+            if (GetClipboardSequenceNumber() != expectedRevision) {
+                result.status = ClipboardTextWriteResult::Changed;
+            } else if (EmptyClipboard() && SetClipboardData(CF_UNICODETEXT, data)) {
+                data = nullptr; // The system owns the allocation after SetClipboardData.
+                result.status = ClipboardTextWriteResult::Written;
+            }
+            CloseClipboard();
+            if (result.status == ClipboardTextWriteResult::Written) {
+                // Closing finalizes synthesized text formats and advances the sequence.
+                // Keep the owner window alive; destroying it also changes clipboard state.
+                result.revision = GetClipboardSequenceNumber();
+                if (GetClipboardOwner() != owner) result.status = ClipboardTextWriteResult::Changed;
+            }
+        }
+        if (data) GlobalFree(data);
+        return result;
+    }
+#endif
+    return ClipboardTextAccessor::setTextIfUnchanged(text, expectedRevision);
 }
 
 bool QtClipboardTextAccessor::isAvailable() const
@@ -170,6 +254,11 @@ ClipInsertionService::ClipInsertionService(ClipboardTextAccessor *clipboard,
 {
 }
 
+ClipInsertionService::~ClipInsertionService()
+{
+    restoreClipboardIfUnchanged(clipboardWriteGeneration_);
+}
+
 void ClipInsertionService::setOptions(const ClipInsertionOptions &options)
 {
     options_ = options;
@@ -231,23 +320,48 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
         return fail(ClipInsertionStatus::PasteFailed, clipId, QStringLiteral("Paste invoker is required"));
     }
 
-    const QString originalClipboardText = clipboard_->text();
-    const quint64 clipboardWriteGeneration = ++clipboardWriteGeneration_;
+    quint64 beforeRead = 0;
+    quint64 currentRevision = 0;
+    QString currentClipboardText;
+    // Reading a delayed-rendered Windows format can itself advance the revision.
+    for (int attempt = 0; attempt < 3; ++attempt) {
+        beforeRead = clipboard_->revision();
+        currentClipboardText = clipboard_->text();
+        currentRevision = clipboard_->revision();
+        if (beforeRead == currentRevision) break;
+    }
+    if (beforeRead != currentRevision) {
+        return fail(ClipInsertionStatus::ClipboardWriteFailed, clipId,
+                    QStringLiteral("Clipboard changed while preparing the insertion; retry"));
+    }
+    const QString originalClipboardText = pendingClipboardRestore_
+            && pendingClipboardRestore_->revision == currentRevision
+        ? pendingClipboardRestore_->originalText : currentClipboardText;
     suppressNextClipboardCapture();
-    if (!clipboard_->setText(clip.text)) {
+    const ClipboardTextWriteResult write = clipboard_
+        ? clipboard_->setTextIfUnchanged(clip.text, currentRevision) : ClipboardTextWriteResult{};
+    if (write.status != ClipboardTextWriteResult::Written) {
         return fail(ClipInsertionStatus::ClipboardWriteFailed,
                     clipId,
                     QStringLiteral("Unable to write clip text to the clipboard"));
     }
 
+    const quint64 clipboardWriteGeneration = ++clipboardWriteGeneration_;
+    lastOwnClipboardRevision_ = write.revision;
+    pendingClipboardRestore_ = PendingClipboardRestore{
+        originalClipboardText, write.revision, clipboardWriteGeneration};
+
     if (!pasteInvoker_()) {
         if (options_.restoreOriginalClipboardOnFailure
-            && !restoreClipboardIfUnchanged(originalClipboardText,
-                                            clip.text,
-                                            clipboardWriteGeneration)) {
+            && !restoreClipboardIfUnchanged(clipboardWriteGeneration)) {
             return fail(ClipInsertionStatus::ClipboardRestoreFailed,
                         clipId,
                         QStringLiteral("Paste invocation failed and the original clipboard could not be restored"));
+        }
+        if (!options_.restoreOriginalClipboardOnFailure
+            && pendingClipboardRestore_
+            && pendingClipboardRestore_->generation == clipboardWriteGeneration) {
+            pendingClipboardRestore_.reset();
         }
         return fail(ClipInsertionStatus::PasteFailed, clipId, QStringLiteral("Paste invocation failed"));
     }
@@ -259,7 +373,7 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
     if (options_.restoreOriginalClipboardOnSuccess) {
         const int restoreDelayMs = qMax(0, options_.clipboardRestoreDelayMs);
         if (restoreDelayMs == 0
-            && !restoreClipboardIfUnchanged(originalClipboardText, clip.text, clipboardWriteGeneration)) {
+            && !restoreClipboardIfUnchanged(clipboardWriteGeneration)) {
             return fail(ClipInsertionStatus::ClipboardRestoreFailed,
                         clipId,
                         QStringLiteral("Unable to restore the original clipboard text"));
@@ -268,15 +382,25 @@ ClipInsertionResult ClipInsertionService::insertClip(const Clip &clip)
         if (restoreDelayMs > 0) {
             QTimer::singleShot(restoreDelayMs,
                                this,
-                               [this, originalClipboardText, insertedText = clip.text, clipboardWriteGeneration]() {
-                                   restoreClipboardIfUnchanged(originalClipboardText,
-                                                               insertedText,
-                                                               clipboardWriteGeneration);
+                               [this, clipId, clipboardWriteGeneration]() {
+                                   if (!restoreClipboardIfUnchanged(clipboardWriteGeneration)) {
+                                       fail(ClipInsertionStatus::ClipboardRestoreFailed, clipId,
+                                            QStringLiteral("Unable to restore the original clipboard text"));
+                                   }
                                });
         }
+    } else if (pendingClipboardRestore_
+               && pendingClipboardRestore_->generation == clipboardWriteGeneration) {
+        pendingClipboardRestore_.reset();
     }
 
     return succeed(clip);
+}
+
+bool ClipInsertionService::ownsCurrentClipboardWrite() const
+{
+    return clipboard_ && lastOwnClipboardRevision_
+        && clipboard_->revision() == *lastOwnClipboardRevision_;
 }
 
 QString ClipInsertionService::lastInsertedId() const
@@ -344,16 +468,25 @@ void ClipInsertionService::suppressNextClipboardCapture()
     }
 }
 
-bool ClipInsertionService::restoreClipboardIfUnchanged(const QString &originalText,
-                                                       const QString &insertedText,
-                                                       quint64 generation)
+bool ClipInsertionService::restoreClipboardIfUnchanged(quint64 generation)
 {
-    if (!clipboard_ || generation != clipboardWriteGeneration_ || clipboard_->text() != insertedText) {
+    if (!pendingClipboardRestore_ || pendingClipboardRestore_->generation != generation) {
         return true;
     }
-
+    const PendingClipboardRestore pending = *pendingClipboardRestore_;
+    if (!clipboard_ || clipboard_->revision() != pending.revision) {
+        pendingClipboardRestore_.reset();
+        return true;
+    }
     suppressNextClipboardCapture();
-    return clipboard_->setText(originalText);
+    if (!pendingClipboardRestore_ || pendingClipboardRestore_->generation != generation) return true;
+    const ClipboardTextWriteResult result = clipboard_
+        ? clipboard_->setTextIfUnchanged(pending.originalText, pending.revision)
+        : ClipboardTextWriteResult{ClipboardTextWriteResult::Changed};
+    if (result.status == ClipboardTextWriteResult::Failed) return false;
+    if (result.status == ClipboardTextWriteResult::Written) lastOwnClipboardRevision_ = result.revision;
+    pendingClipboardRestore_.reset();
+    return true;
 }
 
 } // namespace Pinloom

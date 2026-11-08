@@ -62,6 +62,8 @@ Exit codes: `0` success, `2` invalid input/limit, `3` missing object, `4` versio
 
 Requests are limited to 1 MiB, responses to 8 MiB, import archives to 16 MiB, Clip text to 256 KiB UTF-8, and list limits to 200. Search results indicate truncation; narrow the query to retrieve additional matches. Archive export is for the anchor/resource library, matching the existing GUI format. Saved Clips retain the existing local/Obsidian persistence contract.
 
+Version 1 JSON archives include a boolean `pinned` on each resource, independently of each anchor's `pinned`. Import applies explicit `true`/`false` with resource changes in one atomic batch. Older archives without the resource field preserve the existing file pin for matching IDs in both merge and replace modes; new IDs default to unpinned. A present non-boolean value is rejected before any library mutation. Resource open counts and last-opened times are not exported.
+
 ## Using an already running GUI
 
 ```powershell

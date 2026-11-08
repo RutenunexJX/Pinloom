@@ -59,6 +59,8 @@ private:
 
 class FakeClipboardTextAccessor : public ClipboardTextAccessor {
 public:
+    quint64 revision() const override { return revision_; }
+
     QString text() const override
     {
         return text_;
@@ -72,6 +74,7 @@ public:
         }
 
         text_ = text;
+        ++revision_;
         writes_.append(text);
         return true;
     }
@@ -84,6 +87,7 @@ public:
     void setInitialText(const QString &text)
     {
         text_ = text;
+        ++revision_;
     }
 
     void setAvailable(bool available)
@@ -107,6 +111,7 @@ public:
     }
 
 private:
+    quint64 revision_ = 0;
     QString text_;
     QStringList writes_;
     bool available_ = true;
@@ -425,6 +430,13 @@ private slots:
     void insertionServiceRestoresOriginalClipboardOnSuccess();
     void insertionServiceDefersClipboardRestore();
     void insertionServiceDoesNotOverwriteNewClipboardContent();
+    void insertionServiceRestoresContinuousSequence_data();
+    void insertionServiceRestoresContinuousSequence();
+    void insertionServicePreservesSequenceAcrossFailures();
+    void insertionServiceDetectsExternalClipboardRevisions_data();
+    void insertionServiceDetectsExternalClipboardRevisions();
+    void insertionServiceHandlesPendingRestoreLifetime();
+    void insertionServiceHonorsDisabledRestoration();
     void insertionServiceUsesPlatformPasteInvoker();
     void insertionServiceReportsErrors();
     void insertionServiceInsertsSqliteTemporaryAndSavedClips();
@@ -2965,6 +2977,179 @@ void ClipTest::insertionServiceDoesNotOverwriteNewClipboardContent()
     QTest::qWait(60);
     QCOMPARE(clipboard.text(), QStringLiteral("new external clipboard content"));
     QCOMPARE(clipboard.writes(), QStringList{QStringLiteral("Transient paste text")});
+}
+
+void ClipTest::insertionServiceRestoresContinuousSequence_data()
+{
+    QTest::addColumn<int>("count");
+    QTest::newRow("two") << 2;
+    QTest::newRow("many") << 5;
+}
+
+void ClipTest::insertionServiceRestoresContinuousSequence()
+{
+    QFETCH(int, count);
+    InMemoryClipRepository repository;
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("before sequence"));
+    QStringList pasted;
+    ClipInsertionService service(&clipboard, repository, [&]() {
+        pasted.append(clipboard.text());
+        return true;
+    });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 20;
+    service.setOptions(options);
+    Clip clip;
+    for (int i = 0; i < count; ++i) {
+        clip.text = QStringLiteral("clip %1").arg(i);
+        QVERIFY(service.insertClip(clip).inserted());
+        options.clipboardRestoreDelayMs = 120;
+        service.setOptions(options);
+    }
+    QTest::qWait(45); // The first timer must not restore over the last paste.
+    QCOMPARE(clipboard.text(), clip.text);
+    QCOMPARE(pasted.size(), count);
+    QTRY_COMPARE(clipboard.text(), QStringLiteral("before sequence"));
+    QCOMPARE(clipboard.writes().size(), count + 1);
+}
+
+void ClipTest::insertionServicePreservesSequenceAcrossFailures()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original"));
+    bool pasteSucceeds = true;
+    ClipInsertionService service(&clipboard, repository, [&]() { return pasteSucceeds; });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 30;
+    service.setOptions(options);
+    Clip first;
+    first.text = QStringLiteral("first");
+    Clip second;
+    second.text = QStringLiteral("second");
+
+    QVERIFY(service.insertClip(first).inserted());
+    clipboard.setFailNextSetText();
+    QCOMPARE(service.insertClip(second).status, ClipInsertionStatus::ClipboardWriteFailed);
+    QTRY_COMPARE(clipboard.text(), QStringLiteral("original"));
+
+    QVERIFY(service.insertClip(first).inserted());
+    pasteSucceeds = false;
+    QCOMPARE(service.insertClip(second).status, ClipInsertionStatus::PasteFailed);
+    QCOMPARE(clipboard.text(), QStringLiteral("original"));
+    QTest::qWait(60);
+    QCOMPARE(clipboard.text(), QStringLiteral("original"));
+
+    pasteSucceeds = true;
+    QVERIFY(service.insertClip(first).inserted());
+    clipboard.setFailNextSetText();
+    QTRY_COMPARE(service.lastStatus(), ClipInsertionStatus::ClipboardRestoreFailed);
+    QCOMPARE(clipboard.text(), first.text);
+    QVERIFY(service.insertClip(second).inserted());
+    QTRY_COMPARE(clipboard.text(), QStringLiteral("original"));
+
+    // A failed synchronous restoration remains owned until a later retry or teardown.
+    options.clipboardRestoreDelayMs = 0;
+    service.setOptions(options);
+    service.setPasteInvoker([&]() {
+        clipboard.setFailNextSetText();
+        return false;
+    });
+    QCOMPARE(service.insertClip(first).status, ClipInsertionStatus::ClipboardRestoreFailed);
+    service.setPasteInvoker([]() { return true; });
+    QVERIFY(service.insertClip(second).inserted());
+    QCOMPARE(clipboard.text(), QStringLiteral("original"));
+}
+
+void ClipTest::insertionServiceDetectsExternalClipboardRevisions_data()
+{
+    QTest::addColumn<int>("change");
+    QTest::newRow("different-text") << 0;
+    QTest::newRow("same-text") << 1;
+    QTest::newRow("changed-away-and-back") << 2;
+    QTest::newRow("change-during-suppression") << 3;
+}
+
+void ClipTest::insertionServiceDetectsExternalClipboardRevisions()
+{
+    QFETCH(int, change);
+    InMemoryClipRepository repository;
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original"));
+    ClipInsertionService service(&clipboard, repository, []() { return true; });
+    ClipInsertionOptions options;
+    options.clipboardRestoreDelayMs = 20;
+    service.setOptions(options);
+    Clip clip;
+    clip.text = QStringLiteral("temporary");
+    QVERIFY(service.insertClip(clip).inserted());
+    const QString external = change == 0 || change == 3 ? QStringLiteral("external") : clip.text;
+    if (change == 3) {
+        service.setSuppressClipboardCaptureCallback([&]() { clipboard.setInitialText(external); });
+    } else {
+        if (change == 2) clipboard.setInitialText(QStringLiteral("intermediate"));
+        clipboard.setInitialText(external);
+    }
+    QTest::qWait(60);
+    QCOMPARE(clipboard.text(), external);
+    QCOMPARE(clipboard.writes().size(), 1);
+    service.setSuppressClipboardCaptureCallback({});
+    clip.text = QStringLiteral("next sequence");
+    QVERIFY(service.insertClip(clip).inserted());
+    QTRY_COMPARE(clipboard.text(), external);
+}
+
+void ClipTest::insertionServiceHandlesPendingRestoreLifetime()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original"));
+    Clip clip;
+    clip.text = QStringLiteral("temporary");
+    {
+        ClipInsertionService service(&clipboard, repository, []() { return true; });
+        QVERIFY(service.insertClip(clip).inserted());
+    }
+    QCOMPARE(clipboard.text(), QStringLiteral("original"));
+    {
+        ClipInsertionService service(&clipboard, repository, []() { return true; });
+        QVERIFY(service.insertClip(clip).inserted());
+        clipboard.setInitialText(clip.text); // Same-text external write must survive teardown.
+    }
+    QCOMPARE(clipboard.text(), clip.text);
+    auto *ephemeralClipboard = new FakeClipboardTextAccessor;
+    {
+        ClipInsertionService service(ephemeralClipboard, repository, []() { return true; });
+        QVERIFY(service.insertClip(clip).inserted());
+        delete ephemeralClipboard;
+        QTest::qWait(230);
+        QCOMPARE(service.insertClip(clip).status, ClipInsertionStatus::ClipboardUnavailable);
+    }
+}
+
+void ClipTest::insertionServiceHonorsDisabledRestoration()
+{
+    InMemoryClipRepository repository;
+    FakeClipboardTextAccessor clipboard;
+    clipboard.setInitialText(QStringLiteral("original"));
+    Clip clip;
+    clip.text = QStringLiteral("temporary");
+    {
+        ClipInsertionService service(&clipboard, repository, []() { return true; });
+        QVERIFY(service.insertClip(clip).inserted());
+        ClipInsertionOptions options;
+        options.restoreOriginalClipboardOnSuccess = false;
+        options.restoreOriginalClipboardOnFailure = false;
+        service.setOptions(options);
+        clip.text = QStringLiteral("keep this");
+        QVERIFY(service.insertClip(clip).inserted());
+        QTest::qWait(230);
+        QCOMPARE(clipboard.text(), clip.text);
+        service.setPasteInvoker([]() { return false; });
+        QCOMPARE(service.insertClip(clip).status, ClipInsertionStatus::PasteFailed);
+    }
+    QCOMPARE(clipboard.text(), QStringLiteral("keep this"));
 }
 
 void ClipTest::insertionServiceUsesPlatformPasteInvoker()

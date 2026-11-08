@@ -187,6 +187,10 @@ void ClipResidentRuntime::configure(ClipTrayBackend *trayBackend)
     insertionService_.setSuppressClipboardCaptureCallback([this]() {
         captureService_.suppressNextChange();
     });
+    const QPointer<ClipInsertionService> insertion = &insertionService_;
+    captureService_.setChangeSuppressionPredicate([insertion]() {
+        return insertion && insertion->ownsCurrentClipboardWrite();
+    });
     connect(&trayController_,
             &ClipTrayController::capturePausedChanged,
             &captureService_,

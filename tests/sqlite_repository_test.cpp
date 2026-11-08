@@ -46,6 +46,8 @@ private slots:
     void persistsAnchorLibraryManagementOperations();
     void appliesAtomicBatchesAndCoalescesNotifications();
     void backsUpRestoresAndImportsAnchorLibraryData();
+    void rollsBackArchiveWhenPinWriteFails_data();
+    void rollsBackArchiveWhenPinWriteFails();
     void filtersByRequiredLocationPrefixes();
     void appliesSqlFiltersBeforeBoundedCandidateSelection();
     void filtersByRequiredResourceKinds();
@@ -56,6 +58,66 @@ private slots:
     void upgradesVersionSevenDatabaseWithLegacyAnchors();
     void upgradesConfiguredExistingDatabaseCopy();
 };
+
+void SqliteRepositoryTest::rollsBackArchiveWhenPinWriteFails_data()
+{
+    QTest::addColumn<bool>("replace");
+    QTest::newRow("merge") << false;
+    QTest::newRow("replace") << true;
+}
+
+void SqliteRepositoryTest::rollsBackArchiveWhenPinWriteFails()
+{
+    QFETCH(bool, replace);
+    QTemporaryDir dir;
+    QVERIFY(dir.isValid());
+    const QString databasePath = dir.filePath(QStringLiteral("library.sqlite3"));
+    SqliteLibraryRepository repository;
+    QVERIFY(repository.open(databasePath));
+    QVERIFY(repository.initialize());
+    Resource resource;
+    resource.id = QStringLiteral("file");
+    resource.kind = ResourceKind::File;
+    resource.title = QStringLiteral("exported");
+    resource.location = dir.filePath(QStringLiteral("file.txt"));
+    resource.explicitlyRetained = true;
+    QVERIFY(repository.upsertResource(resource));
+    QVERIFY(repository.setResourcePinned(resource.id, true));
+    AnchorLibraryArchiveService archive(repository, dir.filePath(QStringLiteral("backups")));
+    const QString path = dir.filePath(QStringLiteral("archive.json"));
+    QVERIFY(archive.exportJson(path).success);
+    resource.title = QStringLiteral("current");
+    QVERIFY(repository.upsertResource(resource));
+    QVERIFY(repository.setResourcePinned(resource.id, false));
+    QVERIFY(repository.recordResourceOpen(resource.id));
+    int notifications = 0;
+    const int listener = repository.addChangeListener([&](const LibraryChange &) { ++notifications; });
+
+    const QString connectionName = QUuid::createUuid().toString(QUuid::Id128);
+    {
+        QSqlDatabase faultDb = QSqlDatabase::addDatabase(QStringLiteral("QSQLITE"), connectionName);
+        faultDb.setDatabaseName(databasePath);
+        QVERIFY(faultDb.open());
+        QSqlQuery fault(faultDb);
+        QVERIFY(fault.exec(QStringLiteral("CREATE TRIGGER reject_test_pin BEFORE INSERT ON resource_usage "
+                                          "WHEN NEW.pinned = 1 BEGIN SELECT RAISE(ABORT, 'test pin failure'); END")));
+        const auto mode = replace ? AnchorLibraryImportMode::Replace : AnchorLibraryImportMode::Merge;
+        const auto failed = archive.importJson(path, mode);
+        QVERIFY(!failed.success);
+        QVERIFY2(failed.message.contains(QStringLiteral("test pin failure")), qPrintable(failed.message));
+        QCOMPARE(notifications, 0);
+        QCOMPARE(repository.findResource(resource.id)->title, resource.title);
+        QVERIFY(!repository.resourceUsage(resource.id)->pinned);
+        QCOMPARE(repository.resourceUsage(resource.id)->openCount, 1);
+        QVERIFY(fault.exec(QStringLiteral("DROP TRIGGER reject_test_pin")));
+        QVERIFY(archive.importJson(path, mode).success);
+        QCOMPARE(notifications, 1);
+        QVERIFY(repository.resourceUsage(resource.id)->pinned);
+        QCOMPARE(repository.findResource(resource.id)->title, QStringLiteral("exported"));
+    }
+    QSqlDatabase::removeDatabase(connectionName);
+    repository.removeChangeListener(listener);
+}
 
 static Anchor testAnchor(const QString &name,
                          const QString &locatorType = QStringLiteral("manual"),
@@ -1323,7 +1385,10 @@ void SqliteRepositoryTest::backsUpRestoresAndImportsAnchorLibraryData()
     QVERIFY(imported.has_value());
     QCOMPARE(imported->title, QStringLiteral("Before backup"));
     QCOMPARE(imported->anchors.first().tags, QStringList{QStringLiteral("backup")});
-    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    QVERIFY(repository.resourceUsage(resource.id).has_value());
+    QVERIFY(!repository.resourceUsage(resource.id)->pinned);
+    QCOMPARE(repository.resourceUsage(resource.id)->openCount, 0);
+    QVERIFY(!repository.resourceUsage(resource.id)->lastOpenedAt.isValid());
 
     const QString automaticDirectory = dir.filePath(QStringLiteral("automatic"));
     QVERIFY(archive.createAutomaticBackup(automaticDirectory, 2).success);

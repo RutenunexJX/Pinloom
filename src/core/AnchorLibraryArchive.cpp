@@ -275,7 +275,10 @@ AnchorLibraryOperationResult AnchorLibraryArchiveService::exportJson(const QStri
     QJsonArray resources;
     const QList<Resource> library = allResources();
     for (const Resource &resource : library) {
-        resources.append(resourceToJson(resource));
+        QJsonObject object = resourceToJson(resource);
+        const auto usage = repository_.resourceUsage(resource.id);
+        object.insert(QStringLiteral("pinned"), usage.has_value() && usage->pinned);
+        resources.append(object);
     }
     const QJsonObject root{{QStringLiteral("format"), QStringLiteral("pinloom-anchor-library")},
                            {QStringLiteral("version"), 1},
@@ -315,6 +318,7 @@ AnchorLibraryOperationResult AnchorLibraryArchiveService::importJson(
     }
 
     QList<Resource> imported;
+    QList<ResourcePinUpdate> pinUpdates;
     QSet<QString> resourceIds;
     QString validationError;
     for (const QJsonValue &value : root.value(QStringLiteral("resources")).toArray()) {
@@ -327,6 +331,18 @@ AnchorLibraryOperationResult AnchorLibraryArchiveService::importJson(
         }
         resourceIds.insert(resource->id);
         imported.append(resource.value());
+        const QJsonValue pinned = value.toObject().value(QStringLiteral("pinned"));
+        if (!pinned.isUndefined()) {
+            if (!pinned.isBool()) {
+                return failedArchiveResult(QStringLiteral("Resource pinned must be a boolean"));
+            }
+            pinUpdates.append({resource->id, pinned.toBool()});
+        } else if (mode == AnchorLibraryImportMode::Replace) {
+            // Version 1 archives predating file pins have no opinion on this state.
+            // Replace clears usage, so carry only the existing pin into the batch.
+            const auto usage = repository_.resourceUsage(resource->id);
+            if (usage.has_value()) pinUpdates.append({resource->id, usage->pinned});
+        }
     }
 
     if (SqliteLibraryRepository *sqlite = dynamic_cast<SqliteLibraryRepository *>(&repository_)) {
@@ -339,6 +355,7 @@ AnchorLibraryOperationResult AnchorLibraryArchiveService::importJson(
     }
 
     LibraryBatchMutation mutation;
+    mutation.resourcePinUpdates = pinUpdates;
     mutation.clearExistingResources = mode == AnchorLibraryImportMode::Replace;
     if (mode == AnchorLibraryImportMode::Replace) {
         mutation.upserts = imported;

@@ -301,6 +301,8 @@ private:
 
 class FakeClipboardTextAccessor : public ClipboardTextAccessor {
 public:
+    quint64 revision() const override { return revision_; }
+
     QString text() const override
     {
         return text_;
@@ -309,6 +311,7 @@ public:
     bool setText(const QString &text) override
     {
         text_ = text;
+        ++revision_;
         writes_.append(text);
         return true;
     }
@@ -321,6 +324,7 @@ public:
     void setInitialText(const QString &text)
     {
         text_ = text;
+        ++revision_;
     }
 
     QStringList writes() const
@@ -329,6 +333,7 @@ public:
     }
 
 private:
+    quint64 revision_ = 0;
     QString text_;
     QStringList writes_;
 };

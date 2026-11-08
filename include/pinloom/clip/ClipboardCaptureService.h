@@ -84,6 +84,7 @@ public:
 
     void suppressNextChange();
     bool suppressingNextChange() const;
+    void setChangeSuppressionPredicate(std::function<bool()> predicate);
 
     QString lastCapturedId() const;
     std::optional<Clip> lastCapturedClip() const;
@@ -119,6 +120,7 @@ private:
     QString lastError_;
     bool running_ = false;
     bool suppressNextChange_ = false;
+    std::function<bool()> changeSuppressionPredicate_;
     QMetaObject::Connection clipboardConnection_;
 };
 

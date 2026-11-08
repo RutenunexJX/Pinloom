@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.19
+    VERSION 0.4.20
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -472,6 +472,13 @@ target_link_libraries(pinloom_clip_test
 )
 
 pinloom_add_test(pinloom_clip_test)
+
+if(WIN32)
+    add_executable(pinloom_clipboard_platform_test tests/clipboard_platform_test.cpp)
+    target_link_libraries(pinloom_clipboard_platform_test PRIVATE pinloom_clip_core Qt6::Gui Qt6::Test user32)
+    pinloom_add_test(pinloom_clipboard_platform_test -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/clipboard-platform.txt,txt")
+    set_tests_properties(pinloom_clipboard_platform_test PROPERTIES SKIP_RETURN_CODE 77 TIMEOUT 30)
+endif()
 
 add_executable(pinloom_global_identity_test
     tests/global_identity_test.cpp

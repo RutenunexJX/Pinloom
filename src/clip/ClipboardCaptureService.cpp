@@ -245,6 +245,11 @@ QString ClipboardCaptureService::lastCapturedId() const
     return lastCapturedId_;
 }
 
+void ClipboardCaptureService::setChangeSuppressionPredicate(std::function<bool()> predicate)
+{
+    changeSuppressionPredicate_ = std::move(predicate);
+}
+
 std::optional<Clip> ClipboardCaptureService::lastCapturedClip() const
 {
     return lastCapturedClip_;
@@ -280,7 +285,8 @@ void ClipboardCaptureService::handleClipboardTextChanged()
         return;
     }
 
-    if (suppressNextChange_) {
+    // Windows may queue several change notifications for a burst of own writes.
+    if (suppressNextChange_ || (changeSuppressionPredicate_ && changeSuppressionPredicate_())) {
         suppressNextChange_ = false;
         setLastError({});
         return;

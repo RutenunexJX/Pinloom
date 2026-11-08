@@ -23,6 +23,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QJsonArray>
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QSettings>
@@ -30,6 +31,7 @@
 #include <QTest>
 #include <QTimeZone>
 #include <optional>
+#include <memory>
 
 using namespace Pinloom;
 
@@ -78,6 +80,8 @@ private slots:
     void clearsOnlyAnchorlessFileMetadata();
     void cleansUnmarkedAnchorShellsWithoutDeletingFilesOrRoots();
     void archivesAnchorLibraryJsonAndPublishesAtomicChanges();
+    void archivesResourcePins_data();
+    void archivesResourcePins();
     void softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile();
     void recognizesExplorerForegroundWindows();
     void ranksAnchorBeforePathMatches();
@@ -1979,6 +1983,155 @@ void CoreSmokeTest::archivesAnchorLibraryJsonAndPublishesAtomicChanges()
     QVERIFY(!result.success);
     QVERIFY(repository.findResource(resource.id).has_value());
     repository.removeChangeListener(listenerId);
+}
+
+void CoreSmokeTest::archivesResourcePins_data()
+{
+    QTest::addColumn<bool>("sqlite");
+    QTest::addColumn<bool>("replace");
+    QTest::newRow("memory-merge") << false << false;
+    QTest::newRow("memory-replace") << false << true;
+    QTest::newRow("sqlite-merge") << true << false;
+    QTest::newRow("sqlite-replace") << true << true;
+}
+
+void CoreSmokeTest::archivesResourcePins()
+{
+    QFETCH(bool, sqlite);
+    QFETCH(bool, replace);
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const QString databasePath = directory.filePath(QStringLiteral("library.sqlite3"));
+    std::unique_ptr<ILibraryRepository> repository;
+    if (sqlite) {
+        auto db = std::make_unique<SqliteLibraryRepository>();
+        QVERIFY(db->open(databasePath));
+        QVERIFY(db->initialize());
+        repository = std::move(db);
+    } else {
+        repository = std::make_unique<InMemoryLibraryRepository>();
+    }
+    Resource first;
+    first.id = QStringLiteral("file-one");
+    first.kind = ResourceKind::File;
+    first.title = QStringLiteral("One");
+    first.location = directory.filePath(QStringLiteral("one.txt"));
+    first.explicitlyRetained = true;
+    Anchor anchor = testAnchor(QStringLiteral("Section"));
+    anchor.id = QStringLiteral("file-one-section");
+    anchor.pinned = false;
+    first.anchors = {anchor};
+    Resource second = first;
+    second.id = QStringLiteral("file-two");
+    second.title = QStringLiteral("Two");
+    second.location = directory.filePath(QStringLiteral("two.txt"));
+    second.anchors.first().id = QStringLiteral("file-two-section");
+    second.anchors.first().name = QStringLiteral("Second section");
+    second.anchors.first().pinned = true;
+    QVERIFY(repository->upsertResource(first));
+    QVERIFY2(repository->upsertResource(second), qPrintable(repository->lastError()));
+    QVERIFY(repository->setResourcePinned(first.id, true));
+    QVERIFY(repository->recordResourceOpen(first.id));
+
+    AnchorLibraryArchiveService archive(*repository, directory.filePath(QStringLiteral("backups")));
+    const QString path = directory.filePath(QStringLiteral("library.json"));
+    QVERIFY(archive.exportJson(path).success);
+    QFile exported(path);
+    QVERIFY(exported.open(QIODevice::ReadOnly));
+    QJsonObject root = QJsonDocument::fromJson(exported.readAll()).object();
+    exported.close();
+    QJsonArray resources = root.value(QStringLiteral("resources")).toArray();
+    QCOMPARE(resources.size(), 2);
+    QVERIFY(resources.first().toObject().value(QStringLiteral("pinned")).toBool());
+    QVERIFY(resources.last().toObject().value(QStringLiteral("pinned")).isBool());
+    QVERIFY(!resources.last().toObject().value(QStringLiteral("pinned")).toBool());
+    QVERIFY(!resources.first().toObject().contains(QStringLiteral("openCount")));
+    const auto writeArchive = [&]() {
+        root.insert(QStringLiteral("resources"), resources);
+        QFile file(path);
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate)) return false;
+        const QByteArray bytes = QJsonDocument(root).toJson();
+        return file.write(bytes) == bytes.size();
+    };
+    const auto mode = replace ? AnchorLibraryImportMode::Replace : AnchorLibraryImportMode::Merge;
+
+    QVERIFY(repository->clearResources());
+    QVERIFY(archive.importJson(path, mode).success);
+    QVERIFY(repository->resourceUsage(first.id)->pinned);
+    QVERIFY(!repository->resourceUsage(second.id)->pinned);
+    QCOMPARE(repository->resourceUsage(first.id)->openCount, 0);
+    QVERIFY(!repository->findResource(first.id)->anchors.first().pinned);
+    QVERIFY(repository->findResource(second.id)->anchors.first().pinned);
+
+    Resource extra = first;
+    extra.id = QStringLiteral("unrelated");
+    extra.title = QStringLiteral("Unrelated file");
+    extra.anchors.clear();
+    extra.location = directory.filePath(QStringLiteral("unrelated.txt"));
+    QVERIFY(repository->upsertResource(extra));
+    QVERIFY(repository->setResourcePinned(first.id, false));
+    QVERIFY(repository->setResourcePinned(second.id, true));
+    QVERIFY(repository->recordResourceOpen(second.id));
+    int notifications = 0;
+    const int listener = repository->addChangeListener([&](const LibraryChange &) { ++notifications; });
+    QVERIFY(archive.importJson(path, mode).success);
+    QCOMPARE(notifications, 1);
+    QVERIFY(repository->resourceUsage(first.id)->pinned);
+    QVERIFY(!repository->resourceUsage(second.id)->pinned);
+    QCOMPARE(repository->resourceUsage(second.id)->openCount, replace ? 0 : 1);
+    QCOMPARE(repository->findResource(extra.id).has_value(), !replace);
+
+    // Missing in a legacy version 1 archive means unspecified, including replace.
+    for (qsizetype i = 0; i < resources.size(); ++i) {
+        QJsonObject object = resources[i].toObject();
+        object.remove(QStringLiteral("pinned"));
+        resources[i] = object;
+    }
+    QVERIFY(writeArchive());
+    QVERIFY(archive.importJson(path, mode).success);
+    QVERIFY(repository->resourceUsage(first.id)->pinned);
+    QVERIFY(!repository->resourceUsage(second.id)->pinned);
+
+    QVERIFY(repository->clearResources());
+    QVERIFY(archive.importJson(path, mode).success);
+    QVERIFY(!repository->resourceUsage(first.id).value_or(ResourceUsage{}).pinned);
+    QVERIFY(!repository->resourceUsage(second.id).value_or(ResourceUsage{}).pinned);
+    QVERIFY(repository->setResourcePinned(first.id, true));
+
+    QJsonObject object = resources.first().toObject();
+    object.insert(QStringLiteral("pinned"), false);
+    resources[0] = object;
+    QVERIFY(writeArchive());
+    QVERIFY(archive.importJson(path, mode).success);
+    QVERIFY(!repository->resourceUsage(first.id)->pinned);
+    QVERIFY(repository->findResource(second.id)->anchors.first().pinned);
+
+    for (const QJsonValue &invalid : {QJsonValue(QJsonValue::Null), QJsonValue(1), QJsonValue("true")}) {
+        object.insert(QStringLiteral("pinned"), true);
+        object.insert(QStringLiteral("title"), QStringLiteral("must roll back"));
+        resources[0] = object;
+        QJsonObject bad = resources.last().toObject();
+        bad.insert(QStringLiteral("pinned"), invalid);
+        resources[1] = bad;
+        QVERIFY(writeArchive());
+        notifications = 0;
+        const auto result = archive.importJson(path, mode);
+        QVERIFY(!result.success);
+        QVERIFY(result.message.contains(QStringLiteral("pinned")));
+        QCOMPARE(notifications, 0);
+        QVERIFY(!repository->resourceUsage(first.id)->pinned);
+        QCOMPARE(repository->findResource(first.id)->title, first.title);
+    }
+    repository->removeChangeListener(listener);
+    if (sqlite) {
+        repository.reset();
+        SqliteLibraryRepository reopened;
+        QVERIFY(reopened.open(databasePath));
+        QVERIFY(reopened.initialize());
+        QVERIFY(!reopened.resourceUsage(first.id)->pinned);
+        QVERIFY(!reopened.resourceUsage(second.id).value_or(ResourceUsage{}).pinned);
+        QVERIFY(reopened.findResource(second.id)->anchors.first().pinned);
+    }
 }
 
 void CoreSmokeTest::softDeletesAndRestoresInboxResourcesWithoutDeletingOriginalFile()

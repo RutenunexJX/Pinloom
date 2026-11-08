@@ -3,6 +3,7 @@
 #include "pinloom/clip/ClipRepository.h"
 
 #include <QObject>
+#include <QPointer>
 #include <QString>
 #include <functional>
 #include <optional>
@@ -37,6 +38,12 @@ struct ClipInsertionResult {
     bool inserted() const;
 };
 
+struct ClipboardTextWriteResult {
+    enum Status { Written, Changed, Failed };
+    Status status = Failed;
+    quint64 revision = 0;
+};
+
 class ClipboardTextAccessor : public QObject {
     Q_OBJECT
 
@@ -45,7 +52,10 @@ public:
     ~ClipboardTextAccessor() override = default;
 
     virtual QString text() const = 0;
+    // Changes even when another writer replaces text with the same value.
+    virtual quint64 revision() const = 0;
     virtual bool setText(const QString &text) = 0;
+    virtual ClipboardTextWriteResult setTextIfUnchanged(const QString &text, quint64 expectedRevision);
     virtual bool isAvailable() const;
 };
 
@@ -55,13 +65,20 @@ class QtClipboardTextAccessor : public ClipboardTextAccessor {
 public:
     explicit QtClipboardTextAccessor(QObject *parent = nullptr);
     explicit QtClipboardTextAccessor(QClipboard *clipboard, QObject *parent = nullptr);
+    ~QtClipboardTextAccessor() override;
 
     QString text() const override;
+    quint64 revision() const override;
     bool setText(const QString &text) override;
+    ClipboardTextWriteResult setTextIfUnchanged(const QString &text, quint64 expectedRevision) override;
     bool isAvailable() const override;
 
 private:
-    QClipboard *clipboard_ = nullptr;
+    QPointer<QClipboard> clipboard_;
+    quint64 revision_ = 0;
+#ifdef Q_OS_WIN
+    quintptr nativeClipboardOwner_ = 0;
+#endif
 };
 
 class ClipInsertionService : public QObject {
@@ -76,6 +93,7 @@ public:
 
     explicit ClipInsertionService(InMemoryClipRepository &repository, QObject *parent = nullptr);
     explicit ClipInsertionService(SqliteClipRepository &repository, QObject *parent = nullptr);
+    ~ClipInsertionService() override;
     ClipInsertionService(ClipboardTextAccessor *clipboard,
                          InMemoryClipRepository &repository,
                          PasteInvoker pasteInvoker,
@@ -108,6 +126,7 @@ public:
     std::optional<Clip> lastInsertedClip() const;
     ClipInsertionStatus lastStatus() const;
     QString lastError() const;
+    bool ownsCurrentClipboardWrite() const;
 
 signals:
     void inserted(const Pinloom::Clip &clip);
@@ -121,11 +140,15 @@ private:
     void setLastStatus(ClipInsertionStatus status);
     void setLastError(const QString &error);
     void suppressNextClipboardCapture();
-    bool restoreClipboardIfUnchanged(const QString &originalText,
-                                     const QString &insertedText,
-                                     quint64 generation);
+    bool restoreClipboardIfUnchanged(quint64 generation);
 
-    ClipboardTextAccessor *clipboard_ = nullptr;
+    struct PendingClipboardRestore {
+        QString originalText;
+        quint64 revision;
+        quint64 generation;
+    };
+
+    QPointer<ClipboardTextAccessor> clipboard_;
     FindClipCallback findClip_;
     MarkClipUsedCallback markClipUsed_;
     RepositoryErrorCallback repositoryError_;
@@ -137,6 +160,8 @@ private:
     ClipInsertionStatus lastStatus_ = ClipInsertionStatus::MissingClip;
     QString lastError_;
     quint64 clipboardWriteGeneration_ = 0;
+    std::optional<PendingClipboardRestore> pendingClipboardRestore_;
+    std::optional<quint64> lastOwnClipboardRevision_;
 };
 
 } // namespace Pinloom
