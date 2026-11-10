@@ -10,10 +10,12 @@
 #include "pinloom/widgets/PinloomEntry.h"
 
 #include <QObject>
+#include <QPointer>
 #include <functional>
 #include <optional>
 
 class QWidget;
+class QProcess;
 
 namespace Pinloom {
 
@@ -25,6 +27,9 @@ struct PinloomOpenServiceOptions {
     std::function<bool(const VisioJumpCommand &, QString *error)> visioLaunchHandler;
     std::function<bool(const WordJumpCommand &, QString *error)> wordLaunchHandler;
     std::function<bool(const PowerPointJumpCommand &, QString *error)> powerPointLaunchHandler;
+    // Launch overrides report only acceptance. Native Office confirmation uses QProcess below.
+    std::function<bool(const QString &comClass)> officeAvailabilityHandler;
+    int officeTimeoutMilliseconds = 30000;
     PdfViewerAdapter *pdfViewerAdapter = nullptr;
     QString pdfPresentationCacheDirectory;
     std::function<bool(const QString &sourceFilePath,
@@ -43,6 +48,7 @@ public:
     bool open(const PinloomOpenTarget &target, QWidget *dialogParent = nullptr,
               bool asynchronousPreview = false);
     bool hasPendingPdfOpen() const { return activePdfOpenRequestId_ != 0; }
+    bool hasPendingOpen() const { return hasPendingPdfOpen() || !activeOfficeProcess_.isNull(); }
     bool cancelOpen(const QString &resourceId, const QString &anchorId);
     QString statusText() const;
     bool hasPdfOriginalFallback() const;
@@ -61,6 +67,10 @@ private:
     bool openVisio(const PinloomOpenTarget &target);
     bool openWord(const PinloomOpenTarget &target);
     bool openPowerPoint(const PinloomOpenTarget &target);
+    bool startOfficeOpen(const PinloomOpenTarget &target, const QString &application,
+                         const QString &executable, const QStringList &arguments);
+    void finishOfficeOpen(QProcess *process, const QString &state, const QString &message);
+    void cancelOfficeOpen(const QString &message);
     bool openPdf(const PinloomOpenTarget &target,
                  QWidget *dialogParent);
     void handlePdfViewerOpen(const PinloomOpenTarget &target,
@@ -71,6 +81,8 @@ private:
     ILibraryRepository &repository_;
     PinloomOpenServiceOptions options_;
     QString statusText_;
+    QPointer<QProcess> activeOfficeProcess_;
+    std::optional<PinloomOpenTarget> activeOfficeTarget_;
     quint64 activePdfOpenRequestId_ = 0;
     std::optional<PinloomOpenTarget> activePdfOpenTarget_;
     std::optional<PinloomOpenTarget> pdfOriginalFallbackTarget_;

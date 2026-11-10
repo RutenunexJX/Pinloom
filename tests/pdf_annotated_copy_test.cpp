@@ -9,6 +9,7 @@
 #include <QRegularExpression>
 #include <QTemporaryDir>
 #include <QTest>
+#include <optional>
 
 using namespace Pinloom;
 
@@ -99,11 +100,15 @@ void appendBigEndian(QByteArray *bytes, quint64 value, int width)
 
 QByteArray flateBytes(const QByteArray &plain)
 {
+    // qCompress may omit the zlib stream for empty input; keep these fixtures
+    // valid Flate streams so empty-data tests actually reach the predictor.
+    if (plain.isEmpty()) return QByteArray::fromHex("789c030000000001");
     const QByteArray compressed = qCompress(plain, 9);
     return compressed.size() > 4 ? compressed.mid(4) : QByteArray{};
 }
 
-QByteArray compressedObjectStreamFixturePdf()
+QByteArray compressedObjectStreamFixturePdf(const QByteArray &decodeParms = {}, int predictor = 1,
+                                           const std::optional<QByteArray> &encodedOverride = std::nullopt)
 {
     const QVector<QByteArray> compressedObjects = {
         "<< /Type /Catalog /Pages 2 0 R >>",
@@ -148,10 +153,31 @@ QByteArray compressedObjectStreamFixturePdf()
     appendBigEndian(&xrefPlain, 1, 1);
     appendBigEndian(&xrefPlain, xrefOffset, 4);
     appendBigEndian(&xrefPlain, 0, 2);
-    const QByteArray xrefCompressed = flateBytes(xrefPlain);
+    QByteArray encoded;
+    for (qsizetype row = 0; row < xrefPlain.size(); row += 7) {
+        const int filter = predictor >= 10 ? (row / 7) % 5 : 0;
+        if (predictor >= 10) encoded.append(char(filter));
+        for (int col = 0; col < 7; ++col) {
+            const int value = static_cast<unsigned char>(xrefPlain.at(row + col));
+            const int left = col ? static_cast<unsigned char>(xrefPlain.at(row + col - 1)) : 0;
+            const int above = row ? static_cast<unsigned char>(xrefPlain.at(row - 7 + col)) : 0;
+            const int upperLeft = row && col ? static_cast<unsigned char>(xrefPlain.at(row - 7 + col - 1)) : 0;
+            int prediction = 0;
+            if (predictor == 2 || filter == 1) prediction = left;
+            else if (filter == 2) prediction = above;
+            else if (filter == 3) prediction = (left + above) / 2;
+            else if (filter == 4) {
+                const int p = left + above - upperLeft;
+                const int a = std::abs(p - left), b = std::abs(p - above), c = std::abs(p - upperLeft);
+                prediction = a <= b && a <= c ? left : b <= c ? above : upperLeft;
+            }
+            encoded.append(char((value - prediction) & 255));
+        }
+    }
+    const QByteArray xrefCompressed = flateBytes(encodedOverride.value_or(encoded));
     pdf.append("5 0 obj\n<< /Type /XRef /Size 6 /Root 1 0 R /W [1 4 2] "
                "/Filter /FlateDecode /Length "
-               + QByteArray::number(xrefCompressed.size())
+               + QByteArray::number(xrefCompressed.size()) + decodeParms
                + " >>\nstream\n");
     pdf.append(xrefCompressed);
     pdf.append("\nendstream\nendobj\nstartxref\n"
@@ -220,9 +246,56 @@ private slots:
     void cachesAndInvalidatesBySourceAnchorAndLocator();
     void handlesUnicodeReadOnlyCorruptAndEncryptedSources();
     void readsFlateXrefAndCompressedPageObjects();
+    void predictorDimensionsAndRealAnnotatedCopies_data();
+    void predictorDimensionsAndRealAnnotatedCopies();
     void atomicGenerationFailureLeavesNoPartialPdf();
     void rendersExpectedPageSpaceRectsWithSumatraTool();
 };
+
+void PdfAnnotatedCopyTest::predictorDimensionsAndRealAnnotatedCopies_data()
+{
+    QTest::addColumn<QByteArray>("parameters");
+    QTest::addColumn<int>("predictor");
+    QTest::addColumn<bool>("valid");
+    QTest::addColumn<QByteArray>("input");
+    QTest::newRow("png-all-filters") << QByteArray("/Predictor 15 /Columns 7") << 15 << true << QByteArray();
+    QTest::newRow("tiff") << QByteArray("/Predictor 2 /Columns 7") << 2 << true << QByteArray();
+    QTest::newRow("empty-huge-row") << QByteArray("/Predictor 15 /Columns 2147483647") << 15 << false << QByteArray();
+    QTest::newRow("product-overflow") << QByteArray("/Predictor 15 /Colors 9223372036854775807 /Columns 9223372036854775807 /BitsPerComponent 16") << 15 << false << QByteArray();
+    QTest::newRow("integer-overflow") << QByteArray("/Predictor 15 /Columns 9223372036854775808") << 15 << false << QByteArray();
+    QTest::newRow("budget-plus-one") << QByteArray("/Predictor 15 /Columns 268435457") << 15 << false << QByteArray();
+    QTest::newRow("budget-boundary-empty") << QByteArray("/Predictor 15 /Columns 268435456") << 15 << false << QByteArray();
+    QTest::newRow("png-empty") << QByteArray("/Predictor 15 /Columns 7") << 15 << false << QByteArray();
+    QTest::newRow("png-truncated") << QByteArray("/Predictor 15 /Columns 7") << 15 << false << QByteArray(7, '\0');
+    QTest::newRow("tiff-truncated") << QByteArray("/Predictor 2 /Columns 7") << 2 << false << QByteArray(6, '\0');
+    QTest::newRow("negative") << QByteArray("/Predictor 15 /Columns -1") << 15 << false << QByteArray();
+    QTest::newRow("zero") << QByteArray("/Predictor 15 /Colors 0") << 15 << false << QByteArray();
+}
+
+void PdfAnnotatedCopyTest::predictorDimensionsAndRealAnnotatedCopies()
+{
+    QFETCH(QByteArray, parameters);
+    QFETCH(int, predictor);
+    QFETCH(bool, valid);
+    QFETCH(QByteArray, input);
+    QTemporaryDir dir;
+    const auto pdf = compressedObjectStreamFixturePdf(" /DecodeParms << " + parameters + " >>", predictor,
+                                                      valid ? std::nullopt : std::optional<QByteArray>(input));
+    const QString source = dir.filePath("predictor.pdf");
+    QVERIFY(writeFile(source, pdf));
+    auto request = requestFor(source, dir.filePath("cache"), 1, QRectF(20, 30, 40, 50));
+    const auto result = preparePdfAnnotatedCopy(request);
+    QCOMPARE(result.success(), valid);
+    if (valid) QVERIFY2(!result.outputFilePath.isEmpty(), qPrintable(result.error));
+    else {
+        QVERIFY(!result.error.isEmpty());
+        qInfo() << "PREDICTOR_REJECT" << parameters << result.error;
+        if (parameters.contains("2147483647") || parameters.contains("268435457")
+            || parameters.contains("9223372036854775807"))
+            QVERIFY2(result.error.contains("safety limit"), qPrintable(result.error));
+    }
+    QCOMPARE(fileBytes(source), pdf);
+}
 
 void PdfAnnotatedCopyTest::preservesSourceAndWritesExplicitAppearanceAndDestination()
 {

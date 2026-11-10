@@ -13,12 +13,13 @@ namespace {
 std::optional<double> numberValue(const QJsonValue &value)
 {
     if (value.isDouble()) {
-        return value.toDouble();
+        const double number = value.toDouble();
+        return std::isfinite(number) ? std::optional<double>(number) : std::nullopt;
     }
     if (value.isString()) {
         bool ok = false;
         const double number = value.toString().trimmed().toDouble(&ok);
-        if (ok) {
+        if (ok && std::isfinite(number)) {
             return number;
         }
     }
@@ -50,6 +51,13 @@ int positiveInteger(const QJsonObject &locator, const QString &key)
     }
     const int integer = static_cast<int>(std::round(value.value()));
     return integer > 0 ? integer : -1;
+}
+
+bool validRegion(const QRectF &region)
+{
+    return region.isValid() && std::isfinite(region.left()) && std::isfinite(region.top())
+        && std::isfinite(region.width()) && std::isfinite(region.height())
+        && std::isfinite(region.right()) && std::isfinite(region.bottom());
 }
 
 } // namespace
@@ -103,7 +111,7 @@ std::optional<QRectF> anchorLocatorRegion(const Anchor &anchor)
         rect.has_value()) {
         const QRectF region(QPointF(rect->at(0), rect->at(1)),
                             QPointF(rect->at(2), rect->at(3)));
-        if (region.isValid()) {
+        if (validRegion(region)) {
             return region;
         }
     }
@@ -112,7 +120,7 @@ std::optional<QRectF> anchorLocatorRegion(const Anchor &anchor)
         highlight.has_value()) {
         const QRectF region(QPointF(highlight->at(0), highlight->at(2)),
                             QPointF(highlight->at(1), highlight->at(3)));
-        if (region.isValid()) {
+        if (validRegion(region)) {
             return region;
         }
     }
@@ -123,7 +131,7 @@ std::optional<QRectF> anchorLocatorRegion(const Anchor &anchor)
             continue;
         }
         const QRectF region(values->at(0), values->at(1), values->at(2), values->at(3));
-        if (region.isValid()) {
+        if (validRegion(region)) {
             return region;
         }
     }

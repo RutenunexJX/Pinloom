@@ -601,32 +601,39 @@ bool applyPdfPredictor(const QByteArray &input,
         if (error) *error = QStringLiteral("Unsupported PDF DecodeParms value");
         return false;
     }
-    const int predictor = static_cast<int>(
-        dictionaryInteger(*decodeParameters, "Predictor").value_or(1));
-    if (predictor <= 1) {
+    if (input.size() > kMaximumDecodedPdfStreamBytes) {
+        if (error) *error = QStringLiteral("Decoded PDF stream exceeds the safety limit");
+        return false;
+    }
+    for (const auto *key : {"Predictor", "Colors", "BitsPerComponent", "Columns"}) {
+        const PdfValue *value = dictionaryValue(*decodeParameters, key);
+        if (value && !integerValue(*value).has_value()) {
+            if (error) *error = QStringLiteral("Invalid PDF predictor parameters");
+            return false;
+        }
+    }
+    const qint64 predictor = dictionaryInteger(*decodeParameters, "Predictor").value_or(1);
+    if (predictor == 1) {
         *output = input;
         return true;
     }
-    const int colors = static_cast<int>(
-        dictionaryInteger(*decodeParameters, "Colors").value_or(1));
-    const int bitsPerComponent = static_cast<int>(
-        dictionaryInteger(*decodeParameters, "BitsPerComponent").value_or(8));
-    const int columns = static_cast<int>(
-        dictionaryInteger(*decodeParameters, "Columns").value_or(1));
+    const qint64 colors = dictionaryInteger(*decodeParameters, "Colors").value_or(1);
+    const qint64 bitsPerComponent = dictionaryInteger(*decodeParameters, "BitsPerComponent").value_or(8);
+    const qint64 columns = dictionaryInteger(*decodeParameters, "Columns").value_or(1);
     if (colors <= 0 || columns <= 0 || bitsPerComponent <= 0
         || bitsPerComponent > 16) {
         if (error) *error = QStringLiteral("Invalid PDF predictor parameters");
         return false;
     }
-    const qint64 rowBytes64 =
-        (static_cast<qint64>(colors) * columns * bitsPerComponent + 7) / 8;
-    const qint64 bytesPerPixel64 =
-        std::max<qint64>(1, (static_cast<qint64>(colors) * bitsPerComponent + 7) / 8);
-    if (rowBytes64 <= 0 || rowBytes64 > std::numeric_limits<int>::max()
-        || bytesPerPixel64 > std::numeric_limits<int>::max()) {
-        if (error) *error = QStringLiteral("PDF predictor row is too large");
+    // Bound every product before computing it, using the decoder's existing budget.
+    constexpr qint64 maximumRowBits = qint64(kMaximumDecodedPdfStreamBytes) * 8;
+    if (colors > maximumRowBits / bitsPerComponent
+        || columns > maximumRowBits / (colors * bitsPerComponent)) {
+        if (error) *error = QStringLiteral("PDF predictor row exceeds the safety limit");
         return false;
     }
+    const qint64 rowBytes64 = (colors * columns * bitsPerComponent + 7) / 8;
+    const qint64 bytesPerPixel64 = (colors * bitsPerComponent + 7) / 8;
     const int rowBytes = static_cast<int>(rowBytes64);
     const int bytesPerPixel = static_cast<int>(bytesPerPixel64);
 
@@ -655,7 +662,6 @@ bool applyPdfPredictor(const QByteArray &input,
     }
     QByteArray decoded;
     decoded.resize(input.size() / (rowBytes + 1) * rowBytes);
-    QByteArray previous(rowBytes, '\0');
     qsizetype inputOffset = 0;
     qsizetype outputOffset = 0;
     while (inputOffset < input.size()) {
@@ -669,9 +675,10 @@ bool applyPdfPredictor(const QByteArray &input,
             const int left = column >= bytesPerPixel
                 ? static_cast<unsigned char>(decoded.at(outputOffset + column - bytesPerPixel))
                 : 0;
-            const int above = static_cast<unsigned char>(previous.at(column));
-            const int upperLeft = column >= bytesPerPixel
-                ? static_cast<unsigned char>(previous.at(column - bytesPerPixel))
+            const int above = outputOffset > 0
+                ? static_cast<unsigned char>(decoded.at(outputOffset - rowBytes + column)) : 0;
+            const int upperLeft = outputOffset > 0 && column >= bytesPerPixel
+                ? static_cast<unsigned char>(decoded.at(outputOffset - rowBytes + column - bytesPerPixel))
                 : 0;
             int value = encoded;
             if (filter == 1) value += left;
@@ -680,7 +687,6 @@ bool applyPdfPredictor(const QByteArray &input,
             else if (filter == 4) value += paethPredictor(left, above, upperLeft);
             decoded[outputOffset + column] = static_cast<char>(value & 0xff);
         }
-        previous = decoded.mid(outputOffset, rowBytes);
         outputOffset += rowBytes;
     }
     *output = decoded;

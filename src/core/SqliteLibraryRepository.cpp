@@ -370,6 +370,10 @@ bool searchResultLessThan(const SearchResult &left, const SearchResult &right)
 {
     if (left.score == right.score) {
         if (left.resource.title == right.resource.title) {
+            if (left.resource.location == right.resource.location) {
+                if (left.resource.id != right.resource.id) return left.resource.id < right.resource.id;
+                return left.matchedAnchor.value_or(Anchor{}).id < right.matchedAnchor.value_or(Anchor{}).id;
+            }
             return left.resource.location < right.resource.location;
         }
         return left.resource.title < right.resource.title;
@@ -1024,7 +1028,14 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
     const auto cachedResource = [&](const QString &id) {
         auto found = resources.constFind(id);
         if (found == resources.constEnd()) {
+            // Streaming all candidates must not retain the whole library in the read cache.
+            if (resources.size() >= 200) {
+                resources.clear();
+                resourceUsages.clear();
+                anchorUsages.clear();
+            }
             found = resources.insert(id, findResource(id, readCounts));
+            if (readCounts) readCounts->peakCachedResources = std::max(readCounts->peakCachedResources, resources.size());
         }
         // Return a copy: resource FTS content belongs only to that result, and
         // must not leak into anchor results sharing the hydrated resource.
@@ -1058,19 +1069,29 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
         }
     };
 
+    const auto retainResult = [&](SearchResult result) {
+        if (query.limit <= 0) {
+            results.append(std::move(result));
+        } else if (results.size() < query.limit) {
+            results.append(std::move(result));
+            std::push_heap(results.begin(), results.end(), searchResultLessThan);
+        } else if (searchResultLessThan(result, results.first())) {
+            std::pop_heap(results.begin(), results.end(), searchResultLessThan);
+            results.last() = std::move(result);
+            std::push_heap(results.begin(), results.end(), searchResultLessThan);
+        }
+        if (readCounts) readCounts->peakRetainedResults = std::max(readCounts->peakRetainedResults, results.size());
+    };
+
     const QString ftsQuery = ftsQueryFromText(query.text);
     const QStringList plainTokens = plainSearchTokensFromText(query.text);
-    const int candidateLimit = query.limit > 0
-        ? std::max(200, query.limit * 4)
-        : 0;
     QString sql;
     if (ftsQuery.isEmpty()) {
         sql = QStringLiteral("SELECT r.id, 0.0 AS score, 'all' AS matched_field "
                              "FROM resources r "
-                             "LEFT JOIN resource_usage ru ON ru.resource_id = r.id "
                              "WHERE 1 = 1 ");
     } else {
-        sql = QStringLiteral("SELECT r.id, bm25(resource_fts) AS score, 'fts' AS matched_field, resource_fts.content "
+        sql = QStringLiteral("SELECT r.id, 0.0 AS score, 'fts' AS matched_field, resource_fts.content "
                              "FROM resource_fts JOIN resources r ON r.id = resource_fts.resource_id "
                              "WHERE resource_fts MATCH ? ");
     }
@@ -1085,16 +1106,8 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
     } else if (!query.includeDeleted) {
         sql += QStringLiteral("AND r.deleted = 0 ");
     }
-    if (!query.requiredLocationPrefixes.isEmpty()) {
-        sql += QStringLiteral("AND (");
-        for (int i = 0; i < query.requiredLocationPrefixes.size(); ++i) {
-            if (i > 0) sql += QStringLiteral(" OR ");
-            sql += QStringLiteral(
-                "instr(lower(replace(r.location, char(92), '/')), "
-                "lower(replace(?, char(92), '/'))) = 1");
-        }
-        sql += QStringLiteral(") ");
-    }
+    // Directory boundaries and Unicode case folding use the same Qt predicate
+    // as the final filter; SQLite lower()/prefix matching is not equivalent.
     if (!query.requiredKinds.isEmpty()) {
         sql += QStringLiteral(
             "AND CASE lower(r.kind) "
@@ -1108,14 +1121,8 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
         sql += QStringLiteral(") ");
     }
 
-    sql += ftsQuery.isEmpty()
-        ? QStringLiteral("ORDER BY COALESCE(ru.pinned, 0) DESC, "
-                         "COALESCE(ru.open_count, 0) DESC, "
-                         "COALESCE(ru.last_opened_at, '') DESC, lower(r.title), r.id ")
-        : QStringLiteral("ORDER BY score, lower(r.title), r.id ");
-    if (candidateLimit > 0) sql += QStringLiteral("LIMIT ? ");
-
     QSqlQuery sqlQuery(database_);
+    sqlQuery.setForwardOnly(true);
     sqlQuery.prepare(sql);
     if (!ftsQuery.isEmpty()) {
         sqlQuery.addBindValue(ftsQuery);
@@ -1123,13 +1130,9 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
     for (const QString &tag : query.requiredTags) {
         sqlQuery.addBindValue(tag);
     }
-    for (const QString &prefix : query.requiredLocationPrefixes) {
-        sqlQuery.addBindValue(prefix);
-    }
     for (ResourceKind kind : query.requiredKinds) {
         sqlQuery.addBindValue(resourceKindToString(kind));
     }
-    if (candidateLimit > 0) sqlQuery.addBindValue(candidateLimit);
 
     if (!sqlQuery.exec()) {
         setLastError(sqlQuery.lastError().text());
@@ -1137,6 +1140,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
     }
 
     while (sqlQuery.next()) {
+        if (readCounts) ++readCounts->candidateRows;
         const QString id = sqlQuery.value(0).toString();
         std::optional<Resource> resource = cachedResource(id);
         if (!resource.has_value()) {
@@ -1157,7 +1161,11 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
         }
         SearchResult result = resourceSearchResult(resource.value(), plainTokens, query.text);
         applyRankingSignals(result);
-        results.append(result);
+        retainResult(std::move(result));
+    }
+    if (sqlQuery.lastError().isValid()) {
+        setLastError(sqlQuery.lastError().text());
+        return {};
     }
 
     if (!ftsQuery.isEmpty() || query.deletedOnly) {
@@ -1168,7 +1176,7 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
                 "FROM anchors a JOIN resources r ON r.id = a.resource_id WHERE 1 = 1 ");
         } else {
             anchorSql = QStringLiteral(
-                "SELECT r.id, anchor_fts.anchor_id, bm25(anchor_fts) AS score "
+                "SELECT r.id, anchor_fts.anchor_id, 0.0 AS score "
                 "FROM anchor_fts JOIN resources r ON r.id = anchor_fts.resource_id "
                 "JOIN anchors a ON a.resource_id = r.id AND a.id = anchor_fts.anchor_id "
                 "WHERE anchor_fts MATCH ? ");
@@ -1183,16 +1191,6 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
         } else if (!query.includeDeleted) {
             anchorSql += QStringLiteral("AND r.deleted = 0 AND a.deleted = 0 ");
         }
-        if (!query.requiredLocationPrefixes.isEmpty()) {
-            anchorSql += QStringLiteral("AND (");
-            for (int i = 0; i < query.requiredLocationPrefixes.size(); ++i) {
-                if (i > 0) anchorSql += QStringLiteral(" OR ");
-                anchorSql += QStringLiteral(
-                    "instr(lower(replace(r.location, char(92), '/')), "
-                    "lower(replace(?, char(92), '/'))) = 1");
-            }
-            anchorSql += QStringLiteral(") ");
-        }
         if (!query.requiredKinds.isEmpty()) {
             anchorSql += QStringLiteral(
                 "AND CASE lower(r.kind) "
@@ -1205,30 +1203,23 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
             }
             anchorSql += QStringLiteral(") ");
         }
-        anchorSql += ftsQuery.isEmpty()
-            ? QStringLiteral("ORDER BY lower(r.title), r.id, a.anchor_order ")
-            : QStringLiteral("ORDER BY score, lower(r.title), r.id ");
-        if (candidateLimit > 0) anchorSql += QStringLiteral("LIMIT ? ");
-
         QSqlQuery anchorQuery(database_);
+        anchorQuery.setForwardOnly(true);
         anchorQuery.prepare(anchorSql);
         if (!ftsQuery.isEmpty()) anchorQuery.addBindValue(ftsQuery);
         for (const QString &tag : query.requiredTags) {
             anchorQuery.addBindValue(tag);
         }
-        for (const QString &prefix : query.requiredLocationPrefixes) {
-            anchorQuery.addBindValue(prefix);
-        }
         for (ResourceKind kind : query.requiredKinds) {
             anchorQuery.addBindValue(resourceKindToString(kind));
         }
-        if (candidateLimit > 0) anchorQuery.addBindValue(candidateLimit);
         if (!anchorQuery.exec()) {
             setLastError(anchorQuery.lastError().text());
-            return results;
+            return {};
         }
 
         while (anchorQuery.next()) {
+            if (readCounts) ++readCounts->candidateRows;
             const QString id = anchorQuery.value(0).toString();
             const QString anchorId = anchorQuery.value(1).toString();
             const std::optional<Resource> resource = cachedResource(id);
@@ -1260,7 +1251,11 @@ QList<SearchResult> SqliteLibraryRepository::search(const SearchQuery &query,
                 ? SearchResult{resource.value(), 100.0, QStringLiteral("anchor"), anchor}
                 : anchorSearchResult(resource.value(), anchor, plainTokens, query.text);
             applyRankingSignals(result);
-            results.append(result);
+            retainResult(std::move(result));
+        }
+        if (anchorQuery.lastError().isValid()) {
+            setLastError(anchorQuery.lastError().text());
+            return {};
         }
     }
 

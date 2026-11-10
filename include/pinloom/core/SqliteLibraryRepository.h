@@ -15,6 +15,9 @@ struct SqliteSearchReadCounts {
     qsizetype resourceHydrations = 0;
     qsizetype resourceUsageReads = 0;
     qsizetype anchorUsageReads = 0;
+    qsizetype candidateRows = 0;
+    qsizetype peakRetainedResults = 0;
+    qsizetype peakCachedResources = 0;
 };
 
 class SqliteLibraryRepository final : public ILibraryRepository {

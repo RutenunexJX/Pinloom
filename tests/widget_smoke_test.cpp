@@ -3,6 +3,8 @@
 #include "pinloom/clip/ClipAction.h"
 #include "pinloom/clip/ClipRepository.h"
 #include "pinloom/clip/ClipSearch.h"
+#include "pinloom/clip/PersistentClipService.h"
+#include "pinloom/clip/ObsidianClipStore.h"
 #include "pinloom/clip/ClipTrayController.h"
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/SqliteLibraryRepository.h"
@@ -149,6 +151,7 @@ private slots:
     void commandPanelClipSearchCommandSearchesHistoryAndSavedClipsAndEnterInserts();
     void commandPanelClipNewCommandShowsTemporaryHistoryAndSaves();
     void clipLibraryWindowBrowsesSavedHistoryAndTrash();
+    void clipLibraryPendingEditsRespectDeletionAndSaveFailure();
     void clipLibraryRefreshUsesPendingSnapshotAndFreshMetadata();
     void clipLibraryRefreshPreservesSelectionFocusAndScroll();
     void commandPanelAnchorCaptureCommandCallsHandler();
@@ -4670,6 +4673,71 @@ void WidgetSmokeTest::clipLibraryWindowBrowsesSavedHistoryAndTrash()
     QCOMPARE(window.selectedClip()->id, deletedId);
 }
 
+void WidgetSmokeTest::clipLibraryPendingEditsRespectDeletionAndSaveFailure()
+{
+    InMemoryClipRepository repository;
+    ObsidianClipStore store;
+    PersistentClipService service(repository, store);
+    const auto captured = repository.captureText("pending metadata");
+    QVERIFY(captured.captured());
+    Clip clip = *captured.clip;
+    clip.name = "Pending metadata";
+    QVERIFY(service.saveClip(clip));
+    bool rejectSave = false;
+    ClipLibraryWindowOptions options;
+    options.clipsProvider = [&] { return repository.clips(); };
+    options.saveClipHandler = [&](const Clip &value, QString *error) {
+        if (rejectSave) { *error = "forced save failure"; return false; }
+        return service.saveClip(value, error);
+    };
+    options.deleteClipHandler = [&](const QString &id, QString *error) {
+        return service.changeState(id, ClipState::Deleted, error);
+    };
+    options.restoreClipHandler = [&](const QString &id, QString *error) {
+        return service.changeState(id, ClipState::Saved, error);
+    };
+    ClipLibraryWindow window(options);
+    auto *table = window.findChild<Pinloom::Ui::Table *>("clipLibraryTable");
+    QVERIFY(table);
+    window.show();
+    QApplication::processEvents();
+    const QString snapshotDirectory = qEnvironmentVariable("PINLOOM_UI_SNAPSHOT_DIR");
+    const auto snapshot = [&](const QString &name) {
+        if (snapshotDirectory.isEmpty()) return true;
+        QApplication::processEvents();
+        return QDir().mkpath(snapshotDirectory)
+            && window.grab().save(QDir(snapshotDirectory).filePath(name + ".png"));
+    };
+    table->item(0, 1)->setText("pending alias");
+    rejectSave = true;
+    QTest::keyClick(&window, Qt::Key_S, Qt::ControlModifier);
+    QVERIFY(window.statusText().contains("forced save failure"));
+    QVERIFY(window.hasPendingEdits());
+    QCOMPARE(table->item(0, 1)->text(), QStringLiteral("pending alias"));
+    QVERIFY(snapshot("clip-save-failure-retained"));
+    rejectSave = false;
+    QVERIFY(window.savePendingEdits());
+    QCOMPARE(service.findClip(clip.id)->aliases, QStringList{"pending alias"});
+    table->item(0, 1)->setText("discarded alias");
+    QVERIFY(window.selectClipAt(0));
+    QVERIFY(window.deleteSelectedClip(false));
+    QVERIFY(!window.hasPendingEdits());
+    QVERIFY(!window.savePendingEdits());
+    QCOMPARE(service.findClip(clip.id)->state, ClipState::Deleted);
+    window.setScope(ClipLibraryScope::Trash);
+    QVERIFY(window.selectClipAt(0));
+    QVERIFY(snapshot("clip-deleted-without-stale-edits"));
+    QVERIFY(window.restoreSelectedClip());
+    window.setScope(ClipLibraryScope::Saved);
+    QVERIFY(snapshot("clip-explicitly-restored"));
+    table->item(0, 1)->setText("external stale alias");
+    QVERIFY(service.changeState(clip.id, ClipState::Deleted));
+    QVERIFY(!window.savePendingEdits());
+    QVERIFY(!window.hasPendingEdits());
+    QCOMPARE(service.findClip(clip.id)->state, ClipState::Deleted);
+    QCOMPARE(service.findClip(clip.id)->aliases, QStringList{"pending alias"});
+}
+
 void WidgetSmokeTest::commandPanelAnchorCaptureCommandCallsHandler()
 {
     int captures = 0;
@@ -7754,18 +7822,13 @@ void WidgetSmokeTest::panelLaunchesExcelAnchorWithInjectedExecutor()
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("excel.range"));
     QCOMPARE(capturedCommand.sheetName, QStringLiteral("Sheet1"));
     QCOMPARE(capturedCommand.rangeAddress, QStringLiteral("B12:D18"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened Excel target"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Excel open requested"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
-    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
-    QVERIFY(usage.has_value());
-    QCOMPARE(usage->openCount, 1);
-
-    const std::optional<Resource> openedResource = repository.findResource(resource.id);
-    QVERIFY(openedResource.has_value());
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
-    QVERIFY(anchorUsage.has_value());
-    QCOMPARE(anchorUsage->openCount, 1);
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    const auto openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource);
+    QVERIFY(!repository.anchorUsage(resource.id, openedResource->anchors.first()).has_value());
 }
 
 void WidgetSmokeTest::panelReportsInvalidExcelLocatorWithoutGenericOpen()
@@ -7879,18 +7942,13 @@ void WidgetSmokeTest::panelLaunchesVisioAnchorWithInjectedExecutor()
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("visio.shape"));
     QCOMPARE(capturedCommand.pageName, QStringLiteral("Page-1"));
     QCOMPARE(capturedCommand.shapeUniqueId, shapeId);
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened Visio target"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Visio open requested"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
-    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
-    QVERIFY(usage.has_value());
-    QCOMPARE(usage->openCount, 1);
-
-    const std::optional<Resource> openedResource = repository.findResource(resource.id);
-    QVERIFY(openedResource.has_value());
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
-    QVERIFY(anchorUsage.has_value());
-    QCOMPARE(anchorUsage->openCount, 1);
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    const auto openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource);
+    QVERIFY(!repository.anchorUsage(resource.id, openedResource->anchors.first()).has_value());
 }
 
 void WidgetSmokeTest::panelReportsInvalidVisioLocatorWithoutGenericOpen()
@@ -8002,18 +8060,13 @@ void WidgetSmokeTest::panelLaunchesWordAnchorWithInjectedExecutor()
     QCOMPARE(capturedCommand.documentPath, resource.location);
     QCOMPARE(capturedCommand.locatorType, QStringLiteral("word.bookmark"));
     QCOMPARE(capturedCommand.bookmarkName, QStringLiteral("Requirement_12"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened Word target"));
+    QCOMPARE(panel.statusText(), QStringLiteral("Word open requested"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
-    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
-    QVERIFY(usage.has_value());
-    QCOMPARE(usage->openCount, 1);
-
-    const std::optional<Resource> openedResource = repository.findResource(resource.id);
-    QVERIFY(openedResource.has_value());
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
-    QVERIFY(anchorUsage.has_value());
-    QCOMPARE(anchorUsage->openCount, 1);
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    const auto openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource);
+    QVERIFY(!repository.anchorUsage(resource.id, openedResource->anchors.first()).has_value());
 }
 
 void WidgetSmokeTest::panelReportsInvalidWordLocatorWithoutGenericOpen()
@@ -8126,18 +8179,13 @@ void WidgetSmokeTest::panelLaunchesPowerPointAnchorWithInjectedExecutor()
     QCOMPARE(capturedCommand.slideIndex, 12);
     QCOMPARE(capturedCommand.shapeId, -1);
     QCOMPARE(capturedCommand.shapeName, QStringLiteral("Valve A"));
-    QCOMPARE(panel.statusText(), QStringLiteral("Opened PowerPoint target"));
+    QCOMPARE(panel.statusText(), QStringLiteral("PowerPoint open requested"));
     QCOMPARE(statusNotifications.last(), panel.statusText());
 
-    const std::optional<ResourceUsage> usage = repository.resourceUsage(resource.id);
-    QVERIFY(usage.has_value());
-    QCOMPARE(usage->openCount, 1);
-
-    const std::optional<Resource> openedResource = repository.findResource(resource.id);
-    QVERIFY(openedResource.has_value());
-    const std::optional<AnchorUsage> anchorUsage = repository.anchorUsage(resource.id, openedResource->anchors.first());
-    QVERIFY(anchorUsage.has_value());
-    QCOMPARE(anchorUsage->openCount, 1);
+    QVERIFY(!repository.resourceUsage(resource.id).has_value());
+    const auto openedResource = repository.findResource(resource.id);
+    QVERIFY(openedResource);
+    QVERIFY(!repository.anchorUsage(resource.id, openedResource->anchors.first()).has_value());
 }
 
 void WidgetSmokeTest::panelReportsInvalidPowerPointLocatorWithoutGenericOpen()

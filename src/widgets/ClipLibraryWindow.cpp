@@ -394,6 +394,16 @@ ClipLibraryWindow::ClipLibraryWindow(ClipLibraryWindowOptions options, QWidget *
 void ClipLibraryWindow::refresh()
 {
     clips_ = options_.clipsProvider ? options_.clipsProvider() : QList<Clip>{};
+    QSet<QString> editableIds;
+    for (const auto &clip : clips_) {
+        if (clip.state != ClipState::Deleted) editableIds.insert(clip.id);
+    }
+    for (auto it = pendingEdits_.begin(); it != pendingEdits_.end();) {
+        if (editableIds.contains(it.key())) { ++it; continue; }
+        inlineCellStates_.remove(inlineCellKey(it.key(), ClipAliasesColumn));
+        inlineCellStates_.remove(inlineCellKey(it.key(), ClipTagsColumn));
+        it = pendingEdits_.erase(it);
+    }
     rebuildTagFilter(clips_);
     refreshRows();
 }
@@ -562,6 +572,9 @@ bool ClipLibraryWindow::deleteSelectedClip(bool requireConfirmation)
         setStatus(error.trimmed().isEmpty() ? tr("Unable to delete Clip") : error.trimmed());
         return false;
     }
+    pendingEdits_.remove(selected->id);
+    inlineCellStates_.remove(inlineCellKey(selected->id, ClipAliasesColumn));
+    inlineCellStates_.remove(inlineCellKey(selected->id, ClipTagsColumn));
     refresh();
     setStatus(tr("Moved Clip to Trash"));
     return true;
@@ -1079,17 +1092,19 @@ bool ClipLibraryWindow::savePendingEdits()
 
     int savedCells = 0;
     const QStringList clipIds = pendingEdits_.keys();
+    const QList<Clip> currentClips = options_.clipsProvider ? options_.clipsProvider() : clips_;
     for (const QString &clipId : clipIds) {
-        const auto found = std::find_if(clips_.cbegin(), clips_.cend(), [&clipId](const Clip &clip) {
+        const auto found = std::find_if(currentClips.cbegin(), currentClips.cend(), [&clipId](const Clip &clip) {
             return clip.id == clipId;
         });
-        if (found == clips_.cend()) {
-            setStatus(tr("An edited Clip no longer exists"));
+        if (found == currentClips.cend() || found->state == ClipState::Deleted) {
+            pendingEdits_.remove(clipId);
+            refresh();
+            setStatus(tr("An edited Clip was deleted; its pending edits were discarded"));
             return false;
         }
         const PendingClipEdit edit = pendingEdits_.value(clipId);
         Clip updated = *found;
-        updated.state = ClipState::Saved;
         if (edit.aliasesDirty) {
             updated.aliases = edit.aliases;
         }

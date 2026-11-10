@@ -2,6 +2,7 @@
 #include "pinloom/widgets/PinloomVisualTheme.h"
 
 #include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/AnchorLocator.h"
 
 #include <QCryptographicHash>
 #include <QCoreApplication>
@@ -55,21 +56,8 @@ PdfLocatorGeometry parsePdfLocatorGeometry(const Anchor &anchor)
         return geometry;
     }
 
-    QJsonArray values = object.value(QStringLiteral("rect")).toArray();
-    if (values.size() != 4) values = object.value(QStringLiteral("region")).toArray();
-    if (values.size() == 4) {
-        const double left = values.at(0).toDouble();
-        const double top = values.at(1).toDouble();
-        const double right = values.at(2).toDouble();
-        const double bottom = values.at(3).toDouble();
-        if (std::all_of(values.begin(), values.end(), [](const QJsonValue &value) { return value.isDouble(); })
-            && std::isfinite(left) && std::isfinite(top)
-            && std::isfinite(right) && std::isfinite(bottom)
-            && right > left && bottom > top) {
-            geometry.rectangle = QRectF(QPointF(left, top), QPointF(right, bottom));
-        }
-    }
-    if (anchor.locatorType.compare(QStringLiteral("sumatrapdf.rect"), Qt::CaseInsensitive) == 0
+    geometry.rectangle = anchorLocatorRegion(anchor).value_or(QRectF{});
+    if (anchorLocatorType(anchor) == QLatin1String("sumatrapdf.rect")
         && !geometry.rectangle.isValid()) geometry.error = QStringLiteral("PDF selection rectangle is invalid");
     if (geometry.native && (object.value(QStringLiteral("coordinateSpace")) != QLatin1String("page-top-left")
                             || object.value(QStringLiteral("unit")) != QLatin1String("pt")))
@@ -195,7 +183,7 @@ QString previewCachePath(const QString &cacheDirectory,
     if (cacheDirectory.isEmpty()) return {};
     const QFileInfo file(pdfPath);
     QJsonObject key;
-    key.insert(QStringLiteral("version"), 2);
+    key.insert(QStringLiteral("version"), 3);
     const QString renderer = options.rendererExecutablePath.trimmed().isEmpty()
         ? resolvePdfLocatorPreviewRendererPath() : options.rendererExecutablePath;
     key.insert(QStringLiteral("renderer"), renderer + sourceSignature(renderer));

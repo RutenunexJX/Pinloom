@@ -154,11 +154,7 @@ private:
     void refreshSearchResults(const QString &searchText, const PinloomOpenTarget &previousTarget);
     bool activateCurrentLauncherItem();
     bool activateLauncherItem(Pinloom::Ui::ListItem *item);
-    bool activateExcelTarget(const PinloomOpenTarget &target);
     bool activatePdfTarget(const PinloomOpenTarget &target);
-    bool activatePowerPointTarget(const PinloomOpenTarget &target);
-    bool activateVisioTarget(const PinloomOpenTarget &target);
-    bool activateWordTarget(const PinloomOpenTarget &target);
     bool tryHostOpenTarget(const PinloomOpenTarget &target);
     void refreshLauncherVisibility();
 

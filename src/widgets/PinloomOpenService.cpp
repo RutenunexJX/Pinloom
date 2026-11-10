@@ -11,6 +11,7 @@
 #include <QSettings>
 #include <QTimer>
 #include <QUrl>
+#include <memory>
 
 namespace Pinloom {
 
@@ -55,10 +56,14 @@ PinloomOpenService::PinloomOpenService(ILibraryRepository &repository,
 bool PinloomOpenService::open(const PinloomOpenTarget &target,
                               QWidget *dialogParent, bool asynchronousPreview)
 {
+    const QPointer<PinloomOpenService> openGuard(this);
+    cancelOfficeOpen(QStringLiteral("Superseded by another open request"));
+    if (!openGuard) return false;
     if (activePdfOpenTarget_) {
         emit navigationCompleted(activePdfOpenTarget_->resourceId,
             activePdfOpenTarget_->anchor ? activePdfOpenTarget_->anchor->id : QString(),
             QStringLiteral("cancelled"), false, QStringLiteral("Superseded by another open request"));
+        if (!openGuard) return false;
     }
     activePdfOpenRequestId_ = 0;
     activePdfOpenTarget_.reset();
@@ -179,19 +184,19 @@ bool PinloomOpenService::openExcel(const PinloomOpenTarget &target)
         return false;
     }
     QString error;
-    const bool opened = options_.excelLaunchHandler
-        ? options_.excelLaunchHandler(result.command, &error)
-        : (comClassAvailable(QStringLiteral("Excel.Application"))
-           && QProcess::startDetached(result.command.executablePath,
-                                      result.command.arguments));
+    if (!options_.excelLaunchHandler)
+        return startOfficeOpen(target, QStringLiteral("Excel"), result.command.executablePath, result.command.arguments);
+    const bool opened = options_.excelLaunchHandler(result.command, &error);
     if (!opened) {
         setStatus(error.trimmed().isEmpty()
                       ? QStringLiteral("Unable to launch Excel")
                       : error.trimmed());
         return false;
     }
-    recordOpen(target);
-    setStatus(QStringLiteral("Opened Excel target"));
+    const QPointer<PinloomOpenService> guard(this);
+    setStatus(QStringLiteral("Excel open requested"));
+    if (!guard) return false;
+    emit navigationCompleted(target.resourceId, target.anchor->id, QStringLiteral("open_requested"), false, statusText_);
     return true;
 }
 
@@ -205,19 +210,19 @@ bool PinloomOpenService::openVisio(const PinloomOpenTarget &target)
         return false;
     }
     QString error;
-    const bool opened = options_.visioLaunchHandler
-        ? options_.visioLaunchHandler(result.command, &error)
-        : (comClassAvailable(QStringLiteral("Visio.Application"))
-           && QProcess::startDetached(result.command.executablePath,
-                                      result.command.arguments));
+    if (!options_.visioLaunchHandler)
+        return startOfficeOpen(target, QStringLiteral("Visio"), result.command.executablePath, result.command.arguments);
+    const bool opened = options_.visioLaunchHandler(result.command, &error);
     if (!opened) {
         setStatus(error.trimmed().isEmpty()
                       ? QStringLiteral("Unable to launch Visio")
                       : error.trimmed());
         return false;
     }
-    recordOpen(target);
-    setStatus(QStringLiteral("Opened Visio target"));
+    const QPointer<PinloomOpenService> guard(this);
+    setStatus(QStringLiteral("Visio open requested"));
+    if (!guard) return false;
+    emit navigationCompleted(target.resourceId, target.anchor->id, QStringLiteral("open_requested"), false, statusText_);
     return true;
 }
 
@@ -231,19 +236,19 @@ bool PinloomOpenService::openWord(const PinloomOpenTarget &target)
         return false;
     }
     QString error;
-    const bool opened = options_.wordLaunchHandler
-        ? options_.wordLaunchHandler(result.command, &error)
-        : (comClassAvailable(QStringLiteral("Word.Application"))
-           && QProcess::startDetached(result.command.executablePath,
-                                      result.command.arguments));
+    if (!options_.wordLaunchHandler)
+        return startOfficeOpen(target, QStringLiteral("Word"), result.command.executablePath, result.command.arguments);
+    const bool opened = options_.wordLaunchHandler(result.command, &error);
     if (!opened) {
         setStatus(error.trimmed().isEmpty()
                       ? QStringLiteral("Unable to launch Word")
                       : error.trimmed());
         return false;
     }
-    recordOpen(target);
-    setStatus(QStringLiteral("Opened Word target"));
+    const QPointer<PinloomOpenService> guard(this);
+    setStatus(QStringLiteral("Word open requested"));
+    if (!guard) return false;
+    emit navigationCompleted(target.resourceId, target.anchor->id, QStringLiteral("open_requested"), false, statusText_);
     return true;
 }
 
@@ -257,20 +262,117 @@ bool PinloomOpenService::openPowerPoint(const PinloomOpenTarget &target)
         return false;
     }
     QString error;
-    const bool opened = options_.powerPointLaunchHandler
-        ? options_.powerPointLaunchHandler(result.command, &error)
-        : (comClassAvailable(QStringLiteral("PowerPoint.Application"))
-           && QProcess::startDetached(result.command.executablePath,
-                                      result.command.arguments));
+    if (!options_.powerPointLaunchHandler)
+        return startOfficeOpen(target, QStringLiteral("PowerPoint"), result.command.executablePath, result.command.arguments);
+    const bool opened = options_.powerPointLaunchHandler(result.command, &error);
     if (!opened) {
         setStatus(error.trimmed().isEmpty()
                       ? QStringLiteral("Unable to launch PowerPoint")
                       : error.trimmed());
         return false;
     }
-    recordOpen(target);
-    setStatus(QStringLiteral("Opened PowerPoint target"));
+    const QPointer<PinloomOpenService> guard(this);
+    setStatus(QStringLiteral("PowerPoint open requested"));
+    if (!guard) return false;
+    emit navigationCompleted(target.resourceId, target.anchor->id, QStringLiteral("open_requested"), false, statusText_);
     return true;
+}
+
+bool PinloomOpenService::startOfficeOpen(const PinloomOpenTarget &target,
+                                        const QString &application,
+                                        const QString &executable,
+                                        const QStringList &arguments)
+{
+    const QString comClass = application + QStringLiteral(".Application");
+    const bool available = options_.officeAvailabilityHandler
+        ? options_.officeAvailabilityHandler(comClass) : comClassAvailable(comClass);
+    if (!available) {
+        const QPointer<PinloomOpenService> guard(this);
+        setStatus(QStringLiteral("%1 COM automation is not available").arg(application));
+        if (!guard) return false;
+        emit navigationCompleted(target.resourceId, target.anchor->id, QStringLiteral("failed"), false, statusText_);
+        return false;
+    }
+    // The child owns its cleanup so destroying the caller never waits for COM.
+    auto *process = new QProcess;
+    activeOfficeProcess_ = process;
+    activeOfficeTarget_ = target;
+    auto output = std::make_shared<QByteArray>();
+    auto errors = std::make_shared<QByteArray>();
+    const auto drain = [process, output, errors] {
+        *output = (*output + process->readAllStandardOutput()).right(4096);
+        *errors = (*errors + process->readAllStandardError()).right(4096);
+    };
+    connect(process, &QProcess::readyReadStandardOutput, process, drain);
+    connect(process, &QProcess::readyReadStandardError, process, drain);
+    connect(this, &QObject::destroyed, process, [process] {
+        if (process->state() == QProcess::NotRunning) process->deleteLater();
+        else process->kill();
+    });
+    connect(process, &QProcess::finished, process, &QObject::deleteLater);
+    connect(process, &QProcess::errorOccurred, this, [this, process, application](QProcess::ProcessError error) {
+        if (error != QProcess::FailedToStart) return;
+        const QPointer<QProcess> pending(process);
+        finishOfficeOpen(process, QStringLiteral("failed"),
+                         QStringLiteral("Unable to launch %1: %2").arg(application, process->errorString()));
+        if (pending) pending->deleteLater();
+    });
+    connect(process, &QProcess::finished, this,
+            [this, process, application, output, errors, drain](int code, QProcess::ExitStatus exitStatus) {
+        drain();
+        const bool located = exitStatus == QProcess::NormalExit && code == 0
+            && output->split('\n').contains(QByteArray("PinloomOfficeLocated\r"));
+        // Accept LF as well as Windows CRLF from a configured PowerShell host.
+        const bool confirmed = located || (exitStatus == QProcess::NormalExit && code == 0
+            && output->split('\n').contains(QByteArray("PinloomOfficeLocated")));
+        const QString detail = QString::fromUtf8(*errors).simplified().left(600);
+        finishOfficeOpen(process, confirmed ? QStringLiteral("located") : QStringLiteral("failed"),
+            confirmed ? QStringLiteral("Opened %1 target").arg(application)
+                      : QStringLiteral("%1 navigation failed: %2").arg(application,
+                            detail.isEmpty() ? QStringLiteral("selection was not confirmed") : detail));
+    });
+    QTimer::singleShot(qBound(1, options_.officeTimeoutMilliseconds, 120000), process,
+        [this, process, application, guard = QPointer<PinloomOpenService>(this)] {
+            if (!guard || activeOfficeProcess_ != process) return;
+            const QPointer<QProcess> pending(process);
+            finishOfficeOpen(process, QStringLiteral("failed"), QStringLiteral("%1 navigation timed out").arg(application));
+            if (pending) pending->kill();
+        });
+    const QPointer<PinloomOpenService> guard(this);
+    setStatus(QStringLiteral("Opening %1 target").arg(application));
+    if (!guard) { process->deleteLater(); return false; }
+    if (activeOfficeProcess_ != process) { process->deleteLater(); return false; }
+    // Even FailedToStart must arrive after the caller has registered the request.
+    QTimer::singleShot(0, process, [guard, process, executable, arguments] {
+        if (!guard || guard->activeOfficeProcess_ != process) { process->deleteLater(); return; }
+        process->start(executable, arguments);
+    });
+    return true;
+}
+
+void PinloomOpenService::finishOfficeOpen(QProcess *process, const QString &state, const QString &message)
+{
+    if (activeOfficeProcess_ != process || !activeOfficeTarget_) return;
+    const auto target = *activeOfficeTarget_;
+    activeOfficeProcess_ = nullptr;
+    activeOfficeTarget_.reset();
+    const QPointer<PinloomOpenService> guard(this);
+    if (state == QLatin1String("located")) recordOpen(target);
+    if (!guard) return;
+    setStatus(message);
+    if (!guard) return;
+    emit navigationCompleted(target.resourceId, target.anchor->id, state, state == QLatin1String("located"), message);
+}
+
+void PinloomOpenService::cancelOfficeOpen(const QString &message)
+{
+    const auto process = activeOfficeProcess_;
+    if (!process) return;
+    finishOfficeOpen(process, QStringLiteral("cancelled"), message);
+    if (process) {
+        if (process->state() == QProcess::NotRunning) process->deleteLater();
+        else process->kill();
+    }
 }
 
 bool PinloomOpenService::openPdf(const PinloomOpenTarget &target,
@@ -394,6 +496,11 @@ bool PinloomOpenService::hasPdfOriginalFallback() const
 
 bool PinloomOpenService::cancelOpen(const QString &resourceId, const QString &anchorId)
 {
+    if (activeOfficeTarget_ && activeOfficeTarget_->resourceId == resourceId
+        && activeOfficeTarget_->anchor && activeOfficeTarget_->anchor->id == anchorId) {
+        cancelOfficeOpen(QStringLiteral("Office request cancelled"));
+        return true;
+    }
     if (!activePdfOpenTarget_ || activePdfOpenTarget_->resourceId != resourceId
         || !activePdfOpenTarget_->anchor || activePdfOpenTarget_->anchor->id != anchorId) return false;
     if (options_.pdfViewerAdapter) options_.pdfViewerAdapter->cancelPending();

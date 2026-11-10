@@ -2,6 +2,11 @@
 #include "pinloom/widgets/AnchorLocatorPreviewWidget.h"
 #include "pinloom/widgets/PdfLocatorPreviewRenderer.h"
 #include "pinloom/widgets/PinloomHostBridge.h"
+#include "pinloom/core/AnchorLocator.h"
+#include "pinloom/core/SumatraPdfCommand.h"
+#include "pinloom/core/InMemoryLibraryRepository.h"
+#include "pinloom/widgets/NativePdfReader.h"
+#include "pinloom/widgets/SumatraPdfViewerAdapter.h"
 
 #include <QApplication>
 #include <QColor>
@@ -18,12 +23,14 @@
 #include <QJsonArray>
 #include <QDateTime>
 #include <QScopeGuard>
+#include <QProcess>
 #include <QTemporaryDir>
 #include <QTest>
 #include <QThread>
 #include <QtConcurrent/QtConcurrentRun>
 #include <atomic>
 #include <memory>
+#include <vector>
 
 using namespace Pinloom;
 
@@ -147,6 +154,8 @@ class PdfLocatorPreviewTest final : public QObject {
     Q_OBJECT
 
 private slots:
+    void legacyRegionMatchesNavigation_data();
+    void legacyRegionMatchesNavigation();
     void duplicateRequestReusesRenderAndExpands();
     void selectionKeepsOnlyLatestPendingPreview();
     void changedInputDoesNotReuseActiveRender_data();
@@ -158,6 +167,7 @@ private slots:
     void hostCoalescesCancelsAndStaysResponsive();
     void hostRejectsChangedAnchorAndBoundsQueue();
     void pairedRuntimeGeometryAndFreshness();
+    void pairedReaderLegacyNavigation();
 };
 
 static void connectPreview(QLocalSocket &socket, const QString &server, int page)
@@ -259,6 +269,46 @@ void PdfLocatorPreviewTest::hostRejectsChangedAnchorAndBoundsQueue()
     QCOMPARE(fixture.started(), 1);
 }
 
+void PdfLocatorPreviewTest::legacyRegionMatchesNavigation_data()
+{
+    QTest::addColumn<QByteArray>("geometry");
+    QTest::addColumn<bool>("valid");
+    QTest::newRow("rect") << QByteArray("\"rect\":[10,12,40,32]") << true;
+    QTest::newRow("region") << QByteArray("\"region\":[10,12,30,20]") << true;
+    QTest::newRow("viewrect") << QByteArray("\"viewrect\":[10,12,30,20]") << true;
+    QTest::newRow("negative-width") << QByteArray("\"region\":[10,12,-30,20]") << false;
+    QTest::newRow("inverted-rect") << QByteArray("\"rect\":[40,12,10,32]") << false;
+    QTest::newRow("empty-region") << QByteArray("\"viewrect\":[10,12,0,20]") << false;
+    QTest::newRow("nonfinite") << QByteArray("\"region\":[\"inf\",12,30,20]") << false;
+    QTest::newRow("overflowing-region") << QByteArray("\"region\":[1e308,12,1e308,20]") << false;
+}
+
+void PdfLocatorPreviewTest::legacyRegionMatchesNavigation()
+{
+    QFETCH(QByteArray, geometry);
+    QFETCH(bool, valid);
+    PreviewFixture fixture;
+    QVERIFY(fixture.initialize(1));
+    QVERIFY(writeFile(fixture.directory.filePath("release-all")));
+    auto anchor = fixture.resource.anchors.first();
+    anchor.locatorType = "sumatrapdf.rect";
+    anchor.locatorJson = QString::fromUtf8("{\"page\":1," + geometry + '}');
+    fixture.renderOptions.resolutionDpi = 72;
+    fixture.renderOptions.contextPaddingPoints = 0;
+    fixture.renderOptions.drawSelectionBorder = false;
+    const auto preview = renderPdfLocatorPreview(fixture.resource, anchor, fixture.renderOptions);
+    QCOMPARE(preview.success(), valid);
+    const auto region = anchorLocatorRegion(anchor);
+    QCOMPARE(region.has_value(), valid);
+    if (valid) {
+        QCOMPARE(*region, QRectF(10, 12, 30, 20));
+        QCOMPARE(preview.locatorRectangle, *region);
+        QCOMPARE(preview.image.size(), QSize(30, 20));
+        const auto jump = buildSumatraPdfCommand(anchor, fixture.resource.location, QStringLiteral("SumatraPDF.exe"));
+        QVERIFY2(jump.success(), qPrintable(jump.error));
+    }
+}
+
 void PdfLocatorPreviewTest::pairedRuntimeGeometryAndFreshness()
 {
     const QString fixturePath = qEnvironmentVariable("PINLOOM_GEOMETRY_FIXTURE");
@@ -295,8 +345,23 @@ void PdfLocatorPreviewTest::pairedRuntimeGeometryAndFreshness()
         QVERIFY2(color.green() > 130 && color.green() > color.red() + 60 && color.green() > color.blue() + 40, qPrintable(color.name()));
         elapsed.restart();
         const auto hot = renderPdfLocatorPreview(resource, anchor, options);
+        const auto hotMs = elapsed.elapsed();
         QVERIFY2(hot.success(), qPrintable(hot.error)); QVERIFY(hot.fromCache);
-        qInfo() << "REAL_PREVIEW" << locator["page"].toInt() << cold.image.size() << "coldMs" << coldMs << "hotMs" << elapsed.elapsed();
+        for (const auto *key : {"region", "viewrect"}) {
+            auto legacy = locator;
+            const auto rect = legacy.take("rect").toArray();
+            legacy.insert("version", 2);
+            legacy.insert(key, QJsonArray{rect[0], rect[1], rect[2].toDouble() - rect[0].toDouble(), rect[3].toDouble() - rect[1].toDouble()});
+            Anchor old = anchor;
+            old.locatorJson = QString::fromUtf8(QJsonDocument(legacy).toJson(QJsonDocument::Compact));
+            const auto oldPreview = renderPdfLocatorPreview(resource, old, options);
+            QVERIFY2(oldPreview.success(), qPrintable(oldPreview.error));
+            QCOMPARE(oldPreview.locatorRectangle, cold.locatorRectangle);
+            QCOMPARE(oldPreview.image, cold.image);
+            QCOMPARE(anchorLocatorRegion(old), anchorLocatorRegion(anchor));
+            QVERIFY(buildSumatraPdfCommand(old, resource.location, QStringLiteral("SumatraPDF.exe")).success());
+        }
+        qInfo() << "REAL_PREVIEW" << locator["page"].toInt() << cold.image.size() << "coldMs" << coldMs << "hotMs" << hotMs;
         const QString evidence = qEnvironmentVariable("PINLOOM_PREVIEW_EVIDENCE");
         if (!evidence.isEmpty()) { QDir().mkpath(evidence); QVERIFY(cold.image.save(QDir(evidence).filePath(QStringLiteral("region-%1.png").arg(cold.page)))); }
         // A changed locator must not reuse an image, even if the PDF is unchanged.
@@ -315,6 +380,95 @@ void PdfLocatorPreviewTest::pairedRuntimeGeometryAndFreshness()
     QVERIFY(QFile::remove(pdf));
     const auto missing = renderPdfLocatorPreview(resource, anchor, options);
     QVERIFY(!missing.success()); QVERIFY(missing.image.isNull()); QVERIFY(missing.error.contains(QStringLiteral("missing")));
+}
+
+void PdfLocatorPreviewTest::pairedReaderLegacyNavigation()
+{
+    const QString runtime = qEnvironmentVariable("PINLOOM_REAL_READER_RUNTIME");
+    if (runtime.isEmpty()) QSKIP("Set PINLOOM_REAL_READER_RUNTIME for isolated reader navigation");
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    // A private executable path and profile cannot reuse a user's reader window.
+    const QString reader = directory.filePath("SumatraPDF.exe");
+    const QString profile = directory.filePath("profile");
+    const QString pdf = directory.filePath("geometry.pdf");
+    QVERIFY(QFile::copy(runtime, reader));
+    QVERIFY(QDir().mkpath(profile));
+    const QDir fixture(qEnvironmentVariable("PINLOOM_GEOMETRY_FIXTURE"));
+    QVERIFY(QFile::copy(fixture.filePath("geometry.pdf"), pdf));
+    QFile cases(fixture.filePath("cases.json"));
+    QVERIFY(cases.open(QIODevice::ReadOnly));
+    const auto geometries = QJsonDocument::fromJson(cases.readAll()).array();
+    QVERIFY(geometries.size() >= 6);
+
+    std::vector<std::unique_ptr<QProcess>> children;
+    const auto closeReaders = qScopeGuard([&] {
+        for (auto &child : children) {
+            if (child->state() == QProcess::NotRunning) continue;
+            child->terminate();
+            if (!child->waitForFinished(2000)) {
+                child->kill(); // Only processes started by this fixture.
+                child->waitForFinished(2000);
+            }
+        }
+    });
+    SumatraPdfCommand launched;
+    SumatraPdfViewerAdapterOptions options;
+    options.executablePathProvider = [&] { return reader; };
+    options.navigationTimeoutMilliseconds = 10000;
+    options.navigationPollMilliseconds = 100;
+    options.launchHandler = [&](const SumatraPdfCommand &command, QString *error) {
+        launched = command;
+        QStringList arguments = command.arguments;
+        arguments.removeAll("-reuse-instance");
+        arguments.prepend(profile);
+        arguments.prepend("-appdata");
+        auto child = std::make_unique<QProcess>();
+        child->start(reader, arguments);
+        const bool started = child->waitForStarted(3000);
+        if (!started && error) *error = child->errorString();
+        children.push_back(std::move(child));
+        return started;
+    };
+    options.navigationStateProvider = [&](int timeout) {
+        return requestConfiguredPdfReaderState(reader, launched.filePath, launched.page, timeout);
+    };
+    InMemoryLibraryRepository repository;
+    SumatraPdfViewerAdapter adapter(repository, options);
+    for (const auto &value : geometries) {
+        for (const auto *key : {"rect", "region", "viewrect"}) {
+            auto locator = value.toObject();
+            const auto rect = locator["rect"].toArray();
+            const QRectF expected(rect[0].toDouble(), rect[1].toDouble(),
+                rect[2].toDouble() - rect[0].toDouble(), rect[3].toDouble() - rect[1].toDouble());
+            if (QString::fromLatin1(key) != "rect") {
+                locator.remove("rect");
+                locator.insert(key, QJsonArray{expected.x(), expected.y(), expected.width(), expected.height()});
+            }
+            locator.insert("type", "sumatrapdf.rect");
+            locator.insert("coordinateSpace", "page-top-left");
+            PdfViewerOpenRequest request;
+            request.anchor.targetFile = pdf;
+            request.anchor.locatorType = "sumatrapdf.rect";
+            request.anchor.locatorJson = QString::fromUtf8(QJsonDocument(locator).toJson(QJsonDocument::Compact));
+            request.cacheDirectory = directory.filePath("copies");
+            const auto command = buildSumatraPdfCommand(request.anchor, pdf, reader);
+            QVERIFY2(command.success(), qPrintable(command.error));
+            QCOMPARE(command.command.highlightRect, expected);
+            QCOMPARE(anchorLocatorRegion(request.anchor), std::optional<QRectF>(expected));
+            std::optional<PdfViewerOpenResult> completed;
+            PdfViewerOpenCallbacks callbacks;
+            callbacks.completed = [&](const PdfViewerOpenResult &result) { completed = result; };
+            const auto start = adapter.open(request, callbacks);
+            QVERIFY2(start.accepted(), qPrintable(start.error));
+            QTRY_VERIFY_WITH_TIMEOUT(completed.has_value(), 15000);
+            QVERIFY2(completed->succeeded(), qPrintable(completed->message + " " + completed->diagnostics));
+            const auto state = requestConfiguredPdfReaderState(reader, launched.filePath, launched.page, 500);
+            QVERIFY2(state.success(), qPrintable(state.error));
+            QCOMPARE(state.page, locator["page"].toInt());
+            qInfo() << "REAL_READER_LEGACY" << key << state.page << expected << completed->message;
+        }
+    }
 }
 
 void PdfLocatorPreviewTest::duplicateRequestReusesRenderAndExpands()

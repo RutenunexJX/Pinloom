@@ -2644,7 +2644,7 @@ int main(int argc, char *argv[])
             const auto document = resolveHostDocument(identity);
             if (!document) return {{"state", "failed"}, {"message", "Entry could not be resolved"}};
             const bool opened = openService.open(Pinloom::openTargetFromEntry(document->entry), &window, true);
-            return {{"state", !opened ? "failed" : openService.hasPendingPdfOpen() ? "running" : "open_requested"},
+            return {{"state", !opened ? "failed" : openService.hasPendingOpen() ? "running" : "open_requested"},
                     {"positionVerified", false}, {"message", openService.statusText()}};
         };
         callbacks.cancelOpen = [&](const QString &resourceId, const QString &anchorId) {

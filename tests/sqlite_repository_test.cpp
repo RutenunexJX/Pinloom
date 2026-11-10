@@ -9,6 +9,7 @@
 
 #include <QDir>
 #include <QDateTime>
+#include <QElapsedTimer>
 #include <QFile>
 #include <QFileInfo>
 #include <QJsonDocument>
@@ -50,6 +51,8 @@ private slots:
     void rollsBackArchiveWhenPinWriteFails();
     void filtersByRequiredLocationPrefixes();
     void appliesSqlFiltersBeforeBoundedCandidateSelection();
+    void boundedSearchMatchesCompleteRanking_data();
+    void boundedSearchMatchesCompleteRanking();
     void filtersByRequiredResourceKinds();
     void ranksContextSignalsWithinMatchType();
     void tracksAnchorUsageAndRanksAnchorRecall();
@@ -1493,6 +1496,89 @@ void SqliteRepositoryTest::appliesSqlFiltersBeforeBoundedCandidateSelection()
     const QList<SearchResult> pinnedResults = repository.search(query);
     QCOMPARE(pinnedResults.size(), 1);
     QCOMPARE(pinnedResults.first().resource.id, matching.id);
+}
+
+void SqliteRepositoryTest::boundedSearchMatchesCompleteRanking_data()
+{
+    QTest::addColumn<QString>("term");
+    QTest::newRow("ascii") << QStringLiteral("needle");
+    QTest::newRow("unicode") << QStringLiteral("电源");
+}
+
+void SqliteRepositoryTest::boundedSearchMatchesCompleteRanking()
+{
+    QFETCH(QString, term);
+    QTemporaryDir dir;
+    SqliteLibraryRepository repository;
+    QVERIFY(repository.open(dir.filePath("search.db")));
+    QVERIFY(repository.initialize());
+    LibraryBatchMutation batch;
+    const QString anchorTerm = QStringLiteral("jump") + term;
+    for (int index = 0; index < 240; ++index) {
+        Resource resource;
+        resource.id = QStringLiteral("noise-%1").arg(index);
+        resource.title = QStringLiteral("A noise %1").arg(index);
+        resource.kind = ResourceKind::File;
+        resource.location = QStringLiteral("E:/Årea-sibling/%1.txt").arg(index);
+        resource.content = (term + ' ').repeated(30);
+        resource.tags = {term};
+        Anchor anchor = testAnchor(QStringLiteral("Noise anchor %1").arg(index), "text.line", 1);
+        anchor.tags = {anchorTerm};
+        auto noisyLocator = QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object();
+        noisyLocator.insert("note", (anchorTerm + ' ').repeated(30));
+        anchor.locatorJson = QString::fromUtf8(QJsonDocument(noisyLocator).toJson(QJsonDocument::Compact));
+        resource.anchors = {anchor};
+        batch.upserts.append(resource);
+    }
+    for (int index = 0; index < 4; ++index) {
+        Resource resource;
+        resource.id = QStringLiteral("best-%1").arg(index);
+        resource.title = QStringLiteral("Z %1 title %2").arg(term).arg(index);
+        resource.kind = ResourceKind::File;
+        resource.location = QStringLiteral("E:/Årea/%1target%2.txt")
+                                .arg(index % 2 ? "sub/" : "").arg(index);
+        resource.content = QStringLiteral("filler ").repeated(100);
+        Anchor anchor = testAnchor(QStringLiteral("%1 anchor %2").arg(anchorTerm).arg(index), "text.line", 2);
+        auto longLocator = QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object();
+        longLocator.insert("note", QStringLiteral("filler ").repeated(100));
+        anchor.locatorJson = QString::fromUtf8(QJsonDocument(longLocator).toJson(QJsonDocument::Compact));
+        resource.anchors = {anchor};
+        batch.upserts.append(resource);
+    }
+    QVERIFY2(repository.applyBatch(batch), qPrintable(repository.lastError()));
+    QVERIFY(repository.setResourcePinned("best-3", true));
+    for (const QString &text : {term, anchorTerm, QString()}) {
+        for (const QStringList &prefixes : {QStringList{}, QStringList{"E:/Årea"}, QStringList{"E:/årea"}}) {
+            SearchQuery query{text};
+            query.requiredLocationPrefixes = prefixes;
+            query.limit = -1;
+            const auto complete = repository.search(query);
+            QVERIFY(!complete.isEmpty());
+            QCOMPARE(complete.first().resource.id, QStringLiteral("best-3"));
+            if (!prefixes.isEmpty()) {
+                for (const auto &item : complete) QVERIFY(item.resource.id.startsWith("best-"));
+            }
+            for (int limit : {1, 5, 20, 80, 300, 0}) {
+                query.limit = limit;
+                SqliteSearchReadCounts counts;
+                QElapsedTimer timer;
+                timer.start();
+                const auto bounded = repository.search(query, &counts);
+                qInfo() << "RESOURCE_SEARCH" << text << prefixes << limit << "ms" << timer.elapsed()
+                        << "candidates" << counts.candidateRows << "cachePeak" << counts.peakCachedResources
+                        << "retainedPeak" << counts.peakRetainedResults;
+                QCOMPARE(bounded.size(), limit > 0 ? qMin(qsizetype(limit), complete.size()) : complete.size());
+                QVERIFY(counts.peakCachedResources <= 200);
+                if (limit > 0) QVERIFY(counts.peakRetainedResults <= limit);
+                for (qsizetype i = 0; i < bounded.size(); ++i) {
+                    QCOMPARE(bounded[i].resource.id, complete[i].resource.id);
+                    QCOMPARE(bounded[i].matchedAnchor.value_or(Anchor{}).id, complete[i].matchedAnchor.value_or(Anchor{}).id);
+                    QCOMPARE(bounded[i].matchedField, complete[i].matchedField);
+                    QCOMPARE(bounded[i].score, complete[i].score);
+                }
+            }
+        }
+    }
 }
 
 void SqliteRepositoryTest::filtersByRequiredResourceKinds()

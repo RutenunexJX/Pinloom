@@ -2,6 +2,7 @@
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/AnchorTarget.h"
+#include "OfficeJumpScript.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -84,9 +85,9 @@ QString powerShellScriptForCommand(const VisioJumpCommand &command)
 {
     QStringList statements{
         QStringLiteral("$ErrorActionPreference = 'Stop'"),
-        QStringLiteral("$visio = New-Object -ComObject Visio.Application"),
+        officeApplicationScript(QStringLiteral("$visio"), QStringLiteral("Visio.Application")),
         QStringLiteral("$visio.Visible = $true"),
-        QStringLiteral("$document = $visio.Documents.Open(%1)").arg(powerShellQuoted(command.documentPath)),
+        officeDocumentScript(QStringLiteral("$document"), QStringLiteral("$visio.Documents"), powerShellQuoted(command.documentPath)),
         QStringLiteral("$page = $document.Pages.ItemU(%1)").arg(powerShellQuoted(command.pageName)),
         QStringLiteral("$window = $visio.ActiveWindow"),
         QStringLiteral("$window.Page = $page"),
@@ -94,8 +95,9 @@ QString powerShellScriptForCommand(const VisioJumpCommand &command)
         QStringLiteral("$window.DeselectAll()"),
         QStringLiteral("$window.Select($shape, 2) | Out-Null"),
         QStringLiteral("$window.Activate()"),
+        QStringLiteral("if ($window.Selection.Count -ne 1 -or $window.Selection.Item(1).UniqueID(0) -ne %1) { throw 'Visio shape selection was not confirmed' }").arg(powerShellQuoted(command.shapeUniqueId)),
     };
-    return statements.join(QStringLiteral("; "));
+    return completedOfficeJumpScript(statements.join(QStringLiteral("; ")));
 }
 
 QStringList powerShellArguments(const QString &script)
@@ -167,7 +169,9 @@ VisioJumpCommandResult buildVisioJumpCommand(const Anchor &anchor,
         return result;
     }
 
-    result.command.pageName = locator.value(QStringLiteral("page")).toString().trimmed();
+    result.command.pageName = locator.value(QStringLiteral("pageNameU")).toString().trimmed();
+    if (result.command.pageName.isEmpty())
+        result.command.pageName = locator.value(QStringLiteral("page")).toString().trimmed();
     if (result.command.pageName.isEmpty()) {
         result.error = QStringLiteral("Visio locator page is missing");
         return result;

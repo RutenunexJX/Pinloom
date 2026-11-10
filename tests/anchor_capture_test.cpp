@@ -4,6 +4,8 @@
 #include "pinloom/core/InMemoryLibraryRepository.h"
 #include "pinloom/core/ManualPdfAnchorCreation.h"
 #include "pinloom/core/NativeAnchorCapture.h"
+#include "pinloom/core/ExcelCommand.h"
+#include "pinloom/core/VisioCommand.h"
 #include "pinloom/core/SumatraPdfCommand.h"
 #include "pinloom/core/SumatraPdfDdeClient.h"
 #include "pinloom/core/SumatraPdfForegroundCapture.h"
@@ -53,6 +55,8 @@ private slots:
     void buildsAndStoresSumatraPdfSearchAnchor();
     void validatesAndCommitsSharedAnchorDraft();
     void capturesAndFinalizesNativeOfficeAnchors();
+    void officeCaptureFieldsSurvivePersistence_data();
+    void officeCaptureFieldsSurvivePersistence();
     void readsCreatedManualPdfRectAnchorAfterSqliteReopen();
 };
 
@@ -1020,6 +1024,71 @@ void AnchorCaptureTest::capturesAndFinalizesNativeOfficeAnchors()
     QCOMPARE(unchanged.draft.locatorType, QStringLiteral("excel.range"));
     QVERIFY(!unchanged.draft.mutationOptional);
     QCOMPARE(scripts.size(), 3);
+}
+
+void AnchorCaptureTest::officeCaptureFieldsSurvivePersistence_data()
+{
+    QTest::addColumn<QString>("type");
+    QTest::addColumn<QString>("fields");
+    QTest::addColumn<QString>("expected");
+    QTest::newRow("captured-visio") << QString("visio.shape") << QString(R"({"pageNameU":"Universal Page","page":"old page","shapeUniqueId":"{unique}"})") << QString("Universal Page");
+    QTest::newRow("legacy-visio") << QString("visio.shape") << QString(R"({"page":"old page","shape_unique_id":"{unique}"})") << QString("old page");
+    QTest::newRow("captured-excel-name") << QString("excel.name") << QString(R"({"namedRange":"CapturedName","name":"old name"})") << QString("CapturedName");
+    QTest::newRow("legacy-excel-name") << QString("excel.name") << QString(R"({"name":"OldName"})") << QString("OldName");
+    QTest::newRow("excel-range") << QString("excel.range") << QString(R"({"sheet":"Data","range":"$B$2:$D$5"})") << QString("$B$2:$D$5");
+    QTest::newRow("missing-visio-page") << QString("visio.shape") << QString(R"({"shapeUniqueId":"{unique}"})") << QString();
+    QTest::newRow("missing-excel-name") << QString("excel.name") << QString("{}") << QString();
+}
+
+void AnchorCaptureTest::officeCaptureFieldsSurvivePersistence()
+{
+    QFETCH(QString, type);
+    QFETCH(QString, fields);
+    QFETCH(QString, expected);
+    const bool visio = type.startsWith("visio");
+    const QString application = visio ? "Visio" : "Excel";
+    QJsonObject locator = QJsonDocument::fromJson(fields.toUtf8()).object();
+    locator.insert("type", type);
+    const QJsonObject captured{{"ok", true}, {"targetApp", application},
+        {"targetFile", visio ? "E:/fixture.vsdx" : "E:/fixture.xlsx"},
+        {"locatorType", type}, {"locator", locator}, {"suggestedName", "Captured position"},
+        {"provenance", visio ? "visio-com" : "excel-com"}};
+    NativeAnchorCaptureAdapter adapter([&](const QString &, int) {
+        NativeCaptureScriptResult result;
+        result.standardOutput = QString::fromUtf8(QJsonDocument(captured).toJson(QJsonDocument::Compact));
+        return result;
+    });
+    const auto capture = adapter.capture(visio ? NativeAnchorApplication::Visio : NativeAnchorApplication::Excel);
+    QVERIFY2(capture.success(), qPrintable(capture.error));
+    QTemporaryDir dir;
+    const QString database = dir.filePath("office.db");
+    QString resourceId;
+    {
+        SqliteLibraryRepository repository;
+        QVERIFY(repository.open(database));
+        QVERIFY(repository.initialize());
+        const auto committed = AnchorCaptureCommitService(repository).commit(capture.draft);
+        QVERIFY2(committed.success(), qPrintable(committed.error));
+        resourceId = committed.resource.id;
+    }
+    SqliteLibraryRepository reopened;
+    QVERIFY(reopened.open(database));
+    QVERIFY(reopened.initialize());
+    const auto resource = reopened.findResource(resourceId);
+    QVERIFY(resource);
+    const auto &anchor = resource->anchors.first();
+    QCOMPARE(QJsonDocument::fromJson(anchor.locatorJson.toUtf8()).object(), locator);
+    if (visio) {
+        const auto command = buildVisioJumpCommand(anchor, resource->location);
+        QCOMPARE(command.success(), !expected.isEmpty());
+        if (command.success()) QCOMPARE(command.command.pageName, expected);
+        else QVERIFY(command.error.contains("page is missing"));
+    } else {
+        const auto command = buildExcelJumpCommand(anchor, resource->location);
+        QCOMPARE(command.success(), !expected.isEmpty());
+        if (command.success()) QCOMPARE(type == "excel.name" ? command.command.namedRange : command.command.rangeAddress, expected);
+        else QVERIFY(command.error.contains("named range is missing"));
+    }
 }
 
 void AnchorCaptureTest::readsCreatedManualPdfRectAnchorAfterSqliteReopen()

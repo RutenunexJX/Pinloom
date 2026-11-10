@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
 
 project(Pinloom
-    VERSION 0.4.21
+    VERSION 0.4.22
     DESCRIPTION "Personal and engineering material locator"
     LANGUAGES CXX
 )
@@ -368,6 +368,10 @@ endfunction()
 
 add_executable(pinloom_cli_contract_test tests/cli_contract_test.cpp)
 add_executable(pinloom_startup_test tests/startup_test.cpp)
+add_executable(pinloom_office_open_service_test tests/office_open_service_test.cpp)
+target_link_libraries(pinloom_office_open_service_test PRIVATE pinloom_widgets Qt6::Test)
+pinloom_add_test(pinloom_office_open_service_test)
+set_tests_properties(pinloom_office_open_service_test PROPERTIES TIMEOUT 60)
 target_link_libraries(pinloom_startup_test PRIVATE pinloom_widgets Qt6::Test)
 pinloom_add_test(pinloom_startup_test)
 add_executable(pinloom_native_pdf_capture_test tests/native_pdf_capture_test.cpp)

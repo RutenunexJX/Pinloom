@@ -394,6 +394,9 @@ private slots:
     void obsidianStateAndForgetTombstoneRoundTrip();
     void persistentClipServiceCoordinatesRepositoryAndObsidian();
     void persistentClipServiceRollsBackObsidianWhenIndexMutationFails();
+    void persistentClipServiceRejectsStaleEdits();
+    void permanentRemovalRollbackPreservesFileRevision_data();
+    void permanentRemovalRollbackPreservesFileRevision();
     void obsidianWatcherSynchronizesNewNotes();
     void obsidianRealVaultRoundTrip();
     void clipboardServiceCapturesTextIntoRepository();
@@ -2241,6 +2244,130 @@ void ClipTest::persistentClipServiceRollsBackObsidianWhenIndexMutationFails()
         store.findClip(existing.id, &error);
     QVERIFY2(restoredDeleted.has_value(), qPrintable(error));
     QCOMPARE(restoredDeleted->clip.state, ClipState::Deleted);
+}
+
+void ClipTest::persistentClipServiceRejectsStaleEdits()
+{
+    QTemporaryDir dir;
+    SqliteClipRepository repository;
+    QVERIFY(repository.open(dir.filePath("clips.db")));
+    QVERIFY(repository.initialize());
+    ObsidianClipStore store;
+    PersistentClipService service(repository, store);
+    const auto captured = repository.captureText("stale edit body");
+    QVERIFY(captured.captured());
+    Clip pending = *captured.clip;
+    pending.name = "Stale edit";
+    QString error;
+    QVERIFY2(service.saveClip(pending, &error), qPrintable(error));
+    pending = *service.findClip(pending.id);
+    pending.aliases = {"unsaved alias"};
+    pending.tags = {"unsaved tag"};
+    QVERIFY(service.changeState(pending.id, ClipState::Deleted, &error));
+    QVERIFY(!service.saveClip(pending, &error));
+    QVERIFY(error.contains("Restore"));
+    QCOMPARE(service.findClip(pending.id)->state, ClipState::Deleted);
+    QVERIFY(service.findClip(pending.id)->aliases.isEmpty());
+    QVERIFY(service.changeState(pending.id, ClipState::Saved, &error));
+    QVERIFY(service.saveClip(pending, &error));
+    QCOMPARE(service.findClip(pending.id)->tags, pending.tags);
+    QVERIFY(service.changeState(pending.id, ClipState::Deleted, &error));
+    QVERIFY(service.permanentlyRemove(pending.id, &error));
+    QVERIFY(!service.saveClip(pending, &error));
+    QVERIFY(error.contains("no longer exists"));
+    QVERIFY(!service.findClip(pending.id));
+}
+
+void ClipTest::permanentRemovalRollbackPreservesFileRevision_data()
+{
+    QTest::addColumn<int>("concurrentChange");
+    QTest::newRow("restore-and-retry") << 0;
+    QTest::newRow("concurrent-edit") << 1;
+    QTest::newRow("concurrent-remove") << 2;
+}
+
+void ClipTest::permanentRemovalRollbackPreservesFileRevision()
+{
+    QFETCH(int, concurrentChange);
+    QTemporaryDir dir;
+    const QString dbPath = dir.filePath("clips.db");
+    SqliteClipRepository repository;
+    QVERIFY(repository.open(dbPath));
+    QVERIFY(repository.initialize());
+    ObsidianClipStore store({dir.path()});
+    PersistentClipService initial(repository, store);
+    const auto capture = repository.captureText("original body\ncustom contents");
+    QVERIFY(capture.captured());
+    Clip clip = *capture.clip;
+    clip.name = "Removal rollback";
+    QString error;
+    QVERIFY(initial.saveClip(clip, &error));
+    QVERIFY(initial.changeState(clip.id, ClipState::Deleted, &error));
+    const auto note = store.findClip(clip.id, &error);
+    QVERIFY(note);
+    QFile file(note->filePath);
+    QVERIFY(file.open(QIODevice::ReadOnly));
+    QByteArray original = file.readAll();
+    file.close();
+    original.replace("pinloom_type:", "custom_key: preserved\r\npinloom_type:");
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+    QCOMPARE(file.write(original), original.size());
+    file.close();
+
+    const QString connectionName = QUuid::createUuid().toString();
+    {
+        auto db = QSqlDatabase::addDatabase("QSQLITE", connectionName);
+        db.setDatabaseName(dbPath);
+        QVERIFY(db.open());
+        QSqlQuery query(db);
+        QVERIFY2(query.exec("CREATE TRIGGER reject_delete BEFORE DELETE ON clips BEGIN SELECT RAISE(ABORT, 'forced removal failure'); END"),
+                 qPrintable(query.lastError().text()));
+        bool changed = false;
+        PersistentClipService service(
+            [&] { return repository.clips(); },
+            [&](const QString &id) { return repository.findClip(id); },
+            [&](const Clip &value) { return repository.upsertPersistentClip(value); },
+            [&](const QString &id) {
+                const bool removed = repository.permanentlyDeleteClip(id);
+                if (!removed && concurrentChange == 1) {
+                    QFile edited(note->filePath);
+                    changed = edited.open(QIODevice::Append)
+                        && edited.write("\nconcurrent user edit") > 0;
+                } else if (!removed && concurrentChange == 2) {
+                    changed = QFile::remove(note->filePath);
+                }
+                return removed;
+            }, [&] { return repository.lastError(); }, store);
+        QVERIFY(!service.permanentlyRemove(clip.id, &error));
+        QVERIFY2(error.contains("forced removal failure"), qPrintable(error));
+        QCOMPARE(service.findClip(clip.id)->state, ClipState::Deleted);
+        auto scan = store.scan();
+        QVERIFY2(scan.errors.isEmpty(), qPrintable(scan.errors.join(';')));
+        QCOMPARE(scan.documents.size(), concurrentChange == 2 ? 0 : 1);
+        if (concurrentChange == 0) {
+            QVERIFY(!error.contains("rollback failed"));
+            QCOMPARE(scan.documents.first().filePath, note->filePath);
+            QCOMPARE(scan.documents.first().clip.state, ClipState::Deleted);
+            QVERIFY(file.open(QIODevice::ReadOnly));
+            QCOMPARE(file.readAll(), original);
+            file.close();
+            QVERIFY(query.exec("DROP TRIGGER reject_delete"));
+            QVERIFY2(service.permanentlyRemove(clip.id, &error), qPrintable(error));
+            QVERIFY(!service.findClip(clip.id));
+            scan = store.scan();
+            QCOMPARE(scan.documents.size(), 1);
+            QVERIFY(scan.documents.first().forgotten);
+        } else {
+            QVERIFY(changed);
+            QVERIFY2(error.contains("rollback failed"), qPrintable(error));
+            if (concurrentChange == 1) {
+                QVERIFY(file.open(QIODevice::ReadOnly));
+                QVERIFY(file.readAll().endsWith("concurrent user edit"));
+                file.close();
+            } else QVERIFY(!QFile::exists(note->filePath));
+        }
+    }
+    QSqlDatabase::removeDatabase(connectionName);
 }
 
 void ClipTest::obsidianWatcherSynchronizesNewNotes()

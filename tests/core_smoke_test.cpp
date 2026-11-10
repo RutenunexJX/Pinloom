@@ -759,7 +759,7 @@ void CoreSmokeTest::buildsWordBookmarkCommand()
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Documents.Open('E:/docs/spec.docx')")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Bookmarks.Item('Requirement_12')")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$range.Select()")));
-    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$word.Selection.GoTo(-1, 1, $null, 'Requirement_12')")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$word.ActiveWindow.ScrollIntoView($range, $true)")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$word.Activate()")));
 }
 
@@ -890,7 +890,9 @@ void CoreSmokeTest::buildsPowerPointShapeCommandWithId()
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Presentations.Open('E:/slides/process.pptx')")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Slides.Item(12)")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("View.GotoSlide(12)")));
-    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(42)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$candidate.Id -eq 42")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.Item($i)")));
+    QVERIFY(!result.command.powerShellScript.contains(QStringLiteral("FindById")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$shape.Select($true)")));
     QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$powerPoint.Activate()")));
 }
@@ -934,7 +936,7 @@ void CoreSmokeTest::buildsPowerPointShapeCommandWithAliasesAndFallbacks()
     QCOMPARE(result.command.slideIndex, 7);
     QCOMPARE(result.command.shapeId, 99);
     QVERIFY(result.command.shapeName.isEmpty());
-    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("Shapes.FindById(99)")));
+    QVERIFY(result.command.powerShellScript.contains(QStringLiteral("$candidate.Id -eq 99")));
     QVERIFY(!result.command.powerShellScript.contains(QStringLiteral("Ignored name")));
 
     Anchor targetUriWins = anchor;

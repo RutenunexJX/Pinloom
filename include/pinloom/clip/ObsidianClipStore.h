@@ -3,6 +3,7 @@
 #include "pinloom/clip/ClipRepository.h"
 
 #include <QObject>
+#include <QByteArray>
 #include <QUrl>
 #include <functional>
 #include <memory>
@@ -35,6 +36,13 @@ struct ObsidianClipWriteResult {
     QString error;
 
     bool succeeded() const;
+};
+
+// Exact file revision changed by forgetClip, used only for conditional rollback.
+struct ObsidianClipFileChange {
+    QString filePath;
+    QByteArray before;
+    QByteArray after;
 };
 
 struct ObsidianClipScanResult {
@@ -76,7 +84,10 @@ public:
     ObsidianClipScanResult scan() const;
     std::optional<ObsidianClipDocument> findClip(const QString &clipId,
                                                  QString *error = nullptr) const;
-    bool forgetClip(const QString &clipId, QString *error = nullptr) const;
+    bool forgetClip(const QString &clipId, QString *error = nullptr,
+                    ObsidianClipFileChange *change = nullptr) const;
+    bool restoreForgottenClip(const ObsidianClipFileChange &change,
+                              QString *error = nullptr) const;
     QUrl openUrlForClip(const QString &clipId, QString *error = nullptr) const;
 
     ObsidianClipSyncResult synchronize(InMemoryClipRepository &repository) const;

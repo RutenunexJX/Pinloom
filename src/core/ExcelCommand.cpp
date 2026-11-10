@@ -2,6 +2,7 @@
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/AnchorTarget.h"
+#include "OfficeJumpScript.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -71,9 +72,9 @@ QString powerShellScriptForCommand(const ExcelJumpCommand &command)
 {
     QStringList statements{
         QStringLiteral("$ErrorActionPreference = 'Stop'"),
-        QStringLiteral("$excel = New-Object -ComObject Excel.Application"),
+        officeApplicationScript(QStringLiteral("$excel"), QStringLiteral("Excel.Application")),
         QStringLiteral("$excel.Visible = $true"),
-        QStringLiteral("$workbook = $excel.Workbooks.Open(%1)").arg(powerShellQuoted(command.workbookPath)),
+        officeDocumentScript(QStringLiteral("$workbook"), QStringLiteral("$excel.Workbooks"), powerShellQuoted(command.workbookPath)),
     };
 
     if (command.locatorType == QLatin1String("excel.range")) {
@@ -90,7 +91,8 @@ QString powerShellScriptForCommand(const ExcelJumpCommand &command)
 
     statements.append(QStringLiteral("$target.Select()"));
     statements.append(QStringLiteral("$excel.Application.Goto($target, $true) | Out-Null"));
-    return statements.join(QStringLiteral("; "));
+    statements.append(QStringLiteral("if ($excel.Selection.Address($true, $true, 1, $true) -ne $target.Address($true, $true, 1, $true)) { throw 'Excel range selection was not confirmed' }"));
+    return completedOfficeJumpScript(statements.join(QStringLiteral("; ")));
 }
 
 QStringList powerShellArguments(const QString &script)
@@ -175,7 +177,9 @@ ExcelJumpCommandResult buildExcelJumpCommand(const Anchor &anchor,
             return result;
         }
     } else {
-        result.command.namedRange = locator.value(QStringLiteral("name")).toString().trimmed();
+        result.command.namedRange = locator.value(QStringLiteral("namedRange")).toString().trimmed();
+        if (result.command.namedRange.isEmpty())
+            result.command.namedRange = locator.value(QStringLiteral("name")).toString().trimmed();
         if (result.command.namedRange.isEmpty()) {
             result.error = QStringLiteral("Excel named range is missing");
             return result;

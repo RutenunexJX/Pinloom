@@ -66,6 +66,13 @@ std::optional<Clip> PersistentClipService::findClip(const QString &clipId) const
 bool PersistentClipService::saveClip(Clip clip, QString *error) const
 {
     const std::optional<Clip> existingIndex = findClip(clip.id);
+    if (clip.state == ClipState::Deleted
+        || (existingIndex && existingIndex->state == ClipState::Deleted)) {
+        return fail(error, QStringLiteral("Restore the Clip before editing it"));
+    }
+    if (!existingIndex && clip.state != ClipState::Temporary) {
+        return fail(error, QStringLiteral("The edited Clip no longer exists"));
+    }
     clip.state = ClipState::Saved;
     if (clip.name.trimmed().isEmpty()) {
         clip.name = clip.preview.trimmed();
@@ -177,6 +184,7 @@ bool PersistentClipService::changeState(const QString &clipId,
 
 bool PersistentClipService::permanentlyRemove(const QString &clipId, QString *error) const
 {
+    ObsidianClipFileChange forgottenChange;
     const std::optional<Clip> existing = findClip(clipId);
     if (!existing.has_value() || existing->state != ClipState::Deleted) {
         return fail(error, QStringLiteral("Only a Clip in Trash can be removed permanently"));
@@ -185,7 +193,7 @@ bool PersistentClipService::permanentlyRemove(const QString &clipId, QString *er
         if (!obsidianStore_ || !obsidianStore_->config().isEnabled()) {
             return fail(error, QStringLiteral("Configure the Obsidian vault before removing this Clip"));
         }
-        if (!obsidianStore_->forgetClip(clipId, error)) {
+        if (!obsidianStore_->forgetClip(clipId, error, &forgottenChange)) {
             return false;
         }
     }
@@ -193,11 +201,11 @@ bool PersistentClipService::permanentlyRemove(const QString &clipId, QString *er
         const QString indexError = repositoryError(
             QStringLiteral("Unable to remove Clip from the local index"));
         if (isObsidianBackedClip(existing.value())) {
-            const ObsidianClipWriteResult restored = obsidianStore_->writeClip(existing.value());
-            if (!restored.succeeded()) {
+            QString rollbackError;
+            if (!obsidianStore_->restoreForgottenClip(forgottenChange, &rollbackError)) {
                 return fail(error,
                             QStringLiteral("%1; Obsidian rollback failed: %2")
-                                .arg(indexError, restored.error));
+                                .arg(indexError, rollbackError));
             }
         }
         return fail(error, indexError);

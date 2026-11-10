@@ -14,6 +14,8 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+// WIN32_LEAN_AND_MEAN omits COM declarations required by UIAutomation's forward declarations.
+#include <ole2.h>
 #include <UIAutomation.h>
 #endif
 

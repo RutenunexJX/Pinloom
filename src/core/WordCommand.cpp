@@ -2,6 +2,7 @@
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/AnchorTarget.h"
+#include "OfficeJumpScript.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -80,18 +81,18 @@ QString powerShellScriptForCommand(const WordJumpCommand &command)
 {
     QStringList statements{
         QStringLiteral("$ErrorActionPreference = 'Stop'"),
-        QStringLiteral("$word = New-Object -ComObject Word.Application"),
+        officeApplicationScript(QStringLiteral("$word"), QStringLiteral("Word.Application")),
         QStringLiteral("$word.Visible = $true"),
-        QStringLiteral("$document = $word.Documents.Open(%1)").arg(powerShellQuoted(command.documentPath)),
+        officeDocumentScript(QStringLiteral("$document"), QStringLiteral("$word.Documents"), powerShellQuoted(command.documentPath)),
         QStringLiteral("$document.Activate()"),
         QStringLiteral("$bookmark = $document.Bookmarks.Item(%1)").arg(powerShellQuoted(command.bookmarkName)),
         QStringLiteral("$range = $bookmark.Range"),
         QStringLiteral("$range.Select()"),
-        QStringLiteral("$word.Selection.GoTo(-1, 1, $null, %1) | Out-Null")
-            .arg(powerShellQuoted(command.bookmarkName)),
+        QStringLiteral("$word.ActiveWindow.ScrollIntoView($range, $true)"),
         QStringLiteral("$word.Activate()"),
+        QStringLiteral("if ($word.Selection.Start -ne $range.Start -or $word.Selection.End -ne $range.End) { throw 'Word bookmark selection was not confirmed' }"),
     };
-    return statements.join(QStringLiteral("; "));
+    return completedOfficeJumpScript(statements.join(QStringLiteral("; ")));
 }
 
 QStringList powerShellArguments(const QString &script)

@@ -680,57 +680,6 @@ QUrl urlForLocation(const QString &location)
     return QUrl::fromLocalFile(location);
 }
 
-bool isExcelComAutomationAvailable()
-{
-#ifdef Q_OS_WIN
-    QSettings excelApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Excel.Application"),
-                                  QSettings::NativeFormat);
-    const QString classId = excelApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
-    const QString currentVersion = excelApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
-    return !classId.isEmpty() || !currentVersion.isEmpty();
-#else
-    return false;
-#endif
-}
-
-bool isVisioComAutomationAvailable()
-{
-#ifdef Q_OS_WIN
-    QSettings visioApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Visio.Application"),
-                                  QSettings::NativeFormat);
-    const QString classId = visioApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
-    const QString currentVersion = visioApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
-    return !classId.isEmpty() || !currentVersion.isEmpty();
-#else
-    return false;
-#endif
-}
-
-bool isWordComAutomationAvailable()
-{
-#ifdef Q_OS_WIN
-    QSettings wordApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\Word.Application"),
-                                 QSettings::NativeFormat);
-    const QString classId = wordApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
-    const QString currentVersion = wordApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
-    return !classId.isEmpty() || !currentVersion.isEmpty();
-#else
-    return false;
-#endif
-}
-
-bool isPowerPointComAutomationAvailable()
-{
-#ifdef Q_OS_WIN
-    QSettings powerPointApplicationKey(QStringLiteral("HKEY_CLASSES_ROOT\\PowerPoint.Application"),
-                                       QSettings::NativeFormat);
-    const QString classId = powerPointApplicationKey.value(QStringLiteral("CLSID/.")).toString().trimmed();
-    const QString currentVersion = powerPointApplicationKey.value(QStringLiteral("CurVer/.")).toString().trimmed();
-    return !classId.isEmpty() || !currentVersion.isEmpty();
-#else
-    return false;
-#endif
-}
 
 } // namespace
 
@@ -760,6 +709,10 @@ PinloomPanel::PinloomPanel(ILibraryRepository &repository, PinloomPanelOptions o
     }
     PinloomOpenServiceOptions openOptions;
     openOptions.applicationLaunchSettings = options_.applicationLaunchSettings;
+    openOptions.excelLaunchHandler = options_.excelLaunchHandler;
+    openOptions.visioLaunchHandler = options_.visioLaunchHandler;
+    openOptions.wordLaunchHandler = options_.wordLaunchHandler;
+    openOptions.powerPointLaunchHandler = options_.powerPointLaunchHandler;
     openOptions.pdfPresentationCacheDirectory =
         options_.pdfPresentationCacheDirectory;
     openOptions.pdfViewerAdapter = pdfViewerAdapter_;
@@ -1943,36 +1896,9 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
         return true;
     }
 
-    if (target.anchor.has_value() && isExcelAnchor(target.anchor.value())) {
-        if (activateExcelTarget(target)) {
-            recordOpen();
-            return true;
-        }
-        return false;
-    }
-
-    if (target.anchor.has_value() && isVisioAnchor(target.anchor.value())) {
-        if (activateVisioTarget(target)) {
-            recordOpen();
-            return true;
-        }
-        return false;
-    }
-
-    if (target.anchor.has_value() && isWordAnchor(target.anchor.value())) {
-        if (activateWordTarget(target)) {
-            recordOpen();
-            return true;
-        }
-        return false;
-    }
-
-    if (target.anchor.has_value() && isPowerPointAnchor(target.anchor.value())) {
-        if (activatePowerPointTarget(target)) {
-            recordOpen();
-            return true;
-        }
-        return false;
+    if (target.anchor && (isExcelAnchor(*target.anchor) || isVisioAnchor(*target.anchor)
+                          || isWordAnchor(*target.anchor) || isPowerPointAnchor(*target.anchor))) {
+        return openService_->open(target, this);
     }
 
     if (target.anchor.has_value()
@@ -2018,185 +1944,6 @@ bool PinloomPanel::activateOpenTarget(const PinloomOpenTarget &target)
     return false;
 }
 
-bool PinloomPanel::activateExcelTarget(const PinloomOpenTarget &target)
-{
-    if (!target.anchor.has_value()) {
-        updateStatus(tr("No Excel anchor selected"));
-        return false;
-    }
-
-    const ExcelJumpCommandResult buildResult =
-        buildExcelJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
-    if (!buildResult.success()) {
-        updateStatus(buildResult.error);
-        return false;
-    }
-
-    if (options_.excelLaunchHandler) {
-        QString error;
-        if (!options_.excelLaunchHandler(buildResult.command, &error)) {
-            updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch Excel")
-                             : error.trimmed());
-            return false;
-        }
-        updateStatus(tr("Opened Excel target"));
-        return true;
-    }
-
-#ifndef Q_OS_WIN
-    updateStatus(tr("Excel jump requires Windows COM automation"));
-    return false;
-#else
-    if (!isExcelComAutomationAvailable()) {
-        updateStatus(tr("Microsoft Excel COM automation is not available"));
-        return false;
-    }
-
-    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch Excel"));
-        return false;
-    }
-
-    updateStatus(tr("Opened Excel target"));
-    return true;
-#endif
-}
-
-bool PinloomPanel::activateVisioTarget(const PinloomOpenTarget &target)
-{
-    if (!target.anchor.has_value()) {
-        updateStatus(tr("No Visio anchor selected"));
-        return false;
-    }
-
-    const VisioJumpCommandResult buildResult =
-        buildVisioJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
-    if (!buildResult.success()) {
-        updateStatus(buildResult.error);
-        return false;
-    }
-
-    if (options_.visioLaunchHandler) {
-        QString error;
-        if (!options_.visioLaunchHandler(buildResult.command, &error)) {
-            updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch Visio")
-                             : error.trimmed());
-            return false;
-        }
-        updateStatus(tr("Opened Visio target"));
-        return true;
-    }
-
-#ifndef Q_OS_WIN
-    updateStatus(tr("Visio jump requires Windows COM automation"));
-    return false;
-#else
-    if (!isVisioComAutomationAvailable()) {
-        updateStatus(tr("Microsoft Visio COM automation is not available"));
-        return false;
-    }
-
-    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch Visio"));
-        return false;
-    }
-
-    updateStatus(tr("Opened Visio target"));
-    return true;
-#endif
-}
-
-bool PinloomPanel::activateWordTarget(const PinloomOpenTarget &target)
-{
-    if (!target.anchor.has_value()) {
-        updateStatus(tr("No Word anchor selected"));
-        return false;
-    }
-
-    const WordJumpCommandResult buildResult =
-        buildWordJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
-    if (!buildResult.success()) {
-        updateStatus(buildResult.error);
-        return false;
-    }
-
-    if (options_.wordLaunchHandler) {
-        QString error;
-        if (!options_.wordLaunchHandler(buildResult.command, &error)) {
-            updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch Word")
-                             : error.trimmed());
-            return false;
-        }
-        updateStatus(tr("Opened Word target"));
-        return true;
-    }
-
-#ifndef Q_OS_WIN
-    updateStatus(tr("Word jump requires Windows COM automation"));
-    return false;
-#else
-    if (!isWordComAutomationAvailable()) {
-        updateStatus(tr("Microsoft Word COM automation is not available"));
-        return false;
-    }
-
-    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch Word"));
-        return false;
-    }
-
-    updateStatus(tr("Opened Word target"));
-    return true;
-#endif
-}
-
-bool PinloomPanel::activatePowerPointTarget(const PinloomOpenTarget &target)
-{
-    if (!target.anchor.has_value()) {
-        updateStatus(tr("No PowerPoint anchor selected"));
-        return false;
-    }
-
-    const PowerPointJumpCommandResult buildResult =
-        buildPowerPointJumpCommand(target.anchor.value(), target.location, options_.applicationLaunchSettings);
-    if (!buildResult.success()) {
-        updateStatus(buildResult.error);
-        return false;
-    }
-
-    if (options_.powerPointLaunchHandler) {
-        QString error;
-        if (!options_.powerPointLaunchHandler(buildResult.command, &error)) {
-            updateStatus(error.trimmed().isEmpty()
-                             ? tr("Unable to launch PowerPoint")
-                             : error.trimmed());
-            return false;
-        }
-        updateStatus(tr("Opened PowerPoint target"));
-        return true;
-    }
-
-#ifndef Q_OS_WIN
-    updateStatus(tr("PowerPoint jump requires Windows COM automation"));
-    return false;
-#else
-    if (!isPowerPointComAutomationAvailable()) {
-        updateStatus(tr("Microsoft PowerPoint COM automation is not available"));
-        return false;
-    }
-
-    if (!QProcess::startDetached(buildResult.command.executablePath, buildResult.command.arguments)) {
-        updateStatus(tr("Unable to launch PowerPoint"));
-        return false;
-    }
-
-    updateStatus(tr("Opened PowerPoint target"));
-    return true;
-#endif
-}
 
 bool PinloomPanel::activatePdfTarget(const PinloomOpenTarget &target)
 {

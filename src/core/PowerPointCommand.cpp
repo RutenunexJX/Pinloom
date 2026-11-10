@@ -2,6 +2,7 @@
 
 #include "pinloom/core/ApplicationLaunchSettings.h"
 #include "pinloom/core/AnchorTarget.h"
+#include "OfficeJumpScript.h"
 
 #include <QJsonDocument>
 #include <QJsonObject>
@@ -123,10 +124,9 @@ QString powerShellScriptForCommand(const PowerPointJumpCommand &command)
 {
     QStringList statements{
         QStringLiteral("$ErrorActionPreference = 'Stop'"),
-        QStringLiteral("$powerPoint = New-Object -ComObject PowerPoint.Application"),
+        officeApplicationScript(QStringLiteral("$powerPoint"), QStringLiteral("PowerPoint.Application")),
         QStringLiteral("$powerPoint.Visible = $true"),
-        QStringLiteral("$presentation = $powerPoint.Presentations.Open(%1)")
-            .arg(powerShellQuoted(command.presentationPath)),
+        officeDocumentScript(QStringLiteral("$presentation"), QStringLiteral("$powerPoint.Presentations"), powerShellQuoted(command.presentationPath)),
         QStringLiteral("$slide = $presentation.Slides.Item(%1)").arg(command.slideIndex),
         QStringLiteral("$window = $presentation.Windows.Item(1)"),
         QStringLiteral("$window.Activate()"),
@@ -134,15 +134,19 @@ QString powerShellScriptForCommand(const PowerPointJumpCommand &command)
     };
 
     if (command.shapeId > 0) {
-        statements.append(QStringLiteral("$shape = $slide.Shapes.FindById(%1)").arg(command.shapeId));
+        statements.append(QStringLiteral("$shape = $null; for ($i = 1; $i -le $slide.Shapes.Count; $i++) { "
+                                          "$candidate = $slide.Shapes.Item($i); "
+                                          "if ($candidate.Id -eq %1) { $shape = $candidate; break } }").arg(command.shapeId));
     } else {
         statements.append(QStringLiteral("$shape = $slide.Shapes.Item(%1)")
                               .arg(powerShellQuoted(command.shapeName)));
     }
 
+    statements.append(QStringLiteral("if ($null -eq $shape) { throw 'PowerPoint shape was not found' }"));
     statements.append(QStringLiteral("$shape.Select($true)"));
     statements.append(QStringLiteral("$powerPoint.Activate()"));
-    return statements.join(QStringLiteral("; "));
+    statements.append(QStringLiteral("if ($window.Selection.ShapeRange.Count -ne 1 -or $window.Selection.ShapeRange.Item(1).Id -ne $shape.Id) { throw 'PowerPoint shape selection was not confirmed' }"));
+    return completedOfficeJumpScript(statements.join(QStringLiteral("; ")));
 }
 
 QStringList powerShellArguments(const QString &script)

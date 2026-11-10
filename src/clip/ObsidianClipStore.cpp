@@ -822,8 +822,10 @@ std::optional<ObsidianClipDocument> ObsidianClipStore::findClip(const QString &c
     return std::nullopt;
 }
 
-bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error) const
+bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error,
+                                  ObsidianClipFileChange *change) const
 {
+    if (change) *change = {};
     const QString normalizedId = clipId.trimmed();
     if (normalizedId.isEmpty()) {
         if (error) {
@@ -856,8 +858,19 @@ bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error) const
             }
             return false;
         }
-        QString contents = QString::fromUtf8(source.readAll());
+        const QByteArray before = source.readAll();
+        if (source.error() != QFileDevice::NoError) {
+            if (error) *error = source.errorString();
+            return false;
+        }
+        QString contents = QString::fromUtf8(before);
         source.close();
+        const ParsedFrontmatter current = parseFrontmatter(contents);
+        if (!current.managed || !current.error.isEmpty()
+            || current.values.value(QStringLiteral("pinloom_id")).trimmed() != normalizedId) {
+            if (error) *error = QStringLiteral("Obsidian note identity changed during removal");
+            return false;
+        }
         contents = withFrontmatterScalar(contents,
                                          QStringLiteral("pinloom_state"),
                                          QStringLiteral("forgotten"));
@@ -871,9 +884,9 @@ bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error) const
             return false;
         }
         QSaveFile destination(document.filePath);
+        const QByteArray after = contents.toUtf8();
         if (!destination.open(QIODevice::WriteOnly)
-            || destination.write(contents.toUtf8()) < 0
-            || !destination.commit()) {
+            || destination.write(after) != after.size()) {
             if (error) {
                 *error = destination.errorString().trimmed().isEmpty()
                     ? QStringLiteral("Unable to commit forgotten Clip state")
@@ -881,14 +894,57 @@ bool ObsidianClipStore::forgetClip(const QString &clipId, QString *error) const
             }
             return false;
         }
+        if (!source.open(QIODevice::ReadOnly) || source.readAll() != before) {
+            if (error) *error = QStringLiteral("Obsidian note changed during removal");
+            return false;
+        }
+        source.close();
+        if (!destination.commit()) {
+            if (error) *error = destination.errorString();
+            return false;
+        }
         if (error) {
             error->clear();
         }
+        if (change) *change = {document.filePath, before, after};
         return true;
     }
     if (error) {
         error->clear();
     }
+    return true;
+}
+
+bool ObsidianClipStore::restoreForgottenClip(const ObsidianClipFileChange &change,
+                                           QString *error) const
+{
+    if (change.filePath.isEmpty()) {
+        if (error) error->clear();
+        return true;
+    }
+    QFile current(change.filePath);
+    if (!current.open(QIODevice::ReadOnly) || current.readAll() != change.after) {
+        if (error) *error = QStringLiteral("Obsidian note changed or disappeared during removal; rollback was not applied");
+        return false;
+    }
+    current.close();
+    QSaveFile restored(change.filePath);
+    if (!restored.open(QIODevice::WriteOnly)
+        || restored.write(change.before) != change.before.size()) {
+        if (error) *error = restored.errorString();
+        return false;
+    }
+    // Recheck after staging the original bytes, before replacing the same path.
+    if (!current.open(QIODevice::ReadOnly) || current.readAll() != change.after) {
+        if (error) *error = QStringLiteral("Obsidian note changed during rollback; rollback was not applied");
+        return false;
+    }
+    current.close();
+    if (!restored.commit()) {
+        if (error) *error = restored.errorString();
+        return false;
+    }
+    if (error) error->clear();
     return true;
 }
 
